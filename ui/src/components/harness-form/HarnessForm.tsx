@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Button, Form, Input, Select, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import { apiClient, useInvalidateHarnesses, useNamespaces, type Harness, type HarnessSpec } from "@/api";
-import { copyName } from "@/components/table/RowActionsMenu";
+import { copyName } from "@/components/table/copyFrom";
 import { HarnessFields } from "./HarnessFields";
 import {
   emptyHarnessDraft,

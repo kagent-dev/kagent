@@ -5,6 +5,7 @@ export function CopyNotice({
   kind,
   from,
   error,
+  notFound = false,
   loaded,
   mountedBlank,
   testId,
@@ -12,11 +13,24 @@ export function CopyNotice({
   kind: string;
   from?: { namespace: string; name: string };
   error?: string;
+  /** The source was looked for and is not there. */
+  notFound?: boolean;
   loaded: boolean;
   mountedBlank: boolean;
   testId: string;
 }) {
   const css = { marginBottom: 16 };
+  if (notFound)
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        title={`${kind.charAt(0).toUpperCase()}${kind.slice(1)} not found`}
+        description={`No ${kind} ${from?.namespace}/${from?.name} to copy. Starting from a blank form.`}
+        data-testid={`${testId}-not-found`}
+        css={css}
+      />
+    );
   if (mountedBlank && loaded)
     return (
       <Alert

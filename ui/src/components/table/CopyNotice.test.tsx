@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { CopyNotice } from "./CopyNotice";
-import { useMountedBlank } from "./RowActionsMenu";
+import { useMountedBlank } from "./copyFrom";
 
 const from = { namespace: "kagent", name: "src" };
 
@@ -19,7 +19,34 @@ function Page() {
   );
 }
 
+/** A form whose source is dropped (`?from=` removed) and whose load then finishes. */
+function Dropped() {
+  const [source, setSource] = useState<string | undefined>("kagent/src");
+  const [loaded, setLoaded] = useState(false);
+  const mountedBlank = useMountedBlank(source, true, loaded);
+  return (
+    <>
+      <button onClick={() => setSource(undefined)}>drop</button>
+      <button onClick={() => setLoaded(true)}>load</button>
+      <CopyNotice kind="agent" from={from} loaded={loaded} mountedBlank={mountedBlank} testId="copy" />
+    </>
+  );
+}
+
 describe("CopyNotice", () => {
+  it("does not warn about a copy source on a plain new form", async () => {
+    render(<Dropped />);
+    await userEvent.click(screen.getByText("drop"));
+    await userEvent.click(screen.getByText("load"));
+    expect(screen.queryByTestId("copy-late")).toBeNull();
+  });
+
+  it("says when the source is not there", () => {
+    render(<CopyNotice kind="harness" from={from} notFound loaded={false} mountedBlank={false} testId="copy" />);
+    expect(screen.getByTestId("copy-not-found")).toHaveTextContent("Harness not found");
+    expect(screen.getByTestId("copy-not-found")).toHaveTextContent("No harness kagent/src to copy. Starting from a blank form.");
+  });
+
   it("keeps explaining a source that loads after the form began blank", async () => {
     render(<Page />);
     expect(screen.getByTestId("copy")).toHaveTextContent("boom Starting from a blank form.");

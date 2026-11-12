@@ -6,7 +6,8 @@ import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { RowActionsMenu, copyPath } from "@/components/table/RowActionsMenu";
+import { RowActionsMenu } from "@/components/table/RowActionsMenu";
+import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
 import {
   agentDescription,

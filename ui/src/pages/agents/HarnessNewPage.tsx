@@ -5,7 +5,7 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { useHarnesses } from "@/api";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
-import { copySource, useMountedBlank } from "@/components/table/RowActionsMenu";
+import { copySource, useMountedBlank } from "@/components/table/copyFrom";
 import { CopyNotice } from "@/components/table/CopyNotice";
 import { paths } from "@/router/routes";
 
@@ -28,11 +28,7 @@ export function HarnessNewPage() {
       <Card size="small" css={{ maxWidth: 720 }}>
         <HarnessIntro />
         {/* A source that cannot be had still leaves a form to fill in: the alert says why it is blank. */}
-        {namespace && (copyOf ? mountedBlank : source.error && !source.data) ? (
-          <CopyNotice kind="harness" from={from} error={source.error?.message} loaded={Boolean(copyOf)} mountedBlank={mountedBlank} testId="harness-copy-error" />
-        ) : namespace && source.data && !copyOf ? (
-          <Alert type="warning" showIcon title="Harness not found" description={`No harness ${namespace}/${name} to copy. Starting from a blank form.`} data-testid="harness-copy-not-found" css={{ marginBottom: 16 }} />
-        ) : null}
+        {from && <CopyNotice kind="harness" from={from} error={source.error?.message} notFound={Boolean(source.data) && !copyOf} loaded={Boolean(copyOf)} mountedBlank={mountedBlank} testId="harness-copy" />}
         {waiting ? (
           <Skeleton active paragraph={{ rows: 8 }} />
         ) : (

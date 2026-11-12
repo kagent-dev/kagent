@@ -15,7 +15,8 @@ import { apiClient, useAgentsAcrossNamespaces } from "@/api";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { matchesQuery } from "@/components/table/listTable";
-import { RowActionsMenu, copyPath } from "@/components/table/RowActionsMenu";
+import { RowActionsMenu } from "@/components/table/RowActionsMenu";
+import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
 
 /** The filters this tab offers, which `useListView` keeps in the URL. */

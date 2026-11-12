@@ -24,7 +24,7 @@ import {
   type Agent,
   type AgentSpec,
 } from "@/api";
-import { copyName, copySource, useMountedBlank } from "@/components/table/RowActionsMenu";
+import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
 import { CopyNotice } from "@/components/table/CopyNotice";
 import { paths } from "@/router/routes";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
@@ -104,21 +104,22 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const navigate = useNavigate();
   const namespaces = useNamespaces();
   const invalidateAgents = useInvalidateAgents();
-  const spec = (agent ?? copyOf)?.resource.spec;
+  const base = agent ?? copyOf;
+  const spec = base?.resource.spec;
 
   const fallbackNamespace = useMemo(() => {
     const names = (namespaces.data ?? []).map((entry) => entry.name);
     return names.includes("kagent") ? "kagent" : (names[0] ?? "");
   }, [namespaces.data]);
 
-  const [chosenNamespace, setNamespace] = useState((agent ?? copyOf)?.namespace);
+  const [chosenNamespace, setNamespace] = useState(base?.namespace);
   const namespace = chosenNamespace ?? fallbackNamespace;
   const [name, setName] = useState(agent?.name ?? (copyOf ? copyName(copyOf.name) : ""));
 
   const [templateSource, setTemplateSource] = useState<Source>(spec?.template.inline ? "inline" : "reference");
   const [templateRef, setTemplateRef] = useState(spec?.template.ref?.name);
   const [templateDraft, setTemplateDraft] = useState(() =>
-    spec?.template.inline ? draftFromSpec(spec.template.inline, (agent ?? copyOf)!.namespace) : emptyDraft(namespace),
+    base && spec?.template.inline ? draftFromSpec(spec.template.inline, base.namespace) : emptyDraft(namespace),
   );
 
   const [chosenHarness, setHarnessRef] = useState(spec?.harnessRef.name);

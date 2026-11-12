@@ -9,7 +9,8 @@ import { useTheme } from "@emotion/react";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
-import { RowActionsMenu, copyPath } from "@/components/table/RowActionsMenu";
+import { RowActionsMenu } from "@/components/table/RowActionsMenu";
+import { copyPath } from "@/components/table/copyFrom";
 import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, paths } from "@/router/routes";
 import {

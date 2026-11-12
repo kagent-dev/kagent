@@ -13,7 +13,7 @@ import {
   labelsFromDraft,
   specFromDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
-import { copyName, copySource, useMountedBlank } from "@/components/table/RowActionsMenu";
+import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
 import { CopyNotice } from "@/components/table/CopyNotice";
 import { agentTemplatesTab } from "@/router/routes";
 import { apiClient, useAgentTemplate, useInvalidateAgentTemplates, useNamespaces } from "@/api";

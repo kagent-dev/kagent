@@ -40,4 +40,22 @@ describe.each(["modal", "popover"] as const)("%s deletion confirmation", (confir
     fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
     await waitFor(() => expect(onDelete).toHaveBeenLastCalledWith(false));
   });
+
+  it("unticks force when the confirmation is cancelled and reopened", async () => {
+    render(
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <DeleteResourceButton kind="conversation" name="test" confirmation={confirmation}
+          forceLabel="Stop active turns and delete" onDelete={vi.fn()} onDeleted={() => {}} />
+      </ConfigProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("delete-test"));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Stop active turns and delete" }));
+    expect(screen.getByRole("checkbox")).toBeChecked();
+    fireEvent.click(await screen.findByRole("button", { name: "Keep" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId("delete-test"));
+    expect(await screen.findByRole("checkbox", { name: "Stop active turns and delete" })).not.toBeChecked();
+  });
 });
