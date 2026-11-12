@@ -448,6 +448,7 @@ helm-test: helm-version
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup
+	rm -rf "$(HELM_SOURCE_DIR)/kagent/charts" "$(HELM_SOURCE_DIR)/kagent-crds/charts"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
 	helm dependency update "$(HELM_SOURCE_DIR)/kagent"
@@ -609,6 +610,15 @@ helm-publish: helm-release
 	helm push "$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
 
 ##@ Dev
+
+.PHONY: setup
+setup: create-kind-cluster ## Create the kind cluster if it does not exist
+
+.PHONY: deploy
+deploy: build kagent-cli-deploy ## Build images from this checkout and install them into the kind cluster
+
+.PHONY: run
+run: setup deploy ## Bootstrap a local dev environment
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
