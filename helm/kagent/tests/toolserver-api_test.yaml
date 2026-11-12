@@ -60,3 +60,10 @@ tests:
       - equal:
           path: spec.url
           value: http://staging-control-controller.agents.svc.cluster.local:8083/mcp
+
+  - it: renders nothing when disabled
+    set:
+      apiToolServer.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

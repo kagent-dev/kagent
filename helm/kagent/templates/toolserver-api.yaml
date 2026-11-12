@@ -1,3 +1,4 @@
+{{- if .Values.apiToolServer.enabled }}
 apiVersion: api.kagent.dev/v1alpha3
 kind: RemoteMCPServer
 metadata:
@@ -11,3 +12,4 @@ spec:
   url: "http://{{ include "kagent.controllerServiceAuthority" . }}/mcp"
   timeout: 30s
   sseReadTimeout: 5m0s
+{{- end }}

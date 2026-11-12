@@ -769,6 +769,10 @@ providers:
 # BUILT-IN TOOLS
 # ==============================================================================
 
+apiToolServer:
+  # -- Create the `<fullname>-api` RemoteMCPServer, which exposes the controller's `/mcp` tools to agents.
+  enabled: true
+
 kagent-tools:
   enabled: true
   nameOverride: tools
