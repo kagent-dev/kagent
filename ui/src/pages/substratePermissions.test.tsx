@@ -58,32 +58,42 @@ it.each([Code.Unauthenticated, Code.Internal, Code.Unavailable, Code.DeadlineExc
   },
 );
 
-it("clears previously visible rows and continuation tokens when refresh denies access", async () => {
+it("hides the rows and both pagers when a refresh denies access on page two", async () => {
   let denied = false;
   setApiTransport(createRouterTransport(({ service }) => service(SystemService, {
     listNamespaces: () => ({}),
     getSubstrateSummary: () => ({}),
-    listSubstrateActors: () => {
+    listSubstrateActors: ({ page }) => {
       if (denied) throw new ConnectError("Actor inventory access denied", Code.PermissionDenied);
-      return { actors: [{ metadata: { atespace: "team", name: "visible-actor" } }], page: { nextPageToken: "actor-next" } };
+      return {
+        actors: [{ metadata: { atespace: "team", name: page?.pageToken ? "second-actor" : "first-actor" } }],
+        page: { nextPageToken: page?.pageToken ? "" : "actor-next" },
+      };
     },
-    listSubstrateWorkers: () => {
+    listSubstrateWorkers: ({ page }) => {
       if (denied) throw new ConnectError("Worker inventory access denied", Code.PermissionDenied);
-      return { workers: [{ metadata: { name: "visible-worker" }, workerNamespace: "workers", workerPod: "visible-pod" }], page: { nextPageToken: "worker-next" } };
+      return {
+        workers: [{ metadata: { name: "visible-worker" }, workerNamespace: "workers", workerPod: page?.pageToken ? "second-pod" : "first-pod" }],
+        page: { nextPageToken: page?.pageToken ? "" : "worker-next" },
+      };
     },
   })));
   renderInventory();
-  await screen.findByText("visible-actor");
-  await screen.findByText("visible-pod");
-  await waitFor(() => expect(screen.getByTestId("substrate-workers-pages-next")).toBeEnabled());
+  for (const resource of ["actors", "workers"]) {
+    const next = await screen.findByTestId(`substrate-${resource}-pages-next`);
+    await waitFor(() => expect(next).toBeEnabled());
+    fireEvent.click(next);
+    await waitFor(() => expect(screen.getByTestId(`substrate-${resource}-pages-prev`)).toBeEnabled());
+  }
+  expect(await screen.findByText("second-actor")).toBeInTheDocument();
+  expect(await screen.findByText("second-pod")).toBeInTheDocument();
+
   denied = true;
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-  await waitFor(() => {
-    expect(screen.queryByText("visible-actor")).not.toBeInTheDocument();
-    expect(screen.queryByText("visible-pod")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("substrate-actors-pages-next")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("substrate-workers-pages-next")).not.toBeInTheDocument();
-  });
-  expect(screen.getByTestId("substrate-actors-error")).toHaveTextContent("You do not have access to actors");
-  expect(screen.getByTestId("substrate-workers-error")).toHaveTextContent("You do not have access to workers");
+  expect(await screen.findByTestId("substrate-actors-error")).toHaveTextContent("You do not have access to actors");
+  expect(await screen.findByTestId("substrate-workers-error")).toHaveTextContent("You do not have access to workers");
+  expect(screen.queryByText("second-actor")).not.toBeInTheDocument();
+  expect(screen.queryByText("second-pod")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("substrate-actors-pages")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("substrate-workers-pages")).not.toBeInTheDocument();
 });

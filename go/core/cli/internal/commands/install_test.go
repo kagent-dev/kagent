@@ -70,6 +70,17 @@ func TestInstallProfileCleansTemporaryValuesOnFailure(t *testing.T) {
 	require.Empty(t, entries, "the temporary profile must not outlive the install attempt")
 }
 
+func TestInstallNextSteps(t *testing.T) {
+	t.Run("Given an install into a custom namespace, when next steps are printed, assert that they name the dashboard, agent creation and that namespace's Harnesses", func(t *testing.T) {
+		var out bytes.Buffer
+		require.NoError(t, printInstallNextSteps(&out, "team-ai"))
+		require.Contains(t, out.String(), "kagent dashboard")
+		require.Contains(t, out.String(), "kagent apply -f agent.yaml")
+		require.Contains(t, out.String(), "kagent-default, codex-default and claude-default Harnesses")
+		require.Contains(t, out.String(), "in the team-ai namespace")
+	})
+}
+
 func TestConfirmWorkerPoolDeletionWithoutTerminal(t *testing.T) {
 	pools := &installer.SelfManagedWorkerPoolsError{Pools: []types.NamespacedName{{Namespace: "team", Name: "http"}}}
 	cmd := NewUninstallCmd()

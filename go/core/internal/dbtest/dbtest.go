@@ -1,13 +1,22 @@
-// Package dbtest provides test helpers for spinning up a Postgres container.
+// Package dbtest provides PostgreSQL test helpers: a real Postgres container and
+// a fake server that rejects logins.
 package dbtest
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -68,6 +77,42 @@ func StartT(ctx context.Context, t *testing.T) string {
 	return connStr
 }
 
+// CloneT creates an isolated database from a template prepared using Start and
+// Migrate. Close all connections to the template before cloning it. Connections
+// to the clone must close before its registered cleanup runs.
+func CloneT(t *testing.T, templateConnStr string) string {
+	t.Helper()
+	connURL, err := url.Parse(templateConnStr)
+	if err != nil {
+		t.Fatalf("parse template connection string: %v", err)
+	}
+	templateName := strings.TrimPrefix(connURL.Path, "/")
+	connURL.Path = "/postgres"
+	admin, err := pgx.Connect(t.Context(), connURL.String())
+	if err != nil {
+		t.Fatalf("connect to PostgreSQL for database cloning: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := admin.Close(context.Background()); err != nil {
+			t.Errorf("close database cloning connection: %v", err)
+		}
+	})
+
+	name := "test_" + uuid.NewString()
+	quotedName := pgx.Identifier{name}.Sanitize()
+	_, err = admin.Exec(t.Context(), "CREATE DATABASE "+quotedName+" TEMPLATE "+pgx.Identifier{templateName}.Sanitize())
+	if err != nil {
+		t.Fatalf("clone test database: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := admin.Exec(context.Background(), "DROP DATABASE "+quotedName); err != nil {
+			t.Errorf("drop cloned test database: %v", err)
+		}
+	})
+	connURL.Path = "/" + name
+	return connURL.String()
+}
+
 // Migrate installs pgvector for the test database when enabled, then runs the
 // embedded migrations against connStr.
 // Use MigrateT in tests that have a *testing.T; use Migrate in TestMain where no T is available.
@@ -93,6 +138,65 @@ func PoolConfig(connStr string) *pgxpool.Config {
 		panic(err)
 	}
 	return config
+}
+
+// RefuseConnections returns a local address with no listener, so a dial to it
+// is refused.
+func RefuseConnections(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return address
+}
+
+// LoginError logs in to address and returns the *pgconn.ConnectError it fails with.
+func LoginError(t *testing.T, ctx context.Context, address string) error {
+	t.Helper()
+	conn, err := pgconn.Connect(ctx, "postgres://kagent@"+address+"/kagent?sslmode=disable")
+	if err == nil {
+		_ = conn.Close(ctx)
+		t.Fatal("login succeeded")
+	}
+	var connectErr *pgconn.ConnectError
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("got %T, want *pgconn.ConnectError", err)
+	}
+	return err
+}
+
+// RejectLogins starts a server that answers every login with a FATAL error
+// carrying sqlstate, such as 28P01. It stops when t ends.
+func RejectLogins(t *testing.T, sqlstate string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				backend := pgproto3.NewBackend(conn, conn)
+				if _, err := backend.ReceiveStartupMessage(); err != nil {
+					return
+				}
+				backend.Send(&pgproto3.ErrorResponse{Severity: "FATAL", Code: sqlstate, Message: "login rejected"})
+				_ = backend.Flush()
+			}()
+		}
+	}()
+	return listener.Addr().String()
 }
 
 // MigrateT runs the embedded migrations against connStr and calls t.Fatal on error.

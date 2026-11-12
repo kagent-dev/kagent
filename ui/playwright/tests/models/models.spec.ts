@@ -276,13 +276,39 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await expect(rowNamed(page, "default-model-config")).toHaveCount(1);
   });
 
-  await test.step("11. an empty result says so instead of showing a bare table", async () => {
+  await test.step("11. OpenAI's enum parameters are chosen from their values, and saved", async () => {
+    const name = "responses-model";
+    await loadPage(page, routes.modelNew, { title: "New model" });
+    await selectOption(page, "model-provider", "OpenAI");
+    await page.getByTestId("model-model").locator("input").fill("gpt-5");
+    await page.getByTestId("model-name").fill(name);
+    await selectOption(page, "model-namespace", "kagent");
+    await page.getByTestId("model-api-key").fill("sk-not-a-real-key");
+
+    await page.getByTestId("model-optional-params").getByText(/Optional parameters/).click();
+    // Selects, because the CRD admits only these values and a typo would be refused.
+    await expect(page.getByText("Codex requires responses.", { exact: false })).toBeVisible();
+    await selectOption(page, "model-param-apiFormat", "responses");
+    await selectOption(page, "model-param-reasoningEffort", "low");
+
+    await page.getByTestId("model-submit").click();
+    await page.waitForURL(/\/models(\?|$)/, { timeout: 30_000 });
+    await page.getByTestId(`edit-${name}`).click();
+    await page.waitForURL(new RegExp(`/models/kagent/${name}/edit$`));
+    await expectSettled(page);
+
+    await page.getByTestId("model-optional-params").getByText(/Optional parameters/).click();
+    await expect(page.getByTestId("model-param-apiFormat")).toContainText("responses");
+    await expect(page.getByTestId("model-param-reasoningEffort")).toContainText("low");
+  });
+
+  await test.step("12. an empty result says so instead of showing a bare table", async () => {
     await loadPage(page, routes.models, { scenario: "empty", title: "Models" });
     await expect(page.getByText("No model configurations yet.")).toBeVisible();
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("12. a failed load is reported, not disguised as an empty list", async () => {
+  await test.step("13. a failed load is reported, not disguised as an empty list", async () => {
     await loadPage(page, routes.models, { scenario: "error", title: "Models" });
 
     const alert = page.getByTestId("models-error");
@@ -301,7 +327,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await expect(dataRows(page)).toHaveCount(0);
   });
 
-  await test.step("13. retrying asks the backend again, and it recovers", async () => {
+  await test.step("14. retrying asks the backend again, and it recovers", async () => {
     const before = await operationCalls(page, rpc.listModelConfigs);
 
     await page.getByRole("button", { name: "Try again" }).click();

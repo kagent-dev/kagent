@@ -87,11 +87,13 @@ func TestTokenPassthroughToolsetDiscoversWithCallerToken(t *testing.T) {
 	require.Empty(t, seen, "startup must not dial without a caller token")
 	mu.Unlock()
 
-	_, err = toolset.Tools(testReadonlyContext{Context: t.Context()})
-	require.Error(t, err)
+	// Given no caller token, when discovery runs, assert that no tools are exposed.
+	tools, err := toolset.Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Empty(t, tools)
 
 	ctx := context.WithValue(t.Context(), models.BearerTokenKey, "alice")
-	tools, err := toolset.Tools(testReadonlyContext{Context: ctx})
+	tools, err = toolset.Tools(testReadonlyContext{Context: WithDiscoveryScope(ctx)})
 	require.NoError(t, err)
 	require.Len(t, tools, 1)
 	require.Equal(t, "whoami", tools[0].Name())

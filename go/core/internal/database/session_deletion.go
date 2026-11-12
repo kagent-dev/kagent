@@ -82,25 +82,8 @@ func admitForcedSessionDeletion(ctx context.Context, tx pgx.Tx, row sessionRow) 
 // deletion or actor absence. The caller holds the session lock and commits
 // these writes with the session's DELETED state.
 func finishDeletedSessionTasks(ctx context.Context, tx pgx.Tx, row sessionRow) error {
-	type boundary struct {
-		TaskID   string
-		Sequence int64
-	}
-	// A saved result may be waiting for a lost runtime cleanup acknowledgement.
-	// Publish it first so deletion preserves the result instead of canceling it.
-	boundaries, err := queryMany(ctx, tx, `
-		SELECT task_id, sequence FROM session_task_event
-		WHERE history_id = $1 AND NOT published
-		    AND expected_version IS NOT NULL AND quiescence_pending IS NOT NULL
-		ORDER BY sequence
-	`, pgx.RowToStructByName[boundary], row.HistoryID)
-	if err != nil {
+	if err := publishSavedSessionResults(ctx, tx, row); err != nil {
 		return err
-	}
-	for _, saved := range boundaries {
-		if err := settleSessionTask(ctx, tx, row, saved.TaskID, saved.Sequence); err != nil {
-			return err
-		}
 	}
 	// Cancel only tasks still recorded as active after publishing saved results.
 	// Waiting and terminal tasks keep their historical state.
@@ -125,8 +108,7 @@ func finishDeletedSessionTasks(ctx context.Context, tx pgx.Tx, row sessionRow) e
 			return err
 		}
 	}
-	// Retire idle-work markers; deletion no longer needs a later suspension.
-	return execSQL(ctx, tx, `UPDATE session_task_event SET quiescence_pending = FALSE WHERE history_id = $1 AND quiescence_pending`, row.HistoryID)
+	return retireSessionQuiescence(ctx, tx, row)
 }
 
 // finishSessionDeletion removes idle-expired sessions and their creation receipts.

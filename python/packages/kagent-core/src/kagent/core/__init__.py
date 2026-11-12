@@ -3,6 +3,7 @@ from .telemetry import _defaults
 # isort: split
 
 from ._config import KAgentConfig
+from ._config_materialize import materialize_from_bootstrap
 from ._grpc import AsyncControllerClient, AsyncFileTokenProvider, AsyncTokenProvider
 from ._logging import configure_logging
 from ._runtime_config import RuntimeConfig
@@ -16,6 +17,7 @@ __all__ = [
     "AsyncFileTokenProvider",
     "AsyncTokenProvider",
     "KAgentConfig",
+    "materialize_from_bootstrap",
     "RuntimeConfig",
     "decode_structured_object",
     "encode_structured_object",

@@ -1,86 +1,29 @@
+import json
 import os
 
 import pytest
-from kagent.core._config_materialize import materialize_from_env
+from kagent.core import _config_materialize
+from kagent.runtime.v1 import bootstrap_pb2
 
 
-def test_materializes_present_env_vars(tmp_path, monkeypatch):
-    monkeypatch.setenv("KAGENT_CONFIG_JSON", '{"model": {"type": "openai"}}')
-    monkeypatch.setenv("KAGENT_AGENT_CARD_JSON", '{"name": "test"}')
-    monkeypatch.delenv("KAGENT_TOKEN", raising=False)
-
-    config_dir = tmp_path / "config"
-    materialize_from_env(str(config_dir))
-
-    assert (config_dir / "config.json").read_text() == '{"model": {"type": "openai"}}'
-    assert (config_dir / "agent-card.json").read_text() == '{"name": "test"}'
-    # Written with 0600 permissions, matching the Go ADK.
-    assert oct(os.stat(config_dir / "config.json").st_mode & 0o777) == "0o600"
-
-
-def test_noop_when_env_absent(tmp_path, monkeypatch):
-    for key in ("KAGENT_CONFIG_JSON", "KAGENT_AGENT_CARD_JSON", "KAGENT_TOKEN"):
-        monkeypatch.delenv(key, raising=False)
-
-    config_dir = tmp_path / "config"
-    # Should not raise and should not create the directory/files.
-    materialize_from_env(str(config_dir))
-
-    assert not (config_dir / "config.json").exists()
-
-
-def test_blank_env_is_skipped(tmp_path, monkeypatch):
-    monkeypatch.setenv("KAGENT_CONFIG_JSON", "   ")
-    monkeypatch.delenv("KAGENT_AGENT_CARD_JSON", raising=False)
-
-    config_dir = tmp_path / "config"
-    materialize_from_env(str(config_dir))
-
-    assert not (config_dir / "config.json").exists()
-
-
-def test_partial_env_only_writes_present(tmp_path, monkeypatch):
-    monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
-    monkeypatch.delenv("KAGENT_AGENT_CARD_JSON", raising=False)
-
-    config_dir = tmp_path / "config"
-    materialize_from_env(str(config_dir))
-
-    assert (config_dir / "config.json").exists()
-    assert not (config_dir / "agent-card.json").exists()
-
-
-def test_expands_credential_placeholder(tmp_path, monkeypatch):
-    monkeypatch.setenv("KAGENT_CONFIG_JSON", '{"header":"__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}')
-    monkeypatch.setenv("KAGENT_CREDENTIAL_TEST", "Bearer secret")
-
-    config_dir = tmp_path / "config"
-    materialize_from_env(str(config_dir))
-
-    assert (config_dir / "config.json").read_text() == '{"header":"Bearer secret"}'
-
-
-def test_unwritable_token_path_does_not_crash(tmp_path, monkeypatch):
-    # A nonroot runtime may not be able to write the token path; that must degrade gracefully
-    # (log + continue), not crash startup, and config files must still be materialized.
-    monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
-    monkeypatch.setenv("KAGENT_TOKEN", "tok")
-    monkeypatch.setattr(
-        "kagent.core._config_materialize._KAGENT_TOKEN_PATH",
-        str(tmp_path / "ro" / "tokens" / "kagent-token"),
+def test_materializes_bootstrap_bundle(tmp_path, monkeypatch):
+    bundle = bootstrap_pb2.BootstrapBundle(
+        config_json=b'{"header":"__KAGENT_ENV[KAGENT_CREDENTIAL_TEST]__"}',
+        agent_card_json=b'{"name":"test"}',
     )
-
-    # Make the token's parent dir creation fail as if on a read-only mount.
-    real_makedirs = os.makedirs
-
-    def fake_makedirs(path, *args, **kwargs):
-        if "/ro/" in path or path.endswith("/ro"):
-            raise PermissionError("read-only file system")
-        return real_makedirs(path, *args, **kwargs)
-
-    monkeypatch.setattr(os, "makedirs", fake_makedirs)
-
+    monkeypatch.setenv("KAGENT_BOOTSTRAP_JSON", "descriptor")
+    monkeypatch.setenv("KAGENT_CREDENTIAL_TEST", "Bearer secret")
+    monkeypatch.delenv("KAGENT_TOKEN", raising=False)
+    monkeypatch.setattr(_config_materialize, "load_bundle", lambda raw: bundle)
     config_dir = tmp_path / "config"
-    materialize_from_env(str(config_dir))  # must not raise
+    _config_materialize.materialize_from_bootstrap(str(config_dir))
+    assert json.loads((config_dir / "config.json").read_text()) == {"header": "Bearer secret"}
+    assert json.loads((config_dir / "agent-card.json").read_text()) == {"name": "test"}
+    assert os.stat(config_dir / "config.json").st_mode & 0o777 == 0o600
 
-    assert (config_dir / "config.json").exists()
+
+def test_requires_bootstrap_descriptor(tmp_path, monkeypatch):
+    monkeypatch.delenv("KAGENT_BOOTSTRAP_JSON", raising=False)
+    monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
+    with pytest.raises(KeyError, match="KAGENT_BOOTSTRAP_JSON"):
+        _config_materialize.materialize_from_bootstrap(str(tmp_path))

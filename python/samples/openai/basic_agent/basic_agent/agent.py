@@ -14,7 +14,7 @@ from a2a.types import AgentCard
 from agents.agent import Agent
 from agents.tool import function_tool
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig
+from kagent.core import KAgentConfig, materialize_from_bootstrap
 from kagent.openai import KAgentApp
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,7 @@ agent_card = ParseDict(
     AgentCard(),
 )
 
+materialize_from_bootstrap("/config")
 config = KAgentConfig.from_file()
 
 # Create KAgent app

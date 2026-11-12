@@ -1,4 +1,6 @@
+import { isNotFound, isPermissionDenied } from "../ApiError";
 import type { Agent } from "../domain/agents";
+import { parseRef } from "../domain/common";
 import { namespaceReadError } from "./namespaceReadError";
 import { apiClient } from "../client";
 import { useApiResource } from "./useApiResource";
@@ -35,6 +37,27 @@ export function useAgentsAcrossNamespaces(namespaces: readonly string[] | null |
       throw namespaceReadError(results.filter((result) => result.status === "rejected"));
     }
     return { agents, refused };
+  });
+}
+
+/** Confirms which references no longer exist when a collection read may be filtered. */
+export function useMissingAgents(refs: readonly string[]) {
+  return useApiResource(refs.length ? ["agents.missing", ...refs] : null, async () => {
+    const results = await Promise.all(refs.map(async (ref) => {
+      const { namespace, name } = parseRef(ref);
+      try {
+        await apiClient.agentBuildingBlocks.agent(namespace, name);
+        return "present";
+      } catch (error) {
+        if (isNotFound(error)) return "missing";
+        if (isPermissionDenied(error)) return "denied";
+        throw error;
+      }
+    }));
+    return {
+      missing: refs.filter((_, index) => results[index] === "missing"),
+      denied: results.includes("denied"),
+    };
   });
 }
 

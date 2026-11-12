@@ -144,9 +144,10 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 	egress = slices.Compact(egress)
 	return &translator.CompileResult{
 		Revision: translator.Revision{
-			Namespace:   template.Namespace,
-			SkillImages: skills.Images,
-			Environment: environment, ConfigJSON: configJSON, AgentCard: card,
+			ControlPlaneURL: c.settings.GetControlPlaneUrl(),
+			Namespace:       template.Namespace,
+			SkillImages:     skills.Images,
+			Environment:     environment, ConfigJSON: configJSON, AgentCard: card,
 			WorkerPoolName: harness.Spec.Substrate.WorkerPoolRef.Name, SnapshotLocation: harness.Spec.Substrate.SnapshotPolicy.Location,
 			TokenPassthroughTargets: tokenPassthroughTargets, Credentials: credentials, Provenance: provenance, EgressDestinations: egress,
 		},

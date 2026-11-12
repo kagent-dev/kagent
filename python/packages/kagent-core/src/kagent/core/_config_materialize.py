@@ -1,24 +1,12 @@
-"""Materialize Agent Substrate configuration from environment variables.
-
-The ActorTemplate injects config JSON directly and credentials through SecretKeyRef environment
-variables. Credential placeholders are expanded before writing the files loaded by the ADK.
-This mirrors the Go ADK's ``MaterializeFromEnv``.
-
-When the environment variables are absent this is a no-op.
-"""
+"""Materialize bootstrap configuration into the ADK working files."""
 
 import json
 import logging
 import os
 
-logger = logging.getLogger(__name__)
+from ._bootstrap import load_bundle
 
-# Environment variables injected by the substrate ActorTemplate, keyed to the file name the
-# ADK loads from within the config directory.
-_ENV_TO_CONFIG_FILE = {
-    "KAGENT_CONFIG_JSON": "config.json",
-    "KAGENT_AGENT_CARD_JSON": "agent-card.json",
-}
+logger = logging.getLogger(__name__)
 
 # The bearer token is materialized to a fixed path outside the config dir, matching the Go ADK.
 _KAGENT_TOKEN_ENV = "KAGENT_TOKEN"
@@ -30,8 +18,6 @@ def _materialize_env_to_file(env_key: str, path: str) -> bool:
     value = os.getenv(env_key, "").strip()
     if not value:
         return False
-    if env_key == "KAGENT_CONFIG_JSON" and "__KAGENT_ENV[" in value:
-        value = json.dumps(_expand_config_env(json.loads(value)), separators=(",", ":"))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write(value)
@@ -52,14 +38,19 @@ def _expand_config_env(value):
     return value
 
 
-def materialize_from_env(config_dir: str) -> None:
-    """Write substrate config environment variables to the paths the ADK loads from.
-
-    No-op for any variable that is unset, so the volume-mounted Deployment path is unaffected.
-    """
-    for env_key, filename in _ENV_TO_CONFIG_FILE.items():
-        if _materialize_env_to_file(env_key, os.path.join(config_dir, filename)):
-            logger.info("Materialized %s from %s", filename, env_key)
+def materialize_from_bootstrap(config_dir: str) -> None:
+    """Load the immutable bundle and write the working config and Agent Card."""
+    bundle = load_bundle(os.environ["KAGENT_BOOTSTRAP_JSON"])
+    config = _expand_config_env(json.loads(bundle.config_json))
+    os.makedirs(config_dir, exist_ok=True)
+    for filename, raw in (
+        ("config.json", json.dumps(config, separators=(",", ":")).encode("utf-8")),
+        ("agent-card.json", bundle.agent_card_json),
+    ):
+        path = os.path.join(config_dir, filename)
+        with open(path, "wb") as file:
+            file.write(raw)
+        os.chmod(path, 0o600)
     # Best-effort: the token path (/var/run/secrets/tokens) may not exist or be writable for a
     # nonroot runtime. A missing token only degrades authenticated callbacks, so log and continue
     # rather than crash startup.

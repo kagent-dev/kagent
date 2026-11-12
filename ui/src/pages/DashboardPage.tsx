@@ -77,7 +77,13 @@ export function DashboardPage() {
   const isRefreshing = resources.some((entry) => entry.resource.isValidating);
 
   async function refreshAll(): Promise<void> {
-    await Promise.all(resources.map((entry) => entry.resource.refresh()));
+    await Promise.all(resources.map(async ({ resource }) => {
+      try {
+        await resource.refresh();
+      } catch (error) {
+        if (!isPermissionDenied(error)) throw error;
+      }
+    }));
   }
 
   // Rows are dropped on failure for the same reason the lists drop them: a
