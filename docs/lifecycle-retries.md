@@ -41,9 +41,30 @@ should likewise retain the `request_id` passed to `create_sandbox`.
 
 ## Recovering a crashed Session
 
-A send recovers a crashed runtime. It returns `KAGENT_SEND_NOT_ACCEPTED` after reverting, so retry the send as usual.
-A send refused because a crashed turn is still active recovers the runtime first and then proceeds.
-A send while recovery is pending joins it. Recovering through a send needs Session update access.
+By default, sends do not recover a crashed runtime, and a crashed Session still
+reads `READY` until something reverts it. Call `RevertSession`, then send again:
+
+- A turn interrupted by the crash leaves that turn open. Later sends are refused
+  with `FAILED_PRECONDITION` and ErrorInfo reason `KAGENT_TURN_ACTIVE`, which is not
+  retryable.
+- A crash while the runtime suspends after a turn makes every send wait and return
+  `KAGENT_SEND_NOT_ACCEPTED`. Once your retry budget runs out, revert.
+- While a recovery is pending, sends are refused because a lifecycle operation is
+  active. Call `RevertSession` again to finish it.
+
+With `sessions.automaticRecovery: true` in controller config, a send recovers the
+runtime itself:
+
+- Three kinds of send start a revert: one refused for an open turn, one blocked by
+  a suspension that crashed, and one the crashed runtime refused. The send then
+  proceeds, or returns `KAGENT_SEND_NOT_ACCEPTED` so you retry.
+- A send while recovery is pending joins it.
+- A send waits at most 10 seconds for recovery. If recovery is still running, it
+  returns `KAGENT_SEND_NOT_ACCEPTED` with metadata `state: RECOVERING` and
+  `retryAfterMs: 1000`. Keep retrying; the retry continues the recovery.
+- Recovering through a send needs Session update access. Without it, or when
+  Substrate is unavailable, the send gets the answer it would get by default.
+
 Call `SessionService.RevertSession` with the Session ID to restore the recorded runtime to its last durable snapshot without sending.
 The caller needs Session update access. The operation verifies Substrate's CRASHED state and the recorded Actor identity.
 Recovery fails interrupted turns and waiting tasks absent from the retained snapshot.
@@ -54,7 +75,7 @@ A runtime without a snapshot restarts from its initial state.
 Retry an interrupted revert against the same Session ID; nothing retries it in the background.
 Pending recovery retains its operation across API restarts, and a retry joins it.
 While recovery is pending, `GetSession` reports state `FAILED`, operation `REVERT`, and failure reason `RuntimeCrashed`.
-Retry the send, or call `RevertSession` again, to finish the recovery.
+Call `RevertSession` again to finish the recovery. With automatic recovery on, a retried send also continues it.
 A retry after a revert whose response was lost returns the recovered Session.
 Checkpoint creation returns `ABORTED` until it finishes.
 A revert that observed the crash before another lifecycle operation began also returns `ABORTED`.
