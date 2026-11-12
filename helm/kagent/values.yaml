@@ -821,6 +821,7 @@ kagent-tools:
 
 builtins:
   # -- Create the built-in Agents and offer the kagent-tools skills in the UI.
+  # The Agents need `harnesses.enabled`, `harnesses.kagent.enabled` and `kagent-tools.enabled`.
   enabled: true
   k8sAgent:
     # -- Create k8s-agent, which troubleshoots workloads in this cluster.
