@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -92,9 +94,15 @@ func render(environ []string) (string, string) {
 	return b.String(), basePath
 }
 
-// jsonEscape makes a value safe inside a JSON string in a <script> element: `<` is escaped so markup cannot close it.
+// jsonEscape makes a value safe inside a JSON string in a <script> element.
+// The encoder escapes quotes, backslashes and control characters; `<` is escaped so markup cannot close the element.
 func jsonEscape(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `<`, `\u003c`).Replace(s)
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	quoted := strings.TrimSuffix(b.String(), "\n")
+	return strings.ReplaceAll(quoted[1:len(quoted)-1], "<", `\u003c`)
 }
 
 // setBaseHref points <base href> at the base path, so deep links load assets under the sub-path too.

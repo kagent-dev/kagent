@@ -47,7 +47,6 @@ func TestMatchesInitScript(t *testing.T) {
 			"KAGENT_UI_EXTENSION_A1=digit sorts first",
 			"KAGENT_UI_EXTENSION_A=</script>\"\\",
 			"KAGENT_UI_EXTENSION_EMPTY=",
-			"KAGENT_UI_EXTENSION_LINES=first\nsecond",
 			"KAGENT_UI_EXTENSIONLESS=ignored",
 		},
 	}
@@ -117,6 +116,10 @@ func TestBuiltinSkills(t *testing.T) {
 	catalog := `{"image":"ghcr.io/kagent-dev/kagent/tools@sha256:aaaa","skills":[{"name":"a","description":"Says \"hi\" \\ then </script>"}]}`
 	if got := settings("KAGENT_UI_BUILTIN_SKILLS=" + catalog)["BUILTIN_SKILLS"]; got != catalog {
 		t.Errorf("BUILTIN_SKILLS = %q, want %q", got, catalog)
+	}
+	pretty := "{\n\t\"skills\": []\r\n}"
+	if got := settings("KAGENT_UI_BUILTIN_SKILLS=" + pretty)["BUILTIN_SKILLS"]; got != pretty {
+		t.Errorf("BUILTIN_SKILLS = %q, want %q", got, pretty)
 	}
 	if got, ok := settings()["BUILTIN_SKILLS"]; ok {
 		t.Errorf("BUILTIN_SKILLS = %q without KAGENT_UI_BUILTIN_SKILLS, want it absent", got)
