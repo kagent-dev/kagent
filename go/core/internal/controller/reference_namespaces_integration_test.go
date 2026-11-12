@@ -41,7 +41,7 @@ func TestCrossNamespaceReferenceWatches(t *testing.T) {
 	model := &v1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "shared"}, Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOpenAI, Model: "example", AllowedNamespaces: &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromAll}}}
 	model, err = client.Kagent().ApiV1alpha3().ModelConfigs("shared").Create(ctx, model, metav1.CreateOptions{})
 	require.NoError(t, err)
-	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "team-a"}, Spec: v1alpha3.AgentSpec{HarnessRef: corev1.LocalObjectReference{Name: "runner"}, Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "model", Namespace: "shared"}}}}}
+	agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "team-a"}, Spec: v1alpha3.AgentSpec{HarnessRef: corev1.LocalObjectReference{Name: "runner"}, Template: v1alpha3.AgentTemplateSource{Inline: &v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: "model", Namespace: "shared"}}}}}
 	_, err = client.Kagent().ApiV1alpha3().Agents("team-a").Create(ctx, agent, metav1.CreateOptions{})
 	require.NoError(t, err)
 	opts := krt.NewOptionsBuilder(ctx.Done(), "references", nil)

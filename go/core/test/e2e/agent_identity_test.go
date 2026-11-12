@@ -26,7 +26,7 @@ func TestAgentIdentityLookupWithGatewayJWT(t *testing.T) {
 	model.Spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{"model-e2e", "kagent-agent-info"}}
 	require.NoError(t, kube.Patch(t.Context(), model, ctrlclient.MergeFrom(base)))
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "identity-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{
-		ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+		ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 	}}
 	createAndWaitInteractionTemplate(t, harness, kube, template)
 	agent := &v1alpha3.Agent{}

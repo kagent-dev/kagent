@@ -83,7 +83,7 @@ func testAgentTemplate(namespace, name, modelConfig string) *v1alpha3.AgentTempl
 	return &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig: &v1alpha3.ObjectReference{Name: modelConfig},
+			ModelConfig: &v1alpha3.ModelConfigReference{Name: modelConfig},
 			Description: "a template",
 		},
 	}
@@ -220,6 +220,22 @@ func TestAgentTemplateServiceGeneratedClient(t *testing.T) {
 	}
 	_, err = client.DeleteAgentTemplate(ctx, &apiv1.DeleteAgentTemplateRequest{Ref: ref})
 	assertCode(t, err, codes.NotFound)
+}
+
+func TestAgentTemplateModelConfigRef(t *testing.T) {
+	t.Run("Given a template whose model has another kind, when a caller gets it, assert that modelConfigRef is unset", func(t *testing.T) {
+		template := testAgentTemplate("team", "custom-model", "gpt")
+		template.Spec.ModelConfig.Group, template.Spec.ModelConfig.Kind = new("example.com"), new("Model")
+		client := apiv1.NewAgentTemplateServiceClient(newTemplateAndHarnessConnection(t, template))
+		ctx := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "template-user"))
+		got, err := client.GetAgentTemplate(ctx, &apiv1.GetAgentTemplateRequest{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "custom-model"}})
+		if err != nil {
+			t.Fatalf("GetAgentTemplate() error = %v", err)
+		}
+		if ref := got.GetAgentTemplate().GetModelConfigRef(); ref != nil {
+			t.Fatalf("GetAgentTemplate() modelConfigRef = %+v, want nil", ref)
+		}
+	})
 }
 
 func TestHarnessServiceGeneratedClient(t *testing.T) {
