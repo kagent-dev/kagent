@@ -526,8 +526,8 @@ export function AgentTemplateDetailsPage() {
         data-testid="template-discard-modal"
       >
         <Paragraph css={{ margin: 0 }} data-testid="template-discard-body">
-          This template has edits that have not been saved. Leaving edit mode throws them
-          away; the template on the cluster is unchanged either way.
+          This template has edits that have not been saved. Discarding throws them away;
+          the template on the cluster is unchanged either way.
         </Paragraph>
       </Modal>
     </PageFrame>

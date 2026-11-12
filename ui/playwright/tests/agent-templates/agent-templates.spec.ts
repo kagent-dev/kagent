@@ -231,6 +231,22 @@ test("agent templates: a template is created, read, edited and deleted", async (
     );
   });
 
+  await test.step("10b. discarding a draft from the back button also leaves the page", async () => {
+    await page.getByTestId("template-edit").click();
+    await page.getByTestId("template-form-description").fill("Thrown away by the suite.");
+    await page.getByTestId("template-back").click();
+    await pressOnce(page.getByRole("button", { name: "Discard" }));
+    await expect(page).toHaveURL(/\/agents\?tab=templates/);
+
+    // Back on the template for the steps below, which read the saved value, not the
+    // draft. Through history rather than a reload, which would reset the mock backend.
+    await page.goBack();
+    await expect(page.getByTestId("template-form-description")).toHaveValue(
+      "Edited by the suite.",
+      { timeout: 30_000 },
+    );
+  });
+
   await test.step("11. deleting says what it costs, in the confirmation", async () => {
     // Before opening it: the consequence is nowhere on the page. That is the half of
     // this property the confirmation itself cannot demonstrate — a warning a reader can
