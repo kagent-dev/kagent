@@ -208,7 +208,10 @@ function Box({
               color: theme.color.primaryText,
               border: `1px solid ${theme.color.primary}`,
               background: `${theme.color.primary}14`,
-              "&:hover": { background: `${theme.color.primary}33` },
+              transition: "background 120ms ease, color 120ms ease",
+              // Filled solid on hover, like the Create button it is related to: a tint
+              // change on an outlined button was too faint to read as a response.
+              "&:hover": { background: theme.color.primary, color: theme.color.textOnPrimary },
               "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
             }}
           >
