@@ -2,7 +2,7 @@ import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Button, Space, Table, Typography } from "antd";
+import { Alert, Button, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
@@ -16,7 +16,9 @@ import { buildPath, paths } from "@/router/routes";
 import {
   apiClient,
   useAgentTemplatesAcrossNamespaces,
+  countTemplateTools,
   useInvalidateAgentTemplates,
+  useMcpServers,
   useNamespaces,
   type AgentTemplate,
 } from "@/api";
@@ -57,6 +59,12 @@ export function AgentTemplatesTab() {
   const readNamespaces = namespaceDenied ? null : selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames;
   const invalidateTemplates = useInvalidateAgentTemplates();
   const templates = useAgentTemplatesAcrossNamespaces(readNamespaces);
+
+  const mcpServers = useMcpServers();
+  const serversByRef = useMemo(
+    () => new Map((mcpServers.data ?? []).map((server) => [server.ref, server])),
+    [mcpServers.data],
+  );
 
   const rows = useMemo(() => templates.data?.templates ?? [], [templates.data]);
 
@@ -126,7 +134,20 @@ export function AgentTemplatesTab() {
         title: "Tools",
         key: "tools",
         width: 90,
-        render: (_, row) => (row.resource.spec.tools ?? []).length,
+        render: (_, row) => {
+          const bindings = row.resource.spec.tools ?? [];
+          if (bindings.length === 0) return 0;
+          const { total, unknownServers } = countTemplateTools(bindings, serversByRef, row.namespace);
+          // Until the servers load, or when one has no discovered tools on record, a total would be a guess.
+          if (mcpServers.isLoading) return <Text css={{ color: theme.color.textMuted }}>…</Text>;
+          return unknownServers.length === 0 ? (
+            total
+          ) : (
+            <Tooltip title={`Plus all tools of ${unknownServers.join(", ")}, which could not be counted.`}>
+              <span>{total}+</span>
+            </Tooltip>
+          );
+        },
       },
       {
         title: "",
@@ -169,7 +190,7 @@ export function AgentTemplatesTab() {
         ),
       },
     ],
-    [invalidateTemplates, theme.color.textMuted, theme.font.mono],
+    [invalidateTemplates, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono],
   );
 
   const refreshThisTab = templates.refresh;
