@@ -38,6 +38,20 @@ egress, `/data/workspace`, base64 transfer limits, asynchronous process status,
 output offsets, lifecycle retries, and artifact retrieval before deletion.
 See [standalone sandboxes](sandboxes.md) for the runtime contract.
 
+## Outbound Go ADK connections
+
+For Streamable HTTP MCP servers, the Go ADK honors
+`RemoteMCPServer.spec.terminateOnClose`. An omitted value or `true` uses the SDK's
+normal session-termination DELETE when closing a connection. With `false`, the
+client closes its local streams without deleting the remote MCP session; the
+server remains responsible for that session's expiration and cleanup. This also
+applies to the short-lived connection used to discover MCP App metadata.
+
+The controller uses a separate MCP client for MCP App tool listing, tool calls,
+and resource reads. That client does not currently honor `terminateOnClose` and
+still sends the SDK's session-termination DELETE on close, including when the
+field is `false`.
+
 ## Session invocation
 
 Invocation calls the in-process public A2A gateway. Streaming MCP clients receive
