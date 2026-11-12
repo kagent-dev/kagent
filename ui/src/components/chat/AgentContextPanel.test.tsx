@@ -54,7 +54,6 @@ function renderPanel(
             }
           />
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
-          <Route path="/agents/:namespace/:name" element={<p data-testid="agent-page">agent page</p>} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -62,20 +61,13 @@ function renderPanel(
 }
 
 describe("AgentContextPanel", () => {
-  it("names the agent, its template and its harness as separate things", () => {
+  it("names the agent template and the harness", () => {
     renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
-    expect(screen.getByTestId("chat-agent-context-agent").textContent).toBe("kagent/assistant");
     expect(screen.getByTestId("chat-agent-context-template").textContent).toBe("kagent/helper-template");
     expect(screen.getByTestId("chat-agent-context-harness").textContent).toBe("kagent/runner");
     expect(screen.getByText("Agent template")).toBeTruthy();
     expect(screen.getByText("Harness")).toBeTruthy();
     expect(screen.queryByText("Runs on")).toBeNull();
-  });
-
-  it("links the agent to its own page", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
-    await userEvent.click(screen.getByTestId("chat-agent-context-agent"));
-    expect(screen.getByTestId("agent-page")).toBeTruthy();
   });
 
   it("says an inline agent has no template, and why", async () => {
@@ -86,11 +78,6 @@ describe("AgentContextPanel", () => {
     expect(screen.getByText(/None\. The agent defines its own/)).toBeTruthy();
     await userEvent.hover(screen.getByTestId("chat-agent-context-hint-agent-template"));
     expect(await screen.findByText(/This agent has no AgentTemplate/)).toBeTruthy();
-  });
-
-  it("leaves the agent out on the agent's own page", () => {
-    renderPanel([]);
-    expect(screen.queryByTestId("chat-agent-context-agent")).toBeNull();
   });
 
   it("explains each label in a tooltip", async () => {

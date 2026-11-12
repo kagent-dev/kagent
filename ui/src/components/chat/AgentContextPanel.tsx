@@ -66,22 +66,6 @@ export function AgentContextPanel({
 
   return (
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
-      {/* Only beside a conversation: on the agent's own page this would link to itself. */}
-      {instance && namespace && name ? (
-        <Field
-          label="Agent"
-          hint="The Agent resource this conversation talks to. It pairs a model, tools and instructions with a harness."
-        >
-          <RefLink
-            to={buildPath(paths.agent, { namespace, name })}
-            tooltip="Open this agent and its other conversations"
-            testId="chat-agent-context-agent"
-          >
-            {`${namespace}/${name}`}
-          </RefLink>
-        </Field>
-      ) : null}
-
       <Field
         label="Agent template"
         hint={
