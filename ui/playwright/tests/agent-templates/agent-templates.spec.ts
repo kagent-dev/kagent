@@ -29,6 +29,8 @@ test("agent templates: a template is created, read, edited and deleted", async (
     const row = rowNamed(page, "k8s-agent-7f3a91c");
 
     await expect(row).toContainText("default-model-config");
+    // Two named tools on one server: the column counts tools, not bindings.
+    await expect(row.getByRole("cell").nth(3)).toHaveText("2");
 
     // `note-taker` carries no labels at all. It is a complete, valid template that can
     // never become an agent, and only this column says so.
