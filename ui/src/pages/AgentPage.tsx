@@ -705,7 +705,7 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
           )}
         </IdentityField>
 
-        <IdentityField label="Runs on">
+        <IdentityField label="Harness">
           <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
             {spec.harnessRef.name}
           </Text>

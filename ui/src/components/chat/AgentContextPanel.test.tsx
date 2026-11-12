@@ -21,7 +21,7 @@ function LocationState() {
 }
 
 function renderPanel(tools: unknown[], modelNamespace?: string, instance?: AgentInstance) {
-  useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "assistant"}}, harnessRef: {name: "runner"}}}}});
+  useAgent.mockReturnValue({data: {resource: {spec: {template: {ref: {name: "helper-template"}}, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
       resource: {
@@ -49,6 +49,7 @@ function renderPanel(tools: unknown[], modelNamespace?: string, instance?: Agent
             }
           />
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
+          <Route path="/agents/:namespace/:name" element={<p data-testid="agent-page">agent page</p>} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -56,6 +57,39 @@ function renderPanel(tools: unknown[], modelNamespace?: string, instance?: Agent
 }
 
 describe("AgentContextPanel", () => {
+  it("names the agent, its template and its harness as separate things", () => {
+    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    expect(screen.getByTestId("chat-agent-context-agent").textContent).toBe("kagent/assistant");
+    expect(screen.getByTestId("chat-agent-context-template").textContent).toBe("kagent/helper-template");
+    expect(screen.getByTestId("chat-agent-context-harness").textContent).toBe("kagent/runner");
+    expect(screen.getByText("Harness")).toBeTruthy();
+    expect(screen.queryByText("Runs on")).toBeNull();
+  });
+
+  it("links the agent to its own page", async () => {
+    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    await userEvent.click(screen.getByTestId("chat-agent-context-agent"));
+    expect(screen.getByTestId("agent-page")).toBeTruthy();
+  });
+
+  it("leaves the agent out on the agent's own page", () => {
+    renderPanel([]);
+    expect(screen.queryByTestId("chat-agent-context-agent")).toBeNull();
+  });
+
+  it("explains each label in a tooltip", async () => {
+    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    await userEvent.hover(screen.getByTestId("chat-agent-context-hint-harness"));
+    expect(await screen.findByText(/runtime that executes this agent/)).toBeTruthy();
+  });
+
+  it("shortens the prepared revision but copies all of it", () => {
+    const revision = "d825540fbe9fbbb38259ace153f7712286baa762bf097b3ca8cc7097c119847b";
+    renderPanel([], undefined, { agent: "kagent/assistant", preparedRevision: revision } as AgentInstance);
+    expect(screen.getByTestId("chat-agent-context-revision").textContent).toContain("d825540fbe9f");
+    expect(screen.getByTestId("chat-agent-context-revision").textContent).not.toContain(revision);
+  });
+
   it("opens the template with a way back to this conversation", async () => {
     renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));

@@ -1,6 +1,7 @@
 import { referenceLabel } from "@/api/domain/agentTemplates";
 import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
+import { Info } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { useAgent, useAgentTemplate, bareName, type AgentInstance } from "@/api";
 import { buildPath, paths } from "@/router/routes";
@@ -65,45 +66,62 @@ export function AgentContextPanel({
 
   return (
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
-      <Field label="Template">
-        {templateRef && templateNamespace && templateName ? (
-          <Tooltip
-            title="Open the AgentTemplate this agent is built from"
-            trigger={["hover", "focus"]}
+      {/* Only beside a conversation: on the agent's own page this would link to itself. */}
+      {instance && namespace && name ? (
+        <Field
+          label="Agent"
+          hint="The Agent resource this conversation talks to. It pairs a template with a harness."
+        >
+          <RefLink
+            to={buildPath(paths.agent, { namespace, name })}
+            tooltip="Open this agent and its other conversations"
+            testId="chat-agent-context-agent"
           >
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: templateNamespace,
-                name: templateName,
-              })}
-              // So the template page can lead back here rather than only to the
-              // template list. Without a conversation open, "here" is the agent's page.
-              state={backLinkState(
-                location,
-                instance ? "Back to conversation" : "Back to agent",
-              )}
-              data-testid="chat-agent-context-template"
-              css={{
-                justifySelf: "start",
-                fontFamily: theme.font.mono,
-                fontSize: 12,
-                color: theme.color.primaryText,
-                "&:hover, &:focus-visible": { textDecoration: "underline" },
-              }}
-            >
-              {templateRef}
-            </Link>
-          </Tooltip>
+            {`${namespace}/${name}`}
+          </RefLink>
+        </Field>
+      ) : null}
+
+      <Field
+        label="Template"
+        hint="The AgentTemplate that sets the model, tools and instructions below. Every agent built from it shares them."
+      >
+        {templateRef && templateNamespace && templateName ? (
+          <RefLink
+            to={buildPath(paths.agentTemplateDetail, {
+              namespace: templateNamespace,
+              name: templateName,
+            })}
+            // So the template page can lead back here rather than only to the
+            // template list. Without a conversation open, "here" is the agent's page.
+            state={backLinkState(location, instance ? "Back to conversation" : "Back to agent")}
+            tooltip="Open the AgentTemplate this agent is built from"
+            testId="chat-agent-context-template"
+          >
+            {`${templateNamespace}/${templateRef}`}
+          </RefLink>
         ) : (
-          <Text css={{ color: theme.color.textMuted }}>{definition.data?.resource.spec.template.inline ? "Inline" : "Not reported"}</Text>
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+            {definition.data?.resource.spec.template.inline
+              ? "None. The agent defines its own model, tools and instructions."
+              : "Not reported"}
+          </Text>
         )}
       </Field>
 
-      <Field label="Runs on">
-        <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-          {harnessRef ?? "Not reported"}
+      <Field
+        label="Harness"
+        hint="The runtime that executes this agent, such as the built-in kagent engine, Codex or Claude."
+      >
+        <Text data-testid="chat-agent-context-harness" css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
+          {harnessRef ? `${namespace}/${harnessRef}` : "Not reported"}
         </Text>
       </Field>
+
+      <div
+        role="separator"
+        css={{ borderTop: `1px solid ${theme.color.border}`, margin: `${theme.space(1)} 0` }}
+      />
 
       {definition.isLoading || template.isLoading ? (
         <Skeleton active paragraph={{ rows: 4 }} data-testid="chat-agent-context-loading" />
@@ -120,13 +138,13 @@ export function AgentContextPanel({
         />
       ) : spec ? (
         <>
-          <Field label="Model">
+          <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
             <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
               {referenceLabel(spec.modelConfig, templateNamespace) || "—"}
             </Text>
           </Field>
 
-          <Field label="Tools">
+          <Field label="Tools" hint="The MCP tools and sub-agents the agent can call.">
             {tools.length === 0 ? (
               // Said rather than left blank: an agent with no tools is a real and
               // ordinary configuration, and an empty panel reads as a failed read.
@@ -134,7 +152,12 @@ export function AgentContextPanel({
                 None — this agent answers from the model alone.
               </Text>
             ) : (
-              <Space size={4} wrap>
+              <Space
+                size={4}
+                wrap
+                // A long server and tool name would otherwise run past the panel's edge.
+                css={{ maxWidth: "100%", ".ant-tag": { whiteSpace: "normal", wordBreak: "break-word", marginInlineEnd: 0 } }}
+              >
                 {tools.flatMap((binding, index) => {
                   const mcp = binding.mcp;
                   return mcp
@@ -162,7 +185,7 @@ export function AgentContextPanel({
           </Field>
 
           {spec.systemPrompt ? (
-            <Field label="Instructions">
+            <Field label="Instructions" hint="The system prompt the agent starts every conversation with.">
               <Paragraph
                 data-testid="chat-agent-context-prompt"
                 css={{
@@ -177,7 +200,7 @@ export function AgentContextPanel({
               </Paragraph>
             </Field>
           ) : spec.systemPromptFrom ? (
-            <Field label="Instructions">
+            <Field label="Instructions" hint="The system prompt the agent starts every conversation with.">
               {/* A prompt held in a ConfigMap is not on the template and cannot be shown
                   here. Saying where it is beats an empty box that reads as an agent with
                   no instructions. */}
@@ -191,19 +214,21 @@ export function AgentContextPanel({
       ) : null}
 
       {instance?.preparedRevision ? (
-        <Field label="Prepared revision">
+        <Field
+          label="Prepared revision"
+          hint="The revision this conversation runs. Edits to the template after it started don't apply here."
+        >
           {/* What this conversation actually runs. The template above can be edited
               after an instance is cut from it, and the instance keeps its revision —
-              so the two are shown side by side rather than one standing for both. */}
+              so the two are shown side by side rather than one standing for both.
+              A full digest is noise at a glance, so it is shortened, with the whole
+              value one copy away. */}
           <Text
-            css={{
-              fontFamily: theme.font.mono,
-              fontSize: 11,
-              color: theme.color.textMuted,
-              wordBreak: "break-all",
-            }}
+            data-testid="chat-agent-context-revision"
+            copyable={{ text: instance.preparedRevision, tooltips: ["Copy full revision", "Copied"] }}
+            css={{ fontFamily: theme.font.mono, fontSize: 11, color: theme.color.textMuted }}
           >
-            {instance.preparedRevision}
+            {instance.preparedRevision.slice(0, 12)}
           </Text>
         </Field>
       ) : null}
@@ -211,21 +236,79 @@ export function AgentContextPanel({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/** A label, with an info icon explaining what it names when there is a `hint`. */
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   const theme = useTheme();
   return (
     <div css={{ display: "grid", gap: theme.space(1) }}>
-      <Text
-        css={{
-          color: theme.color.textMuted,
-          fontSize: 11,
-          textTransform: "uppercase",
-          letterSpacing: 0.6,
-        }}
-      >
-        {label}
-      </Text>
+      <span css={{ display: "inline-flex", alignItems: "center", gap: theme.space(1) }}>
+        <Text
+          css={{
+            color: theme.color.textMuted,
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: 0.6,
+          }}
+        >
+          {label}
+        </Text>
+        {hint ? (
+          <Tooltip title={hint} trigger={["hover", "focus"]}>
+            <Info
+              size={12}
+              aria-label={hint}
+              tabIndex={0}
+              data-testid={`chat-agent-context-hint-${label.toLowerCase().replace(/\s+/g, "-")}`}
+              css={{ color: theme.color.textMuted, cursor: "help", flexShrink: 0 }}
+            />
+          </Tooltip>
+        ) : null}
+      </span>
       {children}
     </div>
+  );
+}
+
+/** A reference to another resource, styled as a link, with a tooltip saying where it goes. */
+function RefLink({
+  to,
+  state,
+  tooltip,
+  testId,
+  children,
+}: {
+  to: string;
+  state?: unknown;
+  tooltip: string;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  const theme = useTheme();
+  return (
+    <Tooltip title={tooltip} trigger={["hover", "focus"]}>
+      <Link
+        to={to}
+        state={state}
+        data-testid={testId}
+        css={{
+          justifySelf: "start",
+          fontFamily: theme.font.mono,
+          fontSize: 12,
+          color: theme.color.primaryText,
+          wordBreak: "break-word",
+          "&:hover, &:focus-visible": { textDecoration: "underline" },
+        }}
+      >
+        {children}
+      </Link>
+    </Tooltip>
   );
 }
