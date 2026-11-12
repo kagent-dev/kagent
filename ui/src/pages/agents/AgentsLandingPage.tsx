@@ -90,8 +90,8 @@ export function AgentsLandingPage() {
         onCancel={() => setCreating(false)}
       >
         <div css={{ display: "grid", gap: theme.space(2) }}>
-          {Object.values(CREATE_OPTIONS).map(({ kind, to, tagline, testId }) => (
-            <CreateOptionRow key={kind} title={kind} to={to} tagline={tagline} testId={testId} />
+          {Object.values(CREATE_OPTIONS).map(({ kind, to, description, testId }) => (
+            <CreateOptionRow key={kind} title={kind} to={to} description={description} testId={testId} />
           ))}
           <ExtensionSlot id="app_agents_agentsList_createModal_options" />
         </div>

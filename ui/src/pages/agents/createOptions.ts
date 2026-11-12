@@ -4,7 +4,8 @@ import { paths } from "@/router/routes";
 export type CreateOption = {
   kind: CreatableKind;
   to: string;
-  tagline: string;
+  /** The one wording for this kind: the modal row and the overview diagram both show it. */
+  description: string;
   testId: string;
 };
 
@@ -17,19 +18,19 @@ export const CREATE_OPTIONS: Record<CreatableKind, CreateOption> = {
   Agent: {
     kind: "Agent",
     to: paths.agentNew,
-    tagline: "Run a template on a harness. Chats belong to an agent.",
+    description: "Inline or shared behavior on a platform-managed harness.",
     testId: "agents-new",
   },
   AgentTemplate: {
     kind: "AgentTemplate",
     to: paths.agentTemplateNew,
-    tagline: "Reusable behavior: the model, prompt and tools.",
+    description: "The model, prompt and tools.",
     testId: "agents-new-template",
   },
   Harness: {
     kind: "Harness",
     to: paths.harnessNew,
-    tagline: "Runtime policy: the image and worker pool agents run on.",
+    description: "The runtime, image and worker pool.",
     testId: "agents-new-harness",
   },
 };

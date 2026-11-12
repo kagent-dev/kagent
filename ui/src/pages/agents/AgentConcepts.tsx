@@ -82,13 +82,13 @@ export function AgentConcepts() {
           <Box
             kind="AgentTemplate"
             create={CREATE_OPTIONS.AgentTemplate}
-            detail="The model, prompt and tools."
+            detail={CREATE_OPTIONS.AgentTemplate.description}
             onOpen={() => open("templates")}
           />
           <Box
             kind="Harness"
             create={CREATE_OPTIONS.Harness}
-            detail="The runtime, image and worker pool."
+            detail={CREATE_OPTIONS.Harness.description}
             onOpen={() => open("harnesses")}
           />
         </div>
@@ -97,7 +97,7 @@ export function AgentConcepts() {
         <Box
           kind="Agent"
           create={CREATE_OPTIONS.Agent}
-          detail="Inline or shared behavior on a platform-managed harness."
+          detail={CREATE_OPTIONS.Agent.description}
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />
@@ -203,10 +203,12 @@ function Box({
               display: "flex",
               padding: 5,
               borderRadius: theme.radius.md,
-              color: theme.color.textMuted,
-              // A faint tint of the muted text colour: light on dark themes, dark on light.
-              background: `${theme.color.textMuted}26`,
-              "&:hover": { color: theme.color.primaryText, background: `${theme.color.primary}33` },
+              // Outlined in the primary colour so it reads as an action without competing
+              // with the solid Create button in the page header.
+              color: theme.color.primaryText,
+              border: `1px solid ${theme.color.primary}`,
+              background: `${theme.color.primary}14`,
+              "&:hover": { background: `${theme.color.primary}33` },
               "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
             }}
           >

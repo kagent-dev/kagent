@@ -1,5 +1,6 @@
 import { useTheme } from "@emotion/react";
 import { Typography } from "antd";
+import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 /**
@@ -12,12 +13,12 @@ import { Link } from "react-router-dom";
  */
 export function CreateOptionRow({
   title,
-  tagline,
+  description,
   to,
   testId,
 }: {
   title: string;
-  tagline: string;
+  description: string;
   to: string;
   testId?: string;
 }) {
@@ -27,7 +28,10 @@ export function CreateOptionRow({
       to={to}
       data-testid={testId}
       css={{
-        display: "block",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: theme.space(2),
         padding: theme.space(3),
         borderRadius: theme.radius.md,
         border: `1px solid ${theme.color.border}`,
@@ -35,8 +39,12 @@ export function CreateOptionRow({
         "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
       }}
     >
-      <div css={{ fontFamily: theme.font.mono, fontSize: 13, color: theme.color.text }}>{title}</div>
-      <Typography.Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{tagline}</Typography.Text>
+      <div>
+        <div css={{ fontFamily: theme.font.mono, fontSize: 13, color: theme.color.text }}>{title}</div>
+        <Typography.Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{description}</Typography.Text>
+      </div>
+      {/* Says the row goes somewhere; decorative, since the row is already a link. */}
+      <ChevronRight aria-hidden size={16} css={{ flexShrink: 0, color: theme.color.textMuted }} />
     </Link>
   );
 }
