@@ -196,6 +196,23 @@ var (
 	)
 )
 
+// xAI
+var (
+	XAIAPIKey = RegisterStringVar(
+		"XAI_API_KEY",
+		"",
+		"API key for xAI.",
+		ComponentAgentRuntime,
+	)
+
+	XAIAPIBase = RegisterStringVar(
+		"XAI_API_BASE",
+		"",
+		"Custom base URL for the xAI API (defaults to https://api.x.ai/v1).",
+		ComponentAgentRuntime,
+	)
+)
+
 // Foundry
 var (
 	FoundryAPIKey = RegisterStringVar(

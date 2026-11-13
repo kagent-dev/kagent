@@ -20,6 +20,7 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=op
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=anthropic    --set providers.anthropic.apiKey=your-anthropic-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=azureOpenAI  --set providers.azureOpenAI.apiKey=your-openai-api-key
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
+helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=xAI          --set providers.xAI.apiKey=your-xai-api-key
 ```
 
 ### Controller RBAC

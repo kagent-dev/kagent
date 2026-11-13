@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/runner"
@@ -382,6 +383,38 @@ func TestCreateLLMConfig_Mistral(t *testing.T) {
 	}
 }
 
+func TestCreateLLMConfig_XAI(t *testing.T) {
+	t.Run("Given an xAI runtime config, when the agent creates its LLM, assert that it builds an xAI model for the configured Grok model", func(t *testing.T) {
+		t.Setenv("XAI_API_KEY", "test-key")
+		t.Setenv("XAI_API_BASE", "")
+
+		configJSON := `{
+  "agent": {
+    "model": {
+      "model": "grok-4.7",
+      "xai": {
+        "base_url": "https://api.x.ai/v1",
+        "temperature": 0.5,
+        "max_tokens": 1024
+      }
+    },
+    "description": "test",
+    "instruction": "test"
+  }
+}`
+		var cfg configv1.ADKConfig
+		require.NoError(t, runtimeconfig.Unmarshal([]byte(configJSON), &cfg))
+
+		llm, err := CreateLLM(t.Context(), cfg.Agent.Model)
+		require.NoError(t, err)
+		xm, ok := llm.(*models.XAIModel)
+		require.Truef(t, ok, "CreateLLM returned %T, want *models.XAIModel", llm)
+		assert.Equal(t, "grok-4.7", xm.Name())
+		assert.Equal(t, "https://api.x.ai/v1", xm.Config.BaseUrl)
+		assert.Equal(t, new(int64(1024)), xm.Config.MaxTokens)
+	})
+}
+
 // TestConfigDeserialization_Bedrock verifies that a Bedrock config deserializes
 // correctly with the model name and region preserved.
 func TestConfigDeserialization_Bedrock(t *testing.T) {
@@ -585,6 +618,7 @@ func TestCreateGoogleADKAgentSendsStrictOutputSchema(t *testing.T) {
 	t.Setenv("AZURE_OPENAI_API_KEY", "test-key")
 	t.Setenv("FOUNDRY_API_KEY", "test-key")
 	t.Setenv("MISTRAL_API_KEY", "test-key")
+	t.Setenv("XAI_API_KEY", "test-key")
 	providers := []struct {
 		name        string
 		model       func(url string, strict bool) *configv1.ADKModelConfig
@@ -604,6 +638,9 @@ func TestCreateGoogleADKAgentSendsStrictOutputSchema(t *testing.T) {
 		}},
 		{name: "mistral", omitsStrict: true, model: func(url string, _ bool) *configv1.ADKModelConfig {
 			return &configv1.ADKModelConfig{Model: "mistral-small-latest", Provider: &configv1.ADKModelConfig_Mistral{Mistral: &configv1.ADKMistral{BaseUrl: url}}}
+		}},
+		{name: "xai", omitsStrict: true, model: func(url string, _ bool) *configv1.ADKModelConfig {
+			return &configv1.ADKModelConfig{Model: "grok-4.7", Provider: &configv1.ADKModelConfig_Xai{Xai: &configv1.ADKXAI{BaseUrl: url}}}
 		}},
 	}
 	for _, provider := range providers {

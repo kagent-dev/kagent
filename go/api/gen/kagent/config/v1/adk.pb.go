@@ -266,6 +266,7 @@ type ADKModelConfig struct {
 	//	*ADKModelConfig_SapAiCore
 	//	*ADKModelConfig_Foundry
 	//	*ADKModelConfig_Mistral
+	//	*ADKModelConfig_Xai
 	Provider      isADKModelConfig_Provider `protobuf_oneof:"provider"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -449,6 +450,15 @@ func (x *ADKModelConfig) GetMistral() *ADKMistral {
 	return nil
 }
 
+func (x *ADKModelConfig) GetXai() *ADKXAI {
+	if x != nil {
+		if x, ok := x.Provider.(*ADKModelConfig_Xai); ok {
+			return x.Xai
+		}
+	}
+	return nil
+}
+
 type isADKModelConfig_Provider interface {
 	isADKModelConfig_Provider()
 }
@@ -497,6 +507,10 @@ type ADKModelConfig_Mistral struct {
 	Mistral *ADKMistral `protobuf:"bytes,20,opt,name=mistral,proto3,oneof"`
 }
 
+type ADKModelConfig_Xai struct {
+	Xai *ADKXAI `protobuf:"bytes,21,opt,name=xai,proto3,oneof"`
+}
+
 func (*ADKModelConfig_Openai) isADKModelConfig_Provider() {}
 
 func (*ADKModelConfig_AzureOpenai) isADKModelConfig_Provider() {}
@@ -518,6 +532,8 @@ func (*ADKModelConfig_SapAiCore) isADKModelConfig_Provider() {}
 func (*ADKModelConfig_Foundry) isADKModelConfig_Provider() {}
 
 func (*ADKModelConfig_Mistral) isADKModelConfig_Provider() {}
+
+func (*ADKModelConfig_Xai) isADKModelConfig_Provider() {}
 
 type ADKOpenAI struct {
 	state               protoimpl.MessageState  `protogen:"open.v1"`
@@ -1063,6 +1079,82 @@ func (x *ADKMistral) GetTimeout() *durationpb.Duration {
 	return nil
 }
 
+type ADKXAI struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BaseUrl       string                 `protobuf:"bytes,1,opt,name=base_url,json=baseUrl,proto3" json:"base_url,omitempty"`
+	MaxTokens     *int64                 `protobuf:"varint,2,opt,name=max_tokens,json=maxTokens,proto3,oneof" json:"max_tokens,omitempty"`
+	Temperature   *float64               `protobuf:"fixed64,3,opt,name=temperature,proto3,oneof" json:"temperature,omitempty"`
+	TopP          *float64               `protobuf:"fixed64,4,opt,name=top_p,json=topP,proto3,oneof" json:"top_p,omitempty"`
+	Timeout       *durationpb.Duration   `protobuf:"bytes,5,opt,name=timeout,proto3" json:"timeout,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ADKXAI) Reset() {
+	*x = ADKXAI{}
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ADKXAI) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ADKXAI) ProtoMessage() {}
+
+func (x *ADKXAI) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ADKXAI.ProtoReflect.Descriptor instead.
+func (*ADKXAI) Descriptor() ([]byte, []int) {
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ADKXAI) GetBaseUrl() string {
+	if x != nil {
+		return x.BaseUrl
+	}
+	return ""
+}
+
+func (x *ADKXAI) GetMaxTokens() int64 {
+	if x != nil && x.MaxTokens != nil {
+		return *x.MaxTokens
+	}
+	return 0
+}
+
+func (x *ADKXAI) GetTemperature() float64 {
+	if x != nil && x.Temperature != nil {
+		return *x.Temperature
+	}
+	return 0
+}
+
+func (x *ADKXAI) GetTopP() float64 {
+	if x != nil && x.TopP != nil {
+		return *x.TopP
+	}
+	return 0
+}
+
+func (x *ADKXAI) GetTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.Timeout
+	}
+	return nil
+}
+
 type ADKGeminiVertexAI struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	MaxOutputTokens *int64                 `protobuf:"varint,1,opt,name=max_output_tokens,json=maxOutputTokens,proto3,oneof" json:"max_output_tokens,omitempty"`
@@ -1072,7 +1164,7 @@ type ADKGeminiVertexAI struct {
 
 func (x *ADKGeminiVertexAI) Reset() {
 	*x = ADKGeminiVertexAI{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[9]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1084,7 +1176,7 @@ func (x *ADKGeminiVertexAI) String() string {
 func (*ADKGeminiVertexAI) ProtoMessage() {}
 
 func (x *ADKGeminiVertexAI) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[9]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1097,7 +1189,7 @@ func (x *ADKGeminiVertexAI) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKGeminiVertexAI.ProtoReflect.Descriptor instead.
 func (*ADKGeminiVertexAI) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{9}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ADKGeminiVertexAI) GetMaxOutputTokens() int64 {
@@ -1115,7 +1207,7 @@ type ADKGeminiAnthropic struct {
 
 func (x *ADKGeminiAnthropic) Reset() {
 	*x = ADKGeminiAnthropic{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[10]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1127,7 +1219,7 @@ func (x *ADKGeminiAnthropic) String() string {
 func (*ADKGeminiAnthropic) ProtoMessage() {}
 
 func (x *ADKGeminiAnthropic) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[10]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1140,7 +1232,7 @@ func (x *ADKGeminiAnthropic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKGeminiAnthropic.ProtoReflect.Descriptor instead.
 func (*ADKGeminiAnthropic) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{10}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{11}
 }
 
 type ADKOllama struct {
@@ -1152,7 +1244,7 @@ type ADKOllama struct {
 
 func (x *ADKOllama) Reset() {
 	*x = ADKOllama{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[11]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1256,7 @@ func (x *ADKOllama) String() string {
 func (*ADKOllama) ProtoMessage() {}
 
 func (x *ADKOllama) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[11]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1269,7 @@ func (x *ADKOllama) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKOllama.ProtoReflect.Descriptor instead.
 func (*ADKOllama) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{11}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ADKOllama) GetOptions() map[string]string {
@@ -1198,7 +1290,7 @@ type ADKGemini struct {
 
 func (x *ADKGemini) Reset() {
 	*x = ADKGemini{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[12]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1210,7 +1302,7 @@ func (x *ADKGemini) String() string {
 func (*ADKGemini) ProtoMessage() {}
 
 func (x *ADKGemini) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[12]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1223,7 +1315,7 @@ func (x *ADKGemini) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKGemini.ProtoReflect.Descriptor instead.
 func (*ADKGemini) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{12}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ADKGemini) GetMaxOutputTokens() int64 {
@@ -1257,7 +1349,7 @@ type ADKBedrock struct {
 
 func (x *ADKBedrock) Reset() {
 	*x = ADKBedrock{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[13]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1269,7 +1361,7 @@ func (x *ADKBedrock) String() string {
 func (*ADKBedrock) ProtoMessage() {}
 
 func (x *ADKBedrock) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[13]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1374,7 @@ func (x *ADKBedrock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKBedrock.ProtoReflect.Descriptor instead.
 func (*ADKBedrock) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{13}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ADKBedrock) GetRegion() string {
@@ -1345,7 +1437,7 @@ type ADKBedrockGuardrail struct {
 
 func (x *ADKBedrockGuardrail) Reset() {
 	*x = ADKBedrockGuardrail{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[14]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1357,7 +1449,7 @@ func (x *ADKBedrockGuardrail) String() string {
 func (*ADKBedrockGuardrail) ProtoMessage() {}
 
 func (x *ADKBedrockGuardrail) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[14]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1370,7 +1462,7 @@ func (x *ADKBedrockGuardrail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKBedrockGuardrail.ProtoReflect.Descriptor instead.
 func (*ADKBedrockGuardrail) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{14}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ADKBedrockGuardrail) GetIdentifier() string {
@@ -1405,7 +1497,7 @@ type ADKSAPAICore struct {
 
 func (x *ADKSAPAICore) Reset() {
 	*x = ADKSAPAICore{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[15]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1417,7 +1509,7 @@ func (x *ADKSAPAICore) String() string {
 func (*ADKSAPAICore) ProtoMessage() {}
 
 func (x *ADKSAPAICore) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[15]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1430,7 +1522,7 @@ func (x *ADKSAPAICore) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKSAPAICore.ProtoReflect.Descriptor instead.
 func (*ADKSAPAICore) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{15}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ADKSAPAICore) GetBaseUrl() string {
@@ -1469,7 +1561,7 @@ type ADKFoundry struct {
 
 func (x *ADKFoundry) Reset() {
 	*x = ADKFoundry{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[16]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1481,7 +1573,7 @@ func (x *ADKFoundry) String() string {
 func (*ADKFoundry) ProtoMessage() {}
 
 func (x *ADKFoundry) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[16]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1494,7 +1586,7 @@ func (x *ADKFoundry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKFoundry.ProtoReflect.Descriptor instead.
 func (*ADKFoundry) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{16}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ADKFoundry) GetEndpoint() string {
@@ -1548,7 +1640,7 @@ type ADKHTTPConnectionParams struct {
 
 func (x *ADKHTTPConnectionParams) Reset() {
 	*x = ADKHTTPConnectionParams{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[17]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1560,7 +1652,7 @@ func (x *ADKHTTPConnectionParams) String() string {
 func (*ADKHTTPConnectionParams) ProtoMessage() {}
 
 func (x *ADKHTTPConnectionParams) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[17]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1573,7 +1665,7 @@ func (x *ADKHTTPConnectionParams) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKHTTPConnectionParams.ProtoReflect.Descriptor instead.
 func (*ADKHTTPConnectionParams) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{17}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ADKHTTPConnectionParams) GetUrl() string {
@@ -1647,7 +1739,7 @@ type ADKSSEConnectionParams struct {
 
 func (x *ADKSSEConnectionParams) Reset() {
 	*x = ADKSSEConnectionParams{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[18]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1659,7 +1751,7 @@ func (x *ADKSSEConnectionParams) String() string {
 func (*ADKSSEConnectionParams) ProtoMessage() {}
 
 func (x *ADKSSEConnectionParams) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[18]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1672,7 +1764,7 @@ func (x *ADKSSEConnectionParams) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKSSEConnectionParams.ProtoReflect.Descriptor instead.
 func (*ADKSSEConnectionParams) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{18}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ADKSSEConnectionParams) GetUrl() string {
@@ -1738,7 +1830,7 @@ type ADKHTTPMCPServerConfig struct {
 
 func (x *ADKHTTPMCPServerConfig) Reset() {
 	*x = ADKHTTPMCPServerConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[19]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1750,7 +1842,7 @@ func (x *ADKHTTPMCPServerConfig) String() string {
 func (*ADKHTTPMCPServerConfig) ProtoMessage() {}
 
 func (x *ADKHTTPMCPServerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[19]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1763,7 +1855,7 @@ func (x *ADKHTTPMCPServerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKHTTPMCPServerConfig.ProtoReflect.Descriptor instead.
 func (*ADKHTTPMCPServerConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{19}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ADKHTTPMCPServerConfig) GetParams() *ADKHTTPConnectionParams {
@@ -1815,7 +1907,7 @@ type ADKSSEMCPServerConfig struct {
 
 func (x *ADKSSEMCPServerConfig) Reset() {
 	*x = ADKSSEMCPServerConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[20]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1827,7 +1919,7 @@ func (x *ADKSSEMCPServerConfig) String() string {
 func (*ADKSSEMCPServerConfig) ProtoMessage() {}
 
 func (x *ADKSSEMCPServerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[20]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1840,7 +1932,7 @@ func (x *ADKSSEMCPServerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKSSEMCPServerConfig.ProtoReflect.Descriptor instead.
 func (*ADKSSEMCPServerConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{20}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ADKSSEMCPServerConfig) GetParams() *ADKSSEConnectionParams {
@@ -1890,7 +1982,7 @@ type ADKStdioMCPServerConfig struct {
 
 func (x *ADKStdioMCPServerConfig) Reset() {
 	*x = ADKStdioMCPServerConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[21]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1902,7 +1994,7 @@ func (x *ADKStdioMCPServerConfig) String() string {
 func (*ADKStdioMCPServerConfig) ProtoMessage() {}
 
 func (x *ADKStdioMCPServerConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[21]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1915,7 +2007,7 @@ func (x *ADKStdioMCPServerConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKStdioMCPServerConfig.ProtoReflect.Descriptor instead.
 func (*ADKStdioMCPServerConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{21}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ADKStdioMCPServerConfig) GetCommand() string {
@@ -1960,7 +2052,7 @@ type ADKRemoteAgentConfig struct {
 
 func (x *ADKRemoteAgentConfig) Reset() {
 	*x = ADKRemoteAgentConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[22]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1972,7 +2064,7 @@ func (x *ADKRemoteAgentConfig) String() string {
 func (*ADKRemoteAgentConfig) ProtoMessage() {}
 
 func (x *ADKRemoteAgentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[22]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1985,7 +2077,7 @@ func (x *ADKRemoteAgentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKRemoteAgentConfig.ProtoReflect.Descriptor instead.
 func (*ADKRemoteAgentConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{22}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ADKRemoteAgentConfig) GetName() string {
@@ -2048,7 +2140,7 @@ type ADKEmbeddingConfig struct {
 
 func (x *ADKEmbeddingConfig) Reset() {
 	*x = ADKEmbeddingConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[23]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2060,7 +2152,7 @@ func (x *ADKEmbeddingConfig) String() string {
 func (*ADKEmbeddingConfig) ProtoMessage() {}
 
 func (x *ADKEmbeddingConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[23]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2073,7 +2165,7 @@ func (x *ADKEmbeddingConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKEmbeddingConfig.ProtoReflect.Descriptor instead.
 func (*ADKEmbeddingConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{23}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ADKEmbeddingConfig) GetProvider() string {
@@ -2157,7 +2249,7 @@ type ADKMemoryConfig struct {
 
 func (x *ADKMemoryConfig) Reset() {
 	*x = ADKMemoryConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[24]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2169,7 +2261,7 @@ func (x *ADKMemoryConfig) String() string {
 func (*ADKMemoryConfig) ProtoMessage() {}
 
 func (x *ADKMemoryConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[24]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2182,7 +2274,7 @@ func (x *ADKMemoryConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKMemoryConfig.ProtoReflect.Descriptor instead.
 func (*ADKMemoryConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{24}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ADKMemoryConfig) GetTtlDays() int64 {
@@ -2208,7 +2300,7 @@ type ADKContextConfig struct {
 
 func (x *ADKContextConfig) Reset() {
 	*x = ADKContextConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[25]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2220,7 +2312,7 @@ func (x *ADKContextConfig) String() string {
 func (*ADKContextConfig) ProtoMessage() {}
 
 func (x *ADKContextConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[25]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2233,7 +2325,7 @@ func (x *ADKContextConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKContextConfig.ProtoReflect.Descriptor instead.
 func (*ADKContextConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{25}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ADKContextConfig) GetCompaction() *ADKCompressionConfig {
@@ -2257,7 +2349,7 @@ type ADKCompressionConfig struct {
 
 func (x *ADKCompressionConfig) Reset() {
 	*x = ADKCompressionConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[26]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2269,7 +2361,7 @@ func (x *ADKCompressionConfig) String() string {
 func (*ADKCompressionConfig) ProtoMessage() {}
 
 func (x *ADKCompressionConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[26]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2282,7 +2374,7 @@ func (x *ADKCompressionConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKCompressionConfig.ProtoReflect.Descriptor instead.
 func (*ADKCompressionConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{26}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ADKCompressionConfig) GetCompactionInterval() int64 {
@@ -2338,7 +2430,7 @@ type ADKOutputConfig struct {
 
 func (x *ADKOutputConfig) Reset() {
 	*x = ADKOutputConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[27]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2350,7 +2442,7 @@ func (x *ADKOutputConfig) String() string {
 func (*ADKOutputConfig) ProtoMessage() {}
 
 func (x *ADKOutputConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[27]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2363,7 +2455,7 @@ func (x *ADKOutputConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKOutputConfig.ProtoReflect.Descriptor instead.
 func (*ADKOutputConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{27}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ADKOutputConfig) GetJsonSchema() []byte {
@@ -2390,7 +2482,7 @@ type ADKAgentPlugins struct {
 
 func (x *ADKAgentPlugins) Reset() {
 	*x = ADKAgentPlugins{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[28]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2402,7 +2494,7 @@ func (x *ADKAgentPlugins) String() string {
 func (*ADKAgentPlugins) ProtoMessage() {}
 
 func (x *ADKAgentPlugins) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[28]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2415,7 +2507,7 @@ func (x *ADKAgentPlugins) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKAgentPlugins.ProtoReflect.Descriptor instead.
 func (*ADKAgentPlugins) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{28}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ADKAgentPlugins) GetSkills() []*ADKSkill {
@@ -2442,7 +2534,7 @@ type ADKSkill struct {
 
 func (x *ADKSkill) Reset() {
 	*x = ADKSkill{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[29]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2454,7 +2546,7 @@ func (x *ADKSkill) String() string {
 func (*ADKSkill) ProtoMessage() {}
 
 func (x *ADKSkill) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[29]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2467,7 +2559,7 @@ func (x *ADKSkill) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKSkill.ProtoReflect.Descriptor instead.
 func (*ADKSkill) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{29}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ADKSkill) GetName() string {
@@ -2494,7 +2586,7 @@ type ADKPluginBundle struct {
 
 func (x *ADKPluginBundle) Reset() {
 	*x = ADKPluginBundle{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[30]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2506,7 +2598,7 @@ func (x *ADKPluginBundle) String() string {
 func (*ADKPluginBundle) ProtoMessage() {}
 
 func (x *ADKPluginBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[30]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2519,7 +2611,7 @@ func (x *ADKPluginBundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKPluginBundle.ProtoReflect.Descriptor instead.
 func (*ADKPluginBundle) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{30}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ADKPluginBundle) GetSource() *ADKPluginSource {
@@ -2551,7 +2643,7 @@ type ADKPluginSource struct {
 
 func (x *ADKPluginSource) Reset() {
 	*x = ADKPluginSource{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[31]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2563,7 +2655,7 @@ func (x *ADKPluginSource) String() string {
 func (*ADKPluginSource) ProtoMessage() {}
 
 func (x *ADKPluginSource) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[31]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2576,7 +2668,7 @@ func (x *ADKPluginSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKPluginSource.ProtoReflect.Descriptor instead.
 func (*ADKPluginSource) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{31}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ADKPluginSource) GetSource() isADKPluginSource_Source {
@@ -2652,7 +2744,7 @@ type ADKPluginGitSource struct {
 
 func (x *ADKPluginGitSource) Reset() {
 	*x = ADKPluginGitSource{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[32]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2664,7 +2756,7 @@ func (x *ADKPluginGitSource) String() string {
 func (*ADKPluginGitSource) ProtoMessage() {}
 
 func (x *ADKPluginGitSource) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[32]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2677,7 +2769,7 @@ func (x *ADKPluginGitSource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKPluginGitSource.ProtoReflect.Descriptor instead.
 func (*ADKPluginGitSource) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{32}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ADKPluginGitSource) GetUrl() string {
@@ -2707,7 +2799,7 @@ type ADKPluginS3Source struct {
 
 func (x *ADKPluginS3Source) Reset() {
 	*x = ADKPluginS3Source{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[33]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2719,7 +2811,7 @@ func (x *ADKPluginS3Source) String() string {
 func (*ADKPluginS3Source) ProtoMessage() {}
 
 func (x *ADKPluginS3Source) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[33]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2732,7 +2824,7 @@ func (x *ADKPluginS3Source) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKPluginS3Source.ProtoReflect.Descriptor instead.
 func (*ADKPluginS3Source) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{33}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ADKPluginS3Source) GetEndpoint() string {
@@ -2793,7 +2885,7 @@ type ADKRuntimeConfig struct {
 
 func (x *ADKRuntimeConfig) Reset() {
 	*x = ADKRuntimeConfig{}
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[34]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2805,7 +2897,7 @@ func (x *ADKRuntimeConfig) String() string {
 func (*ADKRuntimeConfig) ProtoMessage() {}
 
 func (x *ADKRuntimeConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_kagent_config_v1_adk_proto_msgTypes[34]
+	mi := &file_kagent_config_v1_adk_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2818,7 +2910,7 @@ func (x *ADKRuntimeConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ADKRuntimeConfig.ProtoReflect.Descriptor instead.
 func (*ADKRuntimeConfig) Descriptor() ([]byte, []int) {
-	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{34}
+	return file_kagent_config_v1_adk_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ADKRuntimeConfig) GetControlPlaneUrl() string {
@@ -2927,7 +3019,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\n" +
 	"sub_agents\x18\x11 \x03(\v2 .kagent.config.v1.ADKAgentConfigR\tsubAgents\x129\n" +
 	"\x06output\x18\x12 \x01(\v2!.kagent.config.v1.ADKOutputConfigR\x06outputB\t\n" +
-	"\a_stream\"\xa1\t\n" +
+	"\a_stream\"\xcf\t\n" +
 	"\x0eADKModelConfig\x12\x14\n" +
 	"\x05model\x18\x01 \x01(\tR\x05model\x12G\n" +
 	"\aheaders\x18\x02 \x03(\v2-.kagent.config.v1.ADKModelConfig.HeadersEntryR\aheaders\x12<\n" +
@@ -2946,7 +3038,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\abedrock\x18\x11 \x01(\v2\x1c.kagent.config.v1.ADKBedrockH\x00R\abedrock\x12@\n" +
 	"\vsap_ai_core\x18\x12 \x01(\v2\x1e.kagent.config.v1.ADKSAPAICoreH\x00R\tsapAiCore\x128\n" +
 	"\afoundry\x18\x13 \x01(\v2\x1c.kagent.config.v1.ADKFoundryH\x00R\afoundry\x128\n" +
-	"\amistral\x18\x14 \x01(\v2\x1c.kagent.config.v1.ADKMistralH\x00R\amistral\x1a:\n" +
+	"\amistral\x18\x14 \x01(\v2\x1c.kagent.config.v1.ADKMistralH\x00R\amistral\x12,\n" +
+	"\x03xai\x18\x15 \x01(\v2\x18.kagent.config.v1.ADKXAIH\x00R\x03xai\x1a:\n" +
 	"\fHeadersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x11\n" +
@@ -3024,6 +3117,17 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x06_top_k\"\xb7\x02\n" +
 	"\n" +
 	"ADKMistral\x12\x19\n" +
+	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12+\n" +
+	"\n" +
+	"max_tokens\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x00R\tmaxTokens\x88\x01\x01\x12>\n" +
+	"\vtemperature\x18\x03 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\x00@)\x00\x00\x00\x00\x00\x00\x00\x00H\x01R\vtemperature\x88\x01\x01\x121\n" +
+	"\x05top_p\x18\x04 \x01(\x01B\x17\xbaH\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00\xf0?)\x00\x00\x00\x00\x00\x00\x00\x00H\x02R\x04topP\x88\x01\x01\x12E\n" +
+	"\atimeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\atimeoutB\r\n" +
+	"\v_max_tokensB\x0e\n" +
+	"\f_temperatureB\b\n" +
+	"\x06_top_p\"\xb3\x02\n" +
+	"\x06ADKXAI\x12\x19\n" +
 	"\bbase_url\x18\x01 \x01(\tR\abaseUrl\x12+\n" +
 	"\n" +
 	"max_tokens\x18\x02 \x01(\x03B\a\xbaH\x04\"\x02(\x01H\x00R\tmaxTokens\x88\x01\x01\x12>\n" +
@@ -3246,7 +3350,7 @@ func file_kagent_config_v1_adk_proto_rawDescGZIP() []byte {
 	return file_kagent_config_v1_adk_proto_rawDescData
 }
 
-var file_kagent_config_v1_adk_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_kagent_config_v1_adk_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*ADKConfig)(nil),                  // 0: kagent.config.v1.ADKConfig
 	(*ADKAgentConfig)(nil),             // 1: kagent.config.v1.ADKAgentConfig
@@ -3257,105 +3361,108 @@ var file_kagent_config_v1_adk_proto_goTypes = []any{
 	(*ADKAzureOpenAI)(nil),             // 6: kagent.config.v1.ADKAzureOpenAI
 	(*ADKAnthropic)(nil),               // 7: kagent.config.v1.ADKAnthropic
 	(*ADKMistral)(nil),                 // 8: kagent.config.v1.ADKMistral
-	(*ADKGeminiVertexAI)(nil),          // 9: kagent.config.v1.ADKGeminiVertexAI
-	(*ADKGeminiAnthropic)(nil),         // 10: kagent.config.v1.ADKGeminiAnthropic
-	(*ADKOllama)(nil),                  // 11: kagent.config.v1.ADKOllama
-	(*ADKGemini)(nil),                  // 12: kagent.config.v1.ADKGemini
-	(*ADKBedrock)(nil),                 // 13: kagent.config.v1.ADKBedrock
-	(*ADKBedrockGuardrail)(nil),        // 14: kagent.config.v1.ADKBedrockGuardrail
-	(*ADKSAPAICore)(nil),               // 15: kagent.config.v1.ADKSAPAICore
-	(*ADKFoundry)(nil),                 // 16: kagent.config.v1.ADKFoundry
-	(*ADKHTTPConnectionParams)(nil),    // 17: kagent.config.v1.ADKHTTPConnectionParams
-	(*ADKSSEConnectionParams)(nil),     // 18: kagent.config.v1.ADKSSEConnectionParams
-	(*ADKHTTPMCPServerConfig)(nil),     // 19: kagent.config.v1.ADKHTTPMCPServerConfig
-	(*ADKSSEMCPServerConfig)(nil),      // 20: kagent.config.v1.ADKSSEMCPServerConfig
-	(*ADKStdioMCPServerConfig)(nil),    // 21: kagent.config.v1.ADKStdioMCPServerConfig
-	(*ADKRemoteAgentConfig)(nil),       // 22: kagent.config.v1.ADKRemoteAgentConfig
-	(*ADKEmbeddingConfig)(nil),         // 23: kagent.config.v1.ADKEmbeddingConfig
-	(*ADKMemoryConfig)(nil),            // 24: kagent.config.v1.ADKMemoryConfig
-	(*ADKContextConfig)(nil),           // 25: kagent.config.v1.ADKContextConfig
-	(*ADKCompressionConfig)(nil),       // 26: kagent.config.v1.ADKCompressionConfig
-	(*ADKOutputConfig)(nil),            // 27: kagent.config.v1.ADKOutputConfig
-	(*ADKAgentPlugins)(nil),            // 28: kagent.config.v1.ADKAgentPlugins
-	(*ADKSkill)(nil),                   // 29: kagent.config.v1.ADKSkill
-	(*ADKPluginBundle)(nil),            // 30: kagent.config.v1.ADKPluginBundle
-	(*ADKPluginSource)(nil),            // 31: kagent.config.v1.ADKPluginSource
-	(*ADKPluginGitSource)(nil),         // 32: kagent.config.v1.ADKPluginGitSource
-	(*ADKPluginS3Source)(nil),          // 33: kagent.config.v1.ADKPluginS3Source
-	(*ADKRuntimeConfig)(nil),           // 34: kagent.config.v1.ADKRuntimeConfig
-	nil,                                // 35: kagent.config.v1.ADKModelConfig.HeadersEntry
-	nil,                                // 36: kagent.config.v1.ADKOllama.OptionsEntry
-	nil,                                // 37: kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
-	nil,                                // 38: kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
-	nil,                                // 39: kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
-	nil,                                // 40: kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
-	(*durationpb.Duration)(nil),        // 41: google.protobuf.Duration
-	(*TokenPropagationConfig)(nil),     // 42: kagent.config.v1.TokenPropagationConfig
-	(*TelemetryConfig)(nil),            // 43: kagent.config.v1.TelemetryConfig
-	(*BuiltinToolsConfig)(nil),         // 44: kagent.config.v1.BuiltinToolsConfig
+	(*ADKXAI)(nil),                     // 9: kagent.config.v1.ADKXAI
+	(*ADKGeminiVertexAI)(nil),          // 10: kagent.config.v1.ADKGeminiVertexAI
+	(*ADKGeminiAnthropic)(nil),         // 11: kagent.config.v1.ADKGeminiAnthropic
+	(*ADKOllama)(nil),                  // 12: kagent.config.v1.ADKOllama
+	(*ADKGemini)(nil),                  // 13: kagent.config.v1.ADKGemini
+	(*ADKBedrock)(nil),                 // 14: kagent.config.v1.ADKBedrock
+	(*ADKBedrockGuardrail)(nil),        // 15: kagent.config.v1.ADKBedrockGuardrail
+	(*ADKSAPAICore)(nil),               // 16: kagent.config.v1.ADKSAPAICore
+	(*ADKFoundry)(nil),                 // 17: kagent.config.v1.ADKFoundry
+	(*ADKHTTPConnectionParams)(nil),    // 18: kagent.config.v1.ADKHTTPConnectionParams
+	(*ADKSSEConnectionParams)(nil),     // 19: kagent.config.v1.ADKSSEConnectionParams
+	(*ADKHTTPMCPServerConfig)(nil),     // 20: kagent.config.v1.ADKHTTPMCPServerConfig
+	(*ADKSSEMCPServerConfig)(nil),      // 21: kagent.config.v1.ADKSSEMCPServerConfig
+	(*ADKStdioMCPServerConfig)(nil),    // 22: kagent.config.v1.ADKStdioMCPServerConfig
+	(*ADKRemoteAgentConfig)(nil),       // 23: kagent.config.v1.ADKRemoteAgentConfig
+	(*ADKEmbeddingConfig)(nil),         // 24: kagent.config.v1.ADKEmbeddingConfig
+	(*ADKMemoryConfig)(nil),            // 25: kagent.config.v1.ADKMemoryConfig
+	(*ADKContextConfig)(nil),           // 26: kagent.config.v1.ADKContextConfig
+	(*ADKCompressionConfig)(nil),       // 27: kagent.config.v1.ADKCompressionConfig
+	(*ADKOutputConfig)(nil),            // 28: kagent.config.v1.ADKOutputConfig
+	(*ADKAgentPlugins)(nil),            // 29: kagent.config.v1.ADKAgentPlugins
+	(*ADKSkill)(nil),                   // 30: kagent.config.v1.ADKSkill
+	(*ADKPluginBundle)(nil),            // 31: kagent.config.v1.ADKPluginBundle
+	(*ADKPluginSource)(nil),            // 32: kagent.config.v1.ADKPluginSource
+	(*ADKPluginGitSource)(nil),         // 33: kagent.config.v1.ADKPluginGitSource
+	(*ADKPluginS3Source)(nil),          // 34: kagent.config.v1.ADKPluginS3Source
+	(*ADKRuntimeConfig)(nil),           // 35: kagent.config.v1.ADKRuntimeConfig
+	nil,                                // 36: kagent.config.v1.ADKModelConfig.HeadersEntry
+	nil,                                // 37: kagent.config.v1.ADKOllama.OptionsEntry
+	nil,                                // 38: kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
+	nil,                                // 39: kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
+	nil,                                // 40: kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
+	nil,                                // 41: kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
+	(*durationpb.Duration)(nil),        // 42: google.protobuf.Duration
+	(*TokenPropagationConfig)(nil),     // 43: kagent.config.v1.TokenPropagationConfig
+	(*TelemetryConfig)(nil),            // 44: kagent.config.v1.TelemetryConfig
+	(*BuiltinToolsConfig)(nil),         // 45: kagent.config.v1.BuiltinToolsConfig
 }
 var file_kagent_config_v1_adk_proto_depIdxs = []int32{
-	34, // 0: kagent.config.v1.ADKConfig.runtime:type_name -> kagent.config.v1.ADKRuntimeConfig
+	35, // 0: kagent.config.v1.ADKConfig.runtime:type_name -> kagent.config.v1.ADKRuntimeConfig
 	1,  // 1: kagent.config.v1.ADKConfig.agent:type_name -> kagent.config.v1.ADKAgentConfig
 	2,  // 2: kagent.config.v1.ADKAgentConfig.model:type_name -> kagent.config.v1.ADKModelConfig
-	19, // 3: kagent.config.v1.ADKAgentConfig.http_tools:type_name -> kagent.config.v1.ADKHTTPMCPServerConfig
-	20, // 4: kagent.config.v1.ADKAgentConfig.sse_tools:type_name -> kagent.config.v1.ADKSSEMCPServerConfig
-	21, // 5: kagent.config.v1.ADKAgentConfig.stdio_tools:type_name -> kagent.config.v1.ADKStdioMCPServerConfig
-	22, // 6: kagent.config.v1.ADKAgentConfig.remote_agents:type_name -> kagent.config.v1.ADKRemoteAgentConfig
-	24, // 7: kagent.config.v1.ADKAgentConfig.memory:type_name -> kagent.config.v1.ADKMemoryConfig
-	28, // 8: kagent.config.v1.ADKAgentConfig.agent_plugins:type_name -> kagent.config.v1.ADKAgentPlugins
-	25, // 9: kagent.config.v1.ADKAgentConfig.context_config:type_name -> kagent.config.v1.ADKContextConfig
+	20, // 3: kagent.config.v1.ADKAgentConfig.http_tools:type_name -> kagent.config.v1.ADKHTTPMCPServerConfig
+	21, // 4: kagent.config.v1.ADKAgentConfig.sse_tools:type_name -> kagent.config.v1.ADKSSEMCPServerConfig
+	22, // 5: kagent.config.v1.ADKAgentConfig.stdio_tools:type_name -> kagent.config.v1.ADKStdioMCPServerConfig
+	23, // 6: kagent.config.v1.ADKAgentConfig.remote_agents:type_name -> kagent.config.v1.ADKRemoteAgentConfig
+	25, // 7: kagent.config.v1.ADKAgentConfig.memory:type_name -> kagent.config.v1.ADKMemoryConfig
+	29, // 8: kagent.config.v1.ADKAgentConfig.agent_plugins:type_name -> kagent.config.v1.ADKAgentPlugins
+	26, // 9: kagent.config.v1.ADKAgentConfig.context_config:type_name -> kagent.config.v1.ADKContextConfig
 	1,  // 10: kagent.config.v1.ADKAgentConfig.sub_agents:type_name -> kagent.config.v1.ADKAgentConfig
-	27, // 11: kagent.config.v1.ADKAgentConfig.output:type_name -> kagent.config.v1.ADKOutputConfig
-	35, // 12: kagent.config.v1.ADKModelConfig.headers:type_name -> kagent.config.v1.ADKModelConfig.HeadersEntry
+	28, // 11: kagent.config.v1.ADKAgentConfig.output:type_name -> kagent.config.v1.ADKOutputConfig
+	36, // 12: kagent.config.v1.ADKModelConfig.headers:type_name -> kagent.config.v1.ADKModelConfig.HeadersEntry
 	3,  // 13: kagent.config.v1.ADKModelConfig.openai:type_name -> kagent.config.v1.ADKOpenAI
 	6,  // 14: kagent.config.v1.ADKModelConfig.azure_openai:type_name -> kagent.config.v1.ADKAzureOpenAI
 	7,  // 15: kagent.config.v1.ADKModelConfig.anthropic:type_name -> kagent.config.v1.ADKAnthropic
-	9,  // 16: kagent.config.v1.ADKModelConfig.gemini_vertex_ai:type_name -> kagent.config.v1.ADKGeminiVertexAI
-	10, // 17: kagent.config.v1.ADKModelConfig.gemini_anthropic:type_name -> kagent.config.v1.ADKGeminiAnthropic
-	11, // 18: kagent.config.v1.ADKModelConfig.ollama:type_name -> kagent.config.v1.ADKOllama
-	12, // 19: kagent.config.v1.ADKModelConfig.gemini:type_name -> kagent.config.v1.ADKGemini
-	13, // 20: kagent.config.v1.ADKModelConfig.bedrock:type_name -> kagent.config.v1.ADKBedrock
-	15, // 21: kagent.config.v1.ADKModelConfig.sap_ai_core:type_name -> kagent.config.v1.ADKSAPAICore
-	16, // 22: kagent.config.v1.ADKModelConfig.foundry:type_name -> kagent.config.v1.ADKFoundry
+	10, // 16: kagent.config.v1.ADKModelConfig.gemini_vertex_ai:type_name -> kagent.config.v1.ADKGeminiVertexAI
+	11, // 17: kagent.config.v1.ADKModelConfig.gemini_anthropic:type_name -> kagent.config.v1.ADKGeminiAnthropic
+	12, // 18: kagent.config.v1.ADKModelConfig.ollama:type_name -> kagent.config.v1.ADKOllama
+	13, // 19: kagent.config.v1.ADKModelConfig.gemini:type_name -> kagent.config.v1.ADKGemini
+	14, // 20: kagent.config.v1.ADKModelConfig.bedrock:type_name -> kagent.config.v1.ADKBedrock
+	16, // 21: kagent.config.v1.ADKModelConfig.sap_ai_core:type_name -> kagent.config.v1.ADKSAPAICore
+	17, // 22: kagent.config.v1.ADKModelConfig.foundry:type_name -> kagent.config.v1.ADKFoundry
 	8,  // 23: kagent.config.v1.ADKModelConfig.mistral:type_name -> kagent.config.v1.ADKMistral
-	41, // 24: kagent.config.v1.ADKOpenAI.timeout:type_name -> google.protobuf.Duration
-	4,  // 25: kagent.config.v1.ADKOpenAI.token_exchange:type_name -> kagent.config.v1.ADKTokenExchangeConfig
-	5,  // 26: kagent.config.v1.ADKTokenExchangeConfig.gdch_service_account:type_name -> kagent.config.v1.ADKGDCHTokenExchangeConfig
-	41, // 27: kagent.config.v1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
-	41, // 28: kagent.config.v1.ADKMistral.timeout:type_name -> google.protobuf.Duration
-	36, // 29: kagent.config.v1.ADKOllama.options:type_name -> kagent.config.v1.ADKOllama.OptionsEntry
-	14, // 30: kagent.config.v1.ADKBedrock.guardrail:type_name -> kagent.config.v1.ADKBedrockGuardrail
-	41, // 31: kagent.config.v1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
-	41, // 32: kagent.config.v1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
-	37, // 33: kagent.config.v1.ADKHTTPConnectionParams.headers:type_name -> kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
-	41, // 34: kagent.config.v1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
-	41, // 35: kagent.config.v1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
-	38, // 36: kagent.config.v1.ADKSSEConnectionParams.headers:type_name -> kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
-	41, // 37: kagent.config.v1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
-	41, // 38: kagent.config.v1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
-	17, // 39: kagent.config.v1.ADKHTTPMCPServerConfig.params:type_name -> kagent.config.v1.ADKHTTPConnectionParams
-	18, // 40: kagent.config.v1.ADKSSEMCPServerConfig.params:type_name -> kagent.config.v1.ADKSSEConnectionParams
-	39, // 41: kagent.config.v1.ADKStdioMCPServerConfig.env:type_name -> kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
-	40, // 42: kagent.config.v1.ADKRemoteAgentConfig.headers:type_name -> kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
-	41, // 43: kagent.config.v1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
-	23, // 44: kagent.config.v1.ADKMemoryConfig.embedding:type_name -> kagent.config.v1.ADKEmbeddingConfig
-	26, // 45: kagent.config.v1.ADKContextConfig.compaction:type_name -> kagent.config.v1.ADKCompressionConfig
-	2,  // 46: kagent.config.v1.ADKCompressionConfig.summarizer_model:type_name -> kagent.config.v1.ADKModelConfig
-	29, // 47: kagent.config.v1.ADKAgentPlugins.skills:type_name -> kagent.config.v1.ADKSkill
-	30, // 48: kagent.config.v1.ADKAgentPlugins.plugins:type_name -> kagent.config.v1.ADKPluginBundle
-	31, // 49: kagent.config.v1.ADKSkill.source:type_name -> kagent.config.v1.ADKPluginSource
-	31, // 50: kagent.config.v1.ADKPluginBundle.source:type_name -> kagent.config.v1.ADKPluginSource
-	32, // 51: kagent.config.v1.ADKPluginSource.git:type_name -> kagent.config.v1.ADKPluginGitSource
-	33, // 52: kagent.config.v1.ADKPluginSource.s3:type_name -> kagent.config.v1.ADKPluginS3Source
-	42, // 53: kagent.config.v1.ADKRuntimeConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	43, // 54: kagent.config.v1.ADKRuntimeConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	44, // 55: kagent.config.v1.ADKRuntimeConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	56, // [56:56] is the sub-list for method output_type
-	56, // [56:56] is the sub-list for method input_type
-	56, // [56:56] is the sub-list for extension type_name
-	56, // [56:56] is the sub-list for extension extendee
-	0,  // [0:56] is the sub-list for field type_name
+	9,  // 24: kagent.config.v1.ADKModelConfig.xai:type_name -> kagent.config.v1.ADKXAI
+	42, // 25: kagent.config.v1.ADKOpenAI.timeout:type_name -> google.protobuf.Duration
+	4,  // 26: kagent.config.v1.ADKOpenAI.token_exchange:type_name -> kagent.config.v1.ADKTokenExchangeConfig
+	5,  // 27: kagent.config.v1.ADKTokenExchangeConfig.gdch_service_account:type_name -> kagent.config.v1.ADKGDCHTokenExchangeConfig
+	42, // 28: kagent.config.v1.ADKAnthropic.timeout:type_name -> google.protobuf.Duration
+	42, // 29: kagent.config.v1.ADKMistral.timeout:type_name -> google.protobuf.Duration
+	42, // 30: kagent.config.v1.ADKXAI.timeout:type_name -> google.protobuf.Duration
+	37, // 31: kagent.config.v1.ADKOllama.options:type_name -> kagent.config.v1.ADKOllama.OptionsEntry
+	15, // 32: kagent.config.v1.ADKBedrock.guardrail:type_name -> kagent.config.v1.ADKBedrockGuardrail
+	42, // 33: kagent.config.v1.ADKBedrock.read_timeout:type_name -> google.protobuf.Duration
+	42, // 34: kagent.config.v1.ADKBedrock.connect_timeout:type_name -> google.protobuf.Duration
+	38, // 35: kagent.config.v1.ADKHTTPConnectionParams.headers:type_name -> kagent.config.v1.ADKHTTPConnectionParams.HeadersEntry
+	42, // 36: kagent.config.v1.ADKHTTPConnectionParams.timeout:type_name -> google.protobuf.Duration
+	42, // 37: kagent.config.v1.ADKHTTPConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	39, // 38: kagent.config.v1.ADKSSEConnectionParams.headers:type_name -> kagent.config.v1.ADKSSEConnectionParams.HeadersEntry
+	42, // 39: kagent.config.v1.ADKSSEConnectionParams.timeout:type_name -> google.protobuf.Duration
+	42, // 40: kagent.config.v1.ADKSSEConnectionParams.sse_read_timeout:type_name -> google.protobuf.Duration
+	18, // 41: kagent.config.v1.ADKHTTPMCPServerConfig.params:type_name -> kagent.config.v1.ADKHTTPConnectionParams
+	19, // 42: kagent.config.v1.ADKSSEMCPServerConfig.params:type_name -> kagent.config.v1.ADKSSEConnectionParams
+	40, // 43: kagent.config.v1.ADKStdioMCPServerConfig.env:type_name -> kagent.config.v1.ADKStdioMCPServerConfig.EnvEntry
+	41, // 44: kagent.config.v1.ADKRemoteAgentConfig.headers:type_name -> kagent.config.v1.ADKRemoteAgentConfig.HeadersEntry
+	42, // 45: kagent.config.v1.ADKRemoteAgentConfig.timeout:type_name -> google.protobuf.Duration
+	24, // 46: kagent.config.v1.ADKMemoryConfig.embedding:type_name -> kagent.config.v1.ADKEmbeddingConfig
+	27, // 47: kagent.config.v1.ADKContextConfig.compaction:type_name -> kagent.config.v1.ADKCompressionConfig
+	2,  // 48: kagent.config.v1.ADKCompressionConfig.summarizer_model:type_name -> kagent.config.v1.ADKModelConfig
+	30, // 49: kagent.config.v1.ADKAgentPlugins.skills:type_name -> kagent.config.v1.ADKSkill
+	31, // 50: kagent.config.v1.ADKAgentPlugins.plugins:type_name -> kagent.config.v1.ADKPluginBundle
+	32, // 51: kagent.config.v1.ADKSkill.source:type_name -> kagent.config.v1.ADKPluginSource
+	32, // 52: kagent.config.v1.ADKPluginBundle.source:type_name -> kagent.config.v1.ADKPluginSource
+	33, // 53: kagent.config.v1.ADKPluginSource.git:type_name -> kagent.config.v1.ADKPluginGitSource
+	34, // 54: kagent.config.v1.ADKPluginSource.s3:type_name -> kagent.config.v1.ADKPluginS3Source
+	43, // 55: kagent.config.v1.ADKRuntimeConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	44, // 56: kagent.config.v1.ADKRuntimeConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	45, // 57: kagent.config.v1.ADKRuntimeConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	58, // [58:58] is the sub-list for method output_type
+	58, // [58:58] is the sub-list for method input_type
+	58, // [58:58] is the sub-list for extension type_name
+	58, // [58:58] is the sub-list for extension extendee
+	0,  // [0:58] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_adk_proto_init() }
@@ -3377,6 +3484,7 @@ func file_kagent_config_v1_adk_proto_init() {
 		(*ADKModelConfig_SapAiCore)(nil),
 		(*ADKModelConfig_Foundry)(nil),
 		(*ADKModelConfig_Mistral)(nil),
+		(*ADKModelConfig_Xai)(nil),
 	}
 	file_kagent_config_v1_adk_proto_msgTypes[3].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[4].OneofWrappers = []any{
@@ -3386,24 +3494,25 @@ func file_kagent_config_v1_adk_proto_init() {
 	file_kagent_config_v1_adk_proto_msgTypes[7].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[8].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[9].OneofWrappers = []any{}
-	file_kagent_config_v1_adk_proto_msgTypes[12].OneofWrappers = []any{}
-	file_kagent_config_v1_adk_proto_msgTypes[17].OneofWrappers = []any{}
+	file_kagent_config_v1_adk_proto_msgTypes[10].OneofWrappers = []any{}
+	file_kagent_config_v1_adk_proto_msgTypes[13].OneofWrappers = []any{}
 	file_kagent_config_v1_adk_proto_msgTypes[18].OneofWrappers = []any{}
-	file_kagent_config_v1_adk_proto_msgTypes[23].OneofWrappers = []any{}
-	file_kagent_config_v1_adk_proto_msgTypes[26].OneofWrappers = []any{}
-	file_kagent_config_v1_adk_proto_msgTypes[31].OneofWrappers = []any{
+	file_kagent_config_v1_adk_proto_msgTypes[19].OneofWrappers = []any{}
+	file_kagent_config_v1_adk_proto_msgTypes[24].OneofWrappers = []any{}
+	file_kagent_config_v1_adk_proto_msgTypes[27].OneofWrappers = []any{}
+	file_kagent_config_v1_adk_proto_msgTypes[32].OneofWrappers = []any{
 		(*ADKPluginSource_Git)(nil),
 		(*ADKPluginSource_S3)(nil),
 		(*ADKPluginSource_Directory)(nil),
 	}
-	file_kagent_config_v1_adk_proto_msgTypes[34].OneofWrappers = []any{}
+	file_kagent_config_v1_adk_proto_msgTypes[35].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_config_v1_adk_proto_rawDesc), len(file_kagent_config_v1_adk_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   41,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

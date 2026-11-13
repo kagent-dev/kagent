@@ -768,6 +768,13 @@ providers:
     apiKeySecretRef: kagent-mistral
     apiKeySecretKey: MISTRAL_API_KEY
     # apiKey: ""
+  # The key must stay "xAI": it is also the ModelConfig field that config renders into.
+  xAI:
+    provider: xAI
+    model: "grok-4.7"
+    apiKeySecretRef: kagent-xai
+    apiKeySecretKey: XAI_API_KEY
+    # apiKey: ""
 
 # ==============================================================================
 # BUILT-IN TOOLS

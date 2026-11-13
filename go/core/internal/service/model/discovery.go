@@ -346,6 +346,17 @@ func (s *Service) ListSupportedModels(context.Context) ProviderModels {
 			{Name: "pixtral-large-latest", FunctionCalling: true},
 			{Name: "open-mistral-nemo", FunctionCalling: true},
 		},
+		// Language-model IDs from https://docs.x.ai/developers/models. Each
+		// model's page there lists function calling as supported. grok-4.7 is
+		// xAI's general-purpose default and the first suggestion.
+		v1alpha3.ModelProviderXAI: {
+			{Name: "grok-4.7", FunctionCalling: true},
+			{Name: "grok-4.6", FunctionCalling: true},
+			{Name: "grok-4.5", FunctionCalling: true},
+			{Name: "grok-4.3", FunctionCalling: true},
+			{Name: "grok-4.20-0309-reasoning", FunctionCalling: true},
+			{Name: "grok-4.20-0309-non-reasoning", FunctionCalling: true},
+		},
 	}
 }
 
@@ -365,6 +376,7 @@ func (s *Service) ListSupportedModelProviders(context.Context) []ProviderDefinit
 		{v1alpha3.ModelProviderBedrock, reflect.TypeFor[v1alpha3.BedrockConfig]()},
 		{v1alpha3.ModelProviderSAPAICore, reflect.TypeFor[v1alpha3.SAPAICoreConfig]()},
 		{v1alpha3.ModelProviderMistral, reflect.TypeFor[v1alpha3.MistralConfig]()},
+		{v1alpha3.ModelProviderXAI, reflect.TypeFor[v1alpha3.XAIConfig]()},
 	}
 
 	providers := []ProviderDefinition{}
