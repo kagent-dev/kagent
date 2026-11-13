@@ -291,7 +291,10 @@ func TestADKContentCapture(t *testing.T) {
 			require.Len(t, modelSpans, 1, "the model span must exist even when content capture is off")
 			attributes := map[string]string{}
 			for _, attr := range modelSpans[0].Attributes {
-				attributes[attr.Key] = attr.Value.GetStringValue()
+				// ADK records message content as structured values, not JSON strings.
+				encoded, err := protojson.Marshal(attr.Value)
+				require.NoError(t, err)
+				attributes[attr.Key] = string(encoded)
 			}
 			for key, content := range map[string]string{
 				"gen_ai.input.messages": "What is 2+2?", "gen_ai.output.messages": "The answer is 4.",
@@ -304,7 +307,7 @@ func TestADKContentCapture(t *testing.T) {
 				}
 				require.Equal(t, scenario.wantLogs, strings.Contains(logPayloads, content), "log capture of %s", key)
 			}
-			require.Equal(t, 3, logCount, "ADK emits system, user, and choice events even when their content is redacted")
+			require.Equal(t, 1, logCount, "ADK emits one inference operation details event even when content capture is off")
 		})
 	}
 }
