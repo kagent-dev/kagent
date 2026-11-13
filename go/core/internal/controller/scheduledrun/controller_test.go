@@ -305,7 +305,7 @@ func (s *scopedControllerStore) GetSessionByID(_ context.Context, id string) (*a
 func (s *scopedControllerStore) ListAgentTasks(context.Context, []string, string, a2atype.TaskState, *time.Time, int, *int) ([]*a2atype.Task, int, error) {
 	return nil, 0, nil
 }
-func (s *scopedControllerStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+func (s *scopedControllerStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string, *database.TurnSender) error {
 	s.reserved = true
 	return nil
 }

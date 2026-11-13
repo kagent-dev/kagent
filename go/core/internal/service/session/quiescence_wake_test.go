@@ -136,7 +136,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 		workflow := NewActorWorkflow(writes, runtime, wake, time.Hour, noop.NewMeterProvider())
 		startQuiescenceWorker(t, workflow)
 		workflows = append(workflows, workflow)
-		services = append(services, taskstore.NewService(store, wake, nil))
+		services = append(services, taskstore.NewService(store, wake, nil, nil))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 8 }, 5*time.Second, 10*time.Millisecond)
 	// Failed settlement leaves the task unpublished and no eligible work.
@@ -150,7 +150,7 @@ func TestQuiescenceDrainsConcurrentSettlementsAcrossReplicas(t *testing.T) {
 	// Fill one replica before waking the other. PostgreSQL does not promise
 	// fair assignment when both replicas compete for the same small burst.
 	// Deliver one coalesced hint per burst to exercise the workers' handoff.
-	coalesced := taskstore.NewService(store, nil, nil)
+	coalesced := taskstore.NewService(store, nil, nil, nil)
 	for replica := range 2 {
 		for i := replica * 4; i < (replica+1)*4; i++ {
 			_, err := coalesced.SettleTask(settlementContext(t, sessions[i]), requests[i])
@@ -210,7 +210,7 @@ func TestQuiescenceRecoversMissedSignal(t *testing.T) {
 	startQuiescenceWorker(t, NewActorWorkflow(writes, actors, make(chan struct{}, 1), 100*time.Millisecond, provider))
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 4 }, 5*time.Second, time.Millisecond)
 	// This simulates a commit on a replica that dies before sending its hint.
-	_, err = taskstore.NewService(store, nil, nil).SettleTask(settlementContext(t, session), request)
+	_, err = taskstore.NewService(store, nil, nil, nil).SettleTask(settlementContext(t, session), request)
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
 	require.Equal(t, wantWorkClaims("recovery", 1), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
@@ -224,11 +224,12 @@ func TestQuiescenceRetriesTemporaryBlockers(t *testing.T) {
 			session, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Hour, noop.NewMeterProvider()).Create(t.Context(), session)
 			require.NoError(t, err)
 			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateInputRequired)
-			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+			_, err = store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version)
+			require.NoError(t, err)
 			var unblock func()
 			if blocker == "dispatch" {
 				dispatchID := uuid.New()
-				require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, ""))
+				require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "", nil))
 				unblock = func() {
 					revoked, err := store.RevokeSessionDispatch(t.Context(), session.Id, dispatchID, "unsaved-message")
 					require.NoError(t, err)
@@ -261,7 +262,8 @@ func TestQuiescenceCancellationRetainsClaim(t *testing.T) {
 	session, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Hour, noop.NewMeterProvider()).Create(t.Context(), session)
 	require.NoError(t, err)
 	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, request.TaskId, request.Version)
+	require.NoError(t, err)
 	actors := &gatedQuiescenceActors{lifecycleTestActors: base, release: make(chan struct{}), calls: map[string]int{}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
