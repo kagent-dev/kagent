@@ -12,14 +12,14 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/trace"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+	"github.com/kagent-dev/kagent/go/core/internal/valuesource"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const (
@@ -164,7 +164,9 @@ func (c *RuntimeMCPClient) connect(ctx context.Context, ref MCPServerRef) (*mcp.
 		return nil, nil, fmt.Errorf("failed to connect MCP client: %w", err)
 	}
 	cleanup := func() {
-		session.Close()
+		if err := session.Close(); err != nil {
+			logging.FromContext(ctx).WarnContext(ctx, "failed to close MCP client session", "server", ref.Ref.String(), "error", err)
+		}
 		cancel()
 	}
 	return session, cleanup, nil
@@ -284,42 +286,15 @@ func (t *mcpAppsHeaderTransport) RoundTrip(request *http.Request) (*http.Respons
 func resolveHeaders(ctx context.Context, kube client.Reader, namespace string, refs []v1alpha3.ValueRef) (map[string]string, error) {
 	headers := make(map[string]string, len(refs))
 	for _, ref := range refs {
-		value, err := resolveHeaderValue(ctx, kube, namespace, ref)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve header %s: %w", ref.Name, err)
+		value := ref.Value
+		if ref.ValueFrom != nil {
+			resolved, err := valuesource.Resolve(ctx, kube, namespace, *ref.ValueFrom)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve header %s: %w", ref.Name, err)
+			}
+			value = resolved
 		}
 		headers[ref.Name] = value
 	}
 	return headers, nil
-}
-
-func resolveHeaderValue(ctx context.Context, kube client.Reader, namespace string, ref v1alpha3.ValueRef) (string, error) {
-	if ref.ValueFrom == nil {
-		return ref.Value, nil
-	}
-	key := types.NamespacedName{Namespace: namespace, Name: ref.ValueFrom.Name}
-	switch ref.ValueFrom.Type {
-	case v1alpha3.SecretValueSource:
-		secret := &corev1.Secret{}
-		if err := kube.Get(ctx, key, secret); err != nil {
-			return "", fmt.Errorf("failed to get Secret %s: %w", key, err)
-		}
-		value, ok := secret.Data[ref.ValueFrom.Key]
-		if !ok {
-			return "", fmt.Errorf("key %s not found in Secret %s", ref.ValueFrom.Key, key)
-		}
-		return string(value), nil
-	case v1alpha3.ConfigMapValueSource:
-		configMap := &corev1.ConfigMap{}
-		if err := kube.Get(ctx, key, configMap); err != nil {
-			return "", fmt.Errorf("failed to get ConfigMap %s: %w", key, err)
-		}
-		value, ok := configMap.Data[ref.ValueFrom.Key]
-		if !ok {
-			return "", fmt.Errorf("key %s not found in ConfigMap %s", ref.ValueFrom.Key, key)
-		}
-		return value, nil
-	default:
-		return "", fmt.Errorf("unknown value source type %q", ref.ValueFrom.Type)
-	}
 }

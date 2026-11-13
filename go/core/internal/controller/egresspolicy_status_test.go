@@ -14,11 +14,17 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
+const (
+	egressTestSecretName = "credentials"
+	egressTestSecretKey  = "key"
+)
+
 func TestEgressPolicyReferenceStatusTracksSecrets(t *testing.T) {
+	const namespace, headerName = "team-a", "Authorization"
 	opts := krt.NewOptionsBuilder(t.Context().Done(), "test", nil)
 	policy := &kagentv1alpha3.EgressPolicy{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "egress", Generation: 3},
-		Spec:       kagentv1alpha3.EgressPolicySpec{Destinations: []kagentv1alpha3.EgressDestination{{Origin: "https://example.com", Authentication: &kagentv1alpha3.EgressAuthentication{Header: "Authorization", SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "credentials"}, Key: "key"}}}}},
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "egress", Generation: 3},
+		Spec:       kagentv1alpha3.EgressPolicySpec{Destinations: []kagentv1alpha3.EgressDestination{{Origin: "https://example.com", Authentication: &kagentv1alpha3.EgressAuthentication{Header: headerName, SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: egressTestSecretName}, Key: egressTestSecretKey}}}}},
 	}
 	policies := krt.NewStaticCollection(nil, []*kagentv1alpha3.EgressPolicy{policy}, opts.WithName("Policies")...)
 	secrets := krt.NewStaticCollection[*corev1.Secret](nil, nil, opts.WithName("Secrets")...)
@@ -46,11 +52,11 @@ func TestEgressPolicyReferenceStatusTracksSecrets(t *testing.T) {
 		require.Len(t, clientset.Actions(), before)
 	}
 	assertStatus(kagentv1alpha3.EgressPolicyReasonSecretNotFound, metav1.ConditionFalse)
-	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: "credentials"}, Data: map[string][]byte{"key": {}}})
+	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "other", Name: egressTestSecretName}, Data: map[string][]byte{egressTestSecretKey: {}}})
 	assertStatus(kagentv1alpha3.EgressPolicyReasonSecretNotFound, metav1.ConditionFalse)
-	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: policy.Namespace, Name: "credentials"}})
+	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: policy.Namespace, Name: egressTestSecretName}})
 	assertStatus(kagentv1alpha3.EgressPolicyReasonSecretKeyNotFound, metav1.ConditionFalse)
-	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: policy.Namespace, Name: "credentials"}, Data: map[string][]byte{"key": {}}})
+	secrets.UpdateObject(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: policy.Namespace, Name: egressTestSecretName}, Data: map[string][]byte{egressTestSecretKey: {}}})
 	assertStatus("Resolved", metav1.ConditionTrue)
 	secrets.DeleteObject("team-a/credentials")
 	assertStatus(kagentv1alpha3.EgressPolicyReasonSecretNotFound, metav1.ConditionFalse)
