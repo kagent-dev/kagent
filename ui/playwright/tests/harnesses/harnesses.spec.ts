@@ -3,6 +3,7 @@ import { loadPage, rowNamed, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
   confirmDelete,
+  dialog,
   expectRequired,
   selectOption,
   rowAction,
@@ -158,6 +159,11 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(page.getByText(`Could not delete harness ${CREATED}:`)).toBeVisible();
     await expect(page.getByText(`Deleted harness ${CREATED}`)).toHaveCount(0);
     await expect(page.getByTestId(table)).toContainText(CREATED);
+
+    // A failed delete leaves the confirmation open so it can be retried; close it, or the
+    // next step finds it still on screen.
+    await dialog(page).getByRole("button", { name: "Keep" }).click();
+    await expect(dialog(page)).toHaveCount(0);
 
     await page.evaluate(() => {
       const url = new URL(window.location.href);
