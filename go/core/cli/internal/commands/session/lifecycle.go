@@ -94,16 +94,29 @@ func create(
 	format clioutput.Format,
 	out io.Writer,
 ) error {
+	response, err := createSession(ctx, client, namespace, cfg)
+	if err != nil {
+		return err
+	}
+	return writeLifecycleResult(out, format, response, response.GetSession())
+}
+
+func createSession(
+	ctx context.Context,
+	client lifecycleClient,
+	namespace string,
+	cfg *CreateCfg,
+) (*apiv1.CreateSessionResponse, error) {
 	response, err := client.CreateSession(ctx, &apiv1.CreateSessionRequest{
 		Agent: &apiv1.ResourceReference{Namespace: namespace, Name: cfg.Agent}, RequestId: cfg.RequestID,
 	})
 	if err != nil {
-		return fmt.Errorf("create Session: %w", err)
+		return nil, fmt.Errorf("create Session: %w", err)
 	}
 	if response.GetSession() == nil {
-		return errors.New("create Session returned no Session")
+		return nil, errors.New("create Session returned no Session")
 	}
-	return writeLifecycleResult(out, format, response, response.GetSession())
+	return response, nil
 }
 
 func deleteSession(
