@@ -26,3 +26,14 @@ tests:
       - hasDocuments:
           count: 0
 
+  # ui.pdb defaults maxUnavailable to 1, so setting minAvailable=5 is mutually
+  # exclusive. Validation must not run when the UI is off.
+  - it: does not fail on a stale ui.pdb when ui.enabled is false
+    template: ui-pdb.yaml
+    set:
+      ui.enabled: false
+      ui.pdb.enabled: true
+      ui.pdb.minAvailable: 5
+    asserts:
+      - hasDocuments:
+          count: 0
