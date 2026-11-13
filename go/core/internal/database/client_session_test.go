@@ -800,6 +800,59 @@ func TestListSessionsFiltersByAgent(t *testing.T) {
 	}
 }
 
+func TestListSessionsFiltersByNamespace(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	ids := map[string]string{}
+	for _, namespace := range []string{"team-a", "team-b"} {
+		sessionFixture(t, c, ctx, namespace, namespace+"-revision", "reviewer", "")
+		request := newSessionRequest(uuid.NewString(), "reviewer", "", "")
+		request.Agent.Ref.Namespace = namespace
+		created, _, err := c.CreateSession(ctx, request, namespace)
+		require.NoError(t, err)
+		ids[namespace] = created.GetId()
+	}
+	require.NoError(t, c.RetireAgentIdentities(ctx, "team-a", "reviewer"))
+
+	scenarios := []struct {
+		name  string
+		query SessionQuery
+		want  []string
+	}{
+		{
+			name:  "Given a session of a retired Agent in team-a and one in team-b, when listing team-a, assert that only the retired Agent's session is returned",
+			query: SessionQuery{Namespace: "team-a"},
+			want:  []string{ids["team-a"]},
+		},
+		{
+			name:  "Given sessions in team-a and team-b, when listing team-b, assert that only team-b's session is returned",
+			query: SessionQuery{Namespace: "team-b"},
+			want:  []string{ids["team-b"]},
+		},
+		{
+			name:  "Given sessions in team-a and team-b, when listing team-c, assert that no session is returned",
+			query: SessionQuery{Namespace: "team-c"},
+		},
+		{
+			name:  "Given sessions in team-a and team-b, when listing team-a for team-b's Agent, assert that no session is returned",
+			query: SessionQuery{Namespace: "team-a", Agent: &apiv1.ResourceReference{Namespace: "team-b", Name: "reviewer"}},
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			query := scenario.query
+			query.UserID, query.Limit = "alice", 10
+			got, err := c.ListSessions(ctx, query)
+			require.NoError(t, err)
+			var gotIDs []string
+			for _, session := range got {
+				gotIDs = append(gotIDs, session.GetId())
+			}
+			require.Equal(t, scenario.want, gotIDs)
+		})
+	}
+}
+
 func TestForkTaskOrderAndAuthorityIsolation(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()
