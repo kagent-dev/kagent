@@ -27,19 +27,22 @@ type Store interface {
 	SearchAgentMemory(context.Context, string, string, pgvector.Vector, int) ([]database.AgentMemorySearchResult, error)
 	ListAgentMemories(context.Context, string, string) ([]database.Memory, error)
 	DeleteAgentMemory(context.Context, string, string) error
+	DeleteMemoryEntry(context.Context, string, string, string) error
 }
 
 type Input struct {
-	Content  string
-	Vector   []float32
-	Metadata json.RawMessage
-	TTLDays  int
+	AgentName string
+	Content   string
+	Vector    []float32
+	Metadata  json.RawMessage
+	TTLDays   int
 }
 
 type SearchRequest struct {
-	Vector   []float32
-	Limit    int
-	MinScore float64
+	AgentName string
+	Vector    []float32
+	Limit     int
+	MinScore  float64
 }
 
 type SearchResult struct {
@@ -73,7 +76,7 @@ func NewService(store Store, authorizer auth.Authorizer, options ...Option) *Ser
 }
 
 func (s *Service) Add(ctx context.Context, input Input) (string, error) {
-	agentName, userID, err := s.scope(ctx, auth.VerbCreate)
+	agentName, userID, err := s.managementScope(ctx, auth.VerbCreate, input.AgentName)
 	if err != nil {
 		return "", err
 	}
@@ -107,7 +110,7 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 		return 0, serviceerrors.NewInternal("failed to save memory batch", fmt.Errorf("database client is not configured"))
 	}
 
-	agentName, userID, err := s.scope(ctx, auth.VerbCreate)
+	agentName, userID, err := s.managementScope(ctx, auth.VerbCreate, inputs[0].AgentName)
 	if err != nil {
 		return 0, err
 	}
@@ -129,7 +132,7 @@ func (s *Service) AddBatch(ctx context.Context, inputs []Input) (int, error) {
 }
 
 func (s *Service) Search(ctx context.Context, request SearchRequest) ([]SearchResult, error) {
-	agentName, userID, err := s.scope(ctx, auth.VerbGet)
+	agentName, userID, err := s.managementScope(ctx, auth.VerbGet, request.AgentName)
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +216,9 @@ func (s *Service) Delete(ctx context.Context, agentName string) error {
 func (s *Service) managementScope(ctx context.Context, verb auth.Verb, agentName string) (string, string, error) {
 	if session, ok := auth.AuthSessionFrom(ctx); ok && session != nil {
 		if principal := session.Principal(); principal.RuntimeBinding == nil && principal.ID != "" {
+			if agentName == "" {
+				return "", "", serviceerrors.NewInvalidArgument("agent name is required", nil)
+			}
 			return agentName, principal.ID, s.authorize(ctx, verb, agentName)
 		}
 	}
