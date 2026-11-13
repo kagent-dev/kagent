@@ -61,7 +61,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 }
 
 func defaultDatabase() *configv1.DatabaseConfig {
-	return &configv1.DatabaseConfig{Schema: new(consts.DefaultPostgresTableSchema), VectorSchema: new(consts.DefaultPgvectorSchema), Pool: &configv1.PostgresPoolConfig{MaxConns: new(int32(max(4, runtime.NumCPU()))), MaxConnIdleTime: durationpb.New(30 * time.Minute), MaxConnLifetime: durationpb.New(time.Hour)}}
+	return &configv1.DatabaseConfig{Schema: new(consts.DefaultPostgresTableSchema), VectorSchema: new(consts.DefaultPgvectorSchema), Pool: &configv1.PostgresPoolConfig{MaxConns: new(int32(max(4, runtime.NumCPU()))), MaxConnIdleTime: durationpb.New(30 * time.Minute), MaxConnLifetime: durationpb.New(time.Hour), ConnectRetryTimeout: durationpb.New(90 * time.Second)}}
 }
 
 func defaultTelemetry(cfg *configv1.TelemetryConfig) {

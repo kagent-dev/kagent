@@ -244,7 +244,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema())
+	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema(),
+		database.WithConnectRetry(cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration()))
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},
@@ -361,7 +362,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, otel.GetMeterProvider())
 	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
@@ -396,7 +397,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
 		MaxConcurrency:   int(cfg.GetPush().GetMaxConcurrency()),
 		SendTimeout:      cfg.GetPush().GetSendTimeout().AsDuration(),
-	})); err != nil {
+	}, otel.GetMeterProvider())); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
@@ -477,6 +478,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		ToolService:           tools,
 		PromptTemplateService: prompts,
 		SystemService:         system,
+		WorkerPoolService:     kubecrud.NewService(manager.GetClient(), authorizer, &atev1.WorkerPool{}, &atev1.WorkerPoolList{}, "WorkerPool"),
 		MemoryService:         memory,
 		TaskStoreService:      runtimeTasks,
 		SessionService:        sessions,

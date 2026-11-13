@@ -1,6 +1,10 @@
+import { isPermissionDenied } from "@/api/ApiError";
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import { Pencil } from "lucide-react";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { Alert, Skeleton, Space, Table, Tag, Typography } from "antd";
+import { Button, Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import {
@@ -14,6 +18,7 @@ import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { matchesQuery } from "@/components/table/listTable";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { buildPath, paths } from "@/router/routes";
 
 /** The filters this tab offers, which `useListView` keeps in the URL. */
 const FILTER_IDS = ["ns"] as const;
@@ -28,20 +33,12 @@ const { Text } = Typography;
 
 export function HarnessesTab() {
   const theme = useTheme();
-  /*
-   * Read one namespace at a time, like the templates beside them.
-   *
-   * `ListHarnesses` validates its namespace and refuses an empty one rather than
-   * treating it as a wildcard, so asking for "all harnesses" returns nothing at all —
-   * and the fixtures answer that happily, which is why this looked fine until a
-   * cluster showed an empty table.
-   */
   const namespaces = useNamespaces();
-  const harnesses = useHarnessesAcrossNamespaces(namespaces.data?.map((row) => row.name));
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const harnesses = useHarnessesAcrossNamespaces(namespaceDenied ? null : namespaces.data?.map((row) => row.name));
 
-  // `ListHarnesses` needs a namespace, so a failed namespace read means the harness read
-  // is never issued and `harnesses.error` stays empty — an empty table, not a failure.
-  const loadFailure = namespaces.error ?? harnesses.error;
+  const namespaceFailure = namespaceDenied ? undefined : namespaces.error;
+  const loadFailure = namespaceFailure ?? harnesses.error;
 
   const view = useListView(FILTER_IDS);
   const selectedNamespaces = view.selected("ns");
@@ -66,7 +63,7 @@ export function HarnessesTab() {
   );
 
 
-  const agents = useAgentsAcrossNamespaces(namespaces.data?.map(row => row.name));
+  const agents = useAgentsAcrossNamespaces(namespaceDenied ? null : namespaces.data?.map(row => row.name));
   const referenced = (harness: Harness) => (agents.data?.agents ?? []).filter(agent =>
     agent.namespace === harness.namespace && agent.resource.spec.harnessRef.name === harness.name);
 
@@ -107,18 +104,27 @@ export function HarnessesTab() {
     {
       title: "",
       key: "actions",
-      width: 56,
+      width: 96,
       render: (_: unknown, row: Harness) => (
-
-        <DeleteResourceButton
-          kind="harness"
-          name={row.name}
-          onDelete={() => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name)}
-          onDeleted={async () => {
-            await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
-          }}
-          description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
-        />
+        <Space size={4}>
+          <Link to={buildPath(paths.harnessEdit, { namespace: row.namespace, name: row.name })}>
+            <Button
+              type="text"
+              icon={<Pencil size={16} />}
+              data-testid={`harness-edit-${row.ref}`}
+              aria-label={`Edit harness ${row.name}`}
+            />
+          </Link>
+          <DeleteResourceButton
+            kind="harness"
+            name={row.name}
+            onDelete={() => apiClient.agentBuildingBlocks.removeHarness(row.namespace, row.name)}
+            onDeleted={async () => {
+              await Promise.allSettled([harnesses.refresh(), invalidateTemplates()]);
+            }}
+            description={agents.error || !agents.data || agents.data.refused.length ? "Could not determine every Agent using this Harness. Existing revisions are retained; Agents using it cannot prepare updated configuration." : describeLoss(referenced(row).length)}
+          />
+        </Space>
       ),
     },
   ];
@@ -140,12 +146,12 @@ export function HarnessesTab() {
             id: "ns",
             label: "Namespace",
             allLabel: "All namespaces",
-            options: (namespaces.data ?? []).map((entry) => ({ value: entry.name })),
+            options: (namespaceDenied ? [...new Set(rows.map((row) => row.namespace))] : (namespaces.data ?? []).map((row) => row.name)).map((value) => ({ value })),
           },
         ]}
         trailing={
           <Space size={8}>
-            {!harnesses.error && !harnesses.isLoading ? (
+            {!loadFailure && !harnesses.isLoading ? (
               <Text data-testid="harnesses-summary" css={{ color: theme.color.textMuted }}>
                 {filtered.length} of {rows.length}{" "}
                 {rows.length === 1 ? "harness" : "harnesses"}
@@ -160,12 +166,11 @@ export function HarnessesTab() {
       />
 
       {loadFailure ? (
-        <Alert
-          type="error"
-          showIcon
-          data-testid="harnesses-error"
-          title="Could not load harnesses"
-          description={loadFailure.message}
+        <ReadError
+          resource="harnesses"
+          error={loadFailure}
+          testId="harnesses-error"
+          onRetry={namespaceFailure ? namespaces.refresh : harnesses.refresh}
         />
       ) : null}
 
@@ -177,6 +182,7 @@ export function HarnessesTab() {
           rowKey={(row) => row.ref}
           columns={columns}
           dataSource={loadFailure ? [] : filtered}
+          locale={loadFailure ? { emptyText: " " } : undefined}
           pagination={false}
           size="small"
         />

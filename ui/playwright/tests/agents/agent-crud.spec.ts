@@ -19,34 +19,37 @@ for (const template of CASES) {
   test(`agents: CRUD with ${template === "inline" ? "an" : "a"} ${template} template and referenced harness`, async ({ page }) => {
     await test.step("1. create through the full-page form", async () => {
       await loadPage(page, routes.agents, { title: "Agents" });
+      await page.getByTestId("agents-create").click();
       await page.getByTestId("agents-new").click();
       await expect(page).toHaveURL(/\/agents\/new$/);
       await expect(page.getByTestId("agent-form-namespace")).toContainText("kagent");
       const submit = page.getByTestId("agent-form-submit");
-      const problems = page.getByTestId("agent-form-problems");
+      const problems = page.getByTestId("agent-form-problems").locator("li");
 
       await expect(submit).toBeDisabled();
-      await expect(problems).toHaveText("A name is required.");
+      // Every problem at once, so nothing surprises the user after fixing the first; the
+      // harness is not among them because the namespace's default one is preselected.
+      await expect(problems).toHaveText(["A name is required.", "Choose a template."]);
+      await expect(page.getByTestId("agent-form-harness-ref")).toContainText("kagent-default");
       await expectRequired(page, {
         marked: ["Name", "Namespace", "Shared template", "Shared harness"],
         unmarked: [],
       });
       await page.getByTestId("agent-form-name").fill(name);
       await expect(submit).toBeDisabled();
-      await expect(problems).toHaveText("Choose a template.");
+      await expect(problems).toHaveText(["Choose a template."]);
 
       if (template === "inline") {
         await chooseTemplateSource(page, "inline");
         await expect(submit).toBeDisabled();
-        await expect(problems).toHaveText("Choose a model configuration for the inline template.");
+        await expect(problems).toHaveText(["Choose a model configuration for the inline template."]);
         await selectOption(page, "template-form-model", "kagent/default-model-config");
         await page.getByTestId("template-form-description").fill("Inline before edit");
         await page.getByTestId("template-form-prompt").fill("You answer briefly.");
       } else {
         await selectOption(page, "agent-form-template-ref", "shared-brain");
       }
-      await expect(submit).toBeDisabled();
-      await expect(problems).toHaveText("Choose a harness.");
+      await expect(submit).toBeEnabled();
       await selectOption(page, "agent-form-harness-ref", "k8s-agent");
       await expect(problems).toHaveCount(0);
       await expect(submit).toBeEnabled();

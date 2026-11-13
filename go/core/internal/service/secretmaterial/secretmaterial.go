@@ -42,7 +42,7 @@ func ValidateMaterials(materials []Material) error {
 
 func CreateCompanionSecrets(
 	ctx context.Context,
-	kubeClient client.Client,
+	kubeClient client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	owner client.Object,
 	gvk schema.GroupVersionKind,
 	materials []Material,
@@ -128,7 +128,7 @@ func CreateCompanionSecrets(
 
 func CreateOwnedOpaqueSecret(
 	ctx context.Context,
-	kubeClient client.Client,
+	kubeClient client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	owner client.Object,
 	gvk schema.GroupVersionKind,
 	name string,
@@ -157,7 +157,7 @@ func CreateOwnedOpaqueSecret(
 
 func CreateOrUpdateOwnedOpaqueSecret(
 	ctx context.Context,
-	kubeClient client.Client,
+	kubeClient client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	owner client.Object,
 	gvk schema.GroupVersionKind,
 	name string,
@@ -184,7 +184,7 @@ func CreateOrUpdateOwnedOpaqueSecret(
 	return nil
 }
 
-func RollbackOwnerOnCreateFailure(ctx context.Context, kubeClient client.Client, owner client.Object) error {
+func RollbackOwnerOnCreateFailure(ctx context.Context, kubeClient client.Client, owner client.Object) error { //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	if err := kubeClient.Delete(ctx, owner); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
@@ -193,7 +193,7 @@ func RollbackOwnerOnCreateFailure(ctx context.Context, kubeClient client.Client,
 
 func DeleteOwnedSecret(
 	ctx context.Context,
-	kubeClient client.Client,
+	kubeClient client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	owner client.Object,
 	gvk schema.GroupVersionKind,
 	name string,

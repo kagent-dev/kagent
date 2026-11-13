@@ -71,6 +71,7 @@ export * from "./domain/substrate";
 export * from "./domain/prompts";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
+export * from "./domain/templateToolCount";
 export * from "./domain/agents";
 export * from "./domain/checkpoints";
 export * from "./domain/egressPolicies";
@@ -96,6 +97,7 @@ export {
   useSubstrateActors,
   useSubstrateSummary,
   useSubstrateWorkers,
+  useWorkerPools,
 } from "./hooks/useSubstrate";
 export {
   useAgentTemplate,

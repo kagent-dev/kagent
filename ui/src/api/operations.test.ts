@@ -39,6 +39,7 @@ import {
   SessionService,
 } from "@/generated/kagent/api/v1/sessions_pb";
 import { isNotFound } from "./ApiError";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { apiClient } from "./client";
 import { clearApiExtensions } from "./extensionPoints";
 import { registerAuthTokenSource, setApiTransport } from "./transport";
@@ -58,10 +59,10 @@ describe("model configurations", () => {
   const modelConfigMessage = (name: string, model: string) => ({
     ref: { namespace: "kagent", name },
     resource: {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "ModelConfig",
       value: {
-        apiVersion: "api.kagent.dev/v1alpha3",
+        apiVersion: KAGENT_API_VERSION,
         kind: "ModelConfig",
         metadata: { name, namespace: "kagent" },
         spec: { model, provider: "OpenAI" },
@@ -241,7 +242,7 @@ describe("tool servers and tools", () => {
           received = request;
           return {
             resource: {
-              apiVersion: "api.kagent.dev/v1alpha3",
+              apiVersion: KAGENT_API_VERSION,
               kind: "RemoteMCPServer",
               value: { metadata: { name: "extra", namespace: "kagent" } },
             },
@@ -266,7 +267,7 @@ describe("tool servers and tools", () => {
     expect(received).toMatchObject({
       type: "RemoteMCPServer",
       ref: { namespace: "kagent", name: "extra" },
-      resource: { kind: "RemoteMCPServer", apiVersion: "api.kagent.dev/v1alpha3" },
+      resource: { kind: "RemoteMCPServer", apiVersion: KAGENT_API_VERSION },
     });
     expect(created.ref).toBe("kagent/extra");
     expect(created.groupKind).toBe("RemoteMCPServer.api.kagent.dev");

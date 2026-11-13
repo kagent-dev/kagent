@@ -80,6 +80,16 @@ export function agentNotReadyReason({ resource: { status } }: Agent): string | u
   return failing?.message ?? failing?.reason;
 }
 
+/**
+ * Why the latest change to a runnable agent failed, in the controller's words. Nothing is
+ * blocked, since conversations keep the last good revision, so this is the only place the
+ * failure shows up.
+ */
+export function agentUpdateFailedReason(agent: Agent): string | undefined {
+  if (agentRevisionState(agent) !== "updateFailed") return undefined;
+  return agentNotReadyReason(agent) ?? "The latest change failed.";
+}
+
 export function newConversationBlockedReason(agent: Agent): string | undefined {
   if (isAgentRunnable(agent)) return undefined;
   const state = agentRevisionState(agent);
