@@ -317,10 +317,8 @@ func createCheckpoint(t *testing.T, ctx context.Context, client apiv1.Checkpoint
 	err := wait.PollUntilContextTimeout(ctx, 100*time.Millisecond, 2*time.Minute, true, func(ctx context.Context) (bool, error) {
 		var err error
 		result, err = client.CreateCheckpoint(ctx, request)
-		for _, detail := range status.Convert(err).Details() {
-			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" {
-				return false, nil
-			}
+		if checkpointSnapshotPending(err) {
+			return false, nil
 		}
 		return err == nil, err
 	})
@@ -328,6 +326,15 @@ func createCheckpoint(t *testing.T, ctx context.Context, client apiv1.Checkpoint
 		t.Fatalf("create checkpoint: %v", err)
 	}
 	return result
+}
+
+func checkpointSnapshotPending(err error) bool {
+	for _, detail := range status.Convert(err).Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Reason == "KAGENT_CHECKPOINT_SNAPSHOT_PENDING" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSessionCheckpoint(t *testing.T) {

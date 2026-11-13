@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -87,7 +88,7 @@ func (h *Handler) registerCheckpointTools(server *mcp.Server) {
 func (h *Handler) getCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CheckpointIDInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
 	value, err := h.checkpoints.Get(ctx, input.CheckpointID)
 	if err != nil {
-		return sessionToolError(err), CreateCheckpointOutput{}, nil
+		return checkpointToolError(err), CreateCheckpointOutput{}, nil
 	}
 	output := CreateCheckpointOutput{Checkpoint: checkpointSummary(value)}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Checkpoint %s is %s", value.GetId(), value.GetState())}}}, output, nil
@@ -95,7 +96,7 @@ func (h *Handler) getCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, inp
 
 func (h *Handler) deleteCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CheckpointIDInput) (*mcp.CallToolResult, DeleteCheckpointOutput, error) {
 	if err := h.checkpoints.Delete(ctx, input.CheckpointID); err != nil {
-		return sessionToolError(err), DeleteCheckpointOutput{}, nil
+		return checkpointToolError(err), DeleteCheckpointOutput{}, nil
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Deleted checkpoint %s", input.CheckpointID)}}}, DeleteCheckpointOutput(input), nil
 }
@@ -103,7 +104,7 @@ func (h *Handler) deleteCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, 
 func (h *Handler) createCheckpoint(ctx context.Context, _ *mcp.CallToolRequest, input CreateCheckpointInput) (*mcp.CallToolResult, CreateCheckpointOutput, error) {
 	created, err := h.checkpoints.Create(ctx, input.SessionID, stableRequestID(input.RequestID), input.ExpectedHeadTaskID)
 	if err != nil {
-		result := toolError(err)
+		result := checkpointToolError(err)
 		for _, detail := range status.Convert(err).Details() {
 			if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == "kagent.dev" {
 				result.Meta = mcp.Meta{"kagent.dev/error-reason": info.Reason}
@@ -121,7 +122,7 @@ func (h *Handler) listCheckpoints(ctx context.Context, _ *mcp.CallToolRequest, i
 		PageSize:  input.PageSize, PageToken: input.PageToken,
 	})
 	if err != nil {
-		return toolError(err), ListCheckpointsOutput{}, nil
+		return checkpointToolError(err), ListCheckpointsOutput{}, nil
 	}
 	output := ListCheckpointsOutput{Checkpoints: make([]CheckpointSummary, len(listed.Checkpoints)), NextPageToken: listed.NextPageToken}
 	for i, item := range listed.Checkpoints {
@@ -133,7 +134,7 @@ func (h *Handler) listCheckpoints(ctx context.Context, _ *mcp.CallToolRequest, i
 func (h *Handler) forkSession(ctx context.Context, _ *mcp.CallToolRequest, input ForkSessionInput) (*mcp.CallToolResult, ForkSessionOutput, error) {
 	session, err := h.checkpoints.Fork(ctx, input.CheckpointID, stableRequestID(input.RequestID))
 	if err != nil {
-		return toolError(err), ForkSessionOutput{}, nil
+		return checkpointToolError(err), ForkSessionOutput{}, nil
 	}
 	output := ForkSessionOutput{Session: sessionSummary(session)}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("Created Session %s", session.GetId())}}}, output, nil
@@ -144,6 +145,17 @@ func stableRequestID(id string) string {
 		return id
 	}
 	return uuid.NewString()
+}
+
+// MCP bypasses the gRPC error interceptor. Use classified public messages and
+// strip private causes from wrapped cancellation errors at this boundary too.
+func checkpointToolError(err error) *mcp.CallToolResult {
+	if errors.Is(err, context.Canceled) {
+		err = errors.New("checkpoint operation canceled")
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		err = errors.New("checkpoint operation deadline exceeded")
+	}
+	return sessionToolError(err)
 }
 
 func checkpointSummary(value *apiv1.Checkpoint) CheckpointSummary {

@@ -377,6 +377,9 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	shareMaxTTL := cfg.GetSessions().GetShareMaxTtl().AsDuration()
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
+	if err := manager.Add(checkpoint.NewRecoveryWorker(checkpoints)); err != nil {
+		return fmt.Errorf("register checkpoint recovery worker: %w", err)
+	}
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		cfg.GetSubstrate(),
 		authenticator,

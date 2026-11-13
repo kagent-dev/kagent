@@ -230,13 +230,13 @@ func TestSessionExpirationCheckpointAdmission(t *testing.T) {
 	task := newSessionTask(uuid.NewString(), "message")
 	task.ContextID, task.Status.State = session.ContextId, a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{
+	checkpoint, _, err := reserveCheckpoint(t.Context(), client, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, "checkpoint")
 	require.NoError(t, err)
 	_, err = client.BeginIdleSessionDeletion(t.Context(), session.Id, time.Now())
 	require.ErrorIs(t, err, ErrConflict)
-	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshot", "")
+	_, err = finalizeCheckpoint(t.Context(), client, checkpoint.Id, "tag-uid", "s3://snapshot", "")
 	require.NoError(t, err)
 	beforeFork := time.Now()
 	fork, _, err := client.ForkSession(t.Context(), checkpoint.Id, session.Creator, "fork", uuid.NewString())

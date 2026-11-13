@@ -24,7 +24,7 @@ func TestCheckpointCreationBlocksSessionTaskWrites(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
 		&SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx,
+	checkpoint, _, err := reserveCheckpoint(ctx, client,
 		&apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
 
@@ -33,13 +33,13 @@ func TestCheckpointCreationBlocksSessionTaskWrites(t *testing.T) {
 	_, err = client.CreateRuntimeTask(ctx, session.GetId(), taskMutationHash("next-request"), next, "")
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, saveRuntimeTask(t, client, session.GetId(), task, task, nil), ErrFailedPrecondition)
-	_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+	_, _, err = beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound)
 
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "", "", "snapshot failed")
+	_, err = finalizeCheckpoint(ctx, client, checkpoint.GetId(), "", "", "snapshot failed")
 	require.NoError(t, err)
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag", "retained", "")
-	require.ErrorIs(t, err, ErrNotFound)
+	_, err = finalizeCheckpoint(ctx, client, checkpoint.GetId(), "tag", "retained", "")
+	require.ErrorIs(t, err, ErrConflict)
 	version, err := client.CreateRuntimeTask(ctx, session.GetId(), taskMutationHash("next-request"), next, "")
 	require.NoError(t, err)
 	require.Positive(t, version)
