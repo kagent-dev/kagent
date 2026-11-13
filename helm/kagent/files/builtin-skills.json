@@ -1,0 +1,35 @@
+{
+  "image": "ghcr.io/kagent-dev/kagent/tools@sha256:607cb0ac95c9905529ad1cfebeff3aa2fbf68aa81861ed3bbba9d71a7477d640",
+  "skills": [
+    {
+      "name": "argo-rollouts-progressive-delivery",
+      "description": "Operate Argo Rollouts canary and blue-green releases (status, promote, pause, change image) with the kagent-tools argo_* MCP tools. Use when a Rollout is progressing, paused, degraded, or needs a new image.",
+      "path": "opt/kagent-tools-skills/skills/argo-rollouts-progressive-delivery"
+    },
+    {
+      "name": "helm-release-management",
+      "description": "Inspect, upgrade, roll forward and uninstall Helm releases with the kagent-tools helm_* MCP tools. Use for questions about installed charts, release status, values, failed upgrades, or adding chart repositories.",
+      "path": "opt/kagent-tools-skills/skills/helm-release-management"
+    },
+    {
+      "name": "istio-traffic-debugging",
+      "description": "Debug Istio service-mesh traffic (503s, mTLS failures, routing not applied, sidecar or ambient/waypoint issues) using the kagent-tools istio_* MCP tools. Use when requests between mesh services fail or routing rules do not take effect.",
+      "path": "opt/kagent-tools-skills/skills/istio-traffic-debugging"
+    },
+    {
+      "name": "k8s-troubleshooting",
+      "description": "Diagnose unhealthy Kubernetes workloads (CrashLoopBackOff, Pending, ImagePullBackOff, OOMKilled, failing readiness, unreachable Services) using the kagent-tools k8s_* MCP tools. Use when a pod, deployment or service is not working as expected.",
+      "path": "opt/kagent-tools-skills/skills/k8s-troubleshooting"
+    },
+    {
+      "name": "kubescape-security-posture",
+      "description": "Review cluster security posture with Kubescape results (configuration scans, image vulnerabilities, application profiles, network neighborhoods) using the kagent-tools kubescape_* MCP tools. Use for security reviews, CVE questions, or hardening recommendations.",
+      "path": "opt/kagent-tools-skills/skills/kubescape-security-posture"
+    },
+    {
+      "name": "prometheus-observability",
+      "description": "Answer questions about cluster and application metrics (error rates, latency, saturation, scrape health) with the kagent-tools prometheus_* MCP tools. Use when investigating performance, alerts, or whether a target is scraped. Requires PROMETHEUS_URL to be configured.",
+      "path": "opt/kagent-tools-skills/skills/prometheus-observability"
+    }
+  ]
+}

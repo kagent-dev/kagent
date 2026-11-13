@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -79,6 +81,9 @@ func render(environ []string) (string, string) {
 	fmt.Fprintf(&b, "  \"API_BASE_URL\": \"%s\",\n", jsonEscape(get("KAGENT_UI_API_BASE_URL", "/api")))
 	fmt.Fprintf(&b, "  \"SSO_REDIRECT_PATH\": \"%s\",\n", jsonEscape(get("KAGENT_UI_SSO_REDIRECT_PATH", "/oauth2/start")))
 	fmt.Fprintf(&b, "  \"STREAM_TIMEOUT_MS\": \"%s\",\n", timeout)
+	if skills := env["KAGENT_UI_BUILTIN_SKILLS"]; skills != "" {
+		fmt.Fprintf(&b, "  \"BUILTIN_SKILLS\": \"%s\",\n", jsonEscape(skills))
+	}
 	for _, kv := range extensions {
 		name, value, _ := strings.Cut(kv, "=")
 		fmt.Fprintf(&b, "  \"%s\": \"%s\",\n", jsonEscape(name), jsonEscape(value))
@@ -89,9 +94,15 @@ func render(environ []string) (string, string) {
 	return b.String(), basePath
 }
 
-// jsonEscape makes a value safe inside a JSON string in a <script> element: `<` is escaped so markup cannot close it.
+// jsonEscape makes a value safe inside a JSON string in a <script> element.
+// The encoder escapes quotes, backslashes and control characters; `<` is escaped so markup cannot close the element.
 func jsonEscape(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, `<`, `\u003c`).Replace(s)
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(s)
+	quoted := strings.TrimSuffix(b.String(), "\n")
+	return strings.ReplaceAll(quoted[1:len(quoted)-1], "<", `\u003c`)
 }
 
 // setBaseHref points <base href> at the base path, so deep links load assets under the sub-path too.

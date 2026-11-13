@@ -1,0 +1,58 @@
+suite: test ui configmap
+templates:
+  - ui-configmap.yaml
+set:
+  builtins.enabled: true
+tests:
+  - it: offers no built-in skills with the chart defaults
+    set:
+      builtins.enabled: false
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+
+  - it: offers the skills of the packaged kagent-tools image
+    asserts:
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: ^\{"image":"ghcr\.io/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}","skills":\[
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: '"name":"k8s-troubleshooting","path":"opt/kagent-tools-skills/skills/k8s-troubleshooting"'
+
+  - it: mirrors the packaged image through global.imageRegistry
+    set:
+      global.imageRegistry: mirror.example
+    asserts:
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: ^\{"image":"mirror\.example/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}"
+
+  - it: offers no built-in skills when the built-ins values are missing
+    set:
+      builtins: null
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+
+  - it: hides the Prometheus skill when no Prometheus URL is set
+    asserts:
+      - notMatchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: prometheus-observability
+
+  - it: offers the Prometheus skill when a Prometheus URL is set
+    set:
+      kagent-tools.tools.prometheus.url: http://prometheus-server.monitoring:9090
+    asserts:
+      - matchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: '"name":"prometheus-observability","path":"opt/kagent-tools-skills/skills/prometheus-observability"'
+
+  - it: hides the Prometheus skill when the Prometheus URL has no scheme
+    set:
+      kagent-tools.tools.prometheus.url: prometheus.kagent.svc.cluster.local:9090
+    asserts:
+      - notMatchRegex:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+          pattern: prometheus-observability

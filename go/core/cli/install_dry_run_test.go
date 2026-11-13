@@ -78,7 +78,7 @@ func TestInstallDryRunWithoutClusterOrAPIKey(t *testing.T) {
 			require.Contains(t, string(values), "${OPENAI_API_KEY}")
 			require.Contains(t, string(values), "userProvidedValue: retained")
 			require.Contains(t, string(values), "replicas: 2")
-			require.Contains(t, string(values), "k8s-agent:\n  enabled: false")
+			require.Contains(t, string(values), "builtins:\n  enabled: false")
 			require.NotContains(t, string(values), "secret-that-must-not-be-exported")
 			atelet, err := os.ReadFile(filepath.Join(destination, "values", "substrate-atelet.yaml"))
 			require.NoError(t, err)

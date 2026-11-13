@@ -14,6 +14,26 @@
 {{- end -}}
 
 {{/*
+The built-in skills catalog from the kagent-tools image, as JSON. Empty when builtins.enabled is false.
+*/}}
+{{- define "kagent.builtinSkillsCatalog" -}}
+{{- if dig "builtins" "enabled" false .Values.AsMap -}}
+  {{- $catalog := .Files.Get "files/builtin-skills.json" | mustFromJson -}}
+  {{/* The Prometheus skill needs a tool server URL it accepts (http:// or https://). */}}
+  {{- $prometheusURL := dig "kagent-tools" "tools" "prometheus" "url" "" .Values.AsMap -}}
+  {{- if not (regexMatch "^https?://" $prometheusURL) -}}
+    {{- $skills := list -}}
+    {{- range $catalog.skills -}}
+      {{- if ne .name "prometheus-observability" -}}{{- $skills = append $skills . -}}{{- end -}}
+    {{- end -}}
+    {{- $_ := set $catalog "skills" $skills -}}
+  {{- end -}}
+  {{- $_ := set $catalog "image" (include "kagent.mirroredImage" (dict "root" $ "image" $catalog.image)) -}}
+  {{- $catalog | mustToJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create a default fully qualified app name.
 */}}
 {{- define "kagent.fullname" -}}
