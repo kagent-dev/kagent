@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Alert, Button, Form, Input, Select, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import { apiClient, useInvalidateHarnesses, useNamespaces, type Harness, type HarnessSpec } from "@/api";
+import { copyName } from "@/components/table/copyFrom";
 import { HarnessFields } from "./HarnessFields";
 import {
   emptyHarnessDraft,
@@ -19,23 +20,30 @@ import {
  */
 export function HarnessForm({
   harness,
+  copyOf,
   namespace: fixedNamespace,
   onSaved,
   onCancel,
 }: {
   harness?: Harness;
+  /**
+   * Prefills a create from this harness, in its namespace; nothing of it is edited.
+   * Not combinable with `namespace`: a copy pinned to another namespace would keep
+   * references to resources that only exist in the source's.
+   */
+  copyOf?: Harness;
   namespace?: string;
   onSaved: (saved: Harness) => void;
   onCancel: () => void;
-}) {
+} & ({ copyOf?: undefined } | { namespace?: undefined })) {
   const theme = useTheme();
   const namespaces = useNamespaces();
   const invalidateHarnesses = useInvalidateHarnesses();
-  const existing = harness?.resource.spec as HarnessSpec | undefined;
+  const existing = (harness ?? copyOf)?.resource.spec as HarnessSpec | undefined;
 
-  const [chosenNamespace, setNamespace] = useState(harness?.namespace ?? fixedNamespace);
+  const [chosenNamespace, setNamespace] = useState(harness?.namespace ?? fixedNamespace ?? copyOf?.namespace);
   const namespace = harness?.namespace ?? fixedNamespace ?? chosenNamespace;
-  const [name, setName] = useState(harness?.name ?? "");
+  const [name, setName] = useState(harness?.name ?? (copyOf ? copyName(copyOf.name) : ""));
   const [draft, setDraft] = useState(() => (existing ? harnessDraftFromSpec(existing) : emptyHarnessDraft()));
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string>();
