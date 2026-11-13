@@ -16,6 +16,15 @@ describe("harness draft", () => {
     expect(harnessDraftProblems(draft)).toEqual([]);
     expect(harnessSpecFromDraft(draft, spec)).toEqual(spec);
   });
+  it("keeps toolImages the form does not author", () => {
+    const toolImages = [{ name: "kubectl", oci: `ghcr.io/example/kubectl@sha256:${"b".repeat(64)}` }];
+    const withTools: HarnessSpec = { ...spec, workload: { image, toolImages } };
+    const next = harnessSpecFromDraft(harnessDraftFromSpec(withTools), withTools);
+    expect(next.workload).toEqual({ image, toolImages });
+    const releaseImage = harnessSpecFromDraft({ ...harnessDraftFromSpec(withTools), image: "" }, withTools);
+    expect(releaseImage.workload).toEqual({ toolImages });
+    expect(harnessSpecFromDraft(harnessDraftFromSpec(spec), spec).workload).toEqual({ image });
+  });
   it("switching adapter drops the old one so exactly one remains", () => {
     const next = harnessSpecFromDraft({ ...harnessDraftFromSpec(spec), adapter: "codex" }, spec);
     expect(next.kagent).toBeUndefined();
