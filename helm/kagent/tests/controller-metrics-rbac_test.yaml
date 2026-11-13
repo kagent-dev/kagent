@@ -97,13 +97,45 @@ tests:
           path: subjects[0].namespace
           value: NAMESPACE
 
-  - it: should skip auth role when secure serving disabled
+  - it: should skip all metrics rbac when secure serving disabled
     set:
       controller.metrics.enabled: true
       config.metrics.secure: false
     asserts:
       - hasDocuments:
-          count: 1
+          count: 0
+        template: rbac/metrics-reader-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+
+  - it: should omit metrics rbac for HTTP metrics with explicit namespace scope
+    set:
+      rbac.namespaces: [NAMESPACE]
+      controller.metrics.enabled: true
+      config.metrics.secure: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-reader-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrole.yaml
+      - hasDocuments:
+          count: 0
+        template: rbac/metrics-auth-clusterrolebinding.yaml
+
+  - it: should omit metrics rbac for HTTP metrics with global namespace scope
+    set:
+      global.watchNamespaces: [NAMESPACE]
+      controller.metrics.enabled: true
+      config.metrics.secure: false
+    asserts:
+      - hasDocuments:
+          count: 0
         template: rbac/metrics-reader-clusterrole.yaml
       - hasDocuments:
           count: 0
