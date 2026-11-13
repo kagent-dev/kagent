@@ -65,12 +65,17 @@ else
     --wait 60s
 fi
 
-if [ "${KIND_USE_INTERNAL_ENDPOINT:-false}" = true ]; then
+if [ "$(bash scripts/kind/internal-endpoint.sh)" = --internal ]; then
   # The devcontainer shares the host Docker socket, not its loopback network.
-  if [ "$(docker inspect -f '{{if index .NetworkSettings.Networks "kind"}}true{{end}}' "$(hostname)")" != true ]; then
+  if [ "$(docker inspect --type container -f '{{if index .NetworkSettings.Networks "kind"}}true{{end}}' "$(hostname)")" != true ]; then
     docker network connect kind "$(hostname)"
   fi
   kind export kubeconfig --name "${KIND_CLUSTER_NAME}" --internal
+elif [ "${KIND_USE_INTERNAL_ENDPOINT:-false}" = true ]; then
+  # Codespaces-style setups share the daemon's network namespace, so the
+  # default loopback endpoint already works and this container cannot join
+  # the Docker "kind" network.
+  echo "Skipping internal kind endpoint: container '$(hostname)' is not visible to the Docker daemon."
 fi
 
 # 3. Add the registry config to the nodes

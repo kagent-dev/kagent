@@ -53,6 +53,10 @@
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
 
   "containerEnv": {
+    // Opt in to Kind's internal API endpoint when this container can join the
+    // Docker "kind" network (e.g. docker-outside-of-docker on a Linux host).
+    // Environments that share the daemon's loopback (e.g. Codespaces) detect
+    // this and keep the default endpoint; see scripts/kind/internal-endpoint.sh.
     "KIND_USE_INTERNAL_ENDPOINT": "true"
   },
 

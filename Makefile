@@ -63,10 +63,10 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
-KIND_INTERNAL_ENDPOINT_ARG :=
-ifeq ($(KIND_USE_INTERNAL_ENDPOINT),true)
-  KIND_INTERNAL_ENDPOINT_ARG := --internal
-endif
+# "--internal" only when KIND_USE_INTERNAL_ENDPOINT=true and this container can
+# join the Docker "kind" network; see scripts/kind/internal-endpoint.sh.
+# Recursively expanded so unrelated make invocations never shell out.
+KIND_INTERNAL_ENDPOINT_ARG = $(shell KIND_USE_INTERNAL_ENDPOINT=$(KIND_USE_INTERNAL_ENDPOINT) bash ./scripts/kind/internal-endpoint.sh)
 # Written by use-kind-cluster. CLI installs use it so they always target the Kind
 # cluster, whatever the current kubectl context is.
 KIND_KUBECONFIG ?= /tmp/kind-config
