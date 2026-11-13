@@ -41,6 +41,11 @@ func (w *ActorWorkflow) wakeQuiescence() {
 	}
 }
 
+// No stranded claim to reconcile: these tests drive the ordinary idle path.
+func (s *idleQuiescenceStore) ClaimStaleSessionQuiescence(context.Context, time.Duration) (*database.SessionQuiescence, error) {
+	return nil, database.ErrNotFound
+}
+
 func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error) {
 	s.claims.Add(1)
 	if s.claimErr != nil {
