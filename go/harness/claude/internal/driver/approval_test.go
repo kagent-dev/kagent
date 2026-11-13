@@ -134,9 +134,29 @@ func TestDeferredRecoveryRefusesUnfinishedReplay(t *testing.T) {
 			r.Phase = phase
 			r.Decision = &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}
 			require.NoError(t, saveDeferred(b.directory, 1<<20, &r))
-			driver := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+			driver := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20, Executable: "must-not-run"})
 			task, contextID, pending, err := driver.RestorePending()
+			require.NoError(t, err)
+			require.Equal(t, r.TaskID, task)
+			require.Equal(t, r.ContextID, contextID)
+			require.Implements(t, (*runtime.AbandonedTurn)(nil), pending)
+
+			// The replay is still refused, with the same error a restore used to
+			// report for this record.
+			_, err = pending.Resume(t.Context(), &runtime.ApprovalDecision{ID: r.RequestID, Approved: true}, &recordingSink{})
 			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			saved, err := loadDeferred(b.directory, 1<<20)
+			require.NoError(t, err)
+			require.Equal(t, phase, saved.Phase, "a refused resume leaves the record alone")
+
+			// Cancellation is the one thing left, and it runs no process.
+			require.NoError(t, pending.Cancel(t.Context(), &recordingSink{}))
+			saved, err = loadDeferred(b.directory, 1<<20)
+			require.NoError(t, err)
+			require.Equal(t, phaseCanceled, saved.Phase)
+			restored := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
+			task, contextID, pending, err = restored.RestorePending()
+			require.NoError(t, err)
 			require.Empty(t, task)
 			require.Empty(t, contextID)
 			require.Nil(t, pending)
@@ -340,10 +360,10 @@ func TestDeferredFailureAbandonsSession(t *testing.T) {
 			require.Equal(t, "abandoned", saved.Phase)
 			restored := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20})
 			taskID, contextID, pending, err := restored.RestorePending()
-			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
-			require.Empty(t, taskID)
-			require.Empty(t, contextID)
-			require.Nil(t, pending)
+			require.NoError(t, err)
+			require.Equal(t, r.TaskID, taskID)
+			require.Equal(t, r.ContextID, contextID)
+			require.Implements(t, (*runtime.AbandonedTurn)(nil), pending, "an abandoned record restores as a turn that can only be canceled")
 		})
 	}
 }
@@ -363,8 +383,10 @@ func TestDeferredInvalidAnswerAbandonsSessionBeforeReplay(t *testing.T) {
 			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
 			fresh := NewProcessDriver(d.config)
 			_, _, restored, err := fresh.RestorePending()
+			require.NoError(t, err)
+			require.Implements(t, (*runtime.AbandonedTurn)(nil), restored)
+			_, err = restored.Resume(t.Context(), &runtime.AskUserResponse{ID: r.RequestID, Answers: answers}, &recordingSink{})
 			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
-			require.Nil(t, restored)
 		})
 	}
 }
