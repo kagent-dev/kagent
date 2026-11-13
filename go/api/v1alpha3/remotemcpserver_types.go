@@ -88,6 +88,15 @@ type RemoteMCPServerSpec struct {
 	TLS *TLSConfig `json:"tls,omitempty"`
 }
 
+const (
+	RemoteMCPServerConditionTypeResolvedRefs       = "ResolvedRefs"
+	RemoteMCPServerReasonSecretNotFound            = "HeadersFromSecretNotFound"
+	RemoteMCPServerReasonSecretKeyNotFound         = "HeadersFromSecretKeyNotFound"
+	RemoteMCPServerReasonConfigMapNotFound         = "HeadersFromConfigMapNotFound"
+	RemoteMCPServerReasonConfigMapKeyNotFound      = "HeadersFromConfigMapKeyNotFound"
+	RemoteMCPServerReasonReferenceResolutionFailed = "ReferenceResolutionFailed"
+)
+
 // RemoteMCPServerStatus defines the observed state of RemoteMCPServer.
 type RemoteMCPServerStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster

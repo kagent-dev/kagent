@@ -211,12 +211,14 @@ type Reconciler struct {
 	status      kagentclient.ApiV1alpha3Interface
 	golden      goldenRetries
 
-	agents                   controllers.Queue
-	agentStatuses            controllers.Queue
-	modelConfigStatuses      controllers.Queue
-	agentHandler             krt.HandlerRegistration
-	agentStatusHandler       krt.HandlerRegistration
-	modelConfigStatusHandler krt.HandlerRegistration
+	agents                    controllers.Queue
+	agentStatuses             controllers.Queue
+	egressPolicyStatuses      controllers.Queue
+	egressPolicyStatusHandler krt.HandlerRegistration
+	modelConfigStatuses       controllers.Queue
+	agentHandler              krt.HandlerRegistration
+	agentStatusHandler        krt.HandlerRegistration
+	modelConfigStatusHandler  krt.HandlerRegistration
 }
 
 // NewReconciler creates the Kubernetes and database write boundary. Run starts
@@ -252,6 +254,17 @@ func newReconciler(
 		return r.reconcileModelConfigStatus(context.Background(), item.(string))
 	})
 
+	r.egressPolicyStatuses = newReconciliationQueue("egress-policy-status", func(item any) error {
+		return r.reconcileEgressPolicyStatus(context.Background(), item.(string))
+	})
+	r.egressPolicyStatusHandler = collections.EgressPolicyStatuses.Register(func(event krt.Event[krt.ObjectWithStatus[*kagentv1alpha3.EgressPolicy, kagentv1alpha3.EgressPolicyStatus]]) {
+		status := event.Latest()
+		desired := status.Status
+		desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, status.Obj.Status.Conditions)
+		if !apiequality.Semantic.DeepEqual(desired, status.Obj.Status) {
+			r.egressPolicyStatuses.Add(status.ResourceName())
+		}
+	})
 	r.agentHandler = collections.Reconciliations.Register(func(event krt.Event[AgentReconciliation]) {
 		// Desired inputs and cleanup changes bypass failure backoff; observations
 		// and status writes do not. Grants must reconcile without a new revision.
@@ -295,21 +308,24 @@ func newReconciliationQueue(name string, reconcile func(any) error) controllers.
 // processes Agent preparation and status writes until cancellation.
 func (r *Reconciler) Start(ctx context.Context) error {
 	stop := ctx.Done()
-	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) {
+	if !r.agentHandler.WaitUntilSynced(stop) || !r.agentStatusHandler.WaitUntilSynced(stop) || !r.modelConfigStatusHandler.WaitUntilSynced(stop) || !r.egressPolicyStatusHandler.WaitUntilSynced(stop) {
 		r.agents.ShutDownEarly()
 		r.agentStatuses.ShutDownEarly()
 		r.modelConfigStatuses.ShutDownEarly()
+		r.egressPolicyStatuses.ShutDownEarly()
 		return nil
 	}
 	if err := r.enqueueDeletedAgents(ctx); err != nil {
 		r.agents.ShutDownEarly()
 		r.agentStatuses.ShutDownEarly()
 		r.modelConfigStatuses.ShutDownEarly()
+		r.egressPolicyStatuses.ShutDownEarly()
 		return err
 	}
 	go r.pollPendingTemplates(stop)
 	go r.agentStatuses.Run(stop)
 	go r.modelConfigStatuses.Run(stop)
+	go r.egressPolicyStatuses.Run(stop)
 	r.agents.Run(stop)
 	return nil
 }

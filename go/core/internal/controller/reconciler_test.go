@@ -430,6 +430,7 @@ func TestReconcilerUpdatesModelConfigStatusOnSecretHashChange(t *testing.T) {
 		ModelConfigs:         modelConfigs,
 		Secrets:              secrets,
 		ConfigMaps:           configMaps,
+		EgressPolicyStatuses: krttest.GetMockCollection[krt.ObjectWithStatus[*kagentv1alpha3.EgressPolicy, kagentv1alpha3.EgressPolicyStatus]](mock),
 		ModelConfigStatuses:  modelConfigStatuses,
 		ResolvedModelConfigs: resolvedModelConfigs,
 		Agents:               krttest.GetMockCollection[*kagentv1alpha3.Agent](mock),

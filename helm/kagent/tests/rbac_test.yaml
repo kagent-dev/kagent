@@ -45,7 +45,7 @@ tests:
           path: rules
           content:
             apiGroups: [api.kagent.dev]
-            resources: [agents/status, modelconfigs/status, modelproviderconfigs/status, remotemcpservers/status]
+            resources: [egresspolicies/status, agents/status, modelconfigs/status, modelproviderconfigs/status, remotemcpservers/status]
             verbs: [get, patch, update]
       - contains:
           path: rules
