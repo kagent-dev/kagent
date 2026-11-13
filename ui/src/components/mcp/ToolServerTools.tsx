@@ -43,7 +43,7 @@ export function ToolServerTools({ tools, highlight }: ToolServerToolsProps) {
         gap: theme.space(3),
       }}
     >
-      {tools.map((tool) => (
+      {sortToolsByName(tools).map((tool) => (
         <li
           key={tool.name}
           data-testid="tool-server-tool"
@@ -80,6 +80,21 @@ export function ToolServerTools({ tools, highlight }: ToolServerToolsProps) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The tools in alphabetical order by name.
+ *
+ * The controller reports them in discovery order, which means nothing to someone
+ * scanning a long list for one tool. Numeric-aware, so `tool_2` sorts before `tool_10`.
+ */
+function sortToolsByName(tools: DiscoveredTool[]): DiscoveredTool[] {
+  return [...tools].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }) ||
+      // Names that differ only in case still get one fixed order.
+      a.name.localeCompare(b.name, undefined, { numeric: true }),
   );
 }
 
