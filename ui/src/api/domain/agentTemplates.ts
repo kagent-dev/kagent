@@ -6,8 +6,13 @@ export interface AgentTemplateLocalRef {
   name: string;
 }
 
-/** A model or MCP reference, local when namespace is omitted. */
+/**
+ * A model or MCP reference, local when namespace is omitted. Omitted `group` and
+ * `kind` mean the default kind; the form keeps them so an edit cannot repoint a reference.
+ */
 export interface ObjectReference {
+  group?: string;
+  kind?: string;
   name: string;
   namespace?: string;
 }
@@ -31,7 +36,8 @@ export interface ConfigMapKeyRef {
  * non-empty list limits the binding to those names.
  */
 export interface McpToolBinding {
-  server: ObjectReference & { kind: "RemoteMCPServer" };
+  /** The API server stores `kind: RemoteMCPServer` when it is omitted. */
+  server: ObjectReference;
   tools?: string[];
   requireApproval?: boolean;
 }

@@ -91,7 +91,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 		"apiFormat",
 	}, modelProviders[0].OptionalParams)
 	assert.Equal(t, []string{"azureEndpoint"}, modelProviders[2].RequiredParams)
-	assert.Equal(t, []string{"apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"}, modelProviders[2].OptionalParams)
+	assert.Equal(t, []string{"apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"}, modelProviders[2].OptionalParams)
 	assert.Equal(t, []string{"deployment", "endpoint"}, modelProviders[3].RequiredParams)
 	assert.Equal(t, []string{"apiVersion", "apiFormat"}, modelProviders[3].OptionalParams)
 	assert.Equal(t, []string{"", "maxOutputTokens", "candidateCount", "responseMimeType"}, modelProviders[6].OptionalParams)
@@ -151,6 +151,18 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	}
 	_, hasFoundryGrokName := bedrock["grok-4.7"]
 	assert.False(t, hasFoundryGrokName, "Bedrock IDs use the xai inference-profile prefix")
+
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderGeminiVertexAI} {
+		names := map[string]bool{}
+		for _, info := range models[provider] {
+			names[info.Name] = info.FunctionCalling
+		}
+		for _, name := range []string{"gemini-4-argon", "gemini-3.8-flash"} {
+			calling, ok := names[name]
+			require.Truef(t, ok, "%s catalog missing %s", provider, name)
+			assert.True(t, calling, name)
+		}
+	}
 }
 
 func TestDiscoveryConfiguredProviders(t *testing.T) {

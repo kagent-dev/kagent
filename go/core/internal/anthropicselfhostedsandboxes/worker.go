@@ -1,0 +1,128 @@
+package anthropicselfhostedsandboxes
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
+)
+
+type workerState int
+
+const (
+	workerLive workerState = iota
+	workerExited
+	workerInactive
+)
+
+func (l *Launcher) inspectWorker(ctx context.Context, entry *sandboxWorker) (workerState, error) {
+	callCtx, cancel := context.WithTimeout(ctx, collectionTimeout)
+	instance, err := l.sandboxes.Get(callCtx, entry.sandboxID)
+	cancel()
+	if processNotFound(err) {
+		return workerInactive, nil
+	}
+	if err != nil {
+		return workerLive, safeRecoveryError("anthropic self-hosted sandboxes sandbox inspection failed", err)
+	}
+	if err := l.validateSavedSandbox(instance, entry.sandboxID); err != nil {
+		return workerLive, err
+	}
+	if sandboxExpired(instance) || instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETED ||
+		instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_DELETING ||
+		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE ||
+		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_CREATE ||
+		instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_RESUME ||
+		(instance.GetState() == apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED && instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE) {
+		return workerInactive, nil
+	}
+	if instance.GetOperation() == apiv1.RuntimeOperation_RUNTIME_OPERATION_SUSPEND {
+		return workerExited, nil
+	}
+	if instance.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY ||
+		instance.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+		return workerLive, &recoveryError{message: "anthropic self-hosted sandboxes sandbox is not ready for inspection", transient: true}
+	}
+	return l.discoverWorker(ctx, entry.sandboxID)
+}
+
+func (l *Launcher) finishWorker(ctx context.Context, entry *sandboxWorker) (workerState, error) {
+	if entry.sandboxID == "" {
+		return workerInactive, nil
+	}
+	state, err := l.inspectWorker(ctx, entry)
+	if err != nil {
+		l.log.WarnContext(ctx, "failed to inspect anthropic self-hosted sandbox worker", "sandbox_id", entry.sandboxID)
+		return state, err
+	}
+	if state == workerLive {
+		return state, nil
+	}
+	if state == workerExited {
+		callCtx, cancel := context.WithTimeout(ctx, collectionTimeout)
+		suspended, err := l.sandboxes.Suspend(callCtx, entry.sandboxID)
+		cancel()
+		if err != nil {
+			l.log.WarnContext(ctx, "failed to suspend idle anthropic self-hosted sandbox sandbox", "sandbox_id", entry.sandboxID,
+				"grpc_code", status.Code(err).String(), "service_code", serviceerrors.CodeOf(err))
+			return state, safeRecoveryError("anthropic self-hosted sandboxes suspension failed", err)
+		}
+		if suspended.GetId() != entry.sandboxID {
+			return state, errors.New("anthropic self-hosted sandboxes suspension sandbox identity mismatch")
+		}
+		if suspended.GetState() != apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED ||
+			suspended.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
+			return state, &recoveryError{message: "anthropic self-hosted sandboxes suspension is incomplete", transient: true}
+		}
+	}
+	entry.workID = ""
+	return state, nil
+}
+
+// Only inspect command names: ps arguments or environment can contain credentials.
+func (l *Launcher) discoverWorker(ctx context.Context, sandboxID string) (workerState, error) {
+	ctx, cancel := context.WithTimeout(ctx, collectionTimeout)
+	defer cancel()
+	process, err := l.sandboxes.StartProcess(ctx, sandboxID, &guestpb.StartProcessRequest{
+		Command: []string{"ps", "-eo", "comm="},
+		Timeout: durationpb.New(collectionTimeout),
+	})
+	if err != nil {
+		return workerLive, safeRecoveryError("anthropic self-hosted sandboxes process discovery failed", err)
+	}
+	if process.GetProcessId() == "" {
+		return workerLive, errors.New("anthropic self-hosted sandboxes process discovery returned no process ID")
+	}
+	var output strings.Builder
+	var exit *guestpb.Process
+	err = l.sandboxes.StreamProcessOutput(ctx, sandboxID, &guestpb.StreamProcessOutputRequest{
+		ProcessId: process.GetProcessId(), Follow: true,
+	}, func(chunk *guestpb.ProcessOutput) error {
+		if output.Len()+len(chunk.GetStdout()) > 1<<20 {
+			return errors.New("anthropic self-hosted sandboxes process listing is too large")
+		}
+		output.Write(chunk.GetStdout())
+		if chunk.GetExit() != nil {
+			exit = chunk.GetExit()
+		}
+		return nil
+	})
+	if err != nil {
+		return workerLive, safeRecoveryError("anthropic self-hosted sandboxes process listing failed", err)
+	}
+	if exit == nil || exit.GetState() != guestpb.ProcessState_PROCESS_STATE_EXITED || exit.GetExitCode() != 0 {
+		return workerLive, errors.New("anthropic self-hosted sandboxes process listing did not complete successfully")
+	}
+	for name := range strings.FieldsSeq(output.String()) {
+		if name == "ant" {
+			return workerLive, nil
+		}
+	}
+	return workerExited, nil
+}

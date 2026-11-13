@@ -285,6 +285,12 @@ Kagent reads the connection strings from their Secrets once, at startup. After a
 
 When the connection string names TLS certificate files, Kagent rereads them before each new physical connection. Rotated client certificates, such as Pod Certificates, take effect without a restart. `config.database.pool.maxConnLifetime` limits how long a connection opened with an older certificate stays in use.
 
+#### A database that pauses or restarts
+
+When the controller can't log in to PostgreSQL, for example while a serverless database resumes from a pause, a database call retries the login with backoff for `config.database.pool.connectRetryTimeout` (default `90s`, `0s` turns it off). No SQL has run before a login, so a retry repeats no work. A new attempt starts only inside the retry window, but an attempt already running can finish after it. By default, one attempt can take up to 2 minutes. To shorten that limit, set `connect_timeout` in the connection string to a number of seconds. The call returns `Unavailable` when the last attempt fails.
+
+The retry also stops when the client stops waiting. The web UI waits 30 seconds for a request, so a resume longer than that fails the first request in the UI even though the controller would have waited longer. Set the retry window above your database's longest resume, and expect clients with shorter timeouts to retry.
+
 #### OIDC authentication
 
 Set `config.server.auth.mode: trusted-proxy` together with
@@ -325,6 +331,40 @@ release namespace.
 **Note**: MicroVM requires a `microvm` SandboxConfig, runtime assets, and KVM-capable
 workers. kagent does not install these prerequisites.
 
+#### Default Harnesses
+
+`kagent install` creates the WorkerPool and three Harnesses in the release
+namespace, so an Agent there can reference one without writing its own:
+
+| Harness | Runtime |
+| --- | --- |
+| `kagent-default` | kagent |
+| `codex-default` | Codex |
+| `claude-default` | Claude |
+
+Direct Helm installations opt in with `harnesses.enabled=true`:
+
+```yaml
+substrateWorkerPool:
+  create: true
+  workerImage: <worker-image>
+harnesses:
+  enabled: true
+  # Substrate snapshot storage. The default uses the bucket of Substrate's bundled RustFS.
+  snapshotLocation: s3://ate-snapshots/kagent/
+  # Skip an individual runtime:
+  claude:
+    enabled: false
+```
+
+Each default Harness references `substrateWorkerPool.name` and omits
+`workload`, so it runs the release's built-in image for its runtime
+(`config.harnessImages`). Agent `spec.harnessRef` is namespace-local; Agents in
+other namespaces need their own Harness.
+
+The default OpenAI ModelConfig sets `apiFormat: responses`, which the Codex
+runtime requires and the kagent runtime supports.
+
 ### Using Make
 
 ```bash
@@ -343,10 +383,16 @@ Use `kagent install --dry-run --output-dir ./kagent-install` to export the Helm 
 
 ```bash
 export OPENAI_API_KEY=your-openai-api-key
-# openAI is the default; other choices include anthropic, azureOpenAI, gemini, and ollama
+# OpenAI is the default; --provider Anthropic (with ANTHROPIC_API_KEY) overrides
+# install.defaultModelProvider for one install.
 # config.yaml: install: {defaultModelProvider: OpenAI}
 kagent --config config.yaml install
 ```
+
+To install the CLI first, run `curl -sL https://kagent.dev/install | bash`. It
+installs the newest final release that publishes a binary for your platform;
+pass `--prerelease` to include release candidates or `--version vX.Y.Z` to pin
+one.
 
 ## Application configuration
 

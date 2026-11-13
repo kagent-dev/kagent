@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"maps"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -64,6 +65,34 @@ func (s *harnessServer) CreateHarness(ctx context.Context, request *apiv1.Create
 		return nil, err
 	}
 	return &apiv1.CreateHarnessResponse{Harness: encoded}, nil
+}
+
+// UpdateHarness replaces the spec and labels of the stored object, keeping its
+// resourceVersion so a concurrent edit is refused rather than overwritten.
+func (s *harnessServer) UpdateHarness(ctx context.Context, request *apiv1.UpdateHarnessRequest) (*apiv1.UpdateHarnessResponse, error) {
+	ref, err := requiredHarnessRef(request.GetRef())
+	if err != nil {
+		return nil, err
+	}
+	incoming := &v1alpha3.Harness{}
+	if err := s.decodeResource(request.GetRef(), request.GetResource(), incoming); err != nil {
+		return nil, err
+	}
+	existing, err := s.service.Get(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	existing.Spec = *incoming.Spec.DeepCopy()
+	existing.Labels = maps.Clone(incoming.Labels)
+	result, err := s.service.Update(ctx, existing)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := s.harness(result)
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1.UpdateHarnessResponse{Harness: encoded}, nil
 }
 
 func (s *harnessServer) DeleteHarness(ctx context.Context, request *apiv1.DeleteHarnessRequest) (*apiv1.DeleteHarnessResponse, error) {
