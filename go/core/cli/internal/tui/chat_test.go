@@ -195,7 +195,7 @@ func TestChatModelRendersToolActivityBeforeLastChunk(t *testing.T) {
 	model.appendEvent(a2atype.NewArtifactEvent(reqCtx(),
 		dataPart("function_call", "get_pods", map[string]any{"args": map[string]any{"namespace": "default"}})))
 	model.appendEvent(a2atype.NewArtifactEvent(reqCtx(),
-		dataPart("function_response", "get_pods", map[string]any{"response": map[string]any{"pods": []any{"pod-a"}}})))
+		dataPart("function_response", "get_pods", map[string]any{"response": map[string]any{"output": map[string]any{"pods": []any{"pod-a"}}}})))
 
 	got := transcript(model)
 	assert.Contains(t, got, "● get_pods  namespace=default", "the result fills in its call's line")

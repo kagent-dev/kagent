@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui/theme"
 )
 
@@ -46,6 +47,20 @@ type toolEntry struct {
 	args     map[string]any
 	response any
 	done     bool
+	failed   bool
+}
+
+func (t *toolEntry) setResponse(response *apiv1.ToolResponse) {
+	t.done, t.failed = true, false
+	switch result := response.GetOutcome().(type) {
+	case *apiv1.ToolResponse_Output:
+		t.response = result.Output.AsInterface()
+	case *apiv1.ToolResponse_Error:
+		t.response = map[string]any{"error": result.Error.AsInterface()}
+		t.failed = true
+	case *apiv1.ToolResponse_Pending:
+		t.response, t.done = result.Pending.AsInterface(), false
+	}
 }
 
 type toolStatus int
@@ -69,7 +84,7 @@ func (t *toolEntry) status() toolStatus {
 	if output, _ := result["result"].(string); strings.HasPrefix(output, "Error") {
 		return toolError
 	}
-	if result["error"] != nil || exitCode(result) != 0 {
+	if t.failed || result["error"] != nil || exitCode(result) != 0 {
 		return toolError
 	}
 	return toolOK

@@ -211,8 +211,8 @@ func TestTaskReply(t *testing.T) {
 			task: &a2atype.Task{
 				Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 				Artifacts: []*a2atype.Artifact{
-					artifact(apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})),
-					artifact(apia2a.NewToolResultPart("call-1", "read_file", "two lines")),
+					artifact(toolCallPart()),
+					artifact(toolResultPart("two lines")),
 					artifact(a2atype.NewTextPart("The file has two lines.")),
 				},
 			},
