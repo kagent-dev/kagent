@@ -703,6 +703,8 @@ providers:
   # (the one derived from `providers.default`). Omitted from the resource when empty.
   annotations: {}
   openAI:
+    # -- Enable LLM response streaming. Set to false for endpoints that do not support streaming.
+    stream: true
     provider: OpenAI
     model: "gpt-5-mini"
     apiKeySecretRef: kagent-openai
@@ -717,6 +719,8 @@ providers:
     # tls:
     #   disableVerify: false
   ollama:
+    # -- Enable LLM response streaming. Set to false for endpoints that do not support streaming.
+    stream: true
     provider: Ollama
     # A local model, pulled with `ollama pull`. Ollama Cloud models are listed in
     # the UI (see the controller's static catalog) and reached with a ":cloud" tag
@@ -735,6 +739,8 @@ providers:
         num_ctx: "64000"
 
   anthropic:
+    # -- Enable LLM response streaming. Set to false for endpoints that do not support streaming.
+    stream: true
     provider: Anthropic
     model: "claude-haiku-4-5"
     apiKeySecretRef: kagent-anthropic
@@ -747,6 +753,8 @@ providers:
     #   promptCaching: true
     #   cacheTTL: "5m" # or "1h" for calls spaced more than 5 minutes apart
   azureOpenAI:
+    # -- Enable LLM response streaming. Set to false for endpoints that do not support streaming.
+    stream: true
     provider: AzureOpenAI
     model: "gpt-5-mini"
     apiKeySecretRef: kagent-azure-openai
@@ -757,12 +765,16 @@ providers:
       azureDeployment: ""
       azureEndpoint: ""
   gemini:
+    # -- Enable LLM response streaming. Set to false for endpoints that do not support streaming.
+    stream: true
     provider: Gemini
     model: "gemini-3.5-flash-lite"
     apiKeySecretRef: kagent-gemini
     apiKeySecretKey: GOOGLE_API_KEY
     # apiKey: ""
   mistral:
+    # -- Enable LLM response streaming. Set to false for endpoints that do not support streaming.
+    stream: true
     provider: Mistral
     model: "mistral-large-latest"
     apiKeySecretRef: kagent-mistral
