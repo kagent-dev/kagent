@@ -515,7 +515,7 @@ func testInput(t *testing.T, modelSpec v1alpha3.ModelConfigSpec, secretData map[
 	t.Helper()
 	harness := &translator.HarnessConfiguration{Name: "claude", Namespace: "test", Source: metav1.ObjectMeta{Name: "claude", Namespace: "test", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Claude: &v1alpha3.ClaudeHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test", UID: "template-uid"}, Spec: v1alpha3.AgentTemplateSpec{
 		ModelConfig: &v1alpha3.ModelConfigReference{Name: "model"}, Description: "assistant", SystemPrompt: "help carefully",

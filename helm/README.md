@@ -322,6 +322,11 @@ Substrate worker images are published to GHCR, for example
 use a release tag matching your Substrate version.
 
 Reference the pool through `spec.substrate.workerPoolRef` on a Harness in the same namespace.
+To keep privileged workers out of Agent namespaces, reference a pool in another namespace with
+`workerPoolRef.namespace` and list that namespace in `config.substrate.workerPoolNamespaces`.
+With `rbac.namespaces` set, the chart grants the controller read-only access to `workerpools` in
+listed pool namespaces outside that list; they do not belong in `rbac.namespaces` or `watchNamespaces`.
+See [WorkerPools in another namespace](../docs/architecture/configuration-and-compilation.md#workerpools-in-another-namespace).
 
 The worker pods run as a ServiceAccount with the name `substrateWorkerPool.name`, which the
 chart creates. To use your own ServiceAccount, set `substrateWorkerPool.serviceAccount.create`

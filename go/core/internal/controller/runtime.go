@@ -23,13 +23,13 @@ type Runtime struct {
 
 // NewRuntime creates the shared KRT client and collection graph. Handlers are
 // deliberately registered separately at the eventual application boundary.
-func NewRuntime(config *rest.Config, watchNamespaces []string, stop <-chan struct{}, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) (*Runtime, error) {
+func NewRuntime(config *rest.Config, watchNamespaces, workerPoolNamespaces []string, stop <-chan struct{}, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) (*Runtime, error) {
 	client, err := apiclient.New(config)
 	if err != nil {
 		return nil, fmt.Errorf("create KRT Kubernetes client: %w", err)
 	}
 	options := krt.NewOptionsBuilder(stop, "kagent", krt.GlobalDebugHandler)
-	collections := NewCollections(client, watchNamespaces, options, settings, images)
+	collections := NewCollections(client, watchNamespaces, workerPoolNamespaces, options, settings, images)
 	return &Runtime{Client: client, Options: options, Collections: collections}, nil
 }
 

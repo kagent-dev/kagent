@@ -17,7 +17,7 @@ import (
 func TestSandboxPreparationPinsCompleteInputs(t *testing.T) {
 	template := &v1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch", UID: "uid"}, Spec: v1alpha3.SandboxTemplateSpec{
 		Workload:  v1alpha3.SandboxTemplateWorkload{Image: "tools@sha256:" + strings.Repeat("a", 64)},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
 	}}
 	policy := SandboxPolicy{GuestImage: "guest@sha256:" + strings.Repeat("b", 64), CPU: "1", Memory: "1Gi"}
 	actor, digest, snapshot, err := SandboxActorTemplate(template, "", policy)

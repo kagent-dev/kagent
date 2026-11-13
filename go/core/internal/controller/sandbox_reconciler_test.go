@@ -20,7 +20,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"istio.io/istio/pkg/kube/krt"
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -155,7 +154,7 @@ func sandboxGoldenStatus() *ateapipb.ActorTemplateStatus {
 func sandboxTestTemplate() *kagentv1alpha3.SandboxTemplate {
 	return &kagentv1alpha3.SandboxTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "scratch", UID: "template-uid", Generation: 1}, Spec: kagentv1alpha3.SandboxTemplateSpec{
 		Workload:  kagentv1alpha3.SandboxTemplateWorkload{Image: "tools@sha256:" + strings.Repeat("a", 64)},
-		Substrate: kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
+		Substrate: kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots/"}},
 	}}
 }
 

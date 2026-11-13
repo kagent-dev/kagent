@@ -37,7 +37,7 @@ func TestReconciliationCollectionsCompileAndObserveRevision(t *testing.T) {
 	matchingHarness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
 	matchingHarness.Spec.Workload.Image = new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	matchingHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
-		WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+		WorkerPoolRef:  kagentv1alpha3.WorkerPoolReference{Name: "default"},
 		SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	modelConfigs := krt.NewStaticCollection(nil, []*kagentv1alpha3.ModelConfig{{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model"}, Spec: kagentv1alpha3.ModelConfigSpec{Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5"}}}, opts.WithName("ModelConfigs")...)
@@ -222,7 +222,7 @@ func TestReconciliationWorkerPoolSandboxClass(t *testing.T) {
 			runtimeHarness.UID = "harness-uid"
 			runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 			runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
-				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+				WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: "selected"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			}
 			responses := kagentv1alpha3.OpenAIAPIFormatResponses
 			model := &kagentv1alpha3.ModelConfig{
@@ -381,7 +381,7 @@ func TestClaudeReconciliationCompilesActorTemplate(t *testing.T) {
 	claudeHarness.Spec.Claude = &kagentv1alpha3.ClaudeHarness{}
 	claudeHarness.Spec.Workload.Image = new("example.com/claude@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	claudeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+		WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
 		Provider: kagentv1alpha3.ModelProviderAnthropic, Model: "claude-sonnet-4-5", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -436,7 +436,7 @@ func TestCodexReconciliationCompilesActorTemplate(t *testing.T) {
 	codexHarness.Spec.Codex = &kagentv1alpha3.CodexHarness{}
 	codexHarness.Spec.Workload.Image = new("example.com/codex@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	codexHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+		WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	model := &kagentv1alpha3.ModelConfig{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "model", UID: "model-uid"}, Spec: kagentv1alpha3.ModelConfigSpec{
 		Provider: kagentv1alpha3.ModelProviderOpenAI, Model: "gpt-5.2-codex", APIKeySecret: "model-auth", APIKeySecretKey: "api-key",
@@ -498,7 +498,7 @@ func TestReconciliationTracksSharedAgentTemplate(t *testing.T) {
 	harness := harness("team-a", "kagent", map[string]string{"runtime": "python"})
 	harness.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
 	harness.Spec.Workload.Image = new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	harness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
+	harness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
 	templates := krt.NewStaticCollection(nil, []*kagentv1alpha3.AgentTemplate{root, child}, opts.WithName("AgentTemplates")...)
 	mock := krttest.NewMock(t, []any{
 		harness,
@@ -569,4 +569,10 @@ func testAgent(template *kagentv1alpha3.AgentTemplate, harness *kagentv1alpha3.H
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {
 	return &configv1.RuntimeDefaultsConfig{Cpu: new("1"), Memory: new("1Gi"), ControlPlaneUrl: new("http://kagent-controller.kagent:8083"), GatewayUrl: new("http://kagent-controller.kagent:8083"), Logging: &configv1.LoggingConfig{Level: new("info")}}
+}
+
+func TestWorkerPoolWatchNamespaces(t *testing.T) {
+	require.Nil(t, workerPoolWatchNamespaces(nil, []string{"kagent-workers"}))
+	require.Equal(t, []string{"kagent-workers", "team-a"}, workerPoolWatchNamespaces([]string{"team-a"}, []string{"kagent-workers"}))
+	require.Equal(t, []string{"kagent-workers", "team-a"}, workerPoolWatchNamespaces([]string{"team-a", "kagent-workers"}, []string{"kagent-workers"}))
 }

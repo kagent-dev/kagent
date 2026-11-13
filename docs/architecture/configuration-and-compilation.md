@@ -270,7 +270,8 @@ expect configuration in environment variables cannot consume the descriptor.
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. Substrate v1.0.0 chooses the sandbox runtime from
+in the Agent namespace unless the reference names another namespace (see
+below). Substrate v1.0.0 chooses the sandbox runtime from
 the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
 no longer specify a SandboxConfig. Operators must install the referenced
 cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
@@ -306,6 +307,46 @@ name and namespace. The Helm chart sets both labels on the pool it creates, and
 externally managed pools must carry both. Substrate matches worker labels without
 checking them against the pool's namespace. Placement therefore stays within a
 namespace only while every pool's labels name the pool's own namespace.
+
+#### WorkerPools in another namespace
+
+Workers run with more privileges than Pod Security `baseline` allows, so an
+operator may keep them in a separate `privileged` namespace while Agents stay in
+`baseline` namespaces. `workerPoolRef.namespace` on a Harness or SandboxTemplate
+names such a pool. The installation decides which namespaces may hold referenced
+pools through the controller setting `substrate.workerPoolNamespaces`
+(Helm `config.substrate.workerPoolNamespaces`). A reference to a namespace that
+is not listed fails with `ReferenceResolutionFailed` for Agents and
+`WorkerPoolNotAllowed` for SandboxTemplates, before the pool is looked up.
+
+```yaml
+# Controller configuration
+substrate:
+  workerPoolNamespaces: [kagent-workers]
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata:
+  name: runner
+  namespace: team-a
+spec:
+  kagent: {}
+  substrate:
+    workerPoolRef:
+      name: shared
+      namespace: kagent-workers
+    snapshotPolicy:
+      location: gs://ate-snapshots/kagent/
+```
+
+Only placement moves: Actors, Sessions and sandboxes stay in the Atespace of the
+Agent or SandboxTemplate namespace, and credential-provider policies remain keyed
+on that namespace. The pool's namespace participates in the revision digest, so
+moving to another pool prepares a new revision, while references without a
+namespace keep their digests. The controller watches WorkerPools in the listed
+namespaces and nothing else there, so a shared worker namespace does not join
+`kubernetes.watchNamespaces`. With namespaced RBAC, the Helm chart grants
+read-only access to `workerpools` in each listed namespace outside `rbac.namespaces`.
 
 Substrate and persistence failures during preparation report
 `Ready=False` with reason `RuntimePreparationFailed`, rather than remaining

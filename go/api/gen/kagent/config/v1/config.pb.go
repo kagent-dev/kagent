@@ -1189,8 +1189,11 @@ type SubstrateConfig struct {
 	RouterUrl      *string                `protobuf:"bytes,4,opt,name=router_url,json=routerUrl,proto3,oneof" json:"router_url,omitempty"`
 	// Trusted issuer for runtime Actor JWTs. Discovery and JWKS use ca_file.
 	ActorJwtIssuer *string `protobuf:"bytes,5,opt,name=actor_jwt_issuer,json=actorJwtIssuer,proto3,oneof" json:"actor_jwt_issuer,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Namespaces whose WorkerPools a Harness or SandboxTemplate in any other
+	// namespace may reference. The controller watches only WorkerPools there.
+	WorkerPoolNamespaces []string `protobuf:"bytes,6,rep,name=worker_pool_namespaces,json=workerPoolNamespaces,proto3" json:"worker_pool_namespaces,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SubstrateConfig) Reset() {
@@ -1256,6 +1259,13 @@ func (x *SubstrateConfig) GetActorJwtIssuer() string {
 		return *x.ActorJwtIssuer
 	}
 	return ""
+}
+
+func (x *SubstrateConfig) GetWorkerPoolNamespaces() []string {
+	if x != nil {
+		return x.WorkerPoolNamespaces
+	}
+	return nil
 }
 
 type SessionsConfig struct {
@@ -2254,14 +2264,15 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\xaa\x01\a\"\x03\b\xd8\x042\x00R\x13connectRetryTimeout:z\xbaHw\x1au\n" +
 	"\x14postgres_pool.bounds\x12#min_conns must not exceed max_conns\x1a8!has(this.max_conns) || this.min_conns <= this.max_connsB\f\n" +
 	"\n" +
-	"_max_conns\"\xc6\x02\n" +
+	"_max_conns\"\x8a\x03\n" +
 	"\x0fSubstrateConfig\x12/\n" +
 	"\fapi_endpoint\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\vapiEndpoint\x88\x01\x01\x12\x17\n" +
 	"\aca_file\x18\x02 \x01(\tR\x06caFile\x12(\n" +
 	"\x10client_cert_file\x18\x03 \x01(\tR\x0eclientCertFile\x12?\n" +
 	"\n" +
 	"router_url\x18\x04 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\trouterUrl\x88\x01\x01\x12I\n" +
-	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01B\x0f\n" +
+	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01\x12B\n" +
+	"\x16worker_pool_namespaces\x18\x06 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\x14workerPoolNamespacesB\x0f\n" +
 	"\r_api_endpointB\r\n" +
 	"\v_router_urlB\x13\n" +
 	"\x11_actor_jwt_issuer\"\xa5\x03\n" +

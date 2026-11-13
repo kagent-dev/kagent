@@ -258,3 +258,19 @@ func TestSessionAutomaticRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerPoolNamespacesOutsideWatch(t *testing.T) {
+	for name, input := range map[string]string{
+		"cluster-wide": "substrate: {workerPoolNamespaces: [ate-workers]}",
+		"watched":      "kubernetes: {watchNamespaces: [team-a, ate-workers]}\nsubstrate: {workerPoolNamespaces: [ate-workers]}",
+		"not watched":  "kubernetes: {watchNamespaces: [team-a]}\nsubstrate: {workerPoolNamespaces: [ate-workers]}",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(input), cfg))
+			config.DefaultController(cfg)
+			setLogins(cfg)
+			require.NoError(t, config.Validate(cfg))
+		})
+	}
+}

@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -96,7 +95,7 @@ func testHarness(namespace, name, workerPool string) *v1alpha3.Harness {
 			Codex:    &v1alpha3.CodexHarness{},
 			Workload: v1alpha3.HarnessWorkload{Image: new(testHarnessImage)},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{
-				WorkerPoolRef:  corev1.LocalObjectReference{Name: workerPool},
+				WorkerPoolRef:  v1alpha3.WorkerPoolReference{Name: workerPool},
 				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 			},
 		},

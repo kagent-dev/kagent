@@ -543,7 +543,7 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 				servers := krt.NewStaticCollection(nil, []*kagentv1alpha3.RemoteMCPServer{server}, opts.WithName("Servers")...)
 				runner := harness("team-a", "runner", nil)
 				runner.Spec.Kagent = &kagentv1alpha3.KagentHarness{}
-				runner.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
+				runner.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}}
 				runner.Spec.Workload.Image = new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 				agent := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent", UID: "agent-uid"}, Spec: kagentv1alpha3.AgentSpec{
 					HarnessRef: corev1.LocalObjectReference{Name: runner.Name},

@@ -28,6 +28,7 @@ type Collections struct {
 	ConfigMaps               krt.Collection[*corev1.ConfigMap]
 	Secrets                  krt.Collection[*corev1.Secret]
 	WorkerPools              krt.Collection[*atev1.WorkerPool]
+	WorkerPoolNamespaces     []string
 	AgentRuntimeObservations krt.StaticCollection[AgentRuntimeObservation]
 	Reconciliations          krt.Collection[AgentReconciliation]
 	ModelConfigStatuses      krt.StatusCollection[*kagentv1alpha3.ModelConfig, kagentv1alpha3.ModelConfigStatus]
@@ -50,8 +51,10 @@ func (p AgentRuntimeObservation) ResourceName() string {
 }
 
 // NewCollections creates the complete read-only input graph. An empty
-// watchNamespaces list watches all namespaces.
-func NewCollections(client kube.Client, watchNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
+// watchNamespaces list watches all namespaces. workerPoolNamespaces may hold
+// WorkerPools referenced from other namespaces; only WorkerPools are watched
+// there.
+func NewCollections(client kube.Client, watchNamespaces, workerPoolNamespaces []string, opts krt.OptionsBuilder, settings *configv1.RuntimeDefaultsConfig, images *configv1.HarnessImagesConfig) Collections {
 	egressPolicies := typedCollection[*kagentv1alpha3.EgressPolicy](client, watchNamespaces, "EgressPolicies", opts)
 	sandboxTemplates := typedCollection[*kagentv1alpha3.SandboxTemplate](client, watchNamespaces, "SandboxTemplates", opts)
 	agents := typedCollection[*kagentv1alpha3.Agent](client, watchNamespaces, "Agents", opts)
@@ -61,13 +64,13 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 	remoteMCPServers := typedCollection[*kagentv1alpha3.RemoteMCPServer](client, watchNamespaces, "RemoteMCPServers", opts)
 	configMaps := typedCollection[*corev1.ConfigMap](client, watchNamespaces, "ConfigMaps", opts)
 	secrets := typedCollection[*corev1.Secret](client, watchNamespaces, "Secrets", opts)
-	workerPools := typedCollection[*atev1.WorkerPool](client, watchNamespaces, "WorkerPools", opts)
+	workerPools := typedCollection[*atev1.WorkerPool](client, workerPoolWatchNamespaces(watchNamespaces, workerPoolNamespaces), "WorkerPools", opts)
 	agentRuntimeObservations := krt.NewStaticCollection[AgentRuntimeObservation](nil, nil, opts.WithName("AgentRuntimeObservations")...)
 	modelConfigStatuses, resolvedModelConfigs := newModelConfigReconciliations(modelConfigs, configMaps, secrets, opts)
 	compilerCollections := translator.Collections{
 		EgressPolicies: egressPolicies,
 		Harnesses:      harnesses, AgentTemplates: agentTemplates, ResolvedModelConfigs: resolvedModelConfigs, RemoteMCPServers: remoteMCPServers,
-		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools,
+		ConfigMaps: configMaps, Secrets: secrets, WorkerPools: workerPools, WorkerPoolNamespaces: slices.Clone(workerPoolNamespaces),
 	}
 	compilerCollections.Namespaces = newReferenceNamespaces(client, agents, compilerCollections, opts)
 	reconciliations := newAgentReconciliations(agents, compilerCollections, agentRuntimeObservations, opts, settings, images)
@@ -85,12 +88,24 @@ func NewCollections(client kube.Client, watchNamespaces []string, opts krt.Optio
 		ConfigMaps:               configMaps,
 		Secrets:                  secrets,
 		WorkerPools:              workerPools,
+		WorkerPoolNamespaces:     slices.Clone(workerPoolNamespaces),
 		AgentRuntimeObservations: agentRuntimeObservations,
 		Reconciliations:          reconciliations,
 		ModelConfigStatuses:      modelConfigStatuses,
 		ResolvedModelConfigs:     resolvedModelConfigs,
 		AgentStatuses:            statuses,
 	}
+}
+
+// workerPoolWatchNamespaces adds the pool namespaces to a namespaced watch.
+// An empty watch already covers them.
+func workerPoolWatchNamespaces(watchNamespaces, workerPoolNamespaces []string) []string {
+	if len(watchNamespaces) == 0 {
+		return nil
+	}
+	namespaces := slices.Concat(watchNamespaces, workerPoolNamespaces)
+	slices.Sort(namespaces)
+	return slices.Compact(namespaces)
 }
 
 func typedCollection[T controllers.ComparableObject](client kube.Client, namespaces []string, name string, opts krt.OptionsBuilder) krt.Collection[T] {
