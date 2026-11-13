@@ -1,0 +1,8 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: sequential_agent
+    agent_class: SequentialAgent
+    sub_agents: [draft, review]
+  - { name: draft, agent_class: LlmAgent, model: stub, instruction: Write a draft. }
+  - { name: review, agent_class: LlmAgent, model: stub, instruction: Review the draft. }

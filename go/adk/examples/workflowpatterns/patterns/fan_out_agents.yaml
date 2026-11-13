@@ -1,0 +1,18 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: fan_out_agents
+    agent_class: Workflow
+    nodes:
+      - { id: ask_left, type: agent, agent: left }
+      - { id: ask_right, type: agent, agent: right }
+      - { id: gather, type: join }
+      - { id: combine, type: function, function: combine }
+    edges:
+      - { from: START, to: ask_left }
+      - { from: START, to: ask_right }
+      - { from: ask_left, to: gather }
+      - { from: ask_right, to: gather }
+      - { from: gather, to: combine }
+  - { name: left, agent_class: LlmAgent, model: history, mode: chat, instruction: Answer. }
+  - { name: right, agent_class: LlmAgent, model: history, mode: chat, instruction: Answer. }
