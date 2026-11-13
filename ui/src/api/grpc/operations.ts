@@ -677,6 +677,7 @@ const agentInstances: Pick<
   | "agentInstances.rename"
   | "agentInstances.fork"
   | "agentInstances.delete"
+  | "agentInstances.revert"
 > = {
   "agentInstances.list": async (input, options) => {
     const name = "SessionService/ListSessions";
@@ -952,6 +953,16 @@ const agentInstances: Pick<
     return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
+  "agentInstances.revert": async (input, options) => {
+    const name = "SessionService/RevertSession";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(SessionService).revertSession(
+        { sessionId: input.id },
+        call("agentInstances.revert", options),
+      ),
+    );
+    return toAgentInstance(required(response.session, name, "agent instance"));
+  },
 };
 
 // endregion

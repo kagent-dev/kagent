@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import { agentNewChat, dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
-import { confirmDelete, expectRequired, selectOption } from "../../helpers/resource";
+import { confirmDelete, expectRequired, rowAction, selectOption } from "../../helpers/resource";
 import { clickNav } from "../../helpers/nav";
 
 type Source = "reference" | "inline";
@@ -19,6 +19,7 @@ for (const template of CASES) {
   test(`agents: CRUD with ${template === "inline" ? "an" : "a"} ${template} template and referenced harness`, async ({ page }) => {
     await test.step("1. create through the full-page form", async () => {
       await loadPage(page, routes.agents, { title: "Agents" });
+      await page.getByTestId("agents-create").click();
       await page.getByTestId("agents-new").click();
       await expect(page).toHaveURL(/\/agents\/new$/);
       await expect(page.getByTestId("agent-form-namespace")).toContainText("kagent");
@@ -80,7 +81,7 @@ for (const template of CASES) {
     // In-app navigation from here on: the mock backend's writes live in page memory.
     await test.step("4. edit keeps the name fixed and saves the change", async () => {
       await clickNav(page, "agents", /\/agents$/);
-      await page.getByTestId(`edit-${name}`).click();
+      await rowAction(page, `kagent/${name}`, "edit");
       await expect(page).toHaveURL(new RegExp(`/agents/kagent/${name}/edit$`));
       await expect(page.getByTestId("agent-form-name")).toBeDisabled();
       await expect(page.getByTestId("agent-form-name")).toHaveValue(name);
@@ -108,7 +109,7 @@ for (const template of CASES) {
     await test.step("6. delete asks first, then the row is gone and the rest remain", async () => {
       await expectSettled(page);
       const before = await dataRows(page).count();
-      await confirmDelete(page, name);
+      await confirmDelete(page, `kagent/${name}`, { fromMenu: true });
       await expect(row(page)).toHaveCount(0);
       await expect(dataRows(page)).toHaveCount(before - 1);
     });

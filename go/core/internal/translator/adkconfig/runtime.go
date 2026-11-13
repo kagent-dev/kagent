@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	adkoutputschema "github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
@@ -23,7 +22,7 @@ type modelResult struct {
 }
 
 // buildModel translates a standalone ModelConfig without building an agent.
-func (c *Builder) buildModel(namespace string, ref v1alpha3.ObjectReference) (*modelResult, error) {
+func (c *Builder) buildModel(namespace string, ref v1alpha3.ModelConfigReference) (*modelResult, error) {
 	resolved, err := translator.ResolveModelReference(c.ctx, c.collections, namespace, ref)
 	if err != nil {
 		return nil, err
@@ -70,7 +69,7 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	}
 	if summarizer := spec.Summarizer; summarizer != nil {
 		compaction.PromptTemplate = summarizer.PromptTemplate
-		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, ref.NamespacedName(harness.Namespace)) {
+		if ref := summarizer.ModelConfigRef; ref != nil && !isAgentModel(template, harness.Namespace, *ref) {
 			model, err := c.buildModel(harness.Namespace, *ref)
 			if err != nil {
 				return fmt.Errorf("resolve summarizer ModelConfig %q: %w", ref.Name, err)
@@ -85,8 +84,13 @@ func (c *Builder) applyCompaction(result *Result, harness *translator.HarnessCon
 	return nil
 }
 
-func isAgentModel(template *translator.TemplateConfiguration, key types.NamespacedName) bool {
-	return template.Spec.ModelConfig != nil && template.Spec.ModelConfig.NamespacedName(template.Namespace) == key
+func isAgentModel(template *translator.TemplateConfiguration, namespace string, ref v1alpha3.ModelConfigReference) bool {
+	if template.Spec.ModelConfig == nil {
+		return false
+	}
+	kind, key := ref.Target(namespace)
+	agentKind, agentKey := template.Spec.ModelConfig.Target(template.Namespace)
+	return kind == agentKind && key == agentKey
 }
 
 func applyOutputSchema(config *configv1.ADKAgentConfig, output *translator.ResolvedOutputSchema) error {

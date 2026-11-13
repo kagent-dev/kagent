@@ -22,7 +22,7 @@ func validateSubAgentIsolation(runtime HarnessType, name string, isolation v1alp
 	for _, tool := range child.MCPTools {
 		if tool.Binding.RequireApproval {
 			return NewValidationError("subagent %q is Isolated and cannot pause for human approval, but its binding to %s %q requires it",
-				name, tool.Binding.Server.Kind, tool.Binding.Server.Name)
+				name, tool.Binding.Server.GroupKind().Kind, tool.Binding.Server.Name)
 		}
 	}
 	return nil

@@ -136,7 +136,7 @@ export function draftFromSpec(spec: AgentTemplateSpec, namespace: string): Agent
     mcpTools: tools
       .filter((binding) => binding.mcp)
       .map((binding) => ({
-        serverRef: { name: binding.mcp?.server.name ?? "", namespace: binding.mcp?.server.namespace },
+        serverRef: { ...binding.mcp?.server, name: binding.mcp?.server.name ?? "" },
         tools: [...(binding.mcp?.tools ?? [])],
         requireApproval: binding.mcp?.requireApproval,
       })),
@@ -170,8 +170,8 @@ export function specFromDraft(
       .filter((tool) => tool.serverRef.name.trim() !== "")
       .map((tool) => ({
         mcp: {
-          // The only kind the CRD's enum allows.
-          server: { kind: "RemoteMCPServer" as const, ...normalizedReference(tool.serverRef, draft.namespace) },
+          // A new pick is a RemoteMCPServer; a loaded reference keeps its own group and kind.
+          server: { kind: "RemoteMCPServer", ...normalizedReference(tool.serverRef, draft.namespace) },
           ...(tool.tools.length > 0 ? { tools: [...tool.tools] } : {}),
           // omitempty on the CRD: false is the default, so only true is sent.
           ...(tool.requireApproval ? { requireApproval: true } : {}),
@@ -318,11 +318,16 @@ export function draftProblems(
   return problems;
 }
 
-/** Keep local manifests concise while preserving shared resource identity. */
+/** Keep local manifests concise while preserving shared resource identity, group and kind. */
 function normalizedReference(ref: ObjectReference, ownerNamespace: string): ObjectReference {
   const name = ref.name.trim();
   const namespace = ref.namespace?.trim();
-  return !namespace || namespace === ownerNamespace ? { name } : { name, namespace };
+  return {
+    ...(ref.group ? { group: ref.group } : {}),
+    ...(ref.kind ? { kind: ref.kind } : {}),
+    name,
+    ...(namespace && namespace !== ownerNamespace ? { namespace } : {}),
+  };
 }
 
 /** Parses only the object-valued JSON shape the public API accepts. */

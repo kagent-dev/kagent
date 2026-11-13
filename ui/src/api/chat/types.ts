@@ -160,6 +160,16 @@ export interface SendMessageInput {
   hitl?: Record<string, unknown>;
   /** Aborts the turn; the stream ends without an error event. */
   signal?: AbortSignal;
+  /**
+   * Stops re-sending a message the gateway refused as not accepted, without
+   * abandoning an attempt already in flight.
+   *
+   * Stop pressed before a task is named keeps the stream open, so a task the
+   * attempt in flight starts can still be cancelled by name. Re-sending must end
+   * there, though: a refused attempt was proven not accepted, and a later one that
+   * is accepted would run a turn the reader stopped.
+   */
+  stopResending?: AbortSignal;
 }
 
 /**

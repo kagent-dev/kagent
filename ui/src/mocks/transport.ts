@@ -2,6 +2,7 @@ import { RuntimeState, RuntimeOperation } from "@/generated/kagent/api/v1/runtim
 import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import type { Agent } from "@/api/domain/agents";
 import { randomId } from "@/api/randomId";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { ActorState, SnapshotStorageState, type WorkerSchema, type ActorSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import type { ActorTemplateSchema } from "@/generated/api/ateapi/v1/ateapi_pb";
 import { ScheduledRunService, ScheduledRunSchema, ScheduledRunExecutionSchema, ScheduledRunExecutionState, type ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
@@ -253,6 +254,14 @@ export const mockTransport: Transport = {
       );
     }
 
+    // Namespace discovery and models can be denied independently of the resource lists.
+    if (scenario === "denied" && (
+      rpc === rpcName(SystemService.method.listNamespaces) ||
+      rpc === rpcName(ModelService.method.listModelConfigs)
+    )) {
+      throw new ConnectError("Not authorized", Code.PermissionDenied);
+    }
+
     const result = await fake(message as never, { scenario, headers, rpc });
     const output = create(method.output, result as MessageInitShape<O>);
 
@@ -345,7 +354,7 @@ function headerRecord(header: HeadersInit | undefined): Record<string, string> {
 // ---------------------------------------------------------------------------
 
 /** A resource in the envelope the controller wraps custom resources in. */
-function structured(kind: string, value: object, apiVersion = "api.kagent.dev/v1alpha3") {
+function structured(kind: string, value: object, apiVersion = KAGENT_API_VERSION) {
   // `google.protobuf.Struct` is a `JsonObject` in the generated types, so a
   // fixture goes in exactly as it is written.
   return { apiVersion, kind, value: value as JsonObject };
@@ -397,7 +406,7 @@ function modelMessage(model: ModelConfig) {
   return {
     ref,
     resource: structured("ModelConfig", {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "ModelConfig",
       metadata: { name: ref.name, namespace: ref.namespace },
       spec: model.spec,
@@ -836,6 +845,11 @@ on(SessionService.method.getSession, (input, call) => ({
       call,
     ),
   ),
+}));
+
+// Fixture runtimes never crash, so a revert returns the Session unchanged.
+on(SessionService.method.revertSession, (input, call) => ({
+  session: agentInstanceMessage(instanceFor(requireInstanceId(input.sessionId), call)),
 }));
 
 on(SessionService.method.createSession, (input, call) => {
@@ -1681,7 +1695,7 @@ function agentFor(namespace: string, name: string): Agent {
   if (!found) throw notFound("Agent");
   return found;
 }
-on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => agent.namespace === input.namespace).map(agentMessage) }));
+on(AgentService.method.listAgents, (input, call) => ({ agents: call.scenario === "empty" ? [] : allAgents().filter(agent => !input.namespace || agent.namespace === input.namespace).map(agentMessage) }));
 on(AgentService.method.getAgent, input => ({ agent: agentMessage(agentFor(input.ref?.namespace ?? "", input.ref?.name ?? "")) }));
 function writeAgent(ref: {namespace: string; name: string} | undefined, value: JsonObject | undefined, previous?: Agent): Agent {
   const namespace = requireNamespace(ref?.namespace ?? "");
@@ -1792,7 +1806,7 @@ function admittedEgressPolicy(
     namespace,
     name,
     resource: {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "EgressPolicy",
       metadata: { ...resource?.metadata, name, namespace },
       spec,

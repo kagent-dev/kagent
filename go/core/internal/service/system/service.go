@@ -32,7 +32,7 @@ type ATEClient interface {
 }
 
 type Service struct {
-	kubeClient         client.Client
+	kubeClient         client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	observedNamespaces []string
 	authorizer         auth.CollectionAuthorizer
 	ateClient          ATEClient
@@ -44,7 +44,7 @@ type Namespace struct {
 }
 
 func NewService(
-	kubeClient client.Client,
+	kubeClient client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	observedNamespaces []string,
 	authorizer auth.CollectionAuthorizer,
 	ateClient ATEClient,
