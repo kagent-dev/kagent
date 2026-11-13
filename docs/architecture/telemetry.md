@@ -310,7 +310,6 @@ CI runs it in the e2e job and uploads the report with the e2e logs. It reports o
 ## Blind spots
 
 - The runtimes still emit the keys listed under [Who emits what](#who-emits-what) that are outside the contract. All of them are written by upstream libraries.
-- The Go ADK writes tool arguments and results (`gcp.vertex.agent.tool_call_args`, `gcp.vertex.agent.tool_response`) whatever the capture setting, fixed upstream by [google/adk-go#1634](https://github.com/google/adk-go/issues/1634). Until then, drop them in a Collector if needed.
 - A turn that pauses for input still ends its gateway CLIENT span as canceled.
 - The Python ADK writes `gen_ai.usage.*` on `call_llm` as well as on its `generate_content` child, so a consumer that sums usage over every span counts each model call twice. Count usage on spans with `gen_ai.operation.name`, or delete usage from `call_llm` spans of the `gcp.vertex.agent` scope in a Collector.
 - `google-adk` caps `opentelemetry-api` and `-sdk` at 1.42.1 ([google/adk-python#7433](https://github.com/google/adk-python/issues/7433)). The upstream GenAI instrumentations need 1.43, so the workspace lock overrides the cap and the shipped image runs the newer SDK. A plain `pip install kagent-adk` still resolves within the cap, since the ADK runtime needs no GenAI instrumentation.
