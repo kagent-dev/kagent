@@ -266,24 +266,81 @@ retires the claim in its transaction, so a late finish records nothing.
 Execution reverts the same Actor to its last durable snapshot without replaying
 input. A runtime without a durable snapshot returns to its initial state.
 An interrupted revert continues from REVERTING; a lost response can be reconciled
-from SUSPENDED. Nothing retries a recovery in the background. An admitted
-recovery survives API restarts as a durable REVERT operation, and the client
-continues it by retrying RevertSession, as with Create and Delete. While it is
-pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`,
-and interactions are refused because a lifecycle operation is in progress.
+from SUSPENDED. An admitted recovery survives API restarts as a durable REVERT
+operation, and the client continues it by retrying RevertSession, as with Create
+and Delete. Nothing retries it in the background. While it is
+pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
+
+With `sessions.automaticRecovery` enabled in controller config, an A2A send also
+starts recovery, so chat and API clients recover with the retry they already
+make. Substrate cannot resume a crashed Actor, so a send to one fails before the
+runtime accepts it. When the gateway proves the input was not accepted, it runs
+the same Revert on that Session before answering `KAGENT_SEND_NOT_ACCEPTED`, and
+the client's retry reaches the restored runtime. A crash during a turn leaves
+that turn open, and an open turn refuses every send, so a send refused for an
+open turn also runs Revert once and then tries its reservation again: a crashed
+runtime is restored and the send proceeds, and a busy healthy runtime refuses it
+as before. Other conflicts, such as a checkpoint in progress, do not start
+recovery. A send while recovery is pending joins it.
+
+A worker can also be lost while the Actor suspends after a turn, for example
+during a node drain or scale-down. The Actor is then CRASHED, the Session still
+reads READY, and the idle worker keeps the suspension's claim because the outcome
+is unknown; nothing takes the claim over on a timeout. Every later send waits out
+the 10-second busy period and is told to retry, so the conversation would never
+recover on its own. Reservation reports a held suspension claim as
+`ErrDispatchSuspending`, a kind of `ErrDispatchBusy`. When that claim outlasts
+the whole wait, which a healthy suspension does not, the send attempts the same
+bounded recovery once. Admitting the recovery retires the claim. Revert leaves a
+suspension that is still running alone, and one more reservation, without
+another wait, proceeds or answers retry as before.
+
+A send waits at most 10 seconds on the recovery it starts. A recovery still
+running then stays admitted: the attempt releases its claim, the send is
+answered `KAGENT_SEND_NOT_ACCEPTED` with `state: RECOVERING` and a one-second
+`retryAfterMs`, and the client's retry continues it. The reason is unchanged so
+existing clients keep retrying. Reverting needs Session update access, as
+`RevertSession` does. When the revert cannot run, whether for missing access,
+contention, or an outage, the send keeps the answer it would give without
+recovery, unless a recovery is already admitted, which answers RECOVERING. No
+Session read calls Substrate.
+
+The setting is off by default. Sends then keep the refusals they had before
+recovery existed, and only an explicit `RevertSession` recovers. Chat retries a
+send refused as `KAGENT_SEND_NOT_ACCEPTED` with the same message ID, doubling
+the wait from the gateway's `retryAfterMs` up to two seconds for 30 seconds,
+and then offers Recover, which calls `RevertSession`. A crash during a turn
+leaves that turn open, so with the setting off the next send is refused
+outright while the Session still reads READY. The gateway names that refusal
+`KAGENT_TURN_ACTIVE` in its ErrorInfo metadata, and chat offers Recover for it
+too, because nothing else observes the crash. Other refusals keep a plain error.
+Chat also offers Recover while a recovery is pending, because a recovery whose
+attempt failed stays FAILED/REVERT until a client retries it. Recover returns a
+healthy runtime unchanged and records a lost one, so it is safe to offer on a
+guess.
+
+A missing, replaced, or retemplated Actor is not this Session's runtime, and
+reverting it would restore the wrong one. Whichever Revert observes that,
+directly or while executing an admitted recovery, records it in one transaction
+guarded by the generation it observed: the Session becomes FAILED/NONE with
+failure reason `RuntimeLost`, every open task fails, and a pending dispatch is
+cleared. A newer generation makes the observation stale and leaves the record
+alone. Later sends and reverts answer from PostgreSQL with a non-retryable error
+and do not ask Substrate again. Delete still works.
 
 Delete supersedes an admitted recovery even after an attempt issued the revert.
 Other issued lifecycle work blocks Delete because it may still create something
 Delete would miss; a revert restores the recorded Actor in place and creates
 nothing. Substrate serializes the two calls, and a late revert fails against the
-deleted Actor. A recovery whose Actor is missing or replaced stays pending, and
-each retry returns
-`FAILED_PRECONDITION` so the client deletes the Session.
+deleted Actor. Recording a lost runtime supersedes an admitted recovery the
+same way.
 
 A successful revert returns the Session to READY with the same Actor suspended.
 The next authorized interaction resumes it through Substrate ingress. Runtime
 changes after the retained snapshot are lost; the discarded turn receives no
 checkpoint at that older snapshot. Another revert returns the Session.
+
+Chat shows a pending recovery and a lost runtime from the stored Session state.
 
 ```mermaid
 sequenceDiagram

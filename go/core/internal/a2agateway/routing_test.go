@@ -2,6 +2,7 @@ package a2agateway
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	a2a "github.com/a2aproject/a2a-go/v2/a2a"
@@ -43,18 +44,32 @@ func (s gatewayTestAgents) Get(ctx context.Context, ref types.NamespacedName) (*
 	return &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: ref.Namespace, Name: ref.Name}, Status: v1alpha3.AgentStatus{LatestSuccessfulRevision: "revision-1"}}, nil
 }
 
-type gatewayTestWorkflow struct{ *sessionsvc.ActorWorkflow }
+type gatewayTestWorkflow struct {
+	*sessionsvc.ActorWorkflow
+	store *gatewayTestStore
+}
+
+func (w gatewayTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	w.store.reverts++
+	if w.store.revertErr != nil {
+		return nil, w.store.revertErr
+	}
+	if w.store.onRevert != nil {
+		w.store.onRevert()
+	}
+	return session, nil
+}
 
 func (gatewayTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }
 
 func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessionsvc.Service {
-	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{})
+	return sessionsvc.NewService(store, authorizer, gatewayTestWorkflow{store: store})
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
-	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false)
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, true)
 	return New(interactions, dialer, url)
 }
 
@@ -130,4 +145,51 @@ func TestListWithoutContextRestrictsShareToOneConversation(t *testing.T) {
 	_, err := gateway.ListTasks(ctx, &a2a.ListTasksRequest{Tenant: gatewayTestAgent})
 	require.NoError(t, err)
 	require.Equal(t, []string{gatewayTestID}, store.listedIDs)
+}
+
+func TestSendRecoveryDisabled(t *testing.T) {
+	for _, scenario := range []struct {
+		name             string
+		pending, refused bool
+		reserveErr       error
+		want             error
+		reason           string
+	}{
+		{name: "an admitted recovery", pending: true, want: a2a.ErrUnsupportedOperation},
+		{name: "an open turn", reserveErr: database.ErrActiveTurn, want: a2a.ErrUnsupportedOperation, reason: "KAGENT_TURN_ACTIVE"},
+		{name: "a checkpoint in progress", reserveErr: database.ErrConflict, want: a2a.ErrUnsupportedOperation},
+		{name: "a runtime refusal", refused: true, want: sessionsvc.ErrSendNotAccepted, reason: "KAGENT_SEND_NOT_ACCEPTED"},
+	} {
+		t.Run("Given automatic recovery is disabled, when a send encounters "+scenario.name+", assert that it refuses without reverting", func(t *testing.T) {
+			session := gatewayTestSession()
+			if scenario.pending {
+				session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+			}
+			store := &gatewayTestStore{session: session, revoked: scenario.refused, taskErr: database.ErrNotFound, reserveErr: scenario.reserveErr}
+			runtime := &gatewayTestRuntime{}
+			if scenario.refused {
+				runtime.onSend = func() error { return a2a.ErrInternalError }
+			}
+			authorizer := &gatewayTestAuthorizer{}
+			interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, false)
+			gateway := New(interactions, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			require.ErrorIs(t, err, scenario.want)
+			require.Equal(t, scenario.reason, errorInfoReason(err))
+			require.Zero(t, store.reverts)
+			if scenario.reserveErr != nil {
+				require.Equal(t, 1, store.reserveCalls)
+			}
+		})
+	}
+}
+
+// errorInfoReason is the kagent reason a refusal carries in its ErrorInfo metadata.
+func errorInfoReason(err error) string {
+	refusal, ok := errors.AsType[*a2a.Error](err)
+	if !ok {
+		return ""
+	}
+	meta, _ := refusal.ErrorInfo().Value["metadata"].(map[string]string)
+	return meta["reason"]
 }

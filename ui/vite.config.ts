@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { CORE_ENV_VARS, ENV_DEFAULTS } from "./src/env.ts";
 
@@ -168,6 +169,15 @@ export default defineConfig(({ mode }) => ({
     environment: "jsdom",
     setupFiles: ["./src/testSetup.ts"],
     css: true,
+    // At most eight workers, and one less than the cores below that. A worker
+    // rendering a whole page is CPU-bound and keeps about one and a half cores busy
+    // (V8's collector runs beside it), so vitest's default of one per core less one
+    // asks a large machine for more CPU than it has. The heaviest page tests need
+    // about a second on a free core. Oversubscribed, they stretch to 5-9 s and fail at
+    // the 5 s timeout or the 1 s findBy, a different few on each run. Fewer workers
+    // did not lengthen the suite, because the CPU was already the limit. Small CI
+    // runners keep the default.
+    maxWorkers: Math.max(1, Math.min(availableParallelism() - 1, 8)),
     /* Playwright's own specs are `.spec.ts` and must not run here. `.test.ts` under
        playwright/ is a check *about* that suite rather than part of it, and does. */
     exclude: ["**/node_modules/**", "**/playwright/**/*.spec.ts"],

@@ -385,7 +385,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp(), cfg.GetSessions().GetAutomaticRecovery())
 	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
 	pushIssuer := cfg.GetPush().GetIssuer()

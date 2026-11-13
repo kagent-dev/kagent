@@ -154,6 +154,8 @@ jobs:
                 port: http
               periodSeconds: 1
           config:
+            sessions:
+              automaticRecovery: true
             push:
               allowHttp: true
               allowPrivateNetworks: true

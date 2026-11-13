@@ -18,6 +18,7 @@ import (
 type workflowStore interface {
 	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
 	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
+	RecordLostSessionRuntime(context.Context, string, uuid.UUID, string) (*apiv1.Session, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
@@ -226,9 +227,10 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 	if database.CrashRecoveryAdmitted(admitted.Instance) {
 		// Admission already failed the interrupted turn, so clearing the operation
 		// would leave a FAILED Session that a retried RevertSession could not
-		// continue. Delete can supersede the kept intent, even after a claim.
+		// continue. Delete can supersede the kept intent, even after a claim. A lost
+		// Actor ends the recovery, so it is recorded instead.
 		if errors.Is(cause, substrate.ErrActorUnrecoverable) {
-			return nil, fmt.Errorf("%w: %w", cause, errRuntimeUnrecoverable)
+			return nil, fmt.Errorf("%w: %w", cause, w.recordLost(ctx, admitted.Instance.Id, admitted.ID, "its Actor is missing or was replaced"))
 		}
 		return nil, cause
 	}

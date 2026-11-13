@@ -281,8 +281,12 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
       taskRef.current = undefined;
       // Per run, so a stop pressed on an earlier turn cannot reach a later one.
       let cancelWhenNamed = false;
+      // Stop before the task is named also ends re-sending: an attempt the gateway
+      // refused was not accepted, and a later accepted one would run a stopped turn.
+      const stopResending = new AbortController();
       cancelWhenNamedRef.current = () => {
         cancelWhenNamed = true;
+        stopResending.abort();
       };
       setTurn(nextTurn(IDLE_TURN, { type: "start", key }));
       setTranscript((current) =>
@@ -352,6 +356,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
           taskId: answering?.request.taskId,
           hitl,
           signal: controller.signal,
+          stopResending: stopResending.signal,
         })) {
           if (controller.signal.aborted) break;
           awaitNextEvent();

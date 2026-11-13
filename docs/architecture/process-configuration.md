@@ -114,6 +114,12 @@ runtimeDefaults:
     level: info
 ```
 
+`sessions.automaticRecovery` enables recovery of crashed runtimes during sends.
+It defaults to false. The chart renders it only when set, so a rollback to a
+release that predates the setting can still read the default config. Explicit
+`RevertSession` calls remain available with either value. The setting does not
+change migrations or stored data.
+
 The controller connects with two logins. `database.owner` applies migrations at
 startup; `database.readWrite` serves every runtime query. Each assumes its `role`
 after connecting. Set `database.skipMigrations: true` when migrations are applied

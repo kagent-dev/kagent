@@ -238,3 +238,23 @@ func TestYAMLConfigReadsOnlyFirstDocument(t *testing.T) {
 	require.NoError(t, config.Decode([]byte("logging: {level: debug}\n---\n["), cfg))
 	require.Equal(t, "debug", cfg.GetLogging().GetLevel())
 }
+
+func TestSessionAutomaticRecovery(t *testing.T) {
+	for _, scenario := range []struct {
+		name, input string
+		want        bool
+	}{
+		{"omitted", "{}", false},
+		{"disabled", "sessions: {automaticRecovery: false}", false},
+		{"enabled", "sessions: {automaticRecovery: true}", true},
+	} {
+		t.Run("Given controller config with automatic recovery "+scenario.name+", when it loads, assert that the setting is preserved", func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(scenario.input), cfg))
+			config.DefaultController(cfg)
+			setLogins(cfg)
+			require.NoError(t, config.Validate(cfg))
+			require.Equal(t, scenario.want, cfg.GetSessions().GetAutomaticRecovery())
+		})
+	}
+}

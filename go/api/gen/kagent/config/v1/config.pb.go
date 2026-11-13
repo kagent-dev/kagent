@@ -1260,6 +1260,8 @@ func (x *SubstrateConfig) GetActorJwtIssuer() string {
 
 type SessionsConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
+	AutomaticRecovery bool `protobuf:"varint,5,opt,name=automatic_recovery,json=automaticRecovery,proto3" json:"automatic_recovery,omitempty"`
 	// Zero disables idle expiration.
 	IdleTtl *durationpb.Duration `protobuf:"bytes,1,opt,name=idle_ttl,json=idleTtl,proto3" json:"idle_ttl,omitempty"`
 	// Zero leaves session shares unbounded.
@@ -1298,6 +1300,13 @@ func (x *SessionsConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SessionsConfig.ProtoReflect.Descriptor instead.
 func (*SessionsConfig) Descriptor() ([]byte, []int) {
 	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SessionsConfig) GetAutomaticRecovery() bool {
+	if x != nil {
+		return x.AutomaticRecovery
+	}
+	return false
 }
 
 func (x *SessionsConfig) GetIdleTtl() *durationpb.Duration {
@@ -2255,8 +2264,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01B\x0f\n" +
 	"\r_api_endpointB\r\n" +
 	"\v_router_urlB\x13\n" +
-	"\x11_actor_jwt_issuer\"\xf6\x02\n" +
-	"\x0eSessionsConfig\x12F\n" +
+	"\x11_actor_jwt_issuer\"\xa5\x03\n" +
+	"\x0eSessionsConfig\x12-\n" +
+	"\x12automatic_recovery\x18\x05 \x01(\bR\x11automaticRecovery\x12F\n" +
 	"\bidle_ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"2\x00R\aidleTtl\x12O\n" +
 	"\rshare_max_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
