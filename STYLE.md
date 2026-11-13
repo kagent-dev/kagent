@@ -330,8 +330,7 @@ All new CRD API surface goes in `v1alpha3`.
   resources, make other network calls, or have knowledge of backends/runtimes.
   Side effects and async logic belong in the reconciler (or a dedicated
   controller).
-- Every behavioral change to a translator **SHOULD** come with golden tests
-  (`KAGENT_TEST_UPDATE_GOLDEN=true go test ...` to regenerate).
+- Every behavioral change to a translator **SHOULD** come with golden tests.
 
 ### Database
 
