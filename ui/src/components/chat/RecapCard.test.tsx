@@ -23,6 +23,11 @@ function renderCard(options: { collapsed?: boolean; onToggle?: () => void; start
 }
 
 describe("RecapCard", () => {
+  it("pads like a chat reply", () => {
+    renderCard();
+    expect(getComputedStyle(screen.getByTestId("chat-recap")).padding).toBe("8px 12px");
+  });
+
   it("carries the recap text", () => {
     renderCard();
     expect(within(screen.getByTestId("chat-recap")).getByText(RECAP.text)).toBeInTheDocument();

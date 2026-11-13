@@ -41,7 +41,7 @@ export function RecapCard({
         background: "transparent",
         border: `1px solid ${theme.color.border}`,
         borderRadius: theme.radius.md,
-        padding: `${theme.space(2)}px ${theme.space(3)}px`,
+        padding: `${theme.space(2)} ${theme.space(3)}`,
         "&:hover": { background: wash(3) },
         "&:active": { background: wash(5) },
       }}
