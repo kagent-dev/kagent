@@ -7,8 +7,9 @@ description: Write or update a kagent architecture page that explains an end-to-
 
 A flow page explains one end-to-end operation: which components take part, what
 each is responsible for, what kagent stores, and why the parts interact as they
-do. Readers are contributors deciding where a change belongs. Example:
-[agent-creation.md](../../../docs/architecture/agent-creation.md).
+do. Readers are contributors deciding where a change belongs. Examples:
+[agent-creation.md](../../../docs/architecture/agent-creation.md) and
+[agent-send-message.md](../../../docs/architecture/agent-send-message.md).
 
 ## Principles
 
