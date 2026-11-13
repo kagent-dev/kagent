@@ -81,14 +81,17 @@ type Session struct {
 	Id      string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Creator string                 `protobuf:"bytes,2,opt,name=creator,proto3" json:"creator,omitempty"`
 	// Output only. Agent identity captured from this Session's pinned revision.
-	Agent            *AgentProvenance       `protobuf:"bytes,15,opt,name=agent,proto3" json:"agent,omitempty"`
-	PreparedRevision string                 `protobuf:"bytes,5,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
-	A2AAuthority     string                 `protobuf:"bytes,6,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
-	State            RuntimeState           `protobuf:"varint,7,opt,name=state,proto3,enum=kagent.api.v1.RuntimeState" json:"state,omitempty"`
-	Operation        RuntimeOperation       `protobuf:"varint,8,opt,name=operation,proto3,enum=kagent.api.v1.RuntimeOperation" json:"operation,omitempty"`
-	Failure          *Failure               `protobuf:"bytes,9,opt,name=failure,proto3" json:"failure,omitempty"`
-	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Agent            *AgentProvenance `protobuf:"bytes,15,opt,name=agent,proto3" json:"agent,omitempty"`
+	PreparedRevision string           `protobuf:"bytes,5,opt,name=prepared_revision,json=preparedRevision,proto3" json:"prepared_revision,omitempty"`
+	A2AAuthority     string           `protobuf:"bytes,6,opt,name=a2a_authority,json=a2aAuthority,proto3" json:"a2a_authority,omitempty"`
+	State            RuntimeState     `protobuf:"varint,7,opt,name=state,proto3,enum=kagent.api.v1.RuntimeState" json:"state,omitempty"`
+	Operation        RuntimeOperation `protobuf:"varint,8,opt,name=operation,proto3,enum=kagent.api.v1.RuntimeOperation" json:"operation,omitempty"`
+	// Output only. With state FAILED, reason RuntimeCrashed and operation REVERT
+	// mean a crash recovery is pending; reason RuntimeLost and operation NONE mean
+	// the recorded runtime is gone and the Session can only be deleted.
+	Failure   *Failure               `protobuf:"bytes,9,opt,name=failure,proto3" json:"failure,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// Reader-supplied display name for the conversation. Empty means unnamed.
 	Name string `protobuf:"bytes,13,opt,name=name,proto3" json:"name,omitempty"`
 	// Output only. A2A conversation ID, equal to this session's ID.

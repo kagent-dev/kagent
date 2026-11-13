@@ -21,33 +21,24 @@ function renderInventory() {
   );
 }
 
-it("shows consistent empty tables when inventory access is denied", async () => {
-  let actorReads = 0;
-  let workerReads = 0;
+it("shows permission denial on the affected inventory panels", async () => {
   setApiTransport(createRouterTransport(({ service }) => service(SystemService, {
     listNamespaces: () => ({}),
     getSubstrateSummary: () => ({}),
-    listSubstrateActors: () => {
-      actorReads++;
-      throw new ConnectError("Actor inventory access denied", Code.PermissionDenied);
-    },
-    listSubstrateWorkers: () => {
-      workerReads++;
-      throw new ConnectError("Worker inventory access denied", Code.PermissionDenied);
-    },
+    listSubstrateActors: () => { throw new ConnectError("Not authorized", Code.PermissionDenied); },
+    listSubstrateWorkers: () => { throw new ConnectError("Not authorized", Code.PermissionDenied); },
   })));
   renderInventory();
-  await waitFor(() => {
-    expect(actorReads).toBeGreaterThan(0);
-    expect(workerReads).toBeGreaterThan(0);
-    expect(screen.queryByTestId("substrate-actors-pages-next")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("substrate-workers-pages-next")).not.toBeInTheDocument();
-  });
-  for (const [table, noun] of [["pools", "worker pools"], ["templates", "actor templates"], ["actors", "actors"], ["workers", "workers"]]) {
-    expect(within(screen.getByTestId(`substrate-${table}-table`)).getByText(`No ${noun} visible in this scope.`)).toBeInTheDocument();
+
+  for (const noun of ["actors", "workers"]) {
+    const alert = await screen.findByTestId(`substrate-${noun}-error`);
+    expect(alert).toHaveTextContent(`You do not have access to ${noun}`);
+    expect(alert).not.toHaveTextContent("Not authorized");
+    expect(within(alert).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(screen.queryByText(`No ${noun} visible in this scope.`)).not.toBeInTheDocument();
   }
-  expect(screen.queryByTestId("substrate-actors-error")).not.toBeInTheDocument();
-  expect(screen.queryByTestId("substrate-workers-error")).not.toBeInTheDocument();
+  expect(screen.getByText("No worker pools visible in this scope.")).toBeInTheDocument();
+  expect(screen.getByText("No actor templates visible in this scope.")).toBeInTheDocument();
 });
 
 it.each([Code.Unauthenticated, Code.Internal, Code.Unavailable, Code.DeadlineExceeded])(
@@ -60,37 +51,49 @@ it.each([Code.Unauthenticated, Code.Internal, Code.Unavailable, Code.DeadlineExc
       listSubstrateWorkers: () => { throw new ConnectError("Worker read failed", code); },
     })));
     renderInventory();
-    expect(await screen.findByTestId("substrate-actors-error")).toHaveTextContent("Actor read failed");
+    const actorsError = await screen.findByTestId("substrate-actors-error");
+    expect(actorsError).toHaveTextContent("Actor read failed");
+    expect(within(actorsError).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(await screen.findByTestId("substrate-workers-error")).toHaveTextContent("Worker read failed");
   },
 );
 
-it("clears previously visible rows and continuation tokens when refresh denies access", async () => {
+it("hides the rows and both pagers when a refresh denies access on page two", async () => {
   let denied = false;
   setApiTransport(createRouterTransport(({ service }) => service(SystemService, {
     listNamespaces: () => ({}),
     getSubstrateSummary: () => ({}),
-    listSubstrateActors: () => {
+    listSubstrateActors: ({ page }) => {
       if (denied) throw new ConnectError("Actor inventory access denied", Code.PermissionDenied);
-      return { actors: [{ metadata: { atespace: "team", name: "visible-actor" } }], page: { nextPageToken: "actor-next" } };
+      return {
+        actors: [{ metadata: { atespace: "team", name: page?.pageToken ? "second-actor" : "first-actor" } }],
+        page: { nextPageToken: page?.pageToken ? "" : "actor-next" },
+      };
     },
-    listSubstrateWorkers: () => {
+    listSubstrateWorkers: ({ page }) => {
       if (denied) throw new ConnectError("Worker inventory access denied", Code.PermissionDenied);
-      return { workers: [{ metadata: { name: "visible-worker" }, workerNamespace: "workers", workerPod: "visible-pod" }], page: { nextPageToken: "worker-next" } };
+      return {
+        workers: [{ metadata: { name: "visible-worker" }, workerNamespace: "workers", workerPod: page?.pageToken ? "second-pod" : "first-pod" }],
+        page: { nextPageToken: page?.pageToken ? "" : "worker-next" },
+      };
     },
   })));
   renderInventory();
-  await screen.findByText("visible-actor");
-  await screen.findByText("visible-pod");
-  await waitFor(() => expect(screen.getByTestId("substrate-workers-pages-next")).toBeEnabled());
+  for (const resource of ["actors", "workers"]) {
+    const next = await screen.findByTestId(`substrate-${resource}-pages-next`);
+    await waitFor(() => expect(next).toBeEnabled());
+    fireEvent.click(next);
+    await waitFor(() => expect(screen.getByTestId(`substrate-${resource}-pages-prev`)).toBeEnabled());
+  }
+  expect(await screen.findByText("second-actor")).toBeInTheDocument();
+  expect(await screen.findByText("second-pod")).toBeInTheDocument();
+
   denied = true;
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-  await waitFor(() => {
-    expect(screen.queryByText("visible-actor")).not.toBeInTheDocument();
-    expect(screen.queryByText("visible-pod")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("substrate-actors-pages-next")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("substrate-workers-pages-next")).not.toBeInTheDocument();
-  });
-  expect(screen.queryByTestId("substrate-actors-error")).not.toBeInTheDocument();
-  expect(screen.queryByTestId("substrate-workers-error")).not.toBeInTheDocument();
+  expect(await screen.findByTestId("substrate-actors-error")).toHaveTextContent("You do not have access to actors");
+  expect(await screen.findByTestId("substrate-workers-error")).toHaveTextContent("You do not have access to workers");
+  expect(screen.queryByText("second-actor")).not.toBeInTheDocument();
+  expect(screen.queryByText("second-pod")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("substrate-actors-pages")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("substrate-workers-pages")).not.toBeInTheDocument();
 });

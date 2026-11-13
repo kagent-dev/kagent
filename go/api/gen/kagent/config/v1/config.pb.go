@@ -1109,8 +1109,11 @@ type PostgresPoolConfig struct {
 	MaxConns        *int32                 `protobuf:"varint,2,opt,name=max_conns,json=maxConns,proto3,oneof" json:"max_conns,omitempty"`
 	MaxConnIdleTime *durationpb.Duration   `protobuf:"bytes,3,opt,name=max_conn_idle_time,json=maxConnIdleTime,proto3" json:"max_conn_idle_time,omitempty"`
 	MaxConnLifetime *durationpb.Duration   `protobuf:"bytes,4,opt,name=max_conn_lifetime,json=maxConnLifetime,proto3" json:"max_conn_lifetime,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// connect_retry_timeout is how long a database call retries a failed login,
+	// such as while a paused database resumes. 0s turns the retry off. Default 90s.
+	ConnectRetryTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=connect_retry_timeout,json=connectRetryTimeout,proto3" json:"connect_retry_timeout,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PostgresPoolConfig) Reset() {
@@ -1167,6 +1170,13 @@ func (x *PostgresPoolConfig) GetMaxConnIdleTime() *durationpb.Duration {
 func (x *PostgresPoolConfig) GetMaxConnLifetime() *durationpb.Duration {
 	if x != nil {
 		return x.MaxConnLifetime
+	}
+	return nil
+}
+
+func (x *PostgresPoolConfig) GetConnectRetryTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ConnectRetryTimeout
 	}
 	return nil
 }
@@ -1250,6 +1260,8 @@ func (x *SubstrateConfig) GetActorJwtIssuer() string {
 
 type SessionsConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
+	AutomaticRecovery bool `protobuf:"varint,5,opt,name=automatic_recovery,json=automaticRecovery,proto3" json:"automatic_recovery,omitempty"`
 	// Zero disables idle expiration.
 	IdleTtl *durationpb.Duration `protobuf:"bytes,1,opt,name=idle_ttl,json=idleTtl,proto3" json:"idle_ttl,omitempty"`
 	// Zero leaves session shares unbounded.
@@ -1288,6 +1300,13 @@ func (x *SessionsConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SessionsConfig.ProtoReflect.Descriptor instead.
 func (*SessionsConfig) Descriptor() ([]byte, []int) {
 	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SessionsConfig) GetAutomaticRecovery() bool {
+	if x != nil {
+		return x.AutomaticRecovery
+	}
+	return false
 }
 
 func (x *SessionsConfig) GetIdleTtl() *durationpb.Duration {
@@ -2232,14 +2251,16 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x0e_vector_schema\"D\n" +
 	"\x13DatabaseLoginConfig\x12\x19\n" +
 	"\burl_file\x18\x01 \x01(\tR\aurlFile\x12\x12\n" +
-	"\x04role\x18\x02 \x01(\tR\x04role\"\xa2\x03\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"\x80\x04\n" +
 	"\x12PostgresPoolConfig\x12$\n" +
 	"\tmin_conns\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\bminConns\x12)\n" +
 	"\tmax_conns\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x00R\bmaxConns\x88\x01\x01\x12X\n" +
 	"\x12max_conn_idle_time\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnIdleTime\x12W\n" +
 	"\x11max_conn_lifetime\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnLifetime:z\xbaHw\x1au\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnLifetime\x12\\\n" +
+	"\x15connect_retry_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\r\xbaH\n" +
+	"\xaa\x01\a\"\x03\b\xd8\x042\x00R\x13connectRetryTimeout:z\xbaHw\x1au\n" +
 	"\x14postgres_pool.bounds\x12#min_conns must not exceed max_conns\x1a8!has(this.max_conns) || this.min_conns <= this.max_connsB\f\n" +
 	"\n" +
 	"_max_conns\"\xc6\x02\n" +
@@ -2252,8 +2273,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01B\x0f\n" +
 	"\r_api_endpointB\r\n" +
 	"\v_router_urlB\x13\n" +
-	"\x11_actor_jwt_issuer\"\xf6\x02\n" +
-	"\x0eSessionsConfig\x12F\n" +
+	"\x11_actor_jwt_issuer\"\xa5\x03\n" +
+	"\x0eSessionsConfig\x12-\n" +
+	"\x12automatic_recovery\x18\x05 \x01(\bR\x11automaticRecovery\x12F\n" +
 	"\bidle_ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"2\x00R\aidleTtl\x12O\n" +
 	"\rshare_max_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
@@ -2437,32 +2459,33 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	15, // 30: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
 	30, // 31: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
 	30, // 32: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	30, // 33: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	30, // 34: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	30, // 35: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 36: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	30, // 37: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
-	30, // 38: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
-	30, // 39: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	30, // 40: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	30, // 41: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 42: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	30, // 43: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	30, // 44: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	25, // 45: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	25, // 46: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	25, // 47: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	29, // 48: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	30, // 49: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	4,  // 50: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	24, // 51: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	28, // 52: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	27, // 53: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	30, // 33: kagent.config.v1.PostgresPoolConfig.connect_retry_timeout:type_name -> google.protobuf.Duration
+	30, // 34: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	30, // 35: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	30, // 36: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 37: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
+	30, // 38: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	30, // 39: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
+	30, // 40: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	30, // 41: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	30, // 42: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 43: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	30, // 44: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	30, // 45: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	25, // 46: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	25, // 47: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	25, // 48: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	29, // 49: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	30, // 50: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	4,  // 51: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	24, // 52: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	28, // 53: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	27, // 54: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	55, // [55:55] is the sub-list for method output_type
+	55, // [55:55] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }

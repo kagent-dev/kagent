@@ -76,9 +76,8 @@ type KagentHarnessCompaction struct {
 type KagentHarnessSummarizer struct {
 	// ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
 	// writes the summaries. Omitted uses the agent's own model.
-	// +kubebuilder:validation:XValidation:rule="has(self.name) && self.name != ''",message="name must not be empty"
 	// +optional
-	ModelConfigRef *ObjectReference `json:"modelConfigRef,omitempty"`
+	ModelConfigRef *ModelConfigReference `json:"modelConfigRef,omitempty"`
 	// PromptTemplate replaces the runtime's default summarization prompt. It
 	// must contain {conversation_history}, which the runtime replaces with the
 	// rendered events.
@@ -88,11 +87,10 @@ type KagentHarnessSummarizer struct {
 }
 
 // KagentHarnessMemory configures kagent's long-term memory service.
-// +kubebuilder:validation:XValidation:rule="self.modelConfigRef.name.size() > 0",message="modelConfigRef name must not be empty"
 type KagentHarnessMemory struct {
 	// ModelConfigRef references the embedding ModelConfig (defaulting to the Harness namespace).
 	// +required
-	ModelConfigRef ObjectReference `json:"modelConfigRef"`
+	ModelConfigRef ModelConfigReference `json:"modelConfigRef"`
 
 	// TTLDays controls how many days a stored memory entry remains valid.
 	// +kubebuilder:validation:Minimum=1

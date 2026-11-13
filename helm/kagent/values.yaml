@@ -178,6 +178,10 @@ config:
     # Skip applying migrations at controller startup; verify they are already applied.
     # Apply migrations out-of-band before installing or upgrading when true.
     skipMigrations: false
+    # pool:
+    #   # How long a database call retries a failed login, e.g. while a paused
+    #   # database resumes. 0s turns the retry off. Default 90s.
+    #   connectRetryTimeout: 90s
   push:
     allowHttp: false
     allowPrivateNetworks: false
@@ -188,6 +192,10 @@ config:
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
   sessions:
+    # Set automaticRecovery: true to recover crashed runtimes when a client sends
+    # another message. It is off by default and not rendered, so the default config
+    # stays readable by releases that predate the setting.
+    # automaticRecovery: false
     idleTtl: 604800s
     shareMaxTtl: 0s
   sandboxes:
@@ -748,7 +756,6 @@ providers:
     # apiKey: ""
     config:
       apiVersion: "2024-10-21"
-      azureAdToken: ""
       azureDeployment: ""
       azureEndpoint: ""
   gemini:

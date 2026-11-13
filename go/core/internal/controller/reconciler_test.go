@@ -547,10 +547,10 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 				runner.Spec.Workload.Image = new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 				agent := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent", UID: "agent-uid"}, Spec: kagentv1alpha3.AgentSpec{
 					HarnessRef: corev1.LocalObjectReference{Name: runner.Name},
-					Template:   kagentv1alpha3.AgentTemplateSource{Inline: &kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: model.Name, Namespace: model.Namespace}}},
+					Template:   kagentv1alpha3.AgentTemplateSource{Inline: &kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: model.Name, Namespace: model.Namespace}}},
 				}}
 				if kind == "RemoteMCPServer" {
-					agent.Spec.Template.Inline.Tools = []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: kind, Name: server.Name, Namespace: new(server.Namespace)}}}}
+					agent.Spec.Template.Inline.Tools = []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: kagentv1alpha3.MCPServerReference{Kind: new(kind), Name: server.Name, Namespace: server.Namespace}}}}
 					model.Spec.AllowedNamespaces = &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll}
 				}
 				agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{agent}, opts.WithName("Agents")...)

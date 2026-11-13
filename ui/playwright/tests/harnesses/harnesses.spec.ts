@@ -67,6 +67,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
   });
 
   await test.step("3. the form explains itself and marks what the cluster requires", async () => {
+    await page.getByTestId("agents-create").click();
     await page.getByTestId("agents-new-harness").click();
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 

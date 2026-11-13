@@ -278,10 +278,11 @@ All new CRD API surface goes in `v1alpha3`.
   // +kubebuilder:validation:XValidation:message="only one of stdio or http may be set",rule="[has(self.stdio), has(self.http)].filter(x, x).size() <= 1"
   ```
 
-- Use standard K8s types before inventing new ones: `[]metav1.Condition` for
-  status (with `meta.SetStatusCondition`), `corev1.LocalObjectReference` /
-  `TypedLocalObjectReference` for references. Start with single-namespace
-  (local) references; widen later only if needed.
+- Use standard K8s types before inventing new ones, such as `[]metav1.Condition`
+  for status (with `meta.SetStatusCondition`).
+- References use kagent-owned types, not `corev1.LocalObjectReference` or
+  `TypedObjectReference`, because kagent can't evolve a type it doesn't own.
+  Start with single-namespace (local) references; widen later only if needed.
 - References **MUST** be structured fields, not opaque `"namespace/name"`
   strings that callers parse.
 - Keep the API small: don't add convenience/sugar fields to status that can be

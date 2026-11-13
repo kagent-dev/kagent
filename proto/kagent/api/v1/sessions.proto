@@ -47,6 +47,9 @@ message Session {
   string a2a_authority = 6;
   RuntimeState state = 7;
   RuntimeOperation operation = 8;
+  // Output only. With state FAILED, reason RuntimeCrashed and operation REVERT
+  // mean a crash recovery is pending; reason RuntimeLost and operation NONE mean
+  // the recorded runtime is gone and the Session can only be deleted.
   Failure failure = 9;
   google.protobuf.Timestamp created_at = 10;
   google.protobuf.Timestamp updated_at = 11;

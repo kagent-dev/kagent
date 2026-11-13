@@ -14,10 +14,12 @@ import { SnapshotDetailsModal } from "@/components/chat/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/chat/SnapshotRenameDialog";
 import { ChatTranscript } from "@/components/chat/ChatTranscript";
 import { TaskPushNotificationsModal } from "@/components/chat/TaskPushNotificationsModal";
-import { isLifecycleBusy } from "@/components/chat/lifecycleReading";
+import { isLifecycleBusy, isRuntimeLost } from "@/components/chat/lifecycleReading";
 import { paths } from "@/router/routes";
 import {
+  ApiError,
   apiClient,
+  canForkFrom,
   useAgentInstance,
   useAgentInstances,
   useAgentTakesFiles,
@@ -28,7 +30,7 @@ import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useRefreshConversationsOnTurnEnd } from "@/api/hooks/useRefreshConversationsOnTurnEnd";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
-import type { Checkpoint } from "@/api";
+import type { AgentInstance, Checkpoint } from "@/api";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/chat/messageCheckpoints";
 import { messageSummary } from "@/components/chat/messageText";
@@ -36,6 +38,42 @@ import { handOffFirstMessage, takeFirstMessage, type FirstMessage } from "@/api/
 import { useExtensionAgentLinks } from "@/appExtensions/hooks";
 import { agentUrl } from "@/components/agent/agentUrl";
 import { isMockMode } from "@/api/config";
+
+/**
+ * What the not-ready alert says about a conversation that cannot take a message.
+ *
+ * Read from the stored Session alone. A pending crash recovery and a runtime that is
+ * gone are both FAILED, and only the operation and failure reason tell them apart.
+ */
+function notReadyCopy(
+  instance: AgentInstance,
+  canFork: boolean,
+): { title: string; description: string } {
+  if (isRuntimeLost(instance)) {
+    return {
+      title: "This conversation's runtime cannot be recovered",
+      description: [
+        instance.failure?.message,
+        canFork
+          ? "Start another conversation, or fork a saved snapshot from the transcript. This one can still be read."
+          : "Start another conversation. This one can still be read.",
+      ].filter(Boolean).join(" "),
+    };
+  }
+  if (instance.operation === "revert") {
+    return {
+      title: "Recovering this conversation after a crash",
+      description:
+        "The agent's runtime crashed and is being restored from its last snapshot. The agent accepts messages again once that finishes, and does not remember messages sent after that snapshot. If recovery does not finish, select Recover to try again.",
+    };
+  }
+  return {
+    title: `This conversation is ${instance.state}, so the agent cannot answer`,
+    description:
+      instance.failure?.message ||
+      "The agent accepts messages once this conversation is ready. You can also start another conversation.",
+  };
+}
 
 /**
  * How often the instance is re-read while it is doing something.
@@ -457,6 +495,37 @@ export function AgentChatPage() {
     refreshInstance.current = instance.refresh;
   });
 
+  /*
+   * Reverts the runtime on the reader's request.
+   *
+   * Offered while a recovery is pending, since a failed one stays FAILED/REVERT until
+   * something retries it, and when sends keep being refused, since a crashed runtime
+   * looks READY until something observes it. Either way it is explicit, so it works
+   * whether or not the controller recovers on send. A healthy runtime is returned
+   * unchanged, and one that cannot be recovered is recorded as lost.
+   */
+  const [isRecovering, setRecovering] = useState(false);
+  const recover = useCallback(async () => {
+    if (!id) return;
+    setRecovering(true);
+    try {
+      const recovered = await apiClient.agentInstances.revert(id);
+      toast.success(recovered.state === "ready"
+        ? "The runtime is ready. Retry your message."
+        : "Recovery finished.");
+    } catch (cause: unknown) {
+      console.error("Could not recover the conversation:", cause);
+      toast.error(cause instanceof ApiError && cause.code === "Aborted"
+        ? "The runtime is busy with another operation. Try again shortly."
+        : `Could not recover: ${cause instanceof Error ? cause.message : String(cause)}`);
+    } finally {
+      setRecovering(false);
+      await refreshInstance.current().catch((cause: unknown) => {
+        console.error("Could not re-read the conversation:", cause);
+      });
+    }
+  }, [id]);
+
   useEffect(() => {
     if (!isBusy) return;
     let inFlight = false;
@@ -631,11 +700,12 @@ export function AgentChatPage() {
               type="warning"
               showIcon
               data-testid="chat-not-ready"
-              title={`This conversation is ${state}, so the agent cannot answer`}
-              description={
-                instance.data.failure?.message ||
-                "The agent accepts messages once this conversation is ready. You can also start another conversation."
-              }
+              {...notReadyCopy(instance.data, (checkpoints.data ?? []).some(canForkFrom))}
+              action={instance.data.operation === "revert" ? (
+                <Button size="small" loading={isRecovering} onClick={() => void recover()}>
+                  Recover
+                </Button>
+              ) : undefined}
             />
           ) : null}
 
@@ -651,6 +721,9 @@ export function AgentChatPage() {
             onRenameCheckpoint={renameSnapshot}
             onFork={forkCheckpoint}
             onDeleteCheckpoint={deleteCheckpoint}
+            // A conversation that is not ready has its own alert with Recover.
+            onRecover={canSend ? () => void recover() : undefined}
+            isRecovering={isRecovering}
             // The mock chat client has no A2A push store; hide the control rather
             // than showing a backend error over an otherwise scripted transcript.
             onManageTaskPush={isMockMode ? undefined : (taskId) => {

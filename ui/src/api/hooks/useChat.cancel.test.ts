@@ -1,5 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
+import { A2AService } from "@/generated/a2a_pb";
+import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
+import { setApiTransport } from "../transport";
+import { A2AGrpcChatClient } from "../chat/a2aGrpcChatClient";
 import { resetChatClient, setChatClientFactory } from "../chat";
 import type { ChatClient, ChatEvent } from "../chat/types";
 import { useChat } from "./useChat";
@@ -266,5 +271,52 @@ describe("useChat cancel", () => {
       1,
     );
     expect(cancel).not.toHaveBeenCalled();
+  });
+});
+
+// Stop before the task is named keeps the stream open, so it never aborts the
+// send. The real client's retry loop has to end anyway: a later accepted re-send
+// would run a turn the reader stopped.
+describe("useChat cancel during a not-accepted retry", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    resetChatClient();
+    setApiTransport(undefined);
+  });
+
+  it("sends nothing more after stop, and takes the unaccepted message back", async () => {
+    vi.useFakeTimers();
+    let sends = 0;
+    setApiTransport(createRouterTransport(({ service }) => {
+      service(A2AService, {
+        // eslint-disable-next-line require-yield
+        sendStreamingMessage: async function* () {
+          sends += 1;
+          throw new ConnectError("input was not accepted", Code.FailedPrecondition, undefined, [
+            { desc: ErrorInfoSchema, value: { reason: "UNSUPPORTED_OPERATION", domain: "a2a-protocol.org",
+              metadata: { reason: "KAGENT_SEND_NOT_ACCEPTED", retryAfterMs: "1000" } } },
+          ]);
+        },
+      });
+    }));
+    setChatClientFactory(() => new A2AGrpcChatClient());
+    const hook = renderHook(() => useChat(CONVERSATION));
+
+    await act(async () => {
+      void hook.result.current.send("restart the deployment");
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(sends).toBe(1);
+    await act(async () => {
+      await hook.result.current.cancel();
+    });
+    expect(hook.result.current.turnState).toBe("canceled");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+
+    expect(sends).toBe(1);
+    expect(hook.result.current.turnState).toBe("canceled");
+    expect(hook.result.current.messages.filter((m) => m.role === "user")).toEqual([]);
   });
 });

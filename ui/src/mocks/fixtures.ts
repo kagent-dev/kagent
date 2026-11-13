@@ -7,6 +7,7 @@
  */
 
 import type { AgentInstance } from "@/api/domain/agentInstances";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import type { ToolServerResponse, ToolsResponse } from "@/api/domain/mcpServers";
 import type {
   ModelConfig,
@@ -134,7 +135,7 @@ export const mockProviders: Provider[] = [
     name: "AzureOpenAI",
     type: "AzureOpenAI",
     requiredParams: ["azureEndpoint"],
-    optionalParams: ["apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"],
+    optionalParams: ["apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"],
   },
   {
     name: "Ollama",
@@ -971,7 +972,7 @@ function egressPolicy(namespace: string, name: string, spec: EgressPolicySpec): 
     namespace,
     name,
     resource: {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "EgressPolicy",
       metadata: { name, namespace, resourceVersion: "1", generation: 1, creationTimestamp: "2026-10-01T09:00:00Z" },
       spec,

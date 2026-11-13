@@ -35,7 +35,6 @@ export interface AzureOpenAIConfig {
   azureEndpoint: string;
   apiVersion: string;
   azureDeployment?: string;
-  azureAdToken?: string;
   temperature?: string;
   maxTokens?: number;
   topP?: string;

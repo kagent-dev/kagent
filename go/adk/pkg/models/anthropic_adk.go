@@ -401,7 +401,13 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 	if aggregatedTextValue != "" {
 		finalParts = append(finalParts, &genai.Part{Text: aggregatedTextValue})
 	}
-	for _, block := range toolUseBlocks {
+	indices := make([]int, 0, len(toolUseBlocks))
+	for k := range toolUseBlocks {
+		indices = append(indices, k)
+	}
+	slices.Sort(indices)
+	for _, idx := range indices {
+		block := toolUseBlocks[idx]
 		var args map[string]any
 		if block.inputJSON != "" {
 			_ = json.Unmarshal([]byte(block.inputJSON), &args)
