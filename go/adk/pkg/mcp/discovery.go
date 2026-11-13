@@ -113,8 +113,8 @@ func MCPAppToolNamesFromToolsets(ctx context.Context, toolsets []tool.Toolset) m
 	return out
 }
 
-func newMCPAppClient(configuredFilter map[string]bool, discovery *mcpAppDiscovery) *mcpsdk.Client {
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, &mcpsdk.ClientOptions{
+func newMCPAppClient(server string, configuredFilter map[string]bool, discovery *mcpAppDiscovery) *mcpsdk.Client {
+	client := newElicitingClient(server, &mcpsdk.ClientOptions{
 		Capabilities: mcpUIClientCapabilities(),
 		// New-protocol servers subscribe only when a handler is configured.
 		// The SDK itself invalidates its list cache on these notifications.
