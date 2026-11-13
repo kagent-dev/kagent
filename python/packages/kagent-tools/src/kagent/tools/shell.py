@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import enum
+import itertools
 import os
 import re
 import signal
@@ -189,6 +190,97 @@ def grep_content(file_or_dir_path: Path, pattern: str, recursive: bool = False, 
 
 _MAX_COMMAND_OUTPUT = 64 * 1024
 _TRUNCATION_MARKER = "\n[output truncated at 65536 bytes; redirect output to a file for the full result]"
+# Marks the environment of every process a command starts, with a value unique
+# to the call. A descendant that leaves the process group (setsid) keeps its
+# environment, so the marker still finds it; only env -i escapes.
+_COMMAND_MARKER_VARIABLE = "KAGENT_BASH_CALL"
+_REAP_WAIT_SECONDS = 1.0
+_command_calls = itertools.count(1)
+
+
+def _environment_contains(environ: bytes, entry: str) -> bool:
+    """Whether a NUL-separated /proc environ holds variable=value exactly."""
+    return b"\0" + entry.encode() + b"\0" in b"\0" + environ
+
+
+def _parent_pid(stat: bytes) -> int | None:
+    """The parent's PID from a /proc/<pid>/stat line: the second field after the command name."""
+    if b")" not in stat:
+        return None
+    fields = stat[stat.rfind(b")") + 1 :].split()
+    if len(fields) < 2:
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def _marked_processes(entry: str) -> dict[int, int]:
+    """Map each live process whose environment carries entry to its parent's PID."""
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return {}  # No procfs: the group kill is all there is.
+    processes = {}
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/environ", "rb") as stream:
+                if not _environment_contains(stream.read(), entry):
+                    continue
+            with open(f"/proc/{name}/stat", "rb") as stream:
+                parent = _parent_pid(stream.read())
+        except OSError:
+            continue
+        if parent is not None:
+            processes[int(name)] = parent
+    return processes
+
+
+def _kill_marked_processes(entry: str) -> set[int]:
+    """Kill every process carrying entry, rescanning to catch one forked mid-scan.
+
+    Returns the killed processes that are children of this process.
+    """
+    children = set()
+    for _ in range(10):
+        processes = _marked_processes(entry)
+        if not processes:
+            break
+        for pid, parent in processes.items():
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                continue
+            if parent == os.getpid():
+                children.add(pid)
+    return children
+
+
+async def _reap(ids: set[int]) -> None:
+    """Reap the given children (a negative ID is a process group) once they exit.
+
+    A job outlives its shell and is reparented to the runtime when the runtime
+    is the sandbox's PID 1; nothing else reaps it there. Only these IDs are
+    waited on, never a shell asyncio waits for, and a child's PID or a group's
+    ID stays taken until reaped, so none is reused.
+    """
+    deadline = asyncio.get_running_loop().time() + _REAP_WAIT_SECONDS
+    while ids:
+        for id_ in list(ids):
+            try:
+                while (pid := os.waitpid(id_, os.WNOHANG)[0]) and id_ < 0:
+                    pass
+            except ChildProcessError:
+                ids.discard(id_)  # Nothing of it is a child of this process any more.
+                continue
+            if pid:
+                ids.discard(id_)
+        if not ids or asyncio.get_running_loop().time() > deadline:
+            return
+        await asyncio.sleep(0.005)
 
 
 async def execute_command(
@@ -213,6 +305,8 @@ async def execute_command(
     if bash_venv_path:
         env["PATH"] = str(Path(bash_venv_path) / "bin") + os.pathsep + env.get("PATH", "")
         env["VIRTUAL_ENV"] = bash_venv_path
+    marker = f"{_COMMAND_MARKER_VARIABLE}={os.getpid()}-{next(_command_calls)}"
+    env[_COMMAND_MARKER_VARIABLE] = marker.partition("=")[2]
     startup = asyncio.create_task(
         asyncio.create_subprocess_exec(
             "bash",
@@ -259,6 +353,9 @@ async def execute_command(
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass  # The entire group has already exited.
+        # A process that left the group (setsid) is found by its marker. The
+        # shell itself is left to asyncio, which waits for it.
+        orphans = _kill_marked_processes(marker) - {process.pid}
         try:
             await asyncio.wait_for(asyncio.shield(reader), 1)
         finally:
@@ -266,6 +363,7 @@ async def execute_command(
                 reader.cancel()
                 await asyncio.gather(reader, return_exceptions=True)
             await asyncio.wait_for(process.wait(), 1)
+            await _reap({-process.pid} | orphans)
     output = captured.decode("utf-8", errors="replace").strip()
     if truncated:
         output += _TRUNCATION_MARKER
