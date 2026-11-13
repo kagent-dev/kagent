@@ -20,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -312,7 +311,7 @@ func createMCPDiscoveryTemplate(t *testing.T, modelURL string, serverURLs ...str
 	})
 	template := &v1alpha3.AgentTemplate{
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "mcp-discovery-", Namespace: "kagent", Labels: harness.labels()},
-		Spec:       v1alpha3.AgentTemplateSpec{Description: "MCP discovery E2E fixture", SystemPrompt: "Use the configured MCP tools.", ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}},
+		Spec:       v1alpha3.AgentTemplateSpec{Description: "MCP discovery E2E fixture", SystemPrompt: "Use the configured MCP tools.", ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name}},
 	}
 	for _, serverURL := range serverURLs {
 		server := &v1alpha3.RemoteMCPServer{
@@ -325,7 +324,7 @@ func createMCPDiscoveryTemplate(t *testing.T, modelURL string, serverURLs ...str
 				t.Errorf("delete MCP server: %v", err)
 			}
 		})
-		template.Spec.Tools = append(template.Spec.Tools, v1alpha3.ToolBinding{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name}}})
+		template.Spec.Tools = append(template.Spec.Tools, v1alpha3.ToolBinding{MCP: &v1alpha3.MCPToolBinding{Server: v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name}}})
 	}
 	createAndWaitInteractionTemplateForHarness(t, kube, template, harness.name)
 	return template.Name

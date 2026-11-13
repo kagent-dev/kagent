@@ -230,9 +230,16 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
 
   await test.step("4. the header creates each of the three resources", async () => {
     await page.getByRole("tab", { name: "Agents" }).click();
+    await page.getByTestId("agents-create").click();
     await expect(page.getByTestId("agents-new")).toBeVisible();
     await expect(page.getByTestId("agents-new-template")).toBeVisible();
     await expect(page.getByTestId("agents-new-harness")).toBeVisible();
+    // Closed again: the modal's mask would make the diagram's "+" inert.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("agents-new")).toBeHidden();
+    for (const k of ["Agent", "AgentTemplate", "Harness"]) {
+      await expect(page.getByTestId(`concept-create-${k}`)).toBeVisible();
+    }
   });
 });
 
@@ -291,8 +298,7 @@ test("agents: the list is ordered by name", async ({ page }) => {
  * and that it does not quietly report "there are no agents" when the truth is that
  * it could not find out.
  *
- * AgentService lists one namespace at a time. A failed namespace discovery must
- * report its error because the Agent read cannot run without those namespaces.
+ * A transient namespace discovery failure is surfaced so the reader can retry it.
  */
 
 test("agents: a failed load is reported, not disguised as an empty list", async ({

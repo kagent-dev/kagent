@@ -198,12 +198,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 				},
 			})
 		}
-		if model.Spec.AzureOpenAI.AzureADToken != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.AzureADToken.Name(),
-				Value: model.Spec.AzureOpenAI.AzureADToken,
-			})
-		}
 		if model.Spec.AzureOpenAI.APIVersion != "" {
 			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
 				Name:  env.OpenAIAPIVersion.Name(),

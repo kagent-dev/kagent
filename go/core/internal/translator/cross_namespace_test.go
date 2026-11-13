@@ -44,8 +44,8 @@ func TestCrossNamespaceModelsAndMCP(t *testing.T) {
 				},
 			}}
 			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: &v1alpha3.ObjectReference{Name: model.Name, Namespace: "shared"}, SystemPrompt: "help",
-				Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: "tools", Namespace: new("shared")}}}},
+				ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name, Namespace: "shared"}, SystemPrompt: "help",
+				Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: "tools", Namespace: "shared"}}}},
 			}}
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth", Namespace: "shared"}, Data: map[string][]byte{"token": []byte("shared-credential")}}
 			headers := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "headers", Namespace: "shared"}, Data: map[string]string{"tenant": "shared-tenant"}}
@@ -92,7 +92,7 @@ func TestModelReferencePolicy(t *testing.T) {
 			model.Spec.AllowedNamespaces = test.policy
 			inputs := mockCollections(t, model)
 			inputs.Namespaces = krt.NewStaticCollection(nil, []translator.NamespaceObservation{{Name: test.source, Namespace: test.namespace}})
-			result, err := translator.ResolveModelReference(krt.TestingDummyContext{}, inputs, test.source, v1alpha3.ObjectReference{Name: model.Name, Namespace: test.target})
+			result, err := translator.ResolveModelReference(krt.TestingDummyContext{}, inputs, test.source, v1alpha3.ModelConfigReference{Name: model.Name, Namespace: test.target})
 			if test.allowed {
 				require.NoError(t, err)
 				require.Equal(t, test.target, result.Config.Namespace)
@@ -116,13 +116,13 @@ func TestAuxiliaryModelReferencesUseHarnessNamespaceAndPolicy(t *testing.T) {
 				Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
 				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 			}}
-			ref := v1alpha3.ObjectReference{Name: shared.Name, Namespace: shared.Namespace}
+			ref := v1alpha3.ModelConfigReference{Name: shared.Name, Namespace: shared.Namespace}
 			if auxiliary == "memory" {
 				harness.Spec.Kagent.Memory = &v1alpha3.KagentHarnessMemory{ModelConfigRef: ref}
 			} else {
 				harness.Spec.Kagent.Compaction = &v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5), Summarizer: &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &ref}}
 			}
-			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: root.Name}}}
+			template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: root.Name}}}
 			result, err := compiler(t, root, shared, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.NoError(t, err)
 			require.Contains(t, string(result.ConfigJSON), "shared-model", "same-name auxiliary model must not alias the root")
@@ -130,6 +130,33 @@ func TestAuxiliaryModelReferencesUseHarnessNamespaceAndPolicy(t *testing.T) {
 			shared.Spec.AllowedNamespaces = nil
 			_, err = compiler(t, root, shared, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.ErrorContains(t, err, "denied by allowedNamespaces")
+		})
+	}
+}
+
+func TestAgentNeedsNamespaceFollowsReferenceKinds(t *testing.T) {
+	selector := &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromSelector, Selector: &metav1.LabelSelector{}}
+	model := modelConfig()
+	model.Spec.AllowedNamespaces = selector
+	server := remoteMCPServer("search", "https://search.example.com/mcp")
+	server.Spec.AllowedNamespaces = selector
+	for _, tc := range []struct {
+		name string
+		spec v1alpha3.AgentTemplateSpec
+		want bool
+	}{
+		{"model reference omits the kind", v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name}}, true},
+		{"model reference names another kind", v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Group: new("example.com"), Kind: new("Model"), Name: model.Name}}, false},
+		{"MCP server reference omits the kind", v1alpha3.AgentTemplateSpec{Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: v1alpha3.MCPServerReference{Name: server.Name}}}}}, true},
+		{"MCP server reference names another kind", v1alpha3.AgentTemplateSpec{Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: v1alpha3.MCPServerReference{Kind: new("Service"), Name: server.Name}}}}}, false},
+	} {
+		outcome := "the Agent needs its namespace labels"
+		if !tc.want {
+			outcome = "the selector is ignored"
+		}
+		t.Run("Given targets with selector policies, when the "+tc.name+", assert that "+outcome, func(t *testing.T) {
+			agent := &v1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"}, Spec: v1alpha3.AgentSpec{Template: v1alpha3.AgentTemplateSource{Inline: &tc.spec}}}
+			require.Equal(t, tc.want, translator.AgentNeedsNamespace(krt.TestingDummyContext{}, mockCollections(t, model, server), agent))
 		})
 	}
 }
@@ -178,8 +205,8 @@ func TestReferencePolicyMatrix(t *testing.T) {
 					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 				}}
 				template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{
-					ModelConfig: &v1alpha3.ObjectReference{Name: model.Name, Namespace: model.Namespace},
-					Tools:       []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)}}}},
+					ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name, Namespace: model.Namespace},
+					Tools:       []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{Server: v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name, Namespace: server.Namespace}}}},
 				}}
 				objects := []any{model, server, harness}
 				if test.labels != nil || test.observeError != "" {
@@ -221,8 +248,8 @@ func TestRepeatedMCPBindings(t *testing.T) {
 			server := remoteMCPServer("files", "https://tools.example.com/mcp")
 			server.Namespace = "shared"
 			server.Spec.AllowedNamespaces = &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromAll}
-			ref := corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)}
-			template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, Tools: []v1alpha3.ToolBinding{
+			ref := v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name, Namespace: server.Namespace}
+			template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name}, Tools: []v1alpha3.ToolBinding{
 				{MCP: &v1alpha3.MCPToolBinding{Server: ref, Tools: []string{"read_file"}}},
 				{MCP: &v1alpha3.MCPToolBinding{Server: ref, Tools: []string{"write_file"}, RequireApproval: true}},
 			}}}

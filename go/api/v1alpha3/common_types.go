@@ -17,33 +17,105 @@ limitations under the License.
 package v1alpha3
 
 import (
+	"cmp"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 )
 
-// ObjectReference identifies a resource; an omitted namespace means the owner's namespace.
-type ObjectReference struct {
+// ModelConfigReference identifies a model.
+// +kubebuilder:validation:XValidation:rule="!has(self.group) || self.group == 'api.kagent.dev' || (has(self.kind) && self.kind != 'ModelConfig')",message="a group other than api.kagent.dev requires its own kind"
+type ModelConfigReference struct {
+	// Group is the referenced API group. It defaults to api.kagent.dev.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	Group *string `json:"group,omitempty"`
+	// Kind is the referenced kind. It defaults to ModelConfig.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$`
+	// +optional
+	Kind *string `json:"kind,omitempty"`
+	// Name is the referenced model's name.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
 	// +required
 	Name string `json:"name"`
+	// Namespace is the referenced model's namespace. Empty means the owner's namespace.
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Pattern=`^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// NamespacedName resolves the reference relative to its owner.
-func (r ObjectReference) NamespacedName(ownerNamespace string) types.NamespacedName {
-	if r.Namespace != "" {
-		ownerNamespace = r.Namespace
-	}
-	return types.NamespacedName{Namespace: ownerNamespace, Name: r.Name}
+// GroupKind returns the referenced kind, defaulting to ModelConfig.
+func (r ModelConfigReference) GroupKind() schema.GroupKind {
+	return referenceGroupKind(r.Group, r.Kind, ModelConfigGroupKind)
+}
+
+// Target returns the referenced kind and key, defaulting to the owner's namespace.
+func (r ModelConfigReference) Target(owner string) (schema.GroupKind, types.NamespacedName) {
+	return r.GroupKind(), types.NamespacedName{Namespace: cmp.Or(r.Namespace, owner), Name: r.Name}
+}
+
+// MCPServerReference identifies an MCP server.
+// +kubebuilder:validation:XValidation:rule="!has(self.apiGroup)",message="use group instead of apiGroup"
+// +kubebuilder:validation:XValidation:rule="!has(self.group) || self.group == 'api.kagent.dev' || (has(self.kind) && self.kind != 'RemoteMCPServer')",message="a group other than api.kagent.dev requires its own kind"
+type MCPServerReference struct {
+	// v1.0.x Go clients, including the kagent CLI, send apiGroup as null. The gRPC
+	// API and strict field validation reject unknown fields, so the field stays.
+
+	// APIGroup is not supported.
+	//
+	// Deprecated: use Group.
+	// +optional
+	APIGroup *string `json:"apiGroup,omitempty"`
+	// Group is the referenced API group. It defaults to api.kagent.dev.
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +optional
+	Group *string `json:"group,omitempty"`
+	// v1.0.x required kind. The schema default stores it, so a v1.0.x CRD or Go client
+	// can still update objects written without it.
+
+	// Kind is the referenced kind. It defaults to RemoteMCPServer.
+	// +kubebuilder:default=RemoteMCPServer
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$`
+	// +optional
+	Kind *string `json:"kind,omitempty"`
+	// Name is the referenced server's name.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+	// Namespace is the referenced server's namespace. Empty means the owner's namespace.
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// GroupKind returns the referenced kind, defaulting to RemoteMCPServer.
+func (r MCPServerReference) GroupKind() schema.GroupKind {
+	return referenceGroupKind(r.Group, r.Kind, RemoteMCPServerGroupKind)
+}
+
+// Target returns the referenced kind and key, defaulting to the owner's namespace.
+func (r MCPServerReference) Target(owner string) (schema.GroupKind, types.NamespacedName) {
+	return r.GroupKind(), types.NamespacedName{Namespace: cmp.Or(r.Namespace, owner), Name: r.Name}
+}
+
+// referenceGroupKind fills an omitted group or kind from the field's default.
+func referenceGroupKind(group, kind *string, defaultKind schema.GroupKind) schema.GroupKind {
+	return schema.GroupKind{Group: ptr.Deref(group, defaultKind.Group), Kind: ptr.Deref(kind, defaultKind.Kind)}
 }
 
 // ConfigMapKeyReference identifies a key in a same-namespace ConfigMap.
