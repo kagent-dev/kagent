@@ -173,13 +173,13 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			invocation.SetAttributes(sink.captureAttributes(result)...)
 			if _, err := invocation.End(ctx, result); err != nil {
-				a2alog.Error(ctx, "failed to export A2A invocation traces", err)
+				otel.Handle(err)
 			}
 			// An invocation the transport already ended flushed before these spans existed.
 			if invocation == nil && !flushed {
 				flushed = true
 				if err := tracing.InvocationFromContext(ctx).Flush(ctx); err != nil {
-					a2alog.Error(ctx, "failed to flush runtime spans", err)
+					otel.Handle(err)
 				}
 			}
 		}
@@ -657,7 +657,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			sink := &executionSink{owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
 			err := state.pending.Cancel(ctx, sink)
 			if flushErr := tracing.InvocationFromContext(ctx).Flush(ctx); flushErr != nil {
-				a2alog.Error(ctx, "failed to flush cancellation traces", flushErr)
+				otel.Handle(flushErr)
 			}
 			e.mu.Lock()
 			canceling.err = err
