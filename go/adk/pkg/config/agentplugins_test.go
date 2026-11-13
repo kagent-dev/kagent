@@ -69,6 +69,37 @@ func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 	}
 }
 
+func TestMaterializeAgentPluginsReadsRootManifestOfDualManifestPlugin(t *testing.T) {
+	t.Run("Given a plugin with an Agent Plugins and a Claude manifest, when the Go ADK materializes it, assert that its selected skill is installed", func(t *testing.T) {
+		root := t.TempDir()
+		paths := AgentPluginPaths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
+		pluginDir := filepath.Join(root, "plugin")
+		for name, content := range map[string]string{
+			"plugin.json":                `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools"}`,
+			".claude-plugin/plugin.json": `{"name":"acme-tools"}`,
+			"skills/review/SKILL.md":     "# Review",
+		} {
+			path := filepath.Join(pluginDir, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		agentConfig := &configv1.ADKAgentConfig{AgentPlugins: PluginConfig(agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+			Source: agentplugin.Source{Directory: pluginDir}, Skills: []string{"review"},
+		}}})}
+
+		if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err != nil {
+			t.Fatalf("MaterializeAgentPlugins() refused a plugin with both manifests: %v", err)
+		}
+		if content, err := os.ReadFile(filepath.Join(agentConfig.SkillsDirectory, "review", "SKILL.md")); err != nil || string(content) != "# Review" {
+			t.Fatalf("materialized skill = %q, %v", content, err)
+		}
+	})
+}
+
 func TestAddMCPConfigConvertsRuntimeNeutralServers(t *testing.T) {
 	agentConfig := &configv1.ADKAgentConfig{}
 	addMCPConfig(agentConfig, agentplugins.MCPConfig{

@@ -378,9 +378,18 @@ directory: `/skills` for Go ADK,
 Claude. Claude loads these selected skills through a generated `kagent-skills`
 plugin passed with `--plugin-dir`; `--add-dir` discovery is disabled by the
 harness's `--setting-sources` policy. Unselected Agent Plugins skills are not
-installed. Claude-format plugin
+installed, except in a plugin that Claude loads whole, as described below. Claude-format plugin
 roots can use the mounted directory directly. Mounted sources do not use the
 download cache or fall back to an in-runtime OCI pull.
+
+Claude reads a plugin's `.claude-plugin/plugin.json` whenever it exists, even
+when the plugin also ships a root `plugin.json`, and passes the plugin root
+whole with `--plugin-dir`. Claude Code then loads all of that plugin's skills,
+subagents, commands, and hooks; the skill selection does not narrow it, and the
+root manifest is not read. Plugin MCP servers are not started, because the
+harness runs Claude Code with `--strict-mcp-config`. Go ADK and Codex read the
+root `plugin.json` of such a plugin and install only its selected skills; they
+reject a plugin that has only a Claude manifest.
 
 Package limits and path/symlink validation still apply. Build skill images from
 scratch with just package contents; arbitrary ORAS artifact layouts are not

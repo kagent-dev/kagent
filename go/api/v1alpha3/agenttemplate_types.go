@@ -162,10 +162,13 @@ type ArtifactSource struct {
 }
 
 // PluginBundle selects Agent Skills from one immutable Agent Plugins package.
+// The Claude harness loads a package that has a .claude-plugin/plugin.json
+// manifest whole instead.
 type PluginBundle struct {
 	// +required
 	Source ArtifactSource `json:"source"`
-	// An empty selection enables nothing.
+	// An empty selection enables nothing. The selection does not narrow a
+	// package that the Claude harness loads whole.
 	// +kubebuilder:validation:MaxItems=50
 	// +kubebuilder:validation:items:MinLength=1
 	// +listType=set

@@ -142,6 +142,56 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	}
 }
 
+func TestNewLoadsDualManifestPluginWhole(t *testing.T) {
+	t.Run("Given a plugin with an Agent Plugins and a Claude manifest, when the adapter starts, assert that Claude Code receives the whole plugin and no copied skill", func(t *testing.T) {
+		pluginDir := t.TempDir()
+		for name, content := range map[string]string{
+			"plugin.json":                `{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"acme.tools"}`,
+			".claude-plugin/plugin.json": `{"name":"acme-tools"}`,
+			"agents/reviewer.md":         "# Reviewer",
+			"skills/review/SKILL.md":     "# Review",
+		} {
+			path := filepath.Join(pluginDir, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pluginRoot, err := filepath.EvalSymlinks(pluginDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := config.Production("claude-test", "help")
+		cfg.StrictVersion = false
+		cfg.SkillResources = &agentplugin.Resources{Plugins: []agentplugin.Bundle{{
+			Source: agentplugin.Source{Directory: pluginDir}, Skills: []string{"review"},
+		}}}
+		raw, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		durableDir := filepath.Join(t.TempDir(), "data")
+		runner, err := New(t.Context(), Input{
+			ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
+			EphemeralDir: filepath.Join(t.TempDir(), "ephemeral"), Environment: []string{"PATH=/bin"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = runner.Close() })
+
+		args := runner.Args(runtime.Turn{Prompt: "test"})
+		if index := slices.Index(args, pluginRoot); index < 1 || args[index-1] != "--plugin-dir" {
+			t.Fatalf("arguments do not pass the plugin root %s whole: %q", pluginRoot, args)
+		}
+		if _, err := os.Stat(filepath.Join(config.SkillsRoot(durableDir), "review")); !os.IsNotExist(err) {
+			t.Fatalf("skill copied from a plugin passed whole: %v", err)
+		}
+	})
+}
+
 func TestNewMaterializesApprovalSettings(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	ephemeralDir := filepath.Join(t.TempDir(), "generated")
