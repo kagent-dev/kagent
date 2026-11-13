@@ -28,7 +28,8 @@ func TestReferenceStatusAcrossDiscoveryModes(t *testing.T) {
 			case "disabled":
 				server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
 			case "actorJwt":
-				server.Spec.ActorJWT = &v1alpha3.ActorJWT{}
+				server.Spec.HeadersFrom[0].Name = "X-Account"
+				server.Spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{"mcp"}}
 			case "discovery failure":
 				discoverer.err = errors.New("remote unavailable")
 			}
