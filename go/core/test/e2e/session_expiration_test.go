@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -23,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
+	adka2a "github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
@@ -30,62 +33,97 @@ import (
 )
 
 // Keep the parent sequential so controller rollouts cannot overlap other tests.
-// Harness subtests run in parallel to share the idle period and expiration sweep.
+// Subtests run in parallel to share the idle period and expiration sweep.
 // The API endpoint must survive pod replacement (NodePort or ingress).
 func TestSessionIdleExpiration(t *testing.T) {
 	target := interactionTarget(t)
 	setSessionExpirationPolicy(t, target, "30s", "5s")
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
 		t.Parallel()
-		fixture := newInteractionFixture(t, harness, target, startInteractionMock(t))
-		original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
-		require.NoError(t, err)
-		request := &apiv1.CreateSessionRequest{Agent: original.Session.GetAgent().Ref, RequestId: uuid.NewString()}
-		created, err := fixture.sessions.CreateSession(fixture.ctx, request)
-		require.NoError(t, err)
-		id := created.Session.Id
-		t.Cleanup(func() {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
-			defer cancel()
-			require.NoError(t, deleteIdleSession(ctx, fixture.sessions, id))
+		t.Run("completed", func(t *testing.T) {
+			t.Parallel()
+			conversation, request := newIdleConversation(t, newInteractionFixture(t, harness, target, startInteractionMock(t)))
+			_, _, task := conversation.send(t, "What is 2+2?")
+			require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
+			assertSessionExpires(t, conversation, request, task)
 		})
-		conversation := *fixture
-		conversation.sessionID, conversation.contextID = id, created.Session.ContextId
-		_, _, task := conversation.send(t, "What is 2+2?")
-		require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
-		assertActorSuspended(t, &conversation)
-		require.Eventually(t, func() bool {
-			_, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: id})
-			return status.Code(err) == codes.NotFound
-		}, 2*time.Minute, time.Second, "idle session did not expire")
-		for _, message := range []*a2a.Message{
-			{ID: uuid.NewString(), ContextID: conversation.contextID},
-			{ID: uuid.NewString(), ContextID: uuid.NewString()},
-			{ID: uuid.NewString(), TaskID: task.ID},
-		} {
-			message.Role = a2a.MessageRoleUser
-			message.Parts = a2a.ContentParts{a2a.NewTextPart("Continue")}
-			continuation, err := pbconv.ToProtoSendMessageRequest(&a2a.SendMessageRequest{Tenant: conversation.tenant, Message: message})
-			require.NoError(t, err)
-			_, err = fixture.client.SendMessage(fixture.ctx, continuation)
-			require.Equal(t, codes.NotFound, status.Code(err), "expired and missing conversations must be distinguishable from authorization failures")
-		}
-		_, err = fixture.client.GetTask(fixture.ctx, &a2apb.GetTaskRequest{Tenant: conversation.tenant, Id: string(task.ID)})
-		require.Equal(t, codes.NotFound, status.Code(err))
-		actor, err := findSubstrateActor(fixture.ctx, fixture.system, request.Agent.Namespace, substrate.ActorName(id))
-		require.NoError(t, err)
-		require.Nil(t, actor, "expiration must remove the Substrate Actor")
-		var fresh *apiv1.CreateSessionResponse
-		require.Eventually(t, func() bool {
-			fresh, err = fixture.sessions.CreateSession(fixture.ctx, request)
-			return err == nil && fresh.Session.Id != id
-		}, time.Minute, time.Second, "expiration must release the conversation request ID")
-		t.Cleanup(func() {
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
-			defer cancel()
-			require.NoError(t, deleteIdleSession(ctx, fixture.sessions, fresh.Session.Id))
+		t.Run("input required", func(t *testing.T) {
+			t.Parallel()
+			conversation, request := newIdleConversation(t, newInteractionFixture(t, harness, target, startAskUserMock(t, harness)))
+			conversation.ctx = metadata.AppendToOutgoingContext(conversation.ctx, strings.ToLower(a2a.SvcParamExtensions), adka2a.HITLExtensionURI)
+			_, _, task := conversation.send(t, "Which database should we use for storage?")
+			require.Equal(t, a2a.TaskStateInputRequired, task.Status.State)
+			assertSessionExpires(t, conversation, request, task)
 		})
-		require.NotEqual(t, created.Session.ContextId, fresh.Session.ContextId)
+	})
+}
+
+// newIdleConversation creates a Session with its own request ID for the
+// fixture's agent, so the test can check that expiration releases that ID.
+func newIdleConversation(t *testing.T, fixture *interactionFixture) (*interactionFixture, *apiv1.CreateSessionRequest) {
+	t.Helper()
+	original, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
+	require.NoError(t, err)
+	request := &apiv1.CreateSessionRequest{Agent: original.Session.GetAgent().Ref, RequestId: uuid.NewString()}
+	created, err := fixture.sessions.CreateSession(fixture.ctx, request)
+	require.NoError(t, err)
+	cleanupSession(t, fixture, created.Session.Id)
+	conversation := *fixture
+	conversation.sessionID, conversation.contextID = created.Session.Id, created.Session.ContextId
+	return &conversation, request
+}
+
+// assertSessionExpires waits for the idle Session to expire, then checks that
+// nothing of it remains reachable.
+func assertSessionExpires(t *testing.T, conversation *interactionFixture, request *apiv1.CreateSessionRequest, task *a2a.Task) {
+	t.Helper()
+	assertActorSuspended(t, conversation)
+	require.Eventually(t, func() bool {
+		_, err := conversation.sessions.GetSession(conversation.ctx, &apiv1.GetSessionRequest{SessionId: conversation.sessionID})
+		return status.Code(err) == codes.NotFound
+	}, 2*time.Minute, time.Second, "idle session did not expire")
+
+	assertConversationNotFound(t, conversation, task)
+
+	actor, err := findSubstrateActor(conversation.ctx, conversation.system, request.Agent.Namespace, substrate.ActorName(conversation.sessionID))
+	require.NoError(t, err)
+	require.Nil(t, actor, "expiration must remove the Substrate Actor")
+
+	var fresh *apiv1.CreateSessionResponse
+	require.Eventually(t, func() bool {
+		fresh, err = conversation.sessions.CreateSession(conversation.ctx, request)
+		return err == nil && fresh.Session.Id != conversation.sessionID
+	}, time.Minute, time.Second, "expiration must release the conversation request ID")
+	cleanupSession(t, conversation, fresh.Session.Id)
+	require.NotEqual(t, conversation.contextID, fresh.Session.ContextId)
+}
+
+// assertConversationNotFound checks that continuing or looking up an expired
+// conversation fails with NotFound, so clients can tell it apart from an
+// authorization failure.
+func assertConversationNotFound(t *testing.T, conversation *interactionFixture, task *a2a.Task) {
+	t.Helper()
+	for name, message := range map[string]*a2a.Message{
+		"expired context": {ContextID: conversation.contextID},
+		"unknown context": {ContextID: uuid.NewString()},
+		"expired task":    {TaskID: task.ID},
+	} {
+		message.ID, message.Role = uuid.NewString(), a2a.MessageRoleUser
+		message.Parts = a2a.ContentParts{a2a.NewTextPart("Continue")}
+		request, err := pbconv.ToProtoSendMessageRequest(&a2a.SendMessageRequest{Tenant: conversation.tenant, Message: message})
+		require.NoError(t, err)
+		_, err = conversation.client.SendMessage(conversation.ctx, request)
+		require.Equal(t, codes.NotFound, status.Code(err), "continue %s", name)
+	}
+	_, err := conversation.client.GetTask(conversation.ctx, &a2apb.GetTaskRequest{Tenant: conversation.tenant, Id: string(task.ID)})
+	require.Equal(t, codes.NotFound, status.Code(err), "get expired task")
+}
+
+func cleanupSession(t *testing.T, fixture *interactionFixture, id string) {
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
+		defer cancel()
+		require.NoError(t, deleteIdleSession(ctx, fixture.sessions, id))
 	})
 }
 
