@@ -124,6 +124,16 @@ func (c *Client) callCtx(ctx context.Context) (context.Context, context.CancelFu
 	return context.WithTimeout(ctx, c.cfg.CallTimeout)
 }
 
+// snapshotCtx bounds a call that returns only once a snapshot has been stored.
+// That takes as long as the Actor's data takes to upload, which is unrelated to
+// how long a metadata call should be allowed to run.
+func (c *Client) snapshotCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.cfg.SnapshotTimeout <= 0 {
+		return c.callCtx(ctx)
+	}
+	return context.WithTimeout(ctx, c.cfg.SnapshotTimeout)
+}
+
 // actorRef builds the (atespace, name) reference used by Get/Resume/Suspend/Delete.
 // v0.0.9 renamed the ActorRef message to ObjectRef.
 func actorRef(atespace, actorID string) *ateapipb.ObjectRef {
@@ -216,7 +226,10 @@ func (c *Client) RevertActor(ctx context.Context, atespace, actorID string) (*at
 // SuspendActor waits for durable storage, including an upload left by an earlier
 // attempt. Substrate's synchronous mode returns already-suspended Actors as-is.
 func (c *Client) SuspendActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error) {
-	ctx, cancel := c.callCtx(ctx)
+	// The deadline covers the upload and the polling that waits for it, so an
+	// Actor with a large workspace is not cancelled mid-upload and left in a
+	// state neither side can account for.
+	ctx, cancel := c.snapshotCtx(ctx)
 	defer cancel()
 	resp, err := c.ControlClient.SuspendActor(ctx, &ateapipb.SuspendActorRequest{
 		Actor:   actorRef(atespace, actorID),

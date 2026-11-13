@@ -309,7 +309,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		AteAPIEndpoint:        cfg.GetSubstrate().GetApiEndpoint(),
 		CAFile:                cfg.GetSubstrate().GetCaFile(),
 		ClientCertFile:        cfg.GetSubstrate().GetClientCertFile(),
-		CallTimeout:           30 * time.Second,
+		CallTimeout:           cfg.GetSubstrate().GetCallTimeout().AsDuration(),
+		SnapshotTimeout:       cfg.GetSubstrate().GetSnapshotTimeout().AsDuration(),
 	})
 	if err != nil {
 		return err
