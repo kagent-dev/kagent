@@ -65,6 +65,25 @@ new revision; create a new Session to use it. A2A task events remain streamable
 when model streaming is disabled. This setting does not configure
 the Codex or Claude harnesses.
 
+### Default Harnesses
+
+`kagent install` creates the release WorkerPool and three Harnesses in the
+release namespace: `kagent-default`, `codex-default`, and `claude-default`. Each
+selects its runtime, references the release WorkerPool, uses the snapshot
+location of Substrate's bundled object store, and omits `workload` so the release
+image is selected. Agents in that namespace can reference them without
+platform-specific values. They are ordinary Harnesses owned by the Helm release;
+the controller does not create or special-case them.
+
+The chart renders them only when `harnesses.enabled` is true. Its values
+choose the snapshot location and disable individual runtimes. Because
+`harnessRef` is namespace-local, Agents in other namespaces still need a Harness
+in their own namespace.
+
+The chart's default OpenAI ModelConfig sets `openAI.apiFormat: responses`. Codex
+requires the Responses API, and the kagent runtime supports it, so one default
+model serves both default Harnesses.
+
 ### Harness images and workload overrides
 
 For built-in kagent, Claude, and Codex Harnesses, the whole `workload` block is
@@ -114,7 +133,9 @@ Default selection does not inspect or validate the CLI version inside an overrid
 The kagent compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
 regardless of the runtime image's implementation language. Omitted overrides
-remain unset.
+remain unset. BYO harnesses require `command`. Claude and Codex harnesses do
+not honor either field, so Harness admission rejects them there rather than
+silently starting the image entrypoint.
 
 For example, this Harness excerpt selects debug logging for the Go ADK image
 without changing the AgentTemplate:
@@ -153,7 +174,8 @@ flowchart TD
     POOL --> REV[immutable revision and digest]
     POOL -->|error| STATUS
     REV --> ATE[ate-api ActorTemplate]
-    ATE --> GOLDEN[golden snapshot]
+    ATE --> BUNDLE[persist revision, template UID and bootstrap bundle]
+    BUNDLE --> GOLDEN[golden snapshot]
     GOLDEN -->|ready| LATEST[latest successful revision]
     RESOLVE -->|error| STATUS[Agent status]
     ATE -->|error| STATUS
@@ -164,10 +186,16 @@ flowchart TD
 3. Select the harness compiler from the runtime-type registration map.
 4. Produce an immutable revision containing workload, configuration, Agent Card,
    capacity, snapshot, provenance, and inferred egress inputs.
-5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and apply
-   it as an ate-api ActorTemplate.
-6. Wait for the golden snapshot to become ready.
-7. Persist the revision and advance the Agent's latest-successful pointer.
+5. Resolve the Harness's WorkerPool sandbox class, hash the revision, and build
+   its immutable bootstrap bundle.
+6. Apply the ate-api ActorTemplate, then atomically record its observed identity
+   and bootstrap bundle.
+7. Let the golden runtime bootstrap its configuration and wait for its snapshot
+   to become ready.
+8. Advance the Agent's latest-successful pointer.
+
+[Creating an Agent](agent-creation.md) traces these steps, including the SQL and
+gRPC calls each one makes.
 
 Agent owns readiness, warnings, the desired revision, and the latest successful
 revision. AgentTemplate is shared context with no runtime status. Child template
@@ -200,10 +228,49 @@ last successful revision remains available, while abandoned preparations can
 be collected and cannot become the latest successful revision through a delayed
 completion.
 
+### Configuration delivery
+
+Each prepared revision owns an immutable bootstrap bundle in PostgreSQL containing
+its compiled configuration and rendered Agent Card. Their combined limit is
+256 KiB of UTF-8 bytes, including shared subagents; oversized bundles are rejected
+before compute creation.
+
+The ActorTemplate carries a small `KAGENT_BOOTSTRAP_JSON` descriptor with the
+control-plane URL, revision, format version, and bundle digest. The URL and
+bootstrap version participate in revision identity; changing the URL creates new
+revisions and golden snapshots for affected agents. The controller creates the
+template, then atomically records its identity and publishes the bundle.
+The bootstrap service returns only the bundle bound to the authenticated actor's
+template. It uses a separate `kagent-bootstrap` JWT audience and requires no
+Session; this credential grants no user, TaskStore, or Memory authority.
+
+During golden initialization, the runtime fetches and verifies the bundle, then
+atomically saves it at `/data/kagent/bootstrap/bundle.pb` before becoming ready.
+Transient failures, including a pending template binding, retry within the startup
+deadline. New Sessions and forks inherit the saved bundle through snapshots;
+process restarts and volume restores load it without contacting bootstrap.
+A corrupt or mismatched bundle fails startup. Existing Sessions keep their pinned
+configuration after Agent edits. Bundles are collected with their revisions once
+sources, runtimes, and checkpoints no longer retain them.
+
+Go ADK, Python ADK, Codex, Claude, and supported BYO images use this contract.
+Credentials and actor identity retain their separate delivery paths. Golden
+egress allows the control-plane origin with bootstrap authority; normal Session
+egress uses runtime authority.
+
+Managed startup explicitly materializes the bootstrap bundle before loading files.
+File loaders (`KAgentConfig.from_file()` in Python and `LoadAgentConfigs` in Go)
+only read and validate files, so standalone callers can supply configuration on disk.
+Python BYO entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
+before loading their configuration.
+
+Bootstrap requires matching controller and runtime images; older runtimes that
+expect configuration in environment variables cannot consume the descriptor.
+
 ### WorkerPool sandbox selection
 
 For every harness type, the controller resolves `spec.substrate.workerPoolRef`
-in the Agent namespace. Substrate v1.0.0-rc1 chooses the sandbox runtime from
+in the Agent namespace. Substrate v1.0.0 chooses the sandbox runtime from
 the selected WorkerPool's `spec.sandboxClasses[]` and `configRef`; ActorTemplates
 no longer specify a SandboxConfig. Operators must install the referenced
 cluster-scoped SandboxConfig and provision compatible workers and runtime assets.
@@ -218,9 +285,10 @@ millicores and memory bytes for every harness, rounding positive fractions up
 to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
 
 Harness and SandboxTemplate snapshot locations require Substrate's
-`PerTemplateSnapshotLocation` preview gate. The CLI installer enables it; direct
-Substrate installations must include it in their Helm `preview` list. The
-Substrate client opts ActorTemplate creation requests into preview features.
+`PerTemplateSnapshotLocation` preview gate; configuration bootstrap requires
+`GoldenEgressPolicy`. The CLI installer enables both. Direct Substrate
+installations must include both in their Helm `preview` list. The Substrate
+client opts ActorTemplate creation requests into preview features.
 
 A missing WorkerPool reports `WorkerPoolNotFound`; an unsupported class reports
 `RevisionInvalid`. Neither produces a desired ActorTemplate. WorkerPool updates
@@ -254,11 +322,17 @@ A golden-snapshot failure is retried instead: the controller deletes the failed
 ActorTemplate and recreates it on the persisted schedule described in
 [Sandboxes](sandboxes.md#configuration-and-preparation), reporting `Ready=False`
 with reason `ActorTemplateRetrying` and only the failure reason in its message.
+The one allowlisted detail is an image pull failure for an image that the
+ActorTemplate itself names: the message then adds `could not pull image <ref>`.
+The reference comes from the template spec, never from the backend text, so
+configuration quoted in an error cannot reach status.
 
 ActorTemplate construction checks the size of each emitted environment value
-against Substrate's 32,768-character limit, including the serialized config and
-Agent Card. The check counts Unicode code points after JSON encoding, including
-its escaping. Oversized values produce `Compatible=False` with reason
+against Substrate's 32,768-character limit. Configuration and Agent Card
+payloads use the separate [bootstrap bundle](#configuration-delivery) budget.
+The environment-value check counts Unicode code points after JSON encoding,
+including its escaping.
+Oversized values produce `Compatible=False` with reason
 `ActorTemplateInvalid` before any Substrate call. A subsequent `InvalidArgument`
 from `CreateActorTemplate` is recorded as a terminal `ActorTemplateRejected`
 preparation failure. Its backend message is not copied into status because it
@@ -382,10 +456,11 @@ spec:
         name: default-model-config
       systemPrompt: You are a helpful assistant.
   harnessRef:
-    name: kagent
+    name: kagent-default
 ```
 
-The referenced ModelConfig and Harness must already exist.
+The referenced ModelConfig and Harness must already exist. `kagent install`
+creates both `default-model-config` and `kagent-default`.
 
 To reuse an existing AgentTemplate, replace the inline template with its reference:
 
@@ -395,7 +470,7 @@ spec:
     ref:
       name: shared-context
   harnessRef:
-    name: kagent
+    name: kagent-default
 ```
 
 Template behavior may be inline or referenced. The Harness is always referenced;

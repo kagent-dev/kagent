@@ -57,6 +57,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/mcp"
 	"github.com/kagent-dev/kagent/go/core/internal/runtimeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/agentidentity"
+	"github.com/kagent-dev/kagent/go/core/internal/service/bootstrap"
 	"github.com/kagent-dev/kagent/go/core/internal/service/checkpoint"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubecrud"
 	memoryservice "github.com/kagent-dev/kagent/go/core/internal/service/memory"
@@ -94,6 +95,8 @@ type Options struct {
 	// Authorizer decides what an identified caller may do and which collection
 	// entries it may see. Nil selects NoopAuthorizer, which permits every action.
 	Authorizer auth.CollectionAuthorizer
+	// AnthropicSelfHostedSandboxes enables the bundled Anthropic launcher. Nil leaves it disabled.
+	AnthropicSelfHostedSandboxes *AnthropicSelfHostedSandboxesConfig
 	// SetupWithManager registers additional controllers and scheme types on
 	// core's manager. It runs after the manager exists and before it starts, so
 	// a scheme added here is in place before any cache is built. Returning an
@@ -241,7 +244,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer db.Close()
-	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema())
+	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema(),
+		database.WithConnectRetry(cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration()))
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},
@@ -276,6 +280,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// /metrics nonResourceURL.
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
+	var gracefulShutdownTimeout *time.Duration
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		// Finish bounded provisioning and metadata writes before releasing leadership.
+		gracefulShutdownTimeout = new(150 * time.Second)
+	}
 	manager, err := ctrl.NewManager(kubeConfig, ctrl.Options{
 		Scheme:                  managerScheme,
 		Cache:                   managerCacheOptions,
@@ -284,6 +293,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		LeaderElection:          cfg.GetKubernetes().GetLeaderElection(),
 		LeaderElectionID:        "0e9f6799.kagent.dev",
 		LeaderElectionNamespace: cfg.GetKubernetes().GetNamespace(),
+		GracefulShutdownTimeout: gracefulShutdownTimeout,
 	})
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
@@ -352,7 +362,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval)
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, otel.GetMeterProvider())
 	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
@@ -375,7 +385,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp())
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp(), cfg.GetSessions().GetAutomaticRecovery())
 	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
 	pushIssuer := cfg.GetPush().GetIssuer()
@@ -387,7 +397,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
 		MaxConcurrency:   int(cfg.GetPush().GetMaxConcurrency()),
 		SendTimeout:      cfg.GetPush().GetSendTimeout().AsDuration(),
-	})); err != nil {
+	}, otel.GetMeterProvider())); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
 	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
@@ -425,6 +435,15 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(sandboxes); err != nil {
 		return err
 	}
+	if opts.AnthropicSelfHostedSandboxes != nil {
+		launcher, err := newAnthropicSelfHostedSandboxesRunnable(*opts.AnthropicSelfHostedSandboxes, sandboxes, logger)
+		if err != nil {
+			return fmt.Errorf("configure anthropic self-hosted sandboxes launcher: %w", err)
+		}
+		if err := manager.Add(launcher); err != nil {
+			return fmt.Errorf("register anthropic self-hosted sandboxes launcher: %w", err)
+		}
+	}
 	mcpHandler, err := mcp.New(mcp.Config{
 		Agents: agents, Sessions: sessions, Checkpoints: checkpoints, Gateway: gateway,
 		Sandboxes: sandboxes, SandboxTemplates: sandboxTemplates,
@@ -459,6 +478,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		ToolService:           tools,
 		PromptTemplateService: prompts,
 		SystemService:         system,
+		WorkerPoolService:     kubecrud.NewService(manager.GetClient(), authorizer, &atev1.WorkerPool{}, &atev1.WorkerPoolList{}, "WorkerPool"),
 		MemoryService:         memory,
 		TaskStoreService:      runtimeTasks,
 		SessionService:        sessions,
@@ -466,9 +486,11 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		// Author Agents and their reusable configuration through the API.
 		AgentService:           agents,
 		AgentIdentityService:   agentidentity.NewService(actorVerifier, store, manager.GetAPIReader()),
+		BootstrapService:       bootstrap.NewService(actorVerifier, store, actors),
 		AgentTemplateService:   kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.AgentTemplate{}, &kagentv1alpha3.AgentTemplateList{}, "AgentTemplate"),
 		HarnessService:         kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Harness{}, &kagentv1alpha3.HarnessList{}, "Harness"),
 		SandboxTemplateService: sandboxTemplates,
+		EgressPolicyService:    kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.EgressPolicy{}, &kagentv1alpha3.EgressPolicyList{}, kagentv1alpha3.EgressPolicyKind),
 		SandboxService:         sandboxes,
 		CheckpointService:      checkpoints,
 		A2AHandler:             gateway,

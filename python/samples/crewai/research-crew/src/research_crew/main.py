@@ -3,6 +3,7 @@ import logging
 import os
 
 import uvicorn
+from kagent.core import materialize_from_bootstrap
 from kagent.crewai import KAgentApp
 
 from research_crew.crew import ResearchCrew
@@ -20,6 +21,7 @@ def main():
         agent_card = json.load(f)
 
     # 2. Load the Crew, then create the kagent app
+    materialize_from_bootstrap("/config")
     app = KAgentApp(crew=ResearchCrew().crew(), agent_card=agent_card)
 
     # 3. Build the FastAPI app and run the server

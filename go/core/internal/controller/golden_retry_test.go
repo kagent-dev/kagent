@@ -262,7 +262,7 @@ type failingRecordStore struct {
 }
 
 func (s *failingRecordStore) RecordRuntimeRevision(ctx context.Context, revision database.RuntimeRevision, options database.RecordRevisionOptions) (database.GoldenRetry, error) {
-	if s.recordErr != nil {
+	if s.recordErr != nil && revision.ActorTemplateUID != "" {
 		return database.GoldenRetry{}, s.recordErr
 	}
 	return s.Client.RecordRuntimeRevision(ctx, revision, options)
@@ -378,4 +378,109 @@ func TestGoldenRetryAt(t *testing.T) {
 		spread[at] = true
 	}
 	require.Greater(t, len(spread), 10, "different templates must retry at different times")
+}
+
+func TestGoldenFailureSummary(t *testing.T) {
+	const (
+		typoImage   = "ghcr.io/kagent-dev/kagnet/kagent-adk:0.9.0"
+		digestImage = "registry.example.com/agents/support@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		volumeImage = "registry.example.com/skills/support:v2"
+	)
+	for _, scenario := range []struct {
+		name, message string
+		images        []string
+		want          string
+	}{
+		{
+			name: "Given a container image whose tag does not resolve, when Substrate reports the crash, assert that the summary names the image",
+			message: goldenCrash(fmt.Sprintf(`while creating "kagent" OCI bundle: in imageCache.EnsureImage(%q): while resolving tag %q to a digest: `+
+				`HEAD https://ghcr.io/v2/kagent-dev/kagnet/kagent-adk/manifests/0.9.0: unexpected status code 404 Not Found (HEAD responses have no body, use GET for details)`, typoImage, typoImage)),
+			images: []string{typoImage},
+			want:   "golden build failed (GoldenActorCrashed): could not pull image " + typoImage,
+		},
+		{
+			name: "Given a pinned image the registry refuses, when Substrate reports the crash, assert that the summary names the image and not the registry's reply",
+			message: goldenCrash(fmt.Sprintf(`while creating "kagent" OCI bundle: in imageCache.EnsureImage(%q): GET https://registry.example.com/v2/agents/support/manifests/sha256:1111: `+
+				`UNAUTHORIZED: authentication required; [map[Action:pull Class: Name:agents/support Type:repository private-scope]]`, digestImage)),
+			images: []string{digestImage},
+			want:   "golden build failed (GoldenActorCrashed): could not pull image " + digestImage,
+		},
+		{
+			name: "Given an image volume that cannot be pulled, when Substrate reports the crash, assert that the summary names the volume's image",
+			message: goldenCrash(fmt.Sprintf(`while creating "kagent" OCI bundle: in imageCache.EnsureImage(%q) for volume "skills": while resolving tag %q to a digest: private-registry-reply`,
+				volumeImage, volumeImage)),
+			images: []string{typoImage, volumeImage},
+			want:   "golden build failed (GoldenActorCrashed): could not pull image " + volumeImage,
+		},
+		{
+			name:    "Given a crash that quotes the container environment, when Substrate reports it, assert that the summary names only the reason",
+			message: goldenCrash(`while resolving process args for container "kagent": exec: "start" not found in $PATH; env OPENAI_API_KEY=private-sk-123 KAGENT_CONFIG={"token":"private-token"}`),
+			images:  []string{typoImage},
+			want:    "golden build failed (GoldenActorCrashed)",
+		},
+		{
+			name:    "Given a crash that mentions the template's image outside a pull failure, when Substrate reports it, assert that the summary names only the reason",
+			message: goldenCrash(fmt.Sprintf(`container "kagent" from %s exited with code 1: private-stderr`, typoImage)),
+			images:  []string{typoImage},
+			want:    "golden build failed (GoldenActorCrashed)",
+		},
+		{
+			name:    "Given configuration that mimics a pull failure for a reference the template does not name, when Substrate quotes it, assert that the summary names only the reason",
+			message: goldenCrash(`while creating "kagent" OCI bundle: in imageCache.EnsureImage("private-api-key-value"): while parsing reference: could not parse reference`),
+			images:  []string{typoImage},
+			want:    "golden build failed (GoldenActorCrashed)",
+		},
+		{
+			name:    "Given an invalid golden actor that quotes its spec, when Substrate rejects it, assert that the summary names only the reason",
+			message: `GoldenActorInvalid: rpc error: code = InvalidArgument desc = containers[0].env[2].value "private-config-value" exceeds 4096 bytes`,
+			images:  []string{typoImage},
+			want:    "golden build failed (GoldenActorInvalid)",
+		},
+		{
+			name:    "Given a message without a reason prefix, when it is summarised, assert that the reason is unknown",
+			message: "dial private-host: connection refused",
+			images:  []string{typoImage},
+			want:    "golden build failed (unknown)",
+		},
+	} {
+		t.Run(strings.ReplaceAll(scenario.name, "/", "-"), func(t *testing.T) {
+			summary := goldenFailureSummary(scenario.message, scenario.images)
+
+			require.Equal(t, scenario.want, summary)
+			require.NotContains(t, summary, "private-", "the summary must not copy Substrate's text")
+		})
+	}
+}
+
+// goldenCrash formats a golden failure the way Substrate v1.0.0 reports an
+// atelet error that crashed the golden actor.
+func goldenCrash(detail string) string {
+	return "GoldenActorCrashed: golden actor crashed before its snapshot was taken: resume failed: atelet Run: " + detail
+}
+
+func TestPreparationExplainsGoldenImagePullFailure(t *testing.T) {
+	t.Run("Given an Agent whose Harness image cannot be pulled, when the reconciler observes the failed golden build, assert that status names the image without Substrate's text", func(t *testing.T) {
+		collections, _ := newPreparationTestCollections(t, "microvm")
+		initial := collections.Reconciliations.List()[0]
+		image := initial.Target.ActorTemplate.GetContainers()[0].GetImage()
+		failure := goldenCrash(fmt.Sprintf(`while creating "kagent" OCI bundle: in imageCache.EnsureImage(%q): while resolving tag %q to a digest: private-registry-reply`, image, image))
+		templates := &fakeActorTemplates{template: withGoldenStatus(initial.Target.ActorTemplate, &ateapipb.GoldenSnapshotStatus{ErrorMessage: failure})}
+		templates.template.Metadata.Uid = "uid-1"
+		r := &Reconciler{collections: collections, templates: templates, store: &fakeRuntimeRevisionStore{}, golden: defaultGoldenRetries}
+
+		require.NoError(t, r.reconcileAgent(t.Context(), initial.ResourceName()))
+
+		var ready *metav1.Condition
+		waitFor(t, func() bool {
+			statuses := collections.AgentStatuses.List()
+			if len(statuses) != 1 {
+				return false
+			}
+			ready = apimeta.FindStatusCondition(statuses[0].Status.Conditions, kagentv1alpha3.AgentConditionReady)
+			return ready != nil && ready.Reason == "ActorTemplateRetrying"
+		})
+		require.Equal(t, metav1.ConditionFalse, ready.Status)
+		require.True(t, strings.HasPrefix(ready.Message, "golden build failed (GoldenActorCrashed): could not pull image "+image+", retry 1 at "), ready.Message)
+		require.NotContains(t, ready.Message, "private-")
+	})
 }

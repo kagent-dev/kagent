@@ -4,6 +4,9 @@ The public gateway implements the upstream A2A handler for message send/stream,
 task get/list/cancel, and subscription. It also serves the extended Agent Card
 compiled into the Agent's latest successful revision (or the pinned revision of a shared conversation).
 
+[Sending a Message to an Agent](agent-send-message.md) traces a send from the
+client to the Actor and back.
+
 ## Routing and execution
 
 The public endpoint is a named `Agent`. HTTP selects it through
@@ -145,6 +148,10 @@ cache, preserving the original question for native approval/input validation.
 
 Both adapters persist an initial active event before native work, stop execution
 on persistence failure, and wait for native cleanup before settling a boundary.
+Go runtime writes use the store's bounded retry context independently of SDK
+execution cancellation. An executor error can cancel an intermediate save as
+well as the subsequent failure update; both must finish against known versions
+before cleanup can publish the failed task and permit suspension.
 Go uses the SDK cleanup callback; Python withholds the final event until its native
 runner returns. Snapshot work runs independently after publication.
 Substrate self-suspend is planned. Moving suspension into the runtime after native

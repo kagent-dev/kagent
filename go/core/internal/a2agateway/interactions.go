@@ -14,7 +14,6 @@ import (
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
-	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -187,7 +186,7 @@ func (g *Gateway) finishSend(ctx context.Context, agent types.NamespacedName, me
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "release runtime dispatch", "session_id", message.ContextID, "error", err)
 	} else if revoked && sendErr != nil && a2atype.ErrorReason(sendErr) == a2atype.ErrorReason(a2atype.ErrInternalError) {
-		return sessionsvc.ErrSendNotAccepted
+		return g.interactions.RecoverRejectedSend(ctx, agent, message)
 	}
 	return sendErr
 }

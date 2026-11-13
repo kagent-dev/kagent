@@ -31,7 +31,7 @@ func TestRuntimeLifecycleContract(t *testing.T) {
 		instance, _, err := client.CreateSession(t.Context(), newSessionRequest(uuid.NewString(), "assistant", "kagent", "conversation"), "create")
 		require.NoError(t, err)
 		testRuntimeLifecycle(t, func(ctx context.Context, kind apiv1.RuntimeOperation) (*RuntimeOperation[*apiv1.Session], error) {
-			operation, err := client.BeginSessionOperation(ctx, instance.Id, kind)
+			operation, err := client.BeginSessionOperation(ctx, instance.Id, kind, false)
 			if err != nil {
 				return nil, err
 			}

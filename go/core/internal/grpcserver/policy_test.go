@@ -1,6 +1,7 @@
 package grpcserver
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -38,6 +39,7 @@ func TestSessionServicePoliciesMatchTheirEffect(t *testing.T) {
 		{name: "get", method: apiv1.SessionService_GetSession_FullMethodName, want: pkgauth.AccessRead},
 		{name: "list", method: apiv1.SessionService_ListSessions_FullMethodName, want: pkgauth.AccessRead},
 		{name: "rename is a write", method: apiv1.SessionService_UpdateSessionName_FullMethodName, want: pkgauth.AccessUpdate},
+		{name: "revert", method: apiv1.SessionService_RevertSession_FullMethodName, want: pkgauth.AccessUpdate},
 		{name: "delete", method: apiv1.SessionService_DeleteSession_FullMethodName, want: pkgauth.AccessDelete},
 		{name: "create share", method: apiv1.SessionService_CreateSessionShare_FullMethodName, want: pkgauth.AccessCreate},
 		{name: "list shares", method: apiv1.SessionService_ListSessionShares_FullMethodName, want: pkgauth.AccessRead},
@@ -80,7 +82,7 @@ func TestReadOnlyShareCannotRenameAConversation(t *testing.T) {
 				sessionShare: &apiv1.SessionShare{SessionId: testSessionID.String()}, ownerUserID: "owner",
 			}
 			ctx := metadata.NewIncomingContext(t.Context(), metadata.Pairs("x-share-token", "token"))
-			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies(), nil)
+			_, err := authenticate(ctx, test.method, &testAuthenticator{session: session}, shareStore, DefaultMethodPolicies(), nil, nil)
 			if got := status.Code(err); got != test.wantCode {
 				t.Fatalf("authenticate(%s) code = %v (%v), want %v", test.method, got, err, test.wantCode)
 			}
@@ -92,7 +94,7 @@ func TestAgentIdentityRequiresItsOwnAuthenticator(t *testing.T) {
 	method := apiv1.AgentIdentityService_ResolveAgentIdentity_FullMethodName
 	policies := DefaultMethodPolicies()
 	require.Equal(t, pkgauth.AccessRead, policies[method])
-	_, err := authenticate(t.Context(), method, &authimpl.InsecureAuthenticator{}, nil, policies, nil)
+	_, err := authenticate(t.Context(), method, &authimpl.InsecureAuthenticator{}, nil, policies, nil, nil)
 	require.Equal(t, codes.Unauthenticated, status.Code(err), "missing lookup authentication cannot fall back to user authentication")
 }
 
@@ -169,7 +171,7 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 						md.Set("authorization", test.token)
 					}
 					ctx := metadata.NewIncomingContext(t.Context(), md)
-					result, err := authenticate(ctx, test.method, users, nil, policies, nil)
+					result, err := authenticate(ctx, test.method, users, nil, policies, nil, nil)
 					require.Equal(t, test.want, status.Code(err), "%v", err)
 					if test.want == codes.OK && test.token == actor {
 						identity, ok := pkgauth.AuthSessionFrom(result)
@@ -180,8 +182,53 @@ func TestActorAndUserPoliciesOnSharedEndpoint(t *testing.T) {
 				})
 			}
 			shared := metadata.NewIncomingContext(t.Context(), metadata.Pairs("authorization", actor, "x-share-token", "share"))
-			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies, nil)
+			_, err := authenticate(shared, runtimev1.MemoryService_List_FullMethodName, users, nil, policies, nil, nil)
 			require.Equal(t, codes.Unauthenticated, status.Code(err))
 		})
+	}
+}
+
+func TestReflectionFollowsConfiguredAuthentication(t *testing.T) {
+	issuer := jwttest.New(t)
+	user := "Bearer " + issuer.Token(t, jwt.MapClaims{"iss": "https://users.example", "sub": "alice"})
+	methods := []string{
+		"/grpc.reflection.v1.ServerReflection/ServerReflectionInfo",
+		"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
+	}
+	scenarios := []struct {
+		name     string
+		provider pkgauth.AuthProvider
+		token    string
+		want     codes.Code
+	}{
+		{
+			name:     "Given insecure authentication, when an anonymous caller lists services through reflection, assert that the call is admitted",
+			provider: &authimpl.InsecureAuthenticator{},
+			want:     codes.OK,
+		},
+		{
+			name:     "Given trusted proxy authentication, when an anonymous caller lists services through reflection, assert that the call is unauthenticated",
+			provider: authimpl.NewProxyAuthenticator("sub"),
+			want:     codes.Unauthenticated,
+		},
+		{
+			name:     "Given trusted proxy authentication, when an authenticated user lists services through reflection, assert that the call is admitted",
+			provider: authimpl.NewProxyAuthenticator("sub"),
+			token:    user,
+			want:     codes.OK,
+		},
+	}
+	for _, scenario := range scenarios {
+		for _, method := range methods {
+			t.Run(scenario.name+" ("+strings.ReplaceAll(strings.TrimPrefix(method, "/"), "/", " ")+")", func(t *testing.T) {
+				md := metadata.MD{}
+				if scenario.token != "" {
+					md.Set("authorization", scenario.token)
+				}
+				ctx := metadata.NewIncomingContext(t.Context(), md)
+				_, err := authenticate(ctx, method, scenario.provider, nil, DefaultMethodPolicies(), nil, nil)
+				require.Equal(t, scenario.want, status.Code(err), "%v", err)
+			})
+		}
 	}
 }

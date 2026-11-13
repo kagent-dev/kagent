@@ -3,11 +3,10 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 
+	"github.com/kagent-dev/kagent/go/core/cli/internal/common/prompt"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/tui"
@@ -15,7 +14,7 @@ import (
 
 // runInteractive launches the workspace; the TUI reads raw keys, so a redirected stream is an error.
 func runInteractive(cmd *cobra.Command, _ []string) (err error) {
-	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
+	if !prompt.IsTerminal(cmd.InOrStdin()) || !prompt.IsTerminal(cmd.OutOrStdout()) {
 		return errors.New("kagent requires a terminal; use `kagent agent session list` and `kagent agent invoke` for non-interactive use")
 	}
 
@@ -37,10 +36,4 @@ func runInteractive(cmd *cobra.Command, _ []string) (err error) {
 		return fmt.Errorf("run kagent workspace: %w", runErr)
 	}
 	return nil
-}
-
-// isTerminal reports whether a stream is backed by a TTY; a non-*os.File never is.
-func isTerminal(stream any) bool {
-	file, ok := stream.(*os.File)
-	return ok && term.IsTerminal(int(file.Fd()))
 }

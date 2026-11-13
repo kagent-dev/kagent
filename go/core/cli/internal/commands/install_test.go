@@ -8,12 +8,14 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	cliconfig "github.com/kagent-dev/kagent/go/core/cli/internal/config"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	"github.com/kagent-dev/kagent/go/core/internal/version"
+	installer "github.com/kagent-dev/kagent/go/core/pkg/install"
 )
 
 func TestInstallFlagsAndChartConfig(t *testing.T) {
@@ -66,4 +68,26 @@ func TestInstallProfileCleansTemporaryValuesOnFailure(t *testing.T) {
 	entries, err := os.ReadDir(temporary)
 	require.NoError(t, err)
 	require.Empty(t, entries, "the temporary profile must not outlive the install attempt")
+}
+
+func TestInstallNextSteps(t *testing.T) {
+	t.Run("Given an install into a custom namespace, when next steps are printed, assert that they name the dashboard, agent creation and that namespace's Harnesses", func(t *testing.T) {
+		var out bytes.Buffer
+		require.NoError(t, printInstallNextSteps(&out, "team-ai"))
+		require.Contains(t, out.String(), "kagent dashboard")
+		require.Contains(t, out.String(), "kagent apply -f agent.yaml")
+		require.Contains(t, out.String(), "kagent-default, codex-default and claude-default Harnesses")
+		require.Contains(t, out.String(), "in the team-ai namespace")
+	})
+}
+
+func TestConfirmWorkerPoolDeletionWithoutTerminal(t *testing.T) {
+	pools := &installer.SelfManagedWorkerPoolsError{Pools: []types.NamespacedName{{Namespace: "team", Name: "http"}}}
+	cmd := NewUninstallCmd()
+	cmd.SetIn(bytes.NewBufferString("y\n"))
+	cmd.SetOut(&bytes.Buffer{})
+	require.NoError(t, confirmWorkerPoolDeletion(cmd, pools, true))
+	err := confirmWorkerPoolDeletion(cmd, pools, false)
+	require.ErrorIs(t, err, pools)
+	require.ErrorContains(t, err, "rerun with --delete-worker-pools")
 }

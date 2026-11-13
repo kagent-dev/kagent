@@ -1,6 +1,9 @@
 import { Card, Typography } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
-import { useSearchParams } from "react-router-dom";
+import { Plus } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ExtensionSlot } from "@/appExtensions";
+import { CREATE_OPTIONS, type CreateOption } from "./createOptions";
 
 const { Text } = Typography;
 
@@ -78,12 +81,14 @@ export function AgentConcepts() {
         <div css={{ display: "grid", gap: theme.space(2), flex: "1 1 260px", minWidth: 0 }}>
           <Box
             kind="AgentTemplate"
-            detail="The model, prompt and tools."
+            create={CREATE_OPTIONS.AgentTemplate}
+            detail={CREATE_OPTIONS.AgentTemplate.description}
             onOpen={() => open("templates")}
           />
           <Box
             kind="Harness"
-            detail="The runtime, image and worker pool."
+            create={CREATE_OPTIONS.Harness}
+            detail={CREATE_OPTIONS.Harness.description}
             onOpen={() => open("harnesses")}
           />
         </div>
@@ -91,7 +96,8 @@ export function AgentConcepts() {
         <MergeArrow theme={theme} />
         <Box
           kind="Agent"
-          detail="Inline or shared behavior on a platform-managed harness."
+          create={CREATE_OPTIONS.Agent}
+          detail={CREATE_OPTIONS.Agent.description}
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />
@@ -113,67 +119,107 @@ function Box({
   kind,
   detail,
   onOpen,
+  create,
 }: {
   kind: string;
   detail: string;
   onOpen?: () => void;
+  /** Adds a corner "+" that goes to this option's create form. */
+  create?: CreateOption;
 }) {
   const theme = useTheme();
   const interactive = Boolean(onOpen);
 
   return (
-    <button
-      type="button"
-      data-testid={`concept-${kind}`}
-      disabled={!interactive}
-      onClick={onOpen}
-      css={{
-        flex: "1 1 220px",
-        minWidth: 0,
-        textAlign: "left",
-        // Centred down the box, because a card that stretches to match the two stacked
-        // beside it would otherwise hold its text at the top of an empty rectangle.
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: 2,
-        font: "inherit",
-        padding: `${theme.space(3)} ${theme.space(3)}`,
-        borderRadius: theme.radius.md,
-        border: `1px solid ${theme.color.border}`,
-        background: theme.color.bg,
-        transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
-        cursor: interactive ? "pointer" : "default",
-        ...(interactive
-          ? {
-              "&:hover": {
-                borderColor: `${theme.color.primary}A6`,
-                background: theme.color.bgElevated,
-              },
-              // Pressed, and distinct from hovered: a press that looks like a hover
-              // reads as a click that did not register.
-              "&:active": {
-                background: `${theme.color.primary}33`,
-                transform: "translateY(1px)",
-              },
-              "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
-            }
-          : {}),
-      }}
-    >
-      <div
+    // The "+" is a sibling of the box button, not a child: a button inside a button is
+    // invalid, and a sibling keeps a click on the "+" from also opening the tab.
+    <div css={{ position: "relative", display: "flex", flex: "1 1 220px", minWidth: 0 }}>
+      <button
+        type="button"
+        data-testid={`concept-${kind}`}
+        disabled={!interactive}
+        onClick={onOpen}
         css={{
-          fontFamily: theme.font.mono,
-          fontSize: 13,
-          // The derived one is marked, because it is the one that is not a resource and
-          // the confusion is people looking for where to create it.
-          color: theme.color.text,
+          flex: 1,
+          minWidth: 0,
+          textAlign: "left",
+          // Centred down the box, because a card that stretches to match the two stacked
+          // beside it would otherwise hold its text at the top of an empty rectangle.
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 2,
+          font: "inherit",
+          padding: `${theme.space(3)} ${theme.space(3)}`,
+          // Room for the corner "+" so the text never runs underneath it.
+          paddingRight: create ? theme.space(6) : theme.space(3),
+          borderRadius: theme.radius.md,
+          border: `1px solid ${theme.color.border}`,
+          background: theme.color.bg,
+          transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
+          cursor: interactive ? "pointer" : "default",
+          ...(interactive
+            ? {
+                "&:hover": {
+                  borderColor: `${theme.color.primary}A6`,
+                  background: theme.color.bgElevated,
+                },
+                // Pressed, and distinct from hovered: a press that looks like a hover
+                // reads as a click that did not register.
+                "&:active": {
+                  background: `${theme.color.primary}33`,
+                  transform: "translateY(1px)",
+                },
+                "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
+              }
+            : {}),
         }}
       >
-        {kind}
-      </div>
-      <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{detail}</Text>
-    </button>
+        <div
+          css={{
+            fontFamily: theme.font.mono,
+            fontSize: 13,
+            // The derived one is marked, because it is the one that is not a resource and
+            // the confusion is people looking for where to create it.
+            color: theme.color.text,
+          }}
+        >
+          {kind}
+        </div>
+        <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{detail}</Text>
+      </button>
+      {create && (
+        <div css={{ position: "absolute", top: 6, right: 6, display: "flex", gap: 4 }}>
+          <ExtensionSlot
+            id="app_agents_agentsList_overview_createActions"
+            context={{ kind: create.kind }}
+          />
+          <Link
+            to={create.to}
+            aria-label={`Create ${create.kind}`}
+            title={`Create ${create.kind}`}
+            data-testid={`concept-create-${kind}`}
+            css={{
+              display: "flex",
+              padding: 5,
+              borderRadius: theme.radius.md,
+              // Outlined in the primary colour so it reads as an action without competing
+              // with the solid Create button in the page header.
+              color: theme.color.primaryText,
+              border: `1px solid ${theme.color.primary}`,
+              background: `${theme.color.primary}14`,
+              transition: "background 120ms ease, color 120ms ease",
+              // Filled solid on hover, like the Create button it is related to: a tint
+              // change on an outlined button was too faint to read as a response.
+              "&:hover": { background: theme.color.primary, color: theme.color.textOnPrimary },
+              "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
+            }}
+          >
+            <Plus size={14} />
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -218,7 +264,7 @@ function Line({
  */
 
 /** Two lines converging into one: the pair becoming an agent. */
-function MergeArrow({ theme }: { theme: Theme }) {
+export function MergeArrow({ theme }: { theme: Theme }) {
   const id = "concepts-merge";
   return (
     <div
@@ -262,7 +308,7 @@ function MergeArrow({ theme }: { theme: Theme }) {
 }
 
 /** One line into the next box: the agent becoming a conversation. */
-function FlowArrow({ theme }: { theme: Theme }) {
+export function FlowArrow({ theme }: { theme: Theme }) {
   const id = "concepts-flow";
   return (
     <div aria-hidden css={{ display: "flex", alignItems: "center", flexShrink: 0 }}>

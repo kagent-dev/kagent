@@ -7,6 +7,7 @@
  */
 
 import type { AgentInstance } from "@/api/domain/agentInstances";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import type { ToolServerResponse, ToolsResponse } from "@/api/domain/mcpServers";
 import type {
   ModelConfig,
@@ -24,6 +25,8 @@ import type {
 import type { Harness } from "@/api/domain/harnesses";
 import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
+import type { EgressPolicy, EgressPolicySpec } from "@/api/domain/egressPolicies";
+import type { SandboxTemplate } from "@/api/domain/sandboxTemplates";
 
 export const mockModels: ModelConfig[] = [
   {
@@ -119,6 +122,7 @@ export const mockProviders: Provider[] = [
       "n",
       "timeout",
       "reasoningEffort",
+      "apiFormat",
     ],
   },
   {
@@ -131,7 +135,7 @@ export const mockProviders: Provider[] = [
     name: "AzureOpenAI",
     type: "AzureOpenAI",
     requiredParams: ["azureEndpoint"],
-    optionalParams: ["apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"],
+    optionalParams: ["apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"],
   },
   {
     name: "Ollama",
@@ -604,6 +608,24 @@ export const mockAgentInstances: AgentInstance[] = [
  * exactly the class of failure this file's fixtures have caused before.
  */
 export const mockHarnesses: Harness[] = [
+  // The three the chart installs: no workload, so each runs the release's image.
+  ...(["kagent", "codex", "claude"] as const).map((runtime) => ({
+    ref: `kagent/${runtime}-default`,
+    namespace: "kagent",
+    name: `${runtime}-default`,
+    runtime,
+    workloadImage: "",
+    resource: {
+      metadata: { name: `${runtime}-default`, namespace: "kagent" },
+      spec: {
+        [runtime]: {},
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
+        },
+      },
+    },
+  })),
   {
     ref: "kagent/k8s-agent",
     namespace: "kagent",
@@ -862,8 +884,24 @@ export const mockAgents: Agent[] = [
       systemPrompt: "You write short, accurate release notes.",
     } },
     harnessRef: { name: "k8s-agent" },
+    egressPolicyRefs: [{ name: "github-api" }],
+  }, withEgressApplied(readyStatus("rev-release-notes"))),
+  // Ran once, then an edit pointed it at a Harness image nobody can pull. The message is
+  // what `controller/golden_retry.go` writes while it waits to rebuild the golden snapshot.
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }, {
+    observedGeneration: 2,
+    desiredRevision: "rev-triage-on-claude-2",
+    latestSuccessfulRevision: "rev-triage-on-claude",
+    conditions: [
+      { type: "Accepted", status: "True", reason: "Accepted", message: "Agent explicitly selects its template and harness" },
+      { type: "ResolvedRefs", status: "True", reason: "Resolved", message: "All runtime references resolved" },
+      { type: "Compatible", status: "True", reason: "Compatible", message: "Resolved configuration is compatible with the Harness" },
+      {
+        type: "Ready", status: "False", reason: "ActorTemplateRetrying",
+        message: "golden build failed (GoldenActorCrashed): could not pull image ghcr.io/kagent-dev/kagent/claude-harnes:0.9.0, retry 2 at 2026-11-07T10:01:12Z",
+      },
+    ],
   }),
-  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
   agent("kagent", "scratchpad", {
     template: { inline: {
       modelConfig: { name: "default-model-config" },
@@ -873,4 +911,103 @@ export const mockAgents: Agent[] = [
     harnessRef: { name: "k8s-agent" },
   }),
   agent("analytics", "reporting-agent-9d4e2f1", { template: { ref: { name: "reporting-agent-9d4e2f1" } }, harnessRef: { name: "reporting" } }),
+];
+
+/** The independent condition the controller adds once every referenced policy is admitted. */
+function withEgressApplied(status: AgentStatus): AgentStatus {
+  return {
+    ...status,
+    conditions: [
+      ...(status.conditions ?? []),
+      {
+        type: "EgressPoliciesApplied",
+        status: "True",
+        reason: "Applied",
+        message: "All egress grants are admitted",
+        observedGeneration: status.observedGeneration,
+      },
+    ],
+  };
+}
+
+function egressPolicy(namespace: string, name: string, spec: EgressPolicySpec): EgressPolicy {
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      apiVersion: KAGENT_API_VERSION,
+      kind: "EgressPolicy",
+      metadata: { name, namespace, resourceVersion: "1", generation: 1, creationTimestamp: "2026-10-01T09:00:00Z" },
+      spec,
+    },
+  };
+}
+
+/** Shaped after `egresspolicy_types.go` and the cases its CEL tests accept. */
+export const mockEgressPolicies: EgressPolicy[] = [
+  egressPolicy("kagent", "github-api", {
+    destinations: [
+      {
+        origin: "https://api.github.com",
+        authentication: { header: "Authorization", prefix: "Bearer ", secretKeyRef: { name: "github-token", key: "token" } },
+      },
+      { origin: "https://*.githubusercontent.com" },
+    ],
+  }),
+  egressPolicy("kagent", "internal-tools", {
+    destinations: [
+      {
+        origin: "https://tools.internal.example.com",
+        authentication: {
+          header: "Authorization",
+          prefix: "Bearer ",
+          actorJwt: { audiences: ["https://tools.internal.example.com"], expirationSeconds: 900 },
+        },
+      },
+    ],
+  }),
+  egressPolicy("platform", "package-mirrors", {
+    destinations: [{ origin: "https://registry.npmjs.org" }, { origin: "https://pypi.org" }, { origin: "https://*.pythonhosted.org" }],
+  }),
+  egressPolicy("analytics", "warehouse", {
+    destinations: [
+      {
+        origin: "https://warehouse.example.com:8443",
+        authentication: { header: "X-API-Key", secretKeyRef: { name: "warehouse-credentials", key: "api-key" } },
+      },
+    ],
+  }),
+];
+
+function sandboxTemplate(
+  namespace: string,
+  name: string,
+  refs: string[],
+  condition: { status: string; reason: string; message: string },
+): SandboxTemplate {
+  return {
+    ref: `${namespace}/${name}`,
+    namespace,
+    name,
+    resource: {
+      metadata: { name, namespace, generation: 1 },
+      spec: { egressPolicyRefs: refs.map((ref) => ({ name: ref })) },
+      status: { conditions: [{ type: "EgressPoliciesApplied", ...condition, observedGeneration: 1 }] },
+    },
+  };
+}
+
+/** Only the fields the UI reads; a real SandboxTemplate also carries workload and substrate. */
+export const mockSandboxTemplates: SandboxTemplate[] = [
+  sandboxTemplate("kagent", "python-sandbox", ["github-api", "retired-mirror"], {
+    status: "False",
+    reason: "EgressPolicyNotFound",
+    message: 'kagent/retired-mirror: egresspolicies.api.kagent.dev "retired-mirror" not found',
+  }),
+  sandboxTemplate("analytics", "report-sandbox", ["warehouse"], {
+    status: "True",
+    reason: "Applied",
+    message: "All egress grants are admitted",
+  }),
 ];

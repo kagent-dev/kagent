@@ -6,7 +6,8 @@ Kubernetes resource.
 
 ## Creation and state
 
-Fresh creation pins the Agent's latest successful runtime revision. Pending or
+Fresh creation pins the Agent's latest successful runtime revision, prepared as
+described in [Creating an Agent](agent-creation.md). Pending or
 failed edits leave that revision available; an Agent with no successful revision
 cannot create sessions. Creation retries retain the existing session's pinned
 revision. Explicit egress grants are applied from the controller's persisted
@@ -21,7 +22,7 @@ ready after Substrate accepts it. Readiness of the image was already established
 while preparing the ate-api ActorTemplate; Session creation does not resume
 an Actor merely to probe `/readyz`.
 
-Substrate v1.0.0-rc1 requires protocol-specific egress policies and permits
+Substrate v1.0.0 requires protocol-specific egress policies and permits
 DNS queries only for hostnames matched by those policies. Kagent allows
 each configured HTTP(S) origin, preserving its scheme, DNS name, and port, and
 replaces credential headers in that destination's deciding rule. Conflicting
@@ -99,6 +100,21 @@ entry points are in
 TaskStore writes and automatic idle lifecycle work use durable task boundaries
 alongside these explicit lifecycle claims. Checkpoint reservations also block
 conflicting task writes and idle lifecycle work.
+
+`DeleteSession` without `force` returns an error if the session has active turns,
+outstanding dispatch, or unfinished native cleanup, without entering `DELETING`.
+`INPUT_REQUIRED` and `AUTH_REQUIRED` tasks are waiting; their state alone does not
+block deletion. Set `force: true` (CLI: `kagent session delete ID --force`) to
+bypass these activity checks. Authorization and checks for conflicting checkpoint
+or lifecycle work still apply.
+
+Both modes call Substrate `DeleteActor` directly with a UID precondition, without
+suspension or a final snapshot. An Actor in `RESUMING` does not need to resume first.
+
+When Substrate reports deletion or actor absence, kagent publishes saved task
+outcomes and marks remaining active tasks canceled. These changes and the Session
+tombstone commit atomically. Once deletion is admitted, client retries continue
+without repeating `force`; new turns remain blocked.
 
 The unreleased schema requires a clean database. Do not overlap older binaries that
 can issue lifecycle calls without session-local execution claims. PostgreSQL tests with controlled
@@ -208,6 +224,124 @@ claims still block new work, but completed results remain readable. The recorded
 actor UID is checked before lifecycle calls; a same-name replacement cannot be
 adopted implicitly.
 
+`SessionService.RevertSession` lets an authorized caller restore a confirmed
+crashed runtime. It accepts active and idle Sessions, but verifies Substrate's
+CRASHED state for the recorded Actor UID and pinned template before admitting
+recovery. Quiet turns, transport failures, missing Actors and same-name
+replacements cannot authorize a revert. A runtime that is not crashed, including
+a Session at rest outside READY, has nothing to recover, so RevertSession
+returns the Session unchanged. That is also what a retry sees after a revert
+whose response was lost. A missing or replaced Actor returns
+`FAILED_PRECONDITION`, because no retry restores it. A transport failure returns `UNAVAILABLE`. Only an active
+lifecycle operation returns `ABORTED`.
+
+Admission records FAILED/REVERT with a RuntimeCrashed failure under the Session
+lock. REVERT is its own `RuntimeOperation`: only a confirmed crash starts one, and
+`BeginSessionOperation` can join a REVERT but never start one. The same transaction
+publishes a durable terminal result saved before the crash, or fails nonterminal
+work absent from the retained snapshot. Waiting tasks captured by that snapshot
+remain available. Checkpoint creation excludes competing recovery.
+
+Admission settles waits against the Actor's latest completed durable snapshot,
+which is the one Substrate's revert restores. Every suspend kagent issues uses
+synchronous durability, so its upload completes before suspension returns, and
+a crashed Actor cannot be suspended. No upload can complete between admission
+and the revert, so settling at admission settles against what is restored, and
+the interrupted turn fails as soon as the crash is confirmed. An asynchronous
+suspend would break this and require settling when the revert finishes.
+
+The caller reads the Session's generation before it observes Substrate: its
+lifecycle generation, recorded Actor UID, and Actor template, in one statement.
+The observed Actor must match that template and UID. Admission takes the read
+back, rejects the crash when another lifecycle operation began after it, and
+re-checks the Actor UID under the Session lock. A concurrent revert keeps the
+Actor UID and returns the Session to READY, so only the generation exposes a
+stale observation. The recorded UID changes only through a lifecycle operation,
+which also replaces the generation.
+
+An issued idle suspension does not exclude recovery. It cannot finish against the
+crashed Actor, and its worker keeps the claim when suspension fails. Admission
+retires the claim in its transaction, so a late finish records nothing.
+
+Execution reverts the same Actor to its last durable snapshot without replaying
+input. A runtime without a durable snapshot returns to its initial state.
+An interrupted revert continues from REVERTING; a lost response can be reconciled
+from SUSPENDED. An admitted recovery survives API restarts as a durable REVERT
+operation, and the client continues it by retrying RevertSession, as with Create
+and Delete. Nothing retries it in the background. While it is
+pending, `GetSession` reports FAILED/REVERT with failure reason `RuntimeCrashed`.
+
+With `sessions.automaticRecovery` enabled in controller config, an A2A send also
+starts recovery, so chat and API clients recover with the retry they already
+make. Substrate cannot resume a crashed Actor, so a send to one fails before the
+runtime accepts it. When the gateway proves the input was not accepted, it runs
+the same Revert on that Session before answering `KAGENT_SEND_NOT_ACCEPTED`, and
+the client's retry reaches the restored runtime. A crash during a turn leaves
+that turn open, and an open turn refuses every send, so a send refused for an
+open turn also runs Revert once and then tries its reservation again: a crashed
+runtime is restored and the send proceeds, and a busy healthy runtime refuses it
+as before. Other conflicts, such as a checkpoint in progress, do not start
+recovery. A send while recovery is pending joins it.
+
+A worker can also be lost while the Actor suspends after a turn, for example
+during a node drain or scale-down. The Actor is then CRASHED, the Session still
+reads READY, and the idle worker keeps the suspension's claim because the outcome
+is unknown; nothing takes the claim over on a timeout. Every later send waits out
+the 10-second busy period and is told to retry, so the conversation would never
+recover on its own. Reservation reports a held suspension claim as
+`ErrDispatchSuspending`, a kind of `ErrDispatchBusy`. When that claim outlasts
+the whole wait, which a healthy suspension does not, the send attempts the same
+bounded recovery once. Admitting the recovery retires the claim. Revert leaves a
+suspension that is still running alone, and one more reservation, without
+another wait, proceeds or answers retry as before.
+
+A send waits at most 10 seconds on the recovery it starts. A recovery still
+running then stays admitted: the attempt releases its claim, the send is
+answered `KAGENT_SEND_NOT_ACCEPTED` with `state: RECOVERING` and a one-second
+`retryAfterMs`, and the client's retry continues it. The reason is unchanged so
+existing clients keep retrying. Reverting needs Session update access, as
+`RevertSession` does. When the revert cannot run, whether for missing access,
+contention, or an outage, the send keeps the answer it would give without
+recovery, unless a recovery is already admitted, which answers RECOVERING. No
+Session read calls Substrate.
+
+The setting is off by default. Sends then keep the refusals they had before
+recovery existed, and only an explicit `RevertSession` recovers. Chat retries a
+send refused as `KAGENT_SEND_NOT_ACCEPTED` with the same message ID, doubling
+the wait from the gateway's `retryAfterMs` up to two seconds for 30 seconds,
+and then offers Recover, which calls `RevertSession`. A crash during a turn
+leaves that turn open, so with the setting off the next send is refused
+outright while the Session still reads READY. The gateway names that refusal
+`KAGENT_TURN_ACTIVE` in its ErrorInfo metadata, and chat offers Recover for it
+too, because nothing else observes the crash. Other refusals keep a plain error.
+Chat also offers Recover while a recovery is pending, because a recovery whose
+attempt failed stays FAILED/REVERT until a client retries it. Recover returns a
+healthy runtime unchanged and records a lost one, so it is safe to offer on a
+guess.
+
+A missing, replaced, or retemplated Actor is not this Session's runtime, and
+reverting it would restore the wrong one. Whichever Revert observes that,
+directly or while executing an admitted recovery, records it in one transaction
+guarded by the generation it observed: the Session becomes FAILED/NONE with
+failure reason `RuntimeLost`, every open task fails, and a pending dispatch is
+cleared. A newer generation makes the observation stale and leaves the record
+alone. Later sends and reverts answer from PostgreSQL with a non-retryable error
+and do not ask Substrate again. Delete still works.
+
+Delete supersedes an admitted recovery even after an attempt issued the revert.
+Other issued lifecycle work blocks Delete because it may still create something
+Delete would miss; a revert restores the recorded Actor in place and creates
+nothing. Substrate serializes the two calls, and a late revert fails against the
+deleted Actor. Recording a lost runtime supersedes an admitted recovery the
+same way.
+
+A successful revert returns the Session to READY with the same Actor suspended.
+The next authorized interaction resumes it through Substrate ingress. Runtime
+changes after the retained snapshot are lost; the discarded turn receives no
+checkpoint at that older snapshot. Another revert returns the Session.
+
+Chat shows a pending recovery and a lost runtime from the stored Session state.
+
 ```mermaid
 sequenceDiagram
     participant Client
@@ -271,7 +405,7 @@ or is canceled. Background processes are not durable work and have no process
 handle API in the bash tool. Suspending an Actor preserves files, not running
 commands. Command payloads and output are not logged by the shell helpers.
 
-Substrate v1.0.0-rc1 uses snapshot fidelity. Agent and standalone sandbox
+Substrate v1.0.0 uses snapshot fidelity. Agent and standalone sandbox
 templates use VOLUMES. Resume starts fresh containers
 from the OCI image with the saved durable directories. Harnesses recover pending
 approvals and user input from their durable state; sandbox guests start with a
@@ -331,7 +465,7 @@ row, and issue a continuation only when it exists. Public cursors contain the la
 returned identity and request scope, never an upstream cursor that could name a
 filtered-out row.
 
-The Substrate adapter translates that identity into the pinned v1.0.0-rc1 keyset
+The Substrate adapter translates that identity into the pinned v1.0.0 keyset
 token format: actors use atespace/name globally or name within an atespace; workers
 use globally unique names. The encoder is version-dependent and its contract tests
 must be checked when upgrading Substrate. Continuations resume directly after the

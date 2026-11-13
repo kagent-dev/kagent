@@ -8,6 +8,7 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
@@ -45,9 +46,11 @@ func authorizeReference(ctx krt.HandlerContext, collections Collections, source 
 
 // ResolveModelReference authorizes a model before exposing dependent configuration
 // errors. Target validity remains independent of any particular consumer.
-func ResolveModelReference(ctx krt.HandlerContext, collections Collections, source string, ref v1alpha3.ObjectReference) (*ResolvedModelConfig, error) {
-	key := ref.NamespacedName(source)
-	model := krt.FetchOne(ctx, collections.ResolvedModelConfigs, krt.FilterObjectName(key))
+func ResolveModelReference(ctx krt.HandlerContext, collections Collections, source string, ref v1alpha3.ModelConfigReference) (*ResolvedModelConfig, error) {
+	key, model, err := fetchModel(ctx, collections, source, ref)
+	if err != nil {
+		return nil, err
+	}
 	if model == nil {
 		return nil, fmt.Errorf("resolve ModelConfig %q: not found", key)
 	}
@@ -61,6 +64,26 @@ func ResolveModelReference(ctx krt.HandlerContext, collections Collections, sour
 		return nil, fmt.Errorf("resolve ModelConfig %q: %s", key, failures[0].Message)
 	}
 	return model, nil
+}
+
+// fetchModel and fetchMCPServer hold the one kind switch per reference type.
+// A nil object means not found; other kinds fail with ErrInvalidKind.
+func fetchModel(ctx krt.HandlerContext, collections Collections, source string, ref v1alpha3.ModelConfigReference) (types.NamespacedName, *ResolvedModelConfig, error) {
+	switch kind, key := ref.Target(source); kind {
+	case v1alpha3.ModelConfigGroupKind:
+		return key, krt.FetchOne(ctx, collections.ResolvedModelConfigs, krt.FilterObjectName(key)), nil
+	default:
+		return key, nil, fmt.Errorf("resolve model %q: %w %s", key, ErrInvalidKind, kind)
+	}
+}
+
+func fetchMCPServer(ctx krt.HandlerContext, collections Collections, source string, ref v1alpha3.MCPServerReference) (types.NamespacedName, *v1alpha3.RemoteMCPServer, error) {
+	switch kind, key := ref.Target(source); kind {
+	case v1alpha3.RemoteMCPServerGroupKind:
+		return key, ptr.Deref(krt.FetchOne(ctx, collections.RemoteMCPServers, krt.FilterObjectName(key)), nil), nil
+	default:
+		return key, nil, fmt.Errorf("resolve MCP server %q: %w %s", key, ErrInvalidKind, kind)
+	}
 }
 
 // SameModelCredentials distinguishes target-local Secrets even when specs match.

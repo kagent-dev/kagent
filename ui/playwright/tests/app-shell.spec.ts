@@ -92,6 +92,11 @@ test("app shell: chrome, navigation entries, and where creation lives", async ({
 
     for (const { route, title, testId, form } of creates) {
       await loadPage(page, route, { title });
+      // The agents page puts its three creates behind one "Create" button.
+      if (route === routes.agents) {
+        await expect(page.getByTestId("agents-create")).toBeVisible();
+        await page.getByTestId("agents-create").click();
+      }
       const create = page.getByTestId(testId);
       await expect(create, `${title} has no create control`).toBeVisible();
       await create.click();

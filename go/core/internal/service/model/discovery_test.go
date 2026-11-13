@@ -91,7 +91,7 @@ func TestDiscoverySupportedProviderDefinitions(t *testing.T) {
 		"apiFormat",
 	}, modelProviders[0].OptionalParams)
 	assert.Equal(t, []string{"azureEndpoint"}, modelProviders[2].RequiredParams)
-	assert.Equal(t, []string{"apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"}, modelProviders[2].OptionalParams)
+	assert.Equal(t, []string{"apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"}, modelProviders[2].OptionalParams)
 	assert.Equal(t, []string{"deployment", "endpoint"}, modelProviders[3].RequiredParams)
 	assert.Equal(t, []string{"apiVersion", "apiFormat"}, modelProviders[3].OptionalParams)
 	assert.Equal(t, []string{"", "maxOutputTokens", "candidateCount", "responseMimeType"}, modelProviders[6].OptionalParams)
@@ -111,6 +111,58 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	encoded, err := json.Marshal(models[v1alpha3.ModelProviderOpenAI][0])
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"name":"gpt-5.6-terra","function_calling":true}`, string(encoded))
+
+	foundry := map[string]bool{}
+	for _, info := range models[v1alpha3.ModelProviderFoundry] {
+		foundry[info.Name] = info.FunctionCalling
+	}
+	for _, name := range []string{
+		"grok-3",
+		"grok-4.7",
+		"grok-4.6",
+		"grok-4.3",
+		"grok-4-20-reasoning",
+		"grok-4-20-non-reasoning",
+		"grok-4.1-fast-reasoning",
+		"grok-4.1-fast-non-reasoning",
+		"grok-4",
+		"grok-code-fast-1",
+	} {
+		calling, ok := foundry[name]
+		require.Truef(t, ok, "Foundry catalog missing %s", name)
+		assert.True(t, calling, name)
+	}
+	_, hasGrok5 := foundry["grok-5"]
+	assert.False(t, hasGrok5, "grok-5 is not a published Foundry model ID")
+
+	bedrock := map[string]bool{}
+	for _, info := range models[v1alpha3.ModelProviderBedrock] {
+		bedrock[info.Name] = info.FunctionCalling
+	}
+	for _, name := range []string{
+		"us.xai.grok-4.7",
+		"global.xai.grok-4.7",
+		"us.xai.grok-4.6",
+		"global.xai.grok-4.6",
+	} {
+		calling, ok := bedrock[name]
+		require.Truef(t, ok, "Bedrock catalog missing %s", name)
+		assert.True(t, calling, name)
+	}
+	_, hasFoundryGrokName := bedrock["grok-4.7"]
+	assert.False(t, hasFoundryGrokName, "Bedrock IDs use the xai inference-profile prefix")
+
+	for _, provider := range []v1alpha3.ModelProvider{v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderGeminiVertexAI} {
+		names := map[string]bool{}
+		for _, info := range models[provider] {
+			names[info.Name] = info.FunctionCalling
+		}
+		for _, name := range []string{"gemini-4-argon", "gemini-3.8-flash"} {
+			calling, ok := names[name]
+			require.Truef(t, ok, "%s catalog missing %s", provider, name)
+			assert.True(t, calling, name)
+		}
+	}
 }
 
 func TestDiscoveryConfiguredProviders(t *testing.T) {

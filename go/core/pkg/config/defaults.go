@@ -28,6 +28,10 @@ func DefaultCLI(cfg *configv1.CLIConfig) {
 		cfg.Install.PodCertificate = &configv1.ChartConfig{}
 	}
 	defaults(cfg.Install.PodCertificate, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
+	if cfg.Install.Atelet == nil {
+		cfg.Install.Atelet = &configv1.ChartConfig{}
+	}
+	defaults(cfg.Install.Atelet, &configv1.ChartConfig{Repository: new(cfg.Install.Substrate.GetRepository()), Version: new(cfg.Install.Substrate.GetVersion())})
 }
 
 // DefaultController fills only absent settings. Secret file paths are required
@@ -57,7 +61,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 }
 
 func defaultDatabase() *configv1.DatabaseConfig {
-	return &configv1.DatabaseConfig{Schema: new(consts.DefaultPostgresTableSchema), VectorSchema: new(consts.DefaultPgvectorSchema), Pool: &configv1.PostgresPoolConfig{MaxConns: new(int32(max(4, runtime.NumCPU()))), MaxConnIdleTime: durationpb.New(30 * time.Minute), MaxConnLifetime: durationpb.New(time.Hour)}}
+	return &configv1.DatabaseConfig{Schema: new(consts.DefaultPostgresTableSchema), VectorSchema: new(consts.DefaultPgvectorSchema), Pool: &configv1.PostgresPoolConfig{MaxConns: new(int32(max(4, runtime.NumCPU()))), MaxConnIdleTime: durationpb.New(30 * time.Minute), MaxConnLifetime: durationpb.New(time.Hour), ConnectRetryTimeout: durationpb.New(90 * time.Second)}}
 }
 
 func defaultTelemetry(cfg *configv1.TelemetryConfig) {
@@ -86,7 +90,7 @@ func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 func ResolveCLIPaths(cfg *configv1.CLIConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	cfg.Connection.CaFile = FilePath(path, cfg.Connection.CaFile)
-	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate} {
+	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate, cfg.Install.Atelet} {
 		for i, value := range chart.ValuesFiles {
 			chart.ValuesFiles[i] = FilePath(path, value)
 		}

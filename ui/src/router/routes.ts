@@ -58,6 +58,8 @@ export const paths = {
   agentTemplates: "/agent-templates",
   agentTemplateNew: "/agent-templates/new",
   harnessNew: "/harnesses/new",
+  /** After `new`, whose single static segment must win over this pattern. */
+  harnessEdit: "/harnesses/:namespace/:name/edit",
   /*
    * One template, read first.
    *
@@ -77,6 +79,12 @@ export const paths = {
 
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
+
+  // One page for every policy kind, with a tab per kind.
+  policies: "/policies",
+  egressPolicyNew: "/policies/egress/new",
+  egressPolicyDetail: "/policies/egress/:namespace/:name",
+  egressPolicyEdit: "/policies/egress/:namespace/:name/edit",
 
   prompts: "/prompts",
   promptNew: "/prompts/new",
@@ -112,6 +120,9 @@ export const paths = {
  * This is the address the reader ends up at, so it is the one to navigate to.
  */
 export const agentTemplatesTab = `${paths.agents}?tab=templates`;
+
+/** The egress tab of the policies page. */
+export const egressPoliciesTab = `${paths.policies}?tab=egress`;
 
 export function buildPath(
   path: string,

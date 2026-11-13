@@ -24,7 +24,7 @@ type Object interface {
 }
 
 type Service[T Object, L client.ObjectList] struct {
-	client     client.Client
+	client     client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	object     T
 	list       L
 	authorizer auth.CollectionAuthorizer
@@ -32,7 +32,7 @@ type Service[T Object, L client.ObjectList] struct {
 }
 
 func NewService[T Object, L client.ObjectList](
-	client client.Client,
+	client client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	authorizer auth.CollectionAuthorizer,
 	object T,
 	list L,
@@ -120,10 +120,14 @@ func (s *Service[T, L]) Update(ctx context.Context, object T) (T, error) {
 		return zero, err
 	}
 	if err := s.client.Update(ctx, object); err != nil {
-		if apierrors.IsInvalid(err) {
+		switch {
+		case apierrors.IsInvalid(err):
 			return zero, serviceerrors.NewInvalidArgument(err.Error(), err)
+		case apierrors.IsConflict(err):
+			return zero, serviceerrors.NewAborted(s.resource+" was modified; reload and retry", err)
+		default:
+			return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
 		}
-		return zero, serviceerrors.NewInternal("Failed to update "+s.resource, err)
 	}
 	return object, nil
 }

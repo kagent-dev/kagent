@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -13,6 +15,10 @@ import (
 )
 
 var errInvalidURL = errors.New("invalid PostgreSQL connection string")
+
+// dialTimeout bounds the TCP dial when the URL sets no connect_timeout. It does
+// not bound the login, which a resuming database can hold for tens of seconds.
+const dialTimeout = 10 * time.Second
 
 // PoolConfig parses url into a pool configuration. Every connection assumes
 // role after authentication, so the login only needs membership in role.
@@ -24,6 +30,9 @@ func PoolConfig(url, role string) (*pgxpool.Config, error) {
 	config, err := parse(url)
 	if err != nil {
 		return nil, err
+	}
+	if config.ConnConfig.ConnectTimeout == 0 {
+		config.ConnConfig.DialFunc = (&net.Dialer{Timeout: dialTimeout}).DialContext
 	}
 	if usesTLS(config.ConnConfig) {
 		// pgx reads TLS files once at parse time. Reparse before each new physical

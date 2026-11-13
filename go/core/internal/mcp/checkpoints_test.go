@@ -40,7 +40,7 @@ func TestCheckpointToolsAreRegistered(t *testing.T) {
 	defer server.Close()
 	response := rawMCPCall(t, server.URL, "tools/list", map[string]any{}, false)
 	tools := response["result"].(map[string]any)["tools"].([]any)
-	want := map[string]bool{createCheckpointToolName: false, listCheckpointsToolName: false, forkSessionToolName: false}
+	want := map[string]bool{createCheckpointToolName: false, listCheckpointsToolName: false, getCheckpointToolName: false, deleteCheckpointToolName: false, forkSessionToolName: false}
 	for _, value := range tools {
 		tool := value.(map[string]any)
 		if _, ok := want[tool["name"].(string)]; ok {
@@ -95,6 +95,8 @@ func TestCheckpointToolsEnforcePermissionsOverMCP(t *testing.T) {
 	}{
 		{createCheckpointToolName, map[string]any{"session_id": testSessionID, "expected_head_task_id": testTaskID, "request_id": "create-request"}, auth.VerbCreate, ""},
 		{listCheckpointsToolName, map[string]any{"session_id": testSessionID}, auth.VerbList, ""},
+		{getCheckpointToolName, map[string]any{"checkpoint_id": checkpointID}, auth.VerbGet, checkpointID},
+		{deleteCheckpointToolName, map[string]any{"checkpoint_id": checkpointID}, auth.VerbDelete, checkpointID},
 		{forkSessionToolName, map[string]any{"checkpoint_id": checkpointID, "request_id": "fork-request"}, auth.VerbGet, checkpointID},
 	} {
 		t.Run(test.tool, func(t *testing.T) {

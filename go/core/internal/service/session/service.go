@@ -39,7 +39,8 @@ type store interface {
 
 type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Revert(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
 }
 
 type ListRequest struct {
@@ -262,12 +263,12 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	}
 }
 
-func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error) {
+func (s *Service) Delete(ctx context.Context, id string, force bool) (*apiv1.Session, error) {
 	session, err := s.getAuthorized(ctx, id, auth.VerbDelete)
 	if err != nil {
 		return nil, err
 	}
-	session, err = s.workflow.Delete(ctx, session)
+	session, err = s.workflow.Delete(ctx, session, force)
 	if errors.Is(err, database.ErrFailedPrecondition) {
 		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
 	}
@@ -276,6 +277,24 @@ func (s *Service) Delete(ctx context.Context, id string) (*apiv1.Session, error)
 	}
 	if err != nil {
 		return nil, serviceerrors.NewUnavailable("Failed to delete Session", err)
+	}
+	return session, nil
+}
+
+func (s *Service) Revert(ctx context.Context, id string) (*apiv1.Session, error) {
+	session, err := s.getAuthorized(ctx, id, auth.VerbUpdate)
+	if err != nil {
+		return nil, err
+	}
+	session, err = s.workflow.Revert(ctx, session)
+	if errors.Is(err, database.ErrFailedPrecondition) {
+		return nil, serviceerrors.NewFailedPrecondition(err.Error(), err)
+	}
+	if errors.Is(err, database.ErrConflict) {
+		return nil, serviceerrors.NewAborted(err.Error(), err)
+	}
+	if err != nil {
+		return nil, serviceerrors.NewUnavailable("Failed to revert Session", err)
 	}
 	return session, nil
 }

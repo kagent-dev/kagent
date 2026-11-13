@@ -52,6 +52,14 @@ import type { Harness as PbHarness } from "@/generated/kagent/api/v1/harnesses_p
 import { AgentTemplateService } from "@/generated/kagent/api/v1/agent_templates_pb";
 import type { AgentTemplate as PbAgentTemplate } from "@/generated/kagent/api/v1/agent_templates_pb";
 import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
+import {
+  EgressPolicyService,
+  type EgressPolicy as PbEgressPolicy,
+} from "@/generated/kagent/api/v1/egress_policies_pb";
+import {
+  SandboxTemplateService,
+  type SandboxTemplate as PbSandboxTemplate,
+} from "@/generated/kagent/api/v1/sandbox_templates_pb";
 import type { SessionShare as PbSessionShare } from "@/generated/kagent/api/v1/sessions_pb";
 import type { Session as PbSession } from "@/generated/kagent/api/v1/sessions_pb";
 import {
@@ -100,6 +108,8 @@ import type {
   AgentInstanceState,
 } from "../domain/agentInstances";
 import type { Checkpoint, CheckpointState } from "../domain/checkpoints";
+import type { EgressPolicy, EgressPolicyResource } from "../domain/egressPolicies";
+import type { SandboxTemplate, SandboxTemplateResource } from "../domain/sandboxTemplates";
 import type {
   ApiOperations,
   OperationCallOptions,
@@ -555,6 +565,7 @@ const INSTANCE_OPERATION_BY_ENUM: Record<
   [RuntimeOperation.SUSPEND]: "suspend",
   [RuntimeOperation.RESUME]: "resume",
   [RuntimeOperation.DELETE]: "delete",
+  [RuntimeOperation.REVERT]: "revert",
 };
 
 /**
@@ -666,6 +677,7 @@ const agentInstances: Pick<
   | "agentInstances.rename"
   | "agentInstances.fork"
   | "agentInstances.delete"
+  | "agentInstances.revert"
 > = {
   "agentInstances.list": async (input, options) => {
     const name = "SessionService/ListSessions";
@@ -886,7 +898,7 @@ const agentInstances: Pick<
   "agentInstances.delete": async (input, options) => {
     await rpc("SessionService/DeleteSession", options.signal, () =>
       serviceClient(SessionService).deleteSession(
-        { sessionId: input.id },
+        { sessionId: input.id, force: input.force ?? false },
         call("agentInstances.delete", options),
       ),
     );
@@ -941,6 +953,16 @@ const agentInstances: Pick<
     return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
+  "agentInstances.revert": async (input, options) => {
+    const name = "SessionService/RevertSession";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(SessionService).revertSession(
+        { sessionId: input.id },
+        call("agentInstances.revert", options),
+      ),
+    );
+    return toAgentInstance(required(response.session, name, "agent instance"));
+  },
 };
 
 // endregion
@@ -1065,6 +1087,7 @@ const agentBuildingBlocks: Pick<
   | "agentTemplates.list"
   | "agentTemplates.get"
   | "harnesses.create"
+  | "harnesses.update"
   | "harnesses.delete"
   | "agentTemplates.create"
   | "agentTemplates.update"
@@ -1092,6 +1115,20 @@ const agentBuildingBlocks: Pick<
       ),
     );
     return toHarness(required(response.harness, name, "created harness"));
+  },
+
+  "harnesses.update": async (input, options) => {
+    const name = "HarnessService/UpdateHarness";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(HarnessService).updateHarness(
+        {
+          ref: { namespace: input.namespace, name: input.name },
+          resource: wrap("Harness", input.resource),
+        },
+        call("harnesses.update", options),
+      ),
+    );
+    return toHarness(required(response.harness, name, "updated harness"));
   },
 
   "harnesses.delete": async (input, options) => {
@@ -1167,6 +1204,113 @@ const agentBuildingBlocks: Pick<
         call("agentTemplates.delete", options),
       ),
     );
+  },
+};
+
+// endregion
+
+// region Egress policies and sandbox templates
+
+/** Go marshals nil slices as null, so lists are normalised here once. */
+function toEgressPolicy(policy: PbEgressPolicy, rpcName: string): EgressPolicy {
+  const resource = unwrap<EgressPolicyResource>(policy.resource, rpcName, `egress policy ${policy.ref?.name ?? ""}`);
+  const destinations = list(resource.spec?.destinations ?? undefined).map((destination) => {
+    const actorJwt = destination.authentication?.actorJwt;
+    return actorJwt
+      ? { ...destination, authentication: { ...destination.authentication!, actorJwt: { ...actorJwt, audiences: list(actorJwt.audiences ?? undefined) } } }
+      : destination;
+  });
+  return {
+    ref: refToString(policy.ref),
+    namespace: policy.ref?.namespace ?? "",
+    name: policy.ref?.name ?? "",
+    resource: { ...resource, spec: { ...resource.spec, destinations } },
+  };
+}
+
+function toSandboxTemplate(template: PbSandboxTemplate): SandboxTemplate {
+  return {
+    ref: refToString(template.ref),
+    namespace: template.ref?.namespace ?? "",
+    name: template.ref?.name ?? "",
+    resource: unwrap<SandboxTemplateResource>(
+      template.resource,
+      "SandboxTemplateService/ListSandboxTemplates",
+      `sandbox template ${template.ref?.name ?? ""}`,
+    ),
+  };
+}
+
+const egressPolicies: Pick<
+  ApiOperations,
+  | "egressPolicies.list"
+  | "egressPolicies.get"
+  | "egressPolicies.create"
+  | "egressPolicies.update"
+  | "egressPolicies.delete"
+  | "sandboxTemplates.list"
+> = {
+  "egressPolicies.list": async (input, options) => {
+    const name = "EgressPolicyService/ListEgressPolicies";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).listEgressPolicies(
+        { namespace: input.namespace ?? "" },
+        call("egressPolicies.list", options),
+      ),
+    );
+    return list(response.egressPolicies).map((policy) => toEgressPolicy(policy, name));
+  },
+
+  "egressPolicies.get": async (input, options) => {
+    const name = "EgressPolicyService/GetEgressPolicy";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).getEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name } },
+        call("egressPolicies.get", options),
+      ),
+    );
+    return toEgressPolicy(required(response.egressPolicy, name, `egress policy ${input.name}`), name);
+  },
+
+  "egressPolicies.create": async (input, options) => {
+    const name = "EgressPolicyService/CreateEgressPolicy";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).createEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name }, resource: wrap("EgressPolicy", input.resource) },
+        call("egressPolicies.create", options),
+      ),
+    );
+    return toEgressPolicy(required(response.egressPolicy, name, "created egress policy"), name);
+  },
+
+  "egressPolicies.update": async (input, options) => {
+    const name = "EgressPolicyService/UpdateEgressPolicy";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(EgressPolicyService).updateEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name }, resource: wrap("EgressPolicy", input.resource) },
+        call("egressPolicies.update", options),
+      ),
+    );
+    return toEgressPolicy(required(response.egressPolicy, name, `egress policy ${input.name}`), name);
+  },
+
+  "egressPolicies.delete": async (input, options) => {
+    await rpc("EgressPolicyService/DeleteEgressPolicy", options.signal, () =>
+      serviceClient(EgressPolicyService).deleteEgressPolicy(
+        { ref: { namespace: input.namespace, name: input.name } },
+        call("egressPolicies.delete", options),
+      ),
+    );
+  },
+
+  "sandboxTemplates.list": async (input, options) => {
+    const response = await rpc("SandboxTemplateService/ListSandboxTemplates", options.signal, () =>
+      serviceClient(SandboxTemplateService).listSandboxTemplates(
+        { namespace: input.namespace ?? "" },
+        call("sandboxTemplates.list", options),
+      ),
+    );
+    return list(response.sandboxTemplates).map(toSandboxTemplate);
   },
 };
 
@@ -1284,9 +1428,20 @@ const cluster: Pick<
   ApiOperations,
   | "namespaces.list"
   | "substrate.summary"
+  | "substrate.workerPools"
   | "substrate.actors"
   | "substrate.workers"
 > = {
+  "substrate.workerPools": async (input, options) => {
+    const response = await rpc("SystemService/ListWorkerPools", options.signal, () =>
+      serviceClient(SystemService).listWorkerPools(
+        { namespace: input.namespace ?? "" },
+        call("substrate.workerPools", options),
+      ),
+    );
+    return list(response.workerPools).map(toWorkerPoolEntry);
+  },
+
   "namespaces.list": async (_input, options) => {
     const response = await rpc("SystemService/ListNamespaces", options.signal, () =>
       serviceClient(SystemService).listNamespaces({}, call("namespaces.list", options)),
@@ -1369,6 +1524,7 @@ function required<T>(value: T | undefined, rpcName: string, what: string): T {
 export const defaultOperations: ApiOperations = {
  ...agents,
   ...agentBuildingBlocks,
+  ...egressPolicies,
   ...models,
   ...toolServers,
   ...prompts,

@@ -81,7 +81,21 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 			}
 		}
 	}
-	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate} {
+	// Shared values also reach Atelet. Preserve their explicit credential policy
+	// there, unless the caller supplied a separate reference for that release.
+	options.Secrets = slices.Clone(options.Secrets)
+	for _, ref := range options.Secrets {
+		if ref.Release != substrateRelease {
+			continue
+		}
+		ref.Release = ateletRelease
+		if !slices.ContainsFunc(options.Secrets, func(other SecretReference) bool {
+			return other.Release == ref.Release && slices.Equal(other.Path, ref.Path)
+		}) {
+			options.Secrets = append(options.Secrets, ref)
+		}
+	}
+	for _, chart := range []Chart{cfg.Kagent, cfg.KagentCRDs, cfg.Substrate, cfg.SubstrateCRDs, cfg.PodCertificate, cfg.Atelet} {
 		if chart.Version == "" || chart.Version == "dev" {
 			return "", fmt.Errorf("chart %s requires an explicit released version in the CLI configuration", chart.Name)
 		}
@@ -115,7 +129,7 @@ func Export(ctx context.Context, runner Runner, cfg Config, options ExportOption
 		chart   *Chart
 	}{
 		{kagentCRDsRelease, &cfg.KagentCRDs}, {substrateCRDsRelease, &cfg.SubstrateCRDs},
-		{podCertificateRelease, &cfg.PodCertificate}, {substrateRelease, &cfg.Substrate}, {kagentRelease, &cfg.Kagent},
+		{podCertificateRelease, &cfg.PodCertificate}, {ateletRelease, &cfg.Atelet}, {substrateRelease, &cfg.Substrate}, {kagentRelease, &cfg.Kagent},
 	}
 	for _, item := range charts {
 		// Keep local chart references usable when the script runs elsewhere.
@@ -267,6 +281,14 @@ func exportScript(releases []ChartInstall, refs []SecretReference) string {
 			}
 		}
 		script.WriteByte('\n')
+		if release.Release == ateletRelease {
+			wait := ateletRolloutCommand()
+			script.WriteString(shellQuote(wait.Program))
+			for _, arg := range wait.Args {
+				script.WriteString(" " + shellQuote(arg))
+			}
+			script.WriteByte('\n')
+		}
 	}
 	return script.String()
 }

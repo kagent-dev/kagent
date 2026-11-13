@@ -11,6 +11,8 @@ import {
   relativeAge,
 } from "@/components/agent-instances/instanceLabels";
 import { agentUrl } from "@/components/agent/agentUrl";
+import { isPermissionDenied } from "@/api/ApiError";
+import { useMissingAgents } from "@/api/hooks/useAgents";
 import { paths } from "@/router/routes";
 import {
   apiClient,
@@ -28,20 +30,15 @@ export function UnmappedConversationsPage() {
   const namespaces = useNamespaces();
 
   const namespaceNames = useMemo(
-    () => (namespaces.data ?? []).map((entry) => entry.name),
+    () => namespaces.data?.map((entry) => entry.name),
     [namespaces.data],
   );
 
-  const agents = useAgentsAcrossNamespaces(namespaceNames);
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const agents = useAgentsAcrossNamespaces(namespaceDenied ? null : namespaceNames);
   const conversations = useAgentInstances(true);
 
-  /*
-   * Computed here rather than handed over, so the page is a real address.
-   *
-   * A reader who bookmarks this or reloads it gets the same answer as one who arrived
-   * from the list, and the two cannot disagree about which conversations are orphaned.
-   */
-  const orphans = useMemo(() => {
+  const candidates = useMemo(() => {
     if (!agents.data || !conversations.data) return [];
     const known = new Set(agents.data.agents.map((agent) => agent.ref));
     const unreadable = new Set(agents.data.refused.map((entry) => entry.namespace));
@@ -51,7 +48,18 @@ export function UnmappedConversationsPage() {
     });
   }, [agents.data, conversations.data]);
 
-  const loadFailure = namespaces.error ?? agents.error ?? conversations.error;
+  // An Agent omitted by an authorization-filtered list may still exist.
+  const refsToCheck = namespaceDenied && !agents.error && !conversations.error
+    ? [...new Set(candidates.flatMap(({ agent }) => agent ? [agent] : []))].sort()
+    : [];
+  const checkedAgents = useMissingAgents(refsToCheck);
+  const orphans = namespaceDenied
+    ? candidates.filter(({ agent }) => !agent || checkedAgents.data?.missing.includes(agent))
+    : candidates;
+
+  const loadFailure = (namespaceDenied ? undefined : namespaces.error)
+    ?? agents.error ?? conversations.error ?? checkedAgents.error;
+  const isLoading = namespaces.isLoading || agents.isLoading || conversations.isLoading || checkedAgents.isLoading;
 
   /*
    * Every one of them, in parallel, because they are independent.
@@ -61,9 +69,9 @@ export function UnmappedConversationsPage() {
    * whole action and re-reads the list — so what could not be deleted stays visible
    * rather than appearing to have gone.
    */
-  async function removeAll(): Promise<void> {
+  async function removeAll(force = false): Promise<void> {
     await Promise.all(
-      orphans.map((row) => apiClient.agentInstances.remove(row.id)),
+      orphans.map((row) => apiClient.agentInstances.remove(row.id, { force })),
     );
   }
 
@@ -108,7 +116,8 @@ export function UnmappedConversationsPage() {
         <DeleteResourceButton
           kind="conversation"
           name={conversationTitle(row)}
-          onDelete={() => apiClient.agentInstances.remove(row.id)}
+          forceLabel="Stop active turns and delete"
+          onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
           onDeleted={conversations.refresh}
           description="This conversation cannot be reached from any agent, and deleting it releases the worker it holds."
         />
@@ -130,12 +139,13 @@ export function UnmappedConversationsPage() {
             and doing it one row at a time for twenty of them is a chore that leaves
             most of the workers held.
           */}
-          {orphans.length > 0 ? (
+          {!loadFailure && !isLoading && orphans.length > 0 ? (
             <DeleteResourceButton
               kind="conversations"
               name={`all ${orphans.length} visible unmapped`}
               label="Delete all"
               outlined
+              forceLabel="Stop active turns and delete"
               onDelete={removeAll}
               onDeleted={conversations.refresh}
               description={
@@ -169,6 +179,11 @@ export function UnmappedConversationsPage() {
           />
         ) : null}
 
+        {checkedAgents.data?.denied && !loadFailure && (
+          <Alert type="warning" showIcon title="Some conversations could not be checked"
+            description="You do not have access to all of their Agent definitions." />
+        )}
+
         {conversations.widerReadRefused !== undefined && !conversations.error ? (
           <Alert type="info" showIcon title="Showing your unmapped conversations only" data-testid="unmapped-owned-conversations" />
         ) : null}
@@ -185,11 +200,11 @@ export function UnmappedConversationsPage() {
           data-testid="unmapped-table"
           rowKey={(row) => row.id}
           columns={columns}
-          dataSource={loadFailure ? [] : orphans}
-          loading={agents.isLoading || conversations.isLoading}
+          dataSource={loadFailure || isLoading ? [] : orphans}
+          loading={isLoading}
           pagination={false}
           locale={{
-            emptyText: loadFailure
+            emptyText: loadFailure || checkedAgents.data?.denied
               ? " "
               : conversations.widerReadRefused !== undefined
                 ? "None of your conversations are unmapped."

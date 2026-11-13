@@ -17,15 +17,8 @@ limitations under the License.
 package v1alpha3
 
 import (
-	"context"
-	"database/sql"
-	"database/sql/driver"
-	"encoding/json"
-	"fmt"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // +kubebuilder:validation:Enum=SSE;STREAMABLE_HTTP
@@ -95,22 +88,6 @@ type RemoteMCPServerSpec struct {
 	TLS *TLSConfig `json:"tls,omitempty"`
 }
 
-var _ sql.Scanner = (*RemoteMCPServerSpec)(nil)
-
-func (t *RemoteMCPServerSpec) Scan(src any) error {
-	switch v := src.(type) {
-	case []uint8:
-		return json.Unmarshal(v, t)
-	}
-	return nil
-}
-
-var _ driver.Valuer = (*RemoteMCPServerSpec)(nil)
-
-func (t RemoteMCPServerSpec) Value() (driver.Value, error) {
-	return json.Marshal(t)
-}
-
 // RemoteMCPServerStatus defines the observed state of RemoteMCPServer.
 type RemoteMCPServerStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
@@ -151,22 +128,6 @@ type RemoteMCPServer struct {
 	Spec RemoteMCPServerSpec `json:"spec,omitempty"`
 	// +optional
 	Status RemoteMCPServerStatus `json:"status,omitempty"`
-}
-
-// ResolveHeaders resolves all HeadersFrom entries using the object's namespace.
-func (r *RemoteMCPServer) ResolveHeaders(ctx context.Context, client client.Client) (map[string]string, error) {
-	result := map[string]string{}
-
-	for _, h := range r.Spec.HeadersFrom {
-		k, v, err := h.Resolve(ctx, client, r.Namespace)
-		if err != nil {
-			return nil, fmt.Errorf("failed to resolve header: %v", err)
-		}
-
-		result[k] = v
-	}
-
-	return result, nil
 }
 
 // +kubebuilder:object:root=true

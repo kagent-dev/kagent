@@ -7,7 +7,15 @@
  * is still held over HTTP.
  */
 
-export { ApiError, isApiError, isNotFound } from "./ApiError";
+export {
+  ApiError,
+  isApiError,
+  isNotFound,
+  isSendNotAccepted,
+  mayNeedRecovery,
+  SEND_NOT_ACCEPTED,
+  TURN_ACTIVE,
+} from "./ApiError";
 export type { ApiErrorKind } from "./ApiError";
 
 export { apiBaseUrl, apiMode, isMockMode, MOCK_API_BASE_URL } from "./config";
@@ -71,8 +79,18 @@ export * from "./domain/substrate";
 export * from "./domain/prompts";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
+export * from "./domain/templateToolCount";
 export * from "./domain/agents";
 export * from "./domain/checkpoints";
+export * from "./domain/egressPolicies";
+export * from "./domain/sandboxTemplates";
+export {
+  useEgressPolicies,
+  useEgressPolicy,
+  useInvalidateEgressPolicies,
+  useNamespaceEgressPolicies,
+  useSandboxTemplates,
+} from "./hooks/useEgressPolicies";
 
 export { useMcpServers, useTools } from "./hooks/useMcpServers";
 export {
@@ -87,6 +105,7 @@ export {
   useSubstrateActors,
   useSubstrateSummary,
   useSubstrateWorkers,
+  useWorkerPools,
 } from "./hooks/useSubstrate";
 export {
   useAgentTemplate,

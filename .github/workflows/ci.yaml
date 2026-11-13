@@ -85,7 +85,7 @@ jobs:
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
         with:
           cache-key: kagent-e2e
           platforms: linux/amd64
@@ -98,7 +98,7 @@ jobs:
 
       - name: Install Kind
         id: kind
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           version: v0.33.0
           install_only: true
@@ -154,6 +154,8 @@ jobs:
                 port: http
               periodSeconds: 1
           config:
+            sessions:
+              automaticRecovery: true
             push:
               allowHttp: true
               allowPrivateNetworks: true
@@ -189,13 +191,15 @@ jobs:
             namespacePolicies:
               - atespace: kagent
                 allowedNamespaces: [kagent, kagent-shared-models, kagent-shared-tools]
+          ateApi:
+            extraArgs: [--template-resync-interval=250ms]
+          EOF
+          cat > "$RUNNER_TEMP/atelet-values.yaml" <<EOF
           atelet:
             resources:
               limits:
                 memory: 2Gi
             extraArgs: [--localhost-registry-replacement=kind-registry:5000]
-          ateApi:
-            extraArgs: [--template-resync-interval=250ms]
           EOF
           cat > "$RUNNER_TEMP/kagent-cli.yaml" <<EOF
           install:
@@ -203,8 +207,12 @@ jobs:
               repository: "${RUNNER_TEMP}/release-charts/"
               version: "${VERSION}"
               valuesFiles: ["${RUNNER_TEMP}/kagent-values.yaml"]
+            atelet:
+              valuesFiles: ["${RUNNER_TEMP}/atelet-values.yaml"]
             substrate:
-              valuesFiles: ["${RUNNER_TEMP}/substrate-values.yaml"]
+              valuesFiles:
+                - "${RUNNER_TEMP}/substrate-values.yaml"
+                - "${GITHUB_WORKSPACE}/go/core/test/e2e/manifests/substrate-values.yaml"
           EOF
           ./go/core/bin/kagent-local --config "$RUNNER_TEMP/kagent-cli.yaml" install --namespace kagent
           kubectl rollout status deployment/kagent-controller -n kagent --timeout=120s
@@ -220,8 +228,8 @@ jobs:
         if: matrix.sandbox_class == 'microvm'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/substrate/microvm-assets/amd64
-          key: microvm-assets-amd64-${{ env.SUBSTRATE_VERSION }}
+          path: .cache/substrate/microvm-assets
+          key: microvm-assets-v2-amd64-${{ env.SUBSTRATE_VERSION }}
 
       - name: Install Cloud Hypervisor runtime
         if: matrix.sandbox_class == 'microvm'
@@ -348,6 +356,42 @@ jobs:
       - name: Check the registry and generated conventions
         run: make semconv-verify
 
+  diagram-check:
+    name: Diagram Render Check
+    runs-on: ubuntu-24.04
+    services:
+      # Must equal KROKI_EXCALIDRAW_IMAGE in the Makefile; the next steps enforce it.
+      kroki-excalidraw:
+        image: yuzutech/kroki-excalidraw:0.35.0@sha256:9697a29506d2bea4268586c402735754fe6eb0bcff974ca37676b27b1bd48bcb
+        ports:
+          - 8004:8004
+    env:
+      KROKI_EXCALIDRAW_URL: http://localhost:8004/
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The service listens only after its Chromium starts. It answers this empty request with 400.
+      - name: Wait for Kroki
+        run: curl --silent --output /dev/null --retry 30 --retry-delay 2 --retry-all-errors "$KROKI_EXCALIDRAW_URL"
+      # Service images cannot read the Makefile, so local renders would silently drift from CI's.
+      - name: Check the service runs the Makefile's renderer image
+        run: |
+          service_image="$(docker inspect --format '{{.Config.Image}}' '${{ job.services.kroki-excalidraw.id }}')"
+          make_image="$(make --silent --no-print-directory --eval 'print-kroki-image: ; @echo $(KROKI_EXCALIDRAW_IMAGE)' print-kroki-image)"
+          if [ "$service_image" != "$make_image" ]; then
+            echo "::error::The kroki-excalidraw service runs $service_image, but KROKI_EXCALIDRAW_IMAGE in the Makefile is $make_image. Change both together."
+            exit 1
+          fi
+      - name: Check diagrams match their scenes
+        run: make diagrams-check
+      # diagrams-check leaves its fresh renders in place; this lets a contributor take them.
+      - name: Upload rendered diagrams
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rendered-diagrams
+          path: docs/**/*.svg
+
   upgrade-tests:
     needs:
       - setup
@@ -443,17 +487,32 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   go-unit-tests:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    env:
+      # Use the disk build cache restored below on every runner.
+      GOCACHEPROG: ""
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Go
+        id: go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go/go.mod
-          cache: true
-          cache-dependency-path: go/go.sum
+          cache: false
+
+      - name: Cache Go unit test dependencies and build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          # Keep race builds separate from generators and refresh after code changes.
+          key: go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-${{ github.sha }}
+          restore-keys: |
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
 
       - name: Run Go unit tests
         working-directory: go
@@ -471,7 +530,7 @@ jobs:
   helm-unit-tests:
     env:
       VERSION: v0.0.1-test
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -492,6 +551,9 @@ jobs:
       - name: Test release image packaging
         # Validate packaged runtime defaults without accessing an image registry.
         run: bash scripts/package-release-charts_test.sh
+
+      - name: Test CLI install script
+        run: bash scripts/get-kagent_test.sh
 
       - name: Run helm unit tests
         run: |
@@ -578,7 +640,7 @@ jobs:
         with:
           platforms: linux/amd64,linux/arm64
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
         with:
           cache-key: kagent-build-${{ matrix.image }}
           platforms: linux/amd64,linux/arm64
@@ -616,7 +678,7 @@ jobs:
   python-test:
     env:
       OPENAI_API_KEY: fake
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]

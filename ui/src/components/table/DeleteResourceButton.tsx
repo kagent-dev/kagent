@@ -1,7 +1,6 @@
-import { useState } from "react";
-import { Button, Modal, Popconfirm } from "antd";
+import { Button, Popconfirm } from "antd";
 import { Trash2 } from "lucide-react";
-import toast from "react-hot-toast";
+import { DeleteModal, useDeleteConfirm, useModalState, type DeleteConfirmProps } from "./DeleteConfirmModal";
 
 /**
  * Deletes one row's resource, having asked first.
@@ -16,32 +15,12 @@ import toast from "react-hot-toast";
  * and it is the one thing a generic prompt leaves out.
  */
 export function DeleteResourceButton({
-  kind,
-  name,
-  onDelete,
-  onDeleted,
   disabled,
-  description,
   label,
   outlined = false,
   confirmation = "popover",
-}: {
-  /** What this is, in words a reader would use: "agent", "model configuration". */
-  kind: string;
-  /** How the row is identified, shown in the confirmation. */
-  name: string;
-  /**
-   * What deleting this actually costs, when "cannot be undone" is not the whole
-   * story.
-   *
-   * Defaults to the generic sentence, which is right for a resource whose deletion
-   * affects only itself. Some do not: deleting an `AgentTemplate` leaves the agents
-   * already cut from it running — they hold a prepared revision the collector
-   * refuses to reclaim — while preventing any new one. A reader deciding whether to
-   * delete needs that, and a prompt that omits it is the one that gets clicked
-   * through.
-   */
-  description?: React.ReactNode;
+  ...target
+}: DeleteConfirmProps & {
   /**
    * A visible label beside the icon.
    *
@@ -61,40 +40,12 @@ export function DeleteResourceButton({
    */
   outlined?: boolean;
   confirmation?: "popover" | "modal";
-  onDelete: () => Promise<void>;
-  /** Called after a successful delete, to refresh whatever listed it. */
-  onDeleted: () => void | Promise<void>;
   disabled?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [isDeleting, setDeleting] = useState(false);
-
-  async function confirm() {
-    setDeleting(true);
-    try {
-      await onDelete();
-      // Refreshed before the toast, so the row is gone by the time the reader is told
-      // it is. Swallowed, because every caller passes an `ApiResource.refresh` and
-      // those rethrow: unguarded, a failed re-read after a successful delete reports
-      // the delete as failed, in a toast that never goes away.
-      await Promise.resolve(onDeleted()).catch(() => {});
-      setOpen(false);
-      toast.success(`Deleted ${kind} ${name}`);
-    } catch (cause: unknown) {
-      // Deliberately not a toast that disappears: a delete that failed leaves the
-      // resource in place, and a reader who missed the message would believe it
-      // gone. `duration: Infinity` makes it dismissable rather than transient.
-      toast.error(
-        `Could not delete ${kind} ${name}: ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`,
-        { duration: Infinity },
-      );
-    } finally {
-      setDeleting(false);
-    }
-  }
-
+  const modal = useModalState();
+  const { kind, name } = target;
+  const deletion = useDeleteConfirm(target);
+  const { isDeleting, setForce, confirm, title, message } = deletion;
   const button = (
     <Button
       // `default` gives it the border; `danger` keeps it red either way, so the
@@ -105,7 +56,7 @@ export function DeleteResourceButton({
       // was a smaller target than anything else on the row, and it is the control with
       // the worst consequence for a near miss.
       icon={<Trash2 size={16} />}
-      onClick={confirmation === "modal" ? () => setOpen(true) : undefined}
+      onClick={confirmation === "modal" ? () => { setForce(false); modal.show(); } : undefined}
       loading={isDeleting}
       disabled={disabled}
       data-testid={`delete-${name}`}
@@ -116,20 +67,13 @@ export function DeleteResourceButton({
       {label}
     </Button>
   );
-  const title = `Delete ${kind} ${name}?`;
-  const message = description ?? "This removes it from the cluster and cannot be undone.";
-
   return confirmation === "modal" ? <>
     {button}
-    <Modal open={open} title={title} onOk={confirm} onCancel={() => setOpen(false)}
-      okText="Delete" okButtonProps={{ danger: true }} confirmLoading={isDeleting}
-      cancelText="Keep" cancelButtonProps={{ disabled: isDeleting }} closable={!isDeleting}
-      mask={{ closable: !isDeleting }} keyboard={!isDeleting}>
-      {message}
-    </Modal>
+    {modal.mounted && <DeleteModal confirmation={deletion} open={modal.open} onClose={modal.hide} afterClose={modal.afterClose} />}
   </> : (
     <Popconfirm title={title} description={message} okText="Delete"
-      okButtonProps={{ danger: true, loading: isDeleting }} cancelText="Keep" onConfirm={confirm}>
+      onOpenChange={(value) => { if (value) setForce(false); }}
+      okButtonProps={{ danger: true, loading: isDeleting }} cancelText="Keep" onConfirm={() => confirm()}>
       {button}
     </Popconfirm>
   );

@@ -41,7 +41,7 @@ type controllerTestCleanup struct {
 	deletes, expires int
 }
 
-func (c *controllerTestCleanup) Delete(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (c *controllerTestCleanup) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	c.deletes++
 	return session, c.err
 }
@@ -338,7 +338,7 @@ func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 	store := &scopedControllerStore{session: &apiv1.Session{Id: id, ContextId: id, Creator: "owner", Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: "team", Name: "assistant"}}, State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
 	policy := &controllerSessionPolicy{}
 	sessions := sessionsvc.NewService(store, policy, nil)
-	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false)
+	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false, false)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	gateway := scopedControllerGateway{interactions: interactions, cancel: cancel, agent: types.NamespacedName{Namespace: "team", Name: "assistant"}}

@@ -17,12 +17,7 @@ package mcp
 // in one place and is easy to track as the extension evolves.
 
 import (
-	"context"
-	"fmt"
-
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/tool"
 )
 
 const (
@@ -41,44 +36,6 @@ func mcpUIClientCapabilities() *mcpsdk.ClientCapabilities {
 	caps := &mcpsdk.ClientCapabilities{}
 	caps.AddExtension(mcpUIExtensionName, map[string]any{"mimeTypes": []string{mcpAppHTMLMimeType}})
 	return caps
-}
-
-// mcpAppToolset wraps an MCP toolset and records which model-visible tools
-// render as MCP App widgets. Classification happens during ListTools inside
-// agentVisibleToolFilter because mcpsdk.Tool.Meta is not preserved on the ADK
-// tool.Tool values the toolset exposes later.
-type mcpAppToolset struct {
-	inner tool.Toolset
-	// appToolNames is this server's set of model-visible tool names whose
-	// results render as interactive MCP App (UI) widgets (the tool declares a
-	// `_meta.ui.resourceUri`). Used as a set, so only key presence is meaningful.
-	appToolNames map[string]bool
-}
-
-func (m *mcpAppToolset) Name() string {
-	return m.inner.Name()
-}
-
-func (m *mcpAppToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
-	return m.inner.Tools(ctx)
-}
-
-// MCPAppToolNamesFromToolsets returns the union of MCP App-capable tool names
-// recorded on toolsets built by CreateToolsets. The agent attaches the
-// model-result compaction callback (see agent.MakeMCPAppModelResultCallback)
-// only to these tools.
-func MCPAppToolNamesFromToolsets(toolsets []tool.Toolset) map[string]bool {
-	out := make(map[string]bool)
-	for _, ts := range toolsets {
-		aware, ok := ts.(*mcpAppToolset)
-		if !ok {
-			continue
-		}
-		for name := range aware.appToolNames {
-			out[name] = true
-		}
-	}
-	return out
 }
 
 // mcpToolKind classifies how an MCP tool is surfaced, following the MCP Apps
@@ -190,53 +147,4 @@ func normalizeVisibility(value any) []string {
 		return out
 	}
 	return nil
-}
-
-// agentVisibleToolFilter lists tools from the MCP server, filters out app-only
-// tools and any not in the configured allow-list, and returns a predicate the
-// toolset can apply plus the MCP App-capable tool names discovered on this
-// server.
-//
-// Classification must happen here because MCP Apps metadata lives on
-// mcpsdk.Tool.Meta, which ADK mcptoolset drops when converting to tool.Tool.
-func agentVisibleToolFilter(ctx context.Context, params mcpServerParams, configuredFilter map[string]bool) (tool.Predicate, map[string]bool, error) {
-	mcpTransport, err := createTransport(ctx, params)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create transport for %s: %w", params.URL, err)
-	}
-
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, &mcpsdk.ClientOptions{Capabilities: mcpUIClientCapabilities()})
-	session, err := client.Connect(ctx, mcpTransport, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect MCP client for %s: %w", params.URL, err)
-	}
-	defer session.Close()
-
-	result, err := session.ListTools(ctx, &mcpsdk.ListToolsParams{})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list MCP tools for %s: %w", params.URL, err)
-	}
-
-	allowedTools := make([]string, 0, len(result.Tools))
-	appToolNames := make(map[string]bool)
-	for _, t := range result.Tools {
-		if t == nil || t.Name == "" {
-			continue
-		}
-		if len(configuredFilter) > 0 && !configuredFilter[t.Name] {
-			continue
-		}
-		switch mcpToolKindOf(t.Meta) {
-		case mcpToolKindAppInternal:
-			// Hidden from the model; only the rendered MCP App calls it.
-			continue
-		case mcpToolKindApp:
-			allowedTools = append(allowedTools, t.Name)
-			appToolNames[t.Name] = true
-		default: // mcpToolKindModel
-			allowedTools = append(allowedTools, t.Name)
-		}
-	}
-
-	return tool.StringPredicate(allowedTools), appToolNames, nil
 }

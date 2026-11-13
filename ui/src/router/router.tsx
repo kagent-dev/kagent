@@ -19,7 +19,7 @@ import {
 } from "@/appExtensions";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AgentsLandingPage } from "@/pages/agents/AgentsLandingPage";
-import { HarnessNewPage } from "@/pages/agents/HarnessNewPage";
+import { HarnessEditPage, HarnessNewPage } from "@/pages/agents/HarnessNewPage";
 import { AgentNewChatPage } from "@/pages/AgentNewChatPage";
 import { UnmappedConversationsPage } from "@/pages/UnmappedConversationsPage";
 import { AgentPage } from "@/pages/AgentPage";
@@ -35,6 +35,9 @@ import { ModelEditPage } from "@/pages/ModelEditPage";
 import { McpServersPage } from "@/pages/McpServersPage";
 import { McpServerNewPage } from "@/pages/McpServerNewPage";
 import { PromptsPage } from "@/pages/PromptsPage";
+import { PoliciesPage } from "@/pages/policies/PoliciesPage";
+import { EgressPolicyDetailsPage } from "@/pages/policies/EgressPolicyDetailsPage";
+import { EgressPolicyNewPage, EgressPolicyEditPage } from "@/pages/policies/EgressPolicyFormPages";
 import { PromptNewPage } from "@/pages/PromptNewPage";
 import { PromptDetailPage } from "@/pages/PromptDetailPage";
 import { PromptEditPage } from "@/pages/PromptEditPage";
@@ -69,6 +72,7 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "agentDetail", path: paths.agentDetail, element: <AgentDetailsPage /> },
   { key: "agentChat", path: paths.agentChat, element: <AgentChatPage /> },
   { key: "harnessNew", path: paths.harnessNew, element: <HarnessNewPage /> },
+  { key: "harnessEdit", path: paths.harnessEdit, element: <HarnessEditPage /> },
   { key: "agentTemplates", path: paths.agentTemplates, element: <Navigate to={`${paths.agents}?tab=templates`} replace /> },
   {
     key: "agentTemplateNew",
@@ -86,6 +90,10 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "modelEdit", path: paths.modelEdit, element: <ModelEditPage /> },
   { key: "mcpServers", path: paths.mcpServers, element: <McpServersPage /> },
   { key: "mcpServerNew", path: paths.mcpServerNew, element: <McpServerNewPage /> },
+  { key: "policies", path: paths.policies, element: <PoliciesPage /> },
+  { key: "egressPolicyNew", path: paths.egressPolicyNew, element: <EgressPolicyNewPage /> },
+  { key: "egressPolicyDetail", path: paths.egressPolicyDetail, element: <EgressPolicyDetailsPage /> },
+  { key: "egressPolicyEdit", path: paths.egressPolicyEdit, element: <EgressPolicyEditPage /> },
   { key: "prompts", path: paths.prompts, element: <PromptsPage /> },
   { key: "promptNew", path: paths.promptNew, element: <PromptNewPage /> },
   { key: "promptDetail", path: paths.promptDetail, element: <PromptDetailPage /> },

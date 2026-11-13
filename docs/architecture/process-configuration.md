@@ -31,6 +31,8 @@ install:
   defaultModelProvider: OpenAI
   kagent:
     valuesFiles: [kagent-values.yaml]
+  atelet:
+    valuesFiles: [atelet-values.yaml]
 database:
   owner:
     urlFile: secrets/postgres-owner-url
@@ -65,6 +67,14 @@ mirrors.
 Installation passes embedded defaults before configured chart values files.
 Files are applied in order, with the last file winning. Provider credentials
 continue to use the provider SDK environment interface.
+
+`kagent install --provider` overrides `install.defaultModelProvider` for one
+install; the protovalidate `in` rule on that field defines the accepted names.
+After a successful install the CLI prints next steps.
+
+`kagent version --client` prints only the CLI build without connecting to the
+controller. The `get-kagent` install script uses it to skip reinstalling a
+matching version.
 
 ## Controller
 
@@ -103,6 +113,12 @@ runtimeDefaults:
   logging:
     level: info
 ```
+
+`sessions.automaticRecovery` enables recovery of crashed runtimes during sends.
+It defaults to false. The chart renders it only when set, so a rollback to a
+release that predates the setting can still read the default config. Explicit
+`RevertSession` calls remain available with either value. The setting does not
+change migrations or stored data.
 
 The controller connects with two logins. `database.owner` applies migrations at
 startup; `database.readWrite` serves every runtime query. Each assumes its `role`
@@ -247,11 +263,11 @@ for scope and limitations.
 
 Python integrations load this document with `KAgentConfig.from_file()` or receive
 an explicit generated `RuntimeConfig`. Python ADK loads the full document with
-`parse_config()` and constructs the SDK agent with `create_agent()`. Managed processes still materialize the private
-`KAGENT_CONFIG_JSON` and `KAGENT_AGENT_CARD_JSON` payloads supplied by Substrate.
-Actor/session identity, credential projection, and private bootstrap paths keep
-their existing contracts. Substrate's limits remain 32 environment entries and
-32,768 characters per value.
+`parse_config()` and constructs the SDK agent with `create_agent()`.
+Managed runtimes receive configuration and the Agent Card through the
+[prepared revision's bootstrap bundle](configuration-and-compilation.md#configuration-delivery).
+The controller supplies `KAGENT_BOOTSTRAP_JSON`; configuration payloads are not
+passed through environment variables.
 
 ## OpenTelemetry
 

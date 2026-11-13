@@ -1,5 +1,6 @@
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Alert, Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil, Plus } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -201,17 +202,11 @@ export function PromptsPage() {
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load prompt libraries"
-            description={error.message}
-            data-testid="prompts-error"
-            action={
-              <Button size="small" onClick={() => void refresh()}>
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="prompt libraries"
+            error={error}
+            testId="prompts-error"
+            onRetry={refresh}
           />
         ) : null}
 

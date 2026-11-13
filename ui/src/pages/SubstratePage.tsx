@@ -1,3 +1,4 @@
+import { ReadError } from "@/components/common/ReadError";
 import {
   useCallback,
   useEffect,
@@ -692,25 +693,74 @@ function SectionSearch({
 
 const PAGE_SIZE = 25;
 
-function PageAge({ computedAt }: { computedAt?: string }) {
+/**
+ * When the list was read, as a clock time rather than a running age: an age that ticks
+ * twice a second pulls the eye off the rows while saying nothing new.
+ *
+ * While polling, a list with no new read for `STALLED_AFTER_TICKS` intervals adds how
+ * long it has gone without one, in the warning colour. That is the stall the old age
+ * showed, now shown only when it is happening.
+ */
+function PageAge({ computedAt, pollMs }: { computedAt?: string; pollMs?: number }) {
   const theme = useTheme();
-  const age = useDataAge(computedAt);
-  return <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{age}</Text>;
+  const stalledMs = useStalledFor(computedAt, pollMs);
+  const at = readAt(computedAt);
+  if (stalledMs === undefined) {
+    return <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{at}</Text>;
+  }
+  return (
+    <Text css={{ color: theme.color.warning, fontSize: 12 }}>
+      {`${at}, ${elapsed(stalledMs)} ago`}
+    </Text>
+  );
 }
 
-function useDataAge(computedAt: string | undefined): string {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 500);
-    return () => window.clearInterval(timer);
-  }, []);
+const STALLED_AFTER_TICKS = 3;
+// A floor, so a half-second interval does not call one slow read a stall.
+const STALLED_FLOOR_MS = 5_000;
 
+/**
+ * How long a polled list has gone without a new read, once that is a stall.
+ *
+ * Measured on the browser's clock from when `computedAt` last changed, not from
+ * `computedAt` itself, so a skewed server clock cannot raise it.
+ */
+function useStalledFor(computedAt: string | undefined, pollMs: number | undefined) {
+  const [stall, setStall] = useState<{ key?: string; ms: number }>();
+
+  useEffect(() => {
+    if (pollMs === undefined) return;
+    const sinceMs = Date.now();
+    const limitMs = Math.max(STALLED_AFTER_TICKS * pollMs, STALLED_FLOOR_MS);
+    const timer = window.setInterval(() => {
+      const ms = Date.now() - sinceMs;
+      setStall(ms >= limitMs ? { key: computedAt, ms } : undefined);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [computedAt, pollMs]);
+
+  // A stall belongs to the read it was measured against; a new read clears it at once.
+  return pollMs !== undefined && stall !== undefined && stall.key === computedAt
+    ? stall.ms
+    : undefined;
+}
+
+function readAt(computedAt: string | undefined): string {
   if (!computedAt) return "";
-  const at = new Date(computedAt).getTime();
-  if (Number.isNaN(at)) return "";
-  const seconds = Math.max(0, (now - at) / 1000);
-  if (seconds < 1) return "read just now";
-  return `read ${seconds.toFixed(1)}s ago`;
+  const at = new Date(computedAt);
+  if (Number.isNaN(at.getTime())) return "";
+  return `Read at ${at.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  })}`;
+}
+
+/** `12s`, `3m 05s`. */
+function elapsed(ms: number): string {
+  const whole = Math.floor(ms / 1_000);
+  if (whole < 60) return `${whole}s`;
+  return `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
 }
 
 function PageWarning({ message, testId }: { message: string; testId: string }) {
@@ -1220,32 +1270,23 @@ export function SubstratePage() {
         </Space>
 
         {namespaces.error ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource="the namespace list"
+            error={namespaces.error}
+            testId="substrate-namespaces-error"
+            onRetry={namespaces.refresh}
             title="Could not load the list of namespaces"
             description={`${namespaces.error.message} You can still name a namespace in this page's address.`}
-            data-testid="substrate-namespaces-error"
-            action={
-              <Button size="small" onClick={() => void namespaces.refresh()}>
-                Try again
-              </Button>
-            }
           />
         ) : null}
 
         {summary.error ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource="Substrate inventory"
+            error={summary.error}
+            testId="substrate-inventory-error"
+            onRetry={summary.refresh}
             title="Substrate inventory could not be read"
-            description={summary.error.message}
-            data-testid="substrate-inventory-error"
-            action={
-              <Button size="small" onClick={() => void summary.refresh()}>
-                Try again
-              </Button>
-            }
           />
         ) : inventory?.ateApiError ? (
           /* A warning beside the data rather than an error instead of it. The read
@@ -1404,17 +1445,12 @@ export function SubstratePage() {
           data-testid="substrate-actors-card"
         >
           {actors.error ? (
-            <Alert
-              type="error"
-              showIcon
+            <ReadError
+              resource="actors"
+              error={actors.error}
+              testId="substrate-actors-error"
+              onRetry={actors.refresh}
               title="Actors could not be read"
-              description={actors.error.message}
-              data-testid="substrate-actors-error"
-              action={
-                <Button size="small" onClick={() => void actors.refresh()}>
-                  Try again
-                </Button>
-              }
             />
           ) : actors.data?.ateApiError ? (
             <PageWarning
@@ -1428,7 +1464,7 @@ export function SubstratePage() {
             title="Actor status"
             vocabulary={ACTOR_STATES}
             noun="Actors"
-            unread={Boolean(summary.error)}
+            unread={Boolean(summary.error || actors.error)}
             counts={inventory?.actorStatusCounts ?? []}
             emptyText="No actors visible in this scope."
           />
@@ -1484,16 +1520,19 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={actors.data?.computedAt} />
-
-            <PageControls
-              testId="substrate-actors-pages"
-              page={actorPage}
-              hasNext={Boolean(actors.data?.nextPageToken)}
-              onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
-              onBack={actorPage.back}
-              isLoading={actors.isLoading}
-            />
+            {!actors.error && (
+              <>
+                <PageAge computedAt={actors.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
+                <PageControls
+                  testId="substrate-actors-pages"
+                  page={actorPage}
+                  hasNext={Boolean(actors.data?.nextPageToken)}
+                  onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
+                  onBack={actorPage.back}
+                  isLoading={actors.isLoading}
+                />
+              </>
+            )}
           </div>
         </Card>
 
@@ -1508,17 +1547,12 @@ export function SubstratePage() {
           data-testid="substrate-workers-card"
         >
           {workers.error ? (
-            <Alert
-              type="error"
-              showIcon
+            <ReadError
+              resource="workers"
+              error={workers.error}
+              testId="substrate-workers-error"
+              onRetry={workers.refresh}
               title="Workers could not be read"
-              description={workers.error.message}
-              data-testid="substrate-workers-error"
-              action={
-                <Button size="small" onClick={() => void workers.refresh()}>
-                  Try again
-                </Button>
-              }
             />
           ) : workers.data?.ateApiError ? (
             <PageWarning
@@ -1562,16 +1596,19 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={workers.data?.computedAt} />
-
-            <PageControls
-              testId="substrate-workers-pages"
-              page={workerPage}
-              hasNext={Boolean(workers.data?.nextPageToken)}
-              onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
-              onBack={workerPage.back}
-              isLoading={workers.isLoading}
-            />
+            {!workers.error && (
+              <>
+                <PageAge computedAt={workers.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
+                <PageControls
+                  testId="substrate-workers-pages"
+                  page={workerPage}
+                  hasNext={Boolean(workers.data?.nextPageToken)}
+                  onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
+                  onBack={workerPage.back}
+                  isLoading={workers.isLoading}
+                />
+              </>
+            )}
           </div>
         </Card>
       </Space>

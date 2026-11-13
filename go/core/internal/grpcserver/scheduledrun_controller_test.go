@@ -81,7 +81,7 @@ func (w *scheduledControllerWorkflow) Suspend(ctx context.Context, session *apiv
 	return session, err
 }
 
-func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+func (w *scheduledControllerWorkflow) Delete(ctx context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
 	return w.finish(ctx, session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, "")
 }
 
@@ -356,7 +356,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			if tc.want == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED && !tc.stream {
 				controllerStore.loseTaskLink = true
 			}
-			interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, scheduledControllerAuthorizer{}, nil), false)
+			interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, scheduledControllerAuthorizer{}, healthyRuntimeWorkflow{}), false, false)
 			controller := scheduledrun.NewController(controllerStore, workflow, a2agateway.New(interactions, dialer, "http://gateway.test"), time.Second)
 			go func() { done <- controller.Start(ctx) }()
 			t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
@@ -442,7 +442,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 }
 
 func (w *scheduledControllerWorkflow) finish(ctx context.Context, id string, kind apiv1.RuntimeOperation, authority string) (*apiv1.Session, error) {
-	operation, err := w.store.BeginSessionOperation(ctx, id, kind)
+	operation, err := w.store.BeginSessionOperation(ctx, id, kind, false)
 	if err != nil {
 		return nil, err
 	}

@@ -30,7 +30,7 @@ type controllerStore interface {
 type controllerWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Suspend(context.Context, *apiv1.Session) (*apiv1.Session, error)
-	Delete(context.Context, *apiv1.Session) (*apiv1.Session, error)
+	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
 }
 
 // Controller reconciles executions on every replica. SQL leases fence status
@@ -237,7 +237,7 @@ func (c *Controller) stop(ctx context.Context, execution *apiv1.ScheduledRunExec
 	}
 	// No invocation was accepted; clean up the ordinary session lifecycle.
 	if session.GetState() == apiv1.RuntimeState_RUNTIME_STATE_CREATING {
-		_, err := c.workflow.Delete(ctx, session)
+		_, err := c.workflow.Delete(ctx, session, false)
 		return nil, err
 	}
 	_, err := c.workflow.Suspend(ctx, session)

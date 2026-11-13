@@ -6,7 +6,7 @@ import os
 
 import uvicorn
 from agent import graph
-from kagent.core import KAgentConfig
+from kagent.core import KAgentConfig, materialize_from_bootstrap
 from kagent.langgraph import KAgentApp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -18,6 +18,7 @@ def main():
     with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
         agent_card = json.load(f)
 
+    materialize_from_bootstrap("/config")
     config = KAgentConfig.from_file()
     app = KAgentApp(
         graph=graph,

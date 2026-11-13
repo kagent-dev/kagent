@@ -33,6 +33,7 @@ type CreateCfg struct {
 type DeleteCfg struct {
 	OutputFormat string
 	SessionID    string
+	Force        bool
 }
 
 // runCreate creates a Session.
@@ -113,10 +114,10 @@ func deleteSession(
 	out io.Writer,
 ) error {
 	response, err := client.DeleteSession(ctx, &apiv1.DeleteSessionRequest{
-		SessionId: cfg.SessionID,
+		SessionId: cfg.SessionID, Force: cfg.Force,
 	})
 	if status.Code(err) == codes.Aborted {
-		return fmt.Errorf("delete Session: lifecycle work is active or pending; inspect the Session and retry its pending operation: %w", err)
+		return fmt.Errorf("delete Session: work is active or pending; stop active turns or use --force, and retry any pending lifecycle operation: %w", err)
 	}
 	if err != nil {
 		return fmt.Errorf("delete Session: %w", err)
@@ -184,5 +185,6 @@ func newDeleteCmd() *cobra.Command {
 			return runDelete(cmd.Context(), options, cfg, cmd.OutOrStdout())
 		},
 	}
+	cmd.Flags().BoolVar(&cfg.Force, "force", false, "Terminate ongoing turns and delete the Session")
 	return cmd
 }
