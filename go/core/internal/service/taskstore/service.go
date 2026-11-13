@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -141,15 +142,22 @@ func (s *Service) ListTasks(ctx context.Context, input *runtimev1.TaskStoreServi
 	if err != nil {
 		return nil, storageError(err)
 	}
-	result := &a2a.ListTasksResponse{Tasks: tasks, PageSize: limit, TotalSize: total}
-	if len(tasks) > limit {
-		result.NextPageToken = base64.RawURLEncoding.EncodeToString([]byte(tasks[limit-1].ID))
-		result.Tasks = tasks[:limit]
+	more := len(tasks) > limit
+	if more {
+		tasks = tasks[:limit]
 	}
 	if !request.IncludeArtifacts {
-		for _, task := range result.Tasks {
+		for _, task := range tasks {
 			task.Artifacts = nil
 		}
+	}
+	if fit := apia2a.TasksWithinSize(tasks, apia2a.MaxTaskPageBytes); fit < len(tasks) {
+		tasks = tasks[:fit]
+		more = true
+	}
+	result := &a2a.ListTasksResponse{Tasks: tasks, PageSize: limit, TotalSize: total}
+	if more {
+		result.NextPageToken = base64.RawURLEncoding.EncodeToString([]byte(tasks[len(tasks)-1].ID))
 	}
 	wire, err := pbconv.ToProtoListTasksResponse(result)
 	if err != nil {

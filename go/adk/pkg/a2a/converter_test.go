@@ -3,6 +3,8 @@ package a2a
 import (
 	"context"
 	"iter"
+	"maps"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,8 +16,10 @@ import (
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	adksession "google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/fileextract"
+	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
@@ -224,6 +228,63 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 	}
 	if got := part.Metadata[adka2a.ToA2AMetaKey(A2ADataPartMetadataIsLongRunningKey)]; got != true {
 		t.Fatalf("long-running metadata = %#v, want true", got)
+	}
+}
+
+func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
+	note := map[string]any{"output": "chart", mcp.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}
+	ctx := mcp.WithToolImages(context.Background(), 0)
+	mcp.StashToolImages(ctx, mcp.ToolCallKey{InvocationID: "invocation-1", CallID: "call-images"}, []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
+
+	convert := func(invocationID, callID string) map[string]any {
+		t.Helper()
+		response := genai.NewPartFromFunctionResponse("render_chart", maps.Clone(note))
+		response.FunctionResponse.ID = callID
+		part, err := genAIPartConverter(ctx, &adksession.Event{InvocationID: invocationID}, response)
+		if err != nil {
+			t.Fatalf("genAIPartConverter() error = %v", err)
+		}
+		data := asDataPart(part)
+		// The data must survive the protobuf conversion to the task store.
+		if _, err := structpb.NewStruct(data); err != nil {
+			t.Fatalf("converted data is not protobuf-compatible: %v", err)
+		}
+		return data[PartKeyResponse].(map[string]any)
+	}
+
+	if got := convert("invocation-2", "call-images"); !reflect.DeepEqual(got, note) {
+		t.Fatalf("another invocation's call took the images: %#v", got)
+	}
+	want := []any{map[string]any{"mimeType": "image/png", "data": "cG5n"}}
+	if got := convert("invocation-1", "call-images")[mcp.ToolResultImagesKey]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("images = %#v, want %#v", got, want)
+	}
+	if got := convert("invocation-1", "call-images")[mcp.ToolResultImagesKey]; got != note[mcp.ToolResultImagesKey] {
+		t.Fatalf("images were added twice: %#v", got)
+	}
+	if got := convert("invocation-1", "call-other"); !reflect.DeepEqual(got, note) {
+		t.Fatalf("response without stashed images changed: %#v", got)
+	}
+}
+
+func TestStoredToolImageBytes(t *testing.T) {
+	response := func(images ...any) *a2atype.Part {
+		return a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{mcp.ToolResultImagesKey: images}})
+	}
+	image := map[string]any{"mimeType": "image/png", "data": "cG5n"}
+	task := &a2atype.Task{
+		Status:    a2atype.TaskStatus{Message: &a2atype.Message{Parts: a2atype.ContentParts{response(image)}}},
+		Artifacts: []*a2atype.Artifact{{Parts: a2atype.ContentParts{response(image, image), a2atype.NewTextPart("text")}}},
+		History: []*a2atype.Message{{Parts: a2atype.ContentParts{
+			response(image),
+			a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{mcp.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}}),
+		}}},
+	}
+	if got, want := storedToolImageBytes(task), 4*mcp.ToolImageCost("cG5n"); got != want {
+		t.Fatalf("storedToolImageBytes() = %d, want %d", got, want)
+	}
+	if got := storedToolImageBytes(nil); got != 0 {
+		t.Fatalf("storedToolImageBytes(nil) = %d, want 0", got)
 	}
 }
 
