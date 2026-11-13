@@ -221,6 +221,29 @@ semconv-verify: semconv-check semconv-policies-test semconv-generate ## Check th
 		exit 1; \
 	fi
 
+##@ Diagrams
+
+# Kroki's Excalidraw renderer: POST a scene, receive an SVG. The Diagram Render
+# Check service container in ci.yaml must run the same image, and CI fails when
+# it does not; that job also sets KROKI_EXCALIDRAW_URL itself.
+KROKI_EXCALIDRAW_IMAGE ?= yuzutech/kroki-excalidraw:0.35.0@sha256:9697a29506d2bea4268586c402735754fe6eb0bcff974ca37676b27b1bd48bcb
+KROKI_EXCALIDRAW_URL ?= http://localhost:8004/
+DIAGRAM_SCENES = $(shell git ls-files -- '*.excalidraw')
+DIAGRAM_SVGS = $(DIAGRAM_SCENES:.excalidraw=.svg)
+
+.PHONY: diagrams-render
+diagrams-render: ## Render every Excalidraw scene, NAME.excalidraw, to NAME.svg beside it, starting the pinned renderer for the run unless one answers at KROKI_EXCALIDRAW_URL
+	@CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KROKI_EXCALIDRAW_IMAGE=$(KROKI_EXCALIDRAW_IMAGE) KROKI_EXCALIDRAW_URL=$(KROKI_EXCALIDRAW_URL) \
+		bash scripts/render-diagrams.sh $(DIAGRAM_SCENES)
+
+.PHONY: diagrams-check
+diagrams-check: diagrams-render ## Fail when a diagram SVG is missing or differs from a fresh render of its scene
+	@if test -n "$$(git status --porcelain -- $(DIAGRAM_SVGS))"; then \
+		echo "Diagrams are out of date. Run 'make diagrams-render' and commit the result:"; \
+		git status --short -- $(DIAGRAM_SVGS); \
+		exit 1; \
+	fi
+
 ##@ Git
 
 .PHONY: init-git-hooks

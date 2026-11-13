@@ -6,7 +6,8 @@ Kubernetes resource.
 
 ## Creation and state
 
-Fresh creation pins the Agent's latest successful runtime revision. Pending or
+Fresh creation pins the Agent's latest successful runtime revision, prepared as
+described in [Creating an Agent](agent-creation.md). Pending or
 failed edits leave that revision available; an Agent with no successful revision
 cannot create sessions. Creation retries retain the existing session's pinned
 revision. Explicit egress grants are applied from the controller's persisted
