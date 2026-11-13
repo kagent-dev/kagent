@@ -227,6 +227,35 @@ spec:
                     - modelConfigRef
                     type: object
                 type: object
+              resources:
+                description: |-
+                  Resources overrides the controller's runtimeDefaults CPU and memory limits
+                  for runtimes started from this Harness.
+                properties:
+                  cpu:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: CPU limits the CPU of each runtime. Omitted uses
+                      runtimeDefaults.cpu.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                    x-kubernetes-validations:
+                    - message: cpu must be positive
+                      rule: quantity(string(self)).isGreaterThan(quantity('0'))
+                  memory:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      Memory limits the memory of each runtime. Omitted uses
+                      runtimeDefaults.memory.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                    x-kubernetes-validations:
+                    - message: memory must be positive
+                      rule: quantity(string(self)).isGreaterThan(quantity('0'))
+                type: object
               substrate:
                 description: RuntimeSubstratePolicy contains the Substrate policy
                   shared by all runtime variants.

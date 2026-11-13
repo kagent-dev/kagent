@@ -4,7 +4,8 @@
 
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-literal environment values, WorkerPool configuration, and snapshot location.
+literal environment values, runtime CPU and memory limits, WorkerPool
+configuration, and snapshot location.
 Harness has no status subresource; compilation and runtime readiness are reported
 on each Agent that selects it.
 
@@ -277,9 +278,13 @@ cluster-scoped SandboxConfig and provision compatible workers and runtime assets
 Selecting `microvm` does not install those prerequisites or configure a Kubernetes
 RuntimeClass. The standard configurations are `gvisor-default` and `microvm`.
 
-The central compiler also resolves operator-owned `runtimeDefaults.cpu` and
-`runtimeDefaults.memory` into each agent revision. Both limits are required by
-Substrate, default to 1 CPU and 1 GiB, and participate in the digest. The Substrate
+The central compiler also resolves each runtime's CPU and memory limits into the
+agent revision. `Harness.spec.resources.cpu` and `Harness.spec.resources.memory`
+override the operator-owned `runtimeDefaults.cpu` and `runtimeDefaults.memory`
+independently; an omitted limit uses the default, and admission rejects a
+non-positive one. Both limits are required by Substrate, default to 1 CPU and
+1 GiB, and participate in the digest, so changing a Harness limit prepares a new
+revision for its Agents while existing Sessions keep their pinned one. The Substrate
 adapter validates their quantities and emits ActorTemplate limits in CPU
 millicores and memory bytes for every harness, rounding positive fractions up
 to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
