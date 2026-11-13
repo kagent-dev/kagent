@@ -68,6 +68,14 @@ Installation passes embedded defaults before configured chart values files.
 Files are applied in order, with the last file winning. Provider credentials
 continue to use the provider SDK environment interface.
 
+`kagent install --provider` overrides `install.defaultModelProvider` for one
+install; the protovalidate `in` rule on that field defines the accepted names.
+After a successful install the CLI prints next steps.
+
+`kagent version --client` prints only the CLI build without connecting to the
+controller. The `get-kagent` install script uses it to skip reinstalling a
+matching version.
+
 ## Controller
 
 The controller reads `/etc/kagent/controller.yaml`, or the file selected by
@@ -105,6 +113,12 @@ runtimeDefaults:
   logging:
     level: info
 ```
+
+`sessions.automaticRecovery` enables recovery of crashed runtimes during sends.
+It defaults to false. The chart renders it only when set, so a rollback to a
+release that predates the setting can still read the default config. Explicit
+`RevertSession` calls remain available with either value. The setting does not
+change migrations or stored data.
 
 The controller connects with two logins. `database.owner` applies migrations at
 startup; `database.readWrite` serves every runtime query. Each assumes its `role`

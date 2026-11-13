@@ -40,6 +40,10 @@ func TestControllerConfig(t *testing.T) {
 		{"documents", "{}\n---\n{}", false},
 		{"field aliases", "kubernetes: {leaderElection: true, leader_election: false}", true},
 		{"pool bounds", "database: {pool: {minConns: 9, maxConns: 4}}", true},
+		{"connect retry timeout", "database: {pool: {connectRetryTimeout: 90s}}", false},
+		{"disabled connect retry", "database: {pool: {connectRetryTimeout: 0s}}", false},
+		{"negative connect retry timeout", "database: {pool: {connectRetryTimeout: -1s}}", true},
+		{"overlong connect retry timeout", "database: {pool: {connectRetryTimeout: 601s}}", true},
 		{"database schemas", "database: {schema: tenant, vectorSchema: public}", false},
 		{"invalid skip migrations type", "database: {skipMigrations: 'true'}", true},
 		{"empty database schema", "database: {schema: ''}", true},
@@ -138,6 +142,29 @@ func TestDatabaseSkipMigrations(t *testing.T) {
 			setLogins(cfg)
 			require.NoError(t, config.Validate(cfg))
 			require.Equal(t, tc.want, cfg.GetDatabase().GetSkipMigrations())
+		})
+	}
+}
+
+func TestDatabaseConnectRetryTimeout(t *testing.T) {
+	scenarios := []struct {
+		name, input string
+		want        time.Duration
+	}{
+		{"Given no connect retry timeout, when the controller config is defaulted, assert that logins are retried for 90s", "{}", 90 * time.Second},
+		{"Given connectRetryTimeout 0s, when the controller config is defaulted, assert that the retry stays disabled", "database: {pool: {connectRetryTimeout: 0s}}", 0},
+		{"Given connectRetryTimeout 90s, when the controller config is defaulted, assert that logins are retried for 90s", "database: {pool: {connectRetryTimeout: 90s}}", 90 * time.Second},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(scenario.input), cfg))
+
+			config.DefaultController(cfg)
+
+			setLogins(cfg)
+			require.NoError(t, config.Validate(cfg))
+			require.Equal(t, scenario.want, cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration())
 		})
 	}
 }
@@ -252,4 +279,24 @@ func TestYAMLConfigReadsOnlyFirstDocument(t *testing.T) {
 	cfg := &configv1.ControllerConfig{}
 	require.NoError(t, config.Decode([]byte("logging: {level: debug}\n---\n["), cfg))
 	require.Equal(t, "debug", cfg.GetLogging().GetLevel())
+}
+
+func TestSessionAutomaticRecovery(t *testing.T) {
+	for _, scenario := range []struct {
+		name, input string
+		want        bool
+	}{
+		{"omitted", "{}", false},
+		{"disabled", "sessions: {automaticRecovery: false}", false},
+		{"enabled", "sessions: {automaticRecovery: true}", true},
+	} {
+		t.Run("Given controller config with automatic recovery "+scenario.name+", when it loads, assert that the setting is preserved", func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(scenario.input), cfg))
+			config.DefaultController(cfg)
+			setLogins(cfg)
+			require.NoError(t, config.Validate(cfg))
+			require.Equal(t, scenario.want, cfg.GetSessions().GetAutomaticRecovery())
+		})
+	}
 }

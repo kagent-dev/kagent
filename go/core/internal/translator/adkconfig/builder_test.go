@@ -73,7 +73,7 @@ func TestBuildCompaction(t *testing.T) {
 	agentModel := resolvedModel(t, collections, "agent")
 	template := &translator.TemplateConfiguration{
 		Name: "assistant", Namespace: "test", Source: &metav1.ObjectMeta{Name: "assistant", Namespace: "test"},
-		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "agent"}},
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: "agent"}},
 	}
 	harness := func(compaction *v1alpha3.KagentHarnessCompaction) *translator.HarnessConfiguration {
 		return &translator.HarnessConfiguration{
@@ -98,7 +98,7 @@ func TestBuildCompaction(t *testing.T) {
 		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(5), OverlapSize: new(2), TokenThreshold: new(50000), EventRetentionSize: new(10),
 			Summarizer: &v1alpha3.KagentHarnessSummarizer{
-				ModelConfigRef: &v1alpha3.ObjectReference{Name: "agent"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
+				ModelConfigRef: &v1alpha3.ModelConfigReference{Name: "agent"}, PromptTemplate: "Summarize.\n\n{conversation_history}",
 			},
 		}))
 		require.NoError(t, err)
@@ -111,10 +111,29 @@ func TestBuildCompaction(t *testing.T) {
 		require.Len(t, result.Models, 1)
 	})
 
+	t.Run("interval without overlap defaults overlap to zero", func(t *testing.T) {
+		// The Harness CRD lets overlapSize be omitted, but the Python runtime's
+		// ADK requires compaction_interval and overlap_size together. Go ADK
+		// already treats an unset overlap as 0, so both runtimes agree.
+		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5)}))
+		require.NoError(t, err)
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
+			CompactionInterval: new(int64(5)), OverlapSize: new(int64(0)),
+		}}, result.Config.ContextConfig)
+	})
+
+	t.Run("token threshold alone leaves overlap unset", func(t *testing.T) {
+		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{TokenThreshold: new(50000), EventRetentionSize: new(10)}))
+		require.NoError(t, err)
+		require.Equal(t, &configv1.ADKContextConfig{Compaction: &configv1.ADKCompressionConfig{
+			TokenThreshold: new(int64(50000)), EventRetentionSize: new(int64(10)),
+		}}, result.Config.ContextConfig)
+	})
+
 	t.Run("dedicated summarizer model", func(t *testing.T) {
 		result, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(2),
-			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ObjectReference{Name: "summarizer"}},
+			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ModelConfigReference{Name: "summarizer"}},
 		}))
 		require.NoError(t, err)
 		summarizer := result.Config.ContextConfig.Compaction.SummarizerModel.GetOpenai()
@@ -136,7 +155,7 @@ func TestBuildCompaction(t *testing.T) {
 	t.Run("missing summarizer model", func(t *testing.T) {
 		_, err := apply(harness(&v1alpha3.KagentHarnessCompaction{
 			CompactionInterval: new(2),
-			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ObjectReference{Name: "missing"}},
+			Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ModelConfigReference{Name: "missing"}},
 		}))
 		require.ErrorContains(t, err, `summarizer ModelConfig "missing"`)
 	})
@@ -405,7 +424,7 @@ func TestBuildMemory(t *testing.T) {
 			harness := &translator.HarnessConfiguration{
 				Namespace: "test",
 				Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{
-					ModelConfigRef: v1alpha3.ObjectReference{Name: tc.modelName}, TTLDays: 7,
+					ModelConfigRef: v1alpha3.ModelConfigReference{Name: tc.modelName}, TTLDays: 7,
 				}}},
 			}
 			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{Harness: harness, Root: root})

@@ -127,7 +127,7 @@ spec:
     workerPoolRef:
       name: kagent-default
     snapshotPolicy:
-      location: gs://ate-snapshots/kagent/
+      location: s3://ate-snapshots/kagent/
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent

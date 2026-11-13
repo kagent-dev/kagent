@@ -1,7 +1,8 @@
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Pencil, Plus } from "lucide-react";
-import { Alert, Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -201,17 +202,11 @@ export function ModelsPage() {
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load model configurations"
-            description={error.message}
-            data-testid="models-error"
-            action={
-              <Button size="small" onClick={() => void refresh()}>
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="model configurations"
+            error={error}
+            testId="models-error"
+            onRetry={refresh}
           />
         ) : null}
 

@@ -213,6 +213,12 @@ message PostgresPoolConfig {
     gt: {}
     lte: {seconds: 9223372036}
   }];
+  // connect_retry_timeout is how long a database call retries a failed login,
+  // such as while a paused database resumes. 0s turns the retry off. Default 90s.
+  google.protobuf.Duration connect_retry_timeout = 5 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 600}
+  }];
 }
 
 message SubstrateConfig {
@@ -231,6 +237,8 @@ message SubstrateConfig {
 }
 
 message SessionsConfig {
+  // Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
+  bool automatic_recovery = 5;
   // Zero disables idle expiration.
   google.protobuf.Duration idle_ttl = 1 [(buf.validate.field).duration = {
     gte: {}

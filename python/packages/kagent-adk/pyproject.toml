@@ -22,14 +22,14 @@ dependencies = [
   "mcp>=2.2.0,<3",
   "protobuf>=6.33.5",  # CVE-2026-0994: Denial of Service due to recursion depth bypass
   "protovalidate>=2.1.0,<3",
-  "anthropic[vertex]>=2.3.0",
+  "anthropic[vertex]>=2.6.0",
   "fastapi>=0.115.1",
-  "google-adk[a2a,db]>=2.12.0,<3",
+  "google-adk[a2a,db]>=2.13.0,<3",
   "google-genai>=2.34.0,<3",
-  "google-auth>=2.62.0",
+  "google-auth>=2.62.1",
   "httpx>=0.25.0",
   "httpx2>=2.13.1",
-  "pydantic>=2.14.1",
+  "pydantic>=2.14.3",
   "typing-extensions>=4.16.0",
   "jsonref>=1.1.0",
   "a2a-sdk>=1.1.5,<2",
@@ -59,7 +59,7 @@ kagent-adk = "kagent.adk.cli:run_cli"
 [project.optional-dependencies]
 test = [
   "pytest>=9.2.0",
-  "pytest-asyncio>=0.25.3",
+  "pytest-asyncio>=1.4.1.post1",
 ]
 memory = [
   "psutil>=6.1.0",  # For memory monitoring

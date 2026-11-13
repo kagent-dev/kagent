@@ -1,10 +1,13 @@
-// Package dbtest provides test helpers for spinning up a Postgres container.
+// Package dbtest provides PostgreSQL test helpers: a real Postgres container and
+// a fake server that rejects logins.
 package dbtest
 
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"testing"
@@ -12,6 +15,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgxpool"
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -133,6 +138,65 @@ func PoolConfig(connStr string) *pgxpool.Config {
 		panic(err)
 	}
 	return config
+}
+
+// RefuseConnections returns a local address with no listener, so a dial to it
+// is refused.
+func RefuseConnections(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return address
+}
+
+// LoginError logs in to address and returns the *pgconn.ConnectError it fails with.
+func LoginError(t *testing.T, ctx context.Context, address string) error {
+	t.Helper()
+	conn, err := pgconn.Connect(ctx, "postgres://kagent@"+address+"/kagent?sslmode=disable")
+	if err == nil {
+		_ = conn.Close(ctx)
+		t.Fatal("login succeeded")
+	}
+	var connectErr *pgconn.ConnectError
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("got %T, want *pgconn.ConnectError", err)
+	}
+	return err
+}
+
+// RejectLogins starts a server that answers every login with a FATAL error
+// carrying sqlstate, such as 28P01. It stops when t ends.
+func RejectLogins(t *testing.T, sqlstate string) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer conn.Close()
+				backend := pgproto3.NewBackend(conn, conn)
+				if _, err := backend.ReceiveStartupMessage(); err != nil {
+					return
+				}
+				backend.Send(&pgproto3.ErrorResponse{Severity: "FATAL", Code: sqlstate, Message: "login rejected"})
+				_ = backend.Flush()
+			}()
+		}
+	}()
+	return listener.Addr().String()
 }
 
 // MigrateT runs the embedded migrations against connStr and calls t.Fatal on error.

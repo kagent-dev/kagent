@@ -91,6 +91,20 @@ tests:
           path: data["controller.yaml"]
           pattern: 'apiVersion:|kind:|KAGENT_|OTEL_'
 
+  - it: omits default-off feature flags so older releases can read the config
+    template: controller-configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: automaticRecovery
+  - it: renders automatic recovery when enabled
+    template: controller-configmap.yaml
+    set:
+      config.sessions.automaticRecovery: true
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'automaticRecovery: true'
   - it: preserves explicit false and zero duration
     template: controller-configmap.yaml
     set:

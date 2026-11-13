@@ -41,7 +41,7 @@ func TestOCISkillsSurviveSuspension(t *testing.T) {
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "oci-skills-", Namespace: "kagent", Labels: harness.labels()},
 			Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig:  &v1alpha3.ObjectReference{Name: config.Name},
+				ModelConfig:  &v1alpha3.ModelConfigReference{Name: config.Name},
 				SystemPrompt: "Load the requested skills and follow their instructions.",
 				Skills:       []v1alpha3.AgentTemplateSkill{{Name: "standalone", Source: v1alpha3.ArtifactSource{OCI: image, Path: "standalone"}}},
 				Plugins:      []v1alpha3.PluginBundle{{Source: v1alpha3.ArtifactSource{OCI: image, Path: "plugin"}, Skills: []string{"selected"}}},

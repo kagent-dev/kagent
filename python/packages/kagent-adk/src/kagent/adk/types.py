@@ -715,6 +715,10 @@ def build_adk_context_configs(
             for name in ("compaction_interval", "overlap_size", "token_threshold", "event_retention_size")
             if comp.HasField(name)
         }
+        # google-adk requires compaction_interval and overlap_size together; an
+        # omitted overlap means no overlap, matching the Go runtime.
+        if "compaction_interval" in settings:
+            settings.setdefault("overlap_size", 0)
         events_compaction_config = EventsCompactionConfig(summarizer=summarizer, **settings)
 
     return events_compaction_config, None

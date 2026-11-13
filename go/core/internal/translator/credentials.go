@@ -145,7 +145,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 					explicit = append(explicit, ref.Name)
 				}
 				passthrough = append(passthrough, passthroughClient{
-					client: fmt.Sprintf("%s %q", tool.Binding.Server.Kind, tool.Server.Name), endpoint: tool.Server.Spec.URL,
+					client: fmt.Sprintf("%s %q", tool.Binding.Server.GroupKind().Kind, tool.Server.Name), endpoint: tool.Server.Spec.URL,
 					header: "authorization", prefix: "Bearer ", explicit: explicit,
 				})
 			} else {
