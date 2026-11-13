@@ -194,6 +194,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
    * with, and both are written from the same event.
    */
   const taskRef = useRef<string | undefined>(undefined);
+  // Set by the turn in flight; tells its stream to cancel the task once it is named.
+  const cancelWhenNamedRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!conversation || !key) return;
@@ -277,6 +279,15 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
       // machine's only reset, and beginning it anywhere else would carry the
       // previous turn's error into the retry that was meant to clear it.
       taskRef.current = undefined;
+      // Per run, so a stop pressed on an earlier turn cannot reach a later one.
+      let cancelWhenNamed = false;
+      // Stop before the task is named also ends re-sending: an attempt the gateway
+      // refused was not accepted, and a later accepted one would run a stopped turn.
+      const stopResending = new AbortController();
+      cancelWhenNamedRef.current = () => {
+        cancelWhenNamed = true;
+        stopResending.abort();
+      };
       setTurn(nextTurn(IDLE_TURN, { type: "start", key }));
       setTranscript((current) =>
         appendLocal(current, key, {
@@ -316,6 +327,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
        * *after* starting is a different thing and keeps its message: it happened.
        */
       let refused = false;
+      // Whether this run's stream named its task; `taskRef` is shared across runs.
+      let named = false;
 
       const { streamTimeoutMs } = runtimeConfig();
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -343,9 +356,27 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
           taskId: answering?.request.taskId,
           hitl,
           signal: controller.signal,
+          stopResending: stopResending.signal,
         })) {
           if (controller.signal.aborted) break;
           awaitNextEvent();
+
+          // Stopped before the task had a name: drop everything until a frame
+          // names it, then cancel it on the server and release the stream.
+          if (cancelWhenNamed) {
+            if (event.type === "status" && event.taskId) {
+              try {
+                await getChatClient().cancel(conversation, event.taskId);
+              } catch {
+                // Best effort, as in `cancel`.
+              }
+              controller.abort();
+              break;
+            }
+            // The turn is already canceled, so a refusal is noted, not reported.
+            if (event.type === "error") refused = true;
+            continue;
+          }
 
           switch (event.type) {
             case "message":
@@ -365,7 +396,10 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
               dispatch({ type: "content" });
               break;
             case "status":
-              if (event.taskId) taskRef.current = event.taskId;
+              if (event.taskId) {
+                taskRef.current = event.taskId;
+                named = true;
+              }
               // A turn that parks leaves a question behind it. Recorded here rather
               // than derived from the turn's phase, because the turn ends and the
               // question does not.
@@ -389,7 +423,8 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // A transport that throws rather than yielding an error event is still
         // a failed turn, not a crashed page.
         if (!controller.signal.aborted) {
-          dispatch({ type: "error", error: asError(cause) });
+          // A run stopped early does not own the turn, so its failure stays quiet.
+          if (!cancelWhenNamed) dispatch({ type: "error", error: asError(cause) });
           refused = true;
         }
       } finally {
@@ -397,7 +432,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         // Reported here rather than in the catch because aborting breaks the
         // loop without throwing, and a timeout is a failed turn either way —
         // distinct from a user-initiated stop, which is not a failure.
-        if (timedOut) {
+        if (timedOut && !cancelWhenNamed) {
           dispatch({
             type: "timeout",
             error: new Error(
@@ -407,9 +442,9 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
         }
         if (abortRef.current === controller) abortRef.current = null;
         // Nothing was ever filed under this message, so it is taken back off screen
-        // — see `refused`. `taskRef` is the test for "the server started a turn",
-        // because the first status frame is what names the task.
-        if (refused && !taskRef.current) {
+        // — see `refused`. A status frame naming the task is how we know the
+        // server started a turn.
+        if (refused && !named) {
           setTranscript((current) =>
             withMessages(current, key, (messages) =>
               messages.filter((existing) => existing.id !== messageId),
@@ -418,12 +453,15 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
           // A refusal usually *is* a question still standing, and this turn may
           // have cleared the notice on its way in. Put back what the server says
           // rather than what this render assumed.
-          if (answering) setPending(answering);
+          if (answering)
+            setPending((current) =>
+              current && current.key !== key ? current : answering,
+            );
         }
         // A stream that ended without saying how it went has still ended. The
         // machine leaves an already-finished turn alone, so this cannot overwrite
         // a failure or a cancellation that arrived first.
-        dispatch({ type: "settle" });
+        if (!cancelWhenNamed) dispatch({ type: "settle" });
       }
     },
     // Keyed on the address, not the ref object — the ref is rebuilt every render,
@@ -438,11 +476,20 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
     const controller = abortRef.current;
     if (!controller) return;
 
-    controller.abort();
-    abortRef.current = null;
-
     const taskId = taskRef.current;
     setTurn((current) => (current.key === key ? nextTurn(current, { type: "cancel" }) : current));
+
+    // No task yet: the stream stays open until a frame names it, so the server can
+    // be told. Aborting now would only disconnect, and the task would finish.
+    if (!taskId) {
+      cancelWhenNamedRef.current?.();
+      cancelWhenNamedRef.current = null;
+      abortRef.current = null;
+      return;
+    }
+
+    controller.abort();
+    abortRef.current = null;
 
     if (conversation && taskId) {
       // Best effort: the turn is already stopped locally, so a transport that

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card, Typography } from "antd";
 import { css, useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import {
   applyExtensionFieldValues,
   initialExtensionFieldValues,
@@ -14,7 +15,7 @@ const { Paragraph, Text } = Typography;
 
 /** The payload a core form would be building before contributed fields fold in. */
 const basePayload = {
-  apiVersion: "kagent.dev/v1alpha2",
+  apiVersion: KAGENT_API_VERSION,
   kind: "Agent",
   metadata: { name: "example-agent", namespace: "default" },
 };

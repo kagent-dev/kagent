@@ -542,7 +542,7 @@ func createTracingTemplate(t *testing.T, harnessName, runtimeLabel, modelName st
 			Labels: map[string]string{"kagent.dev/e2e-runtime": runtimeLabel},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: modelName},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: modelName},
 			Description:  "Completed-chat trace flush E2E fixture",
 			SystemPrompt: "Reply concisely and follow the requested output format exactly.",
 		},

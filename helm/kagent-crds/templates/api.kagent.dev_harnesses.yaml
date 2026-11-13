@@ -43,8 +43,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: HarnessSpec defines a reusable runtime and its infrastructure
-              policy.
+            description: |-
+              HarnessSpec defines a reusable runtime and its infrastructure policy.
+
+              Workload fields that only some adapters support are enforced here, one rule
+              per adapter constraint, each written as "if adapter, then workload constraint".
             properties:
               byo:
                 description: BYOHarness selects an image that implements kagent's
@@ -114,12 +117,28 @@ spec:
                               ModelConfigRef references the ModelConfig (defaulting to the Harness namespace) that
                               writes the summaries. Omitted uses the agent's own model.
                             properties:
+                              group:
+                                description: Group is the referenced API group. It
+                                  defaults to api.kagent.dev.
+                                maxLength: 253
+                                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                type: string
+                              kind:
+                                description: Kind is the referenced kind. It defaults
+                                  to ModelConfig.
+                                maxLength: 63
+                                minLength: 1
+                                pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                                type: string
                               name:
+                                description: Name is the referenced model's name.
                                 maxLength: 253
                                 minLength: 1
                                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                 type: string
                               namespace:
+                                description: Namespace is the referenced model's namespace.
+                                  Empty means the owner's namespace.
                                 maxLength: 63
                                 pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                                 type: string
@@ -127,8 +146,10 @@ spec:
                             - name
                             type: object
                             x-kubernetes-validations:
-                            - message: name must not be empty
-                              rule: has(self.name) && self.name != ''
+                            - message: a group other than api.kagent.dev requires
+                                its own kind
+                              rule: '!has(self.group) || self.group == ''api.kagent.dev''
+                                || (has(self.kind) && self.kind != ''ModelConfig'')'
                           promptTemplate:
                             description: |-
                               PromptTemplate replaces the runtime's default summarization prompt. It
@@ -164,18 +185,39 @@ spec:
                         description: ModelConfigRef references the embedding ModelConfig
                           (defaulting to the Harness namespace).
                         properties:
+                          group:
+                            description: Group is the referenced API group. It defaults
+                              to api.kagent.dev.
+                            maxLength: 253
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          kind:
+                            description: Kind is the referenced kind. It defaults
+                              to ModelConfig.
+                            maxLength: 63
+                            minLength: 1
+                            pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
+                            type: string
                           name:
+                            description: Name is the referenced model's name.
                             maxLength: 253
                             minLength: 1
                             pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                             type: string
                           namespace:
+                            description: Namespace is the referenced model's namespace.
+                              Empty means the owner's namespace.
                             maxLength: 63
                             pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                             type: string
                         required:
                         - name
                         type: object
+                        x-kubernetes-validations:
+                        - message: a group other than api.kagent.dev requires its
+                            own kind
+                          rule: '!has(self.group) || self.group == ''api.kagent.dev''
+                            || (has(self.kind) && self.kind != ''ModelConfig'')'
                       ttlDays:
                         description: TTLDays controls how many days a stored memory
                           entry remains valid.
@@ -184,9 +226,6 @@ spec:
                     required:
                     - modelConfigRef
                     type: object
-                    x-kubernetes-validations:
-                    - message: modelConfigRef name must not be empty
-                      rule: self.modelConfigRef.name.size() > 0
                 type: object
               substrate:
                 description: RuntimeSubstratePolicy contains the Substrate policy
@@ -230,21 +269,28 @@ spec:
                   command. BYO requires it.
                 properties:
                   args:
-                    description: Args overrides the image command arguments when set.
+                    description: |-
+                      Args overrides the image command arguments. Supported by kagent and byo
+                      harnesses; claude and codex harnesses reject it.
                     items:
                       type: string
                     maxItems: 64
+                    minItems: 1
                     type: array
                   command:
-                    description: Command overrides the image entrypoint when set.
+                    description: |-
+                      Command overrides the image entrypoint. Supported by kagent and byo
+                      harnesses and required by byo; claude and codex harnesses reject it.
                     items:
                       type: string
                     maxItems: 32
+                    minItems: 1
                     type: array
                   image:
                     description: |-
-                      Image overrides the release's built-in runtime image. BYO requires an image.
-                      When set, it must be an OCI image reference pinned by sha256 digest.
+                      Image overrides the release's built-in runtime image. Supported by all
+                      harnesses and required by byo. It must be an OCI image reference pinned
+                      by sha256 digest.
                     pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
                     type: string
                   toolImages:
@@ -286,11 +332,16 @@ spec:
             - substrate
             type: object
             x-kubernetes-validations:
-            - message: BYO harnesses must specify workload.command
-              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command)
-                && size(self.workload.command) > 0)'
             - message: BYO harnesses must specify workload.image
               rule: '!has(self.byo) || (has(self.workload) && has(self.workload.image))'
+            - message: BYO harnesses must specify workload.command
+              rule: '!has(self.byo) || (has(self.workload) && has(self.workload.command))'
+            - message: Claude harnesses do not support workload.command or workload.args
+              rule: '!has(self.claude) || !has(self.workload) || (!has(self.workload.command)
+                && !has(self.workload.args))'
+            - message: Codex harnesses do not support workload.command or workload.args
+              rule: '!has(self.codex) || !has(self.workload) || (!has(self.workload.command)
+                && !has(self.workload.args))'
             - message: exactly one of the fields in [kagent codex claude byo] must
                 be set
               rule: (has(self.kagent)?1:0)+(has(self.codex)?1:0)+(has(self.claude)?1:0)+(has(self.byo)?1:0)

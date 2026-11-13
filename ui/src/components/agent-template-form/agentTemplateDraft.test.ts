@@ -333,7 +333,20 @@ describe("cross-namespace references", () => {
     };
     const draft = draftFromSpec(spec, "team-a");
     expect(draft.modelConfig).toEqual({ name: "default", namespace: "shared" });
-    expect(draft.mcpTools[0].serverRef).toEqual({ name: "tools", namespace: "shared" });
+    expect(draft.mcpTools[0].serverRef).toEqual({ kind: "RemoteMCPServer", name: "tools", namespace: "shared" });
+    const saved = specFromDraft(draft, spec);
+    expect(saved.modelConfig).toEqual(spec.modelConfig);
+    expect(saved.tools).toEqual(spec.tools);
+  });
+
+  // Dropping group or kind would point the reference at a same-named default object.
+  it("keeps the group and kind of model and MCP references through an edit", () => {
+    const spec = {
+      modelConfig: { group: "example.com", kind: "Foo", name: "default" },
+      tools: [{ mcp: { server: { group: "example.com", kind: "Foo", name: "tools" } } }],
+    };
+    const draft = draftFromSpec(spec, "team-a");
+    draft.description = "edited";
     const saved = specFromDraft(draft, spec);
     expect(saved.modelConfig).toEqual(spec.modelConfig);
     expect(saved.tools).toEqual(spec.tools);

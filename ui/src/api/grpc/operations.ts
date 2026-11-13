@@ -677,6 +677,7 @@ const agentInstances: Pick<
   | "agentInstances.rename"
   | "agentInstances.fork"
   | "agentInstances.delete"
+  | "agentInstances.revert"
 > = {
   "agentInstances.list": async (input, options) => {
     const name = "SessionService/ListSessions";
@@ -952,6 +953,16 @@ const agentInstances: Pick<
     return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
+  "agentInstances.revert": async (input, options) => {
+    const name = "SessionService/RevertSession";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(SessionService).revertSession(
+        { sessionId: input.id },
+        call("agentInstances.revert", options),
+      ),
+    );
+    return toAgentInstance(required(response.session, name, "agent instance"));
+  },
 };
 
 // endregion
@@ -1076,6 +1087,7 @@ const agentBuildingBlocks: Pick<
   | "agentTemplates.list"
   | "agentTemplates.get"
   | "harnesses.create"
+  | "harnesses.update"
   | "harnesses.delete"
   | "agentTemplates.create"
   | "agentTemplates.update"
@@ -1103,6 +1115,20 @@ const agentBuildingBlocks: Pick<
       ),
     );
     return toHarness(required(response.harness, name, "created harness"));
+  },
+
+  "harnesses.update": async (input, options) => {
+    const name = "HarnessService/UpdateHarness";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(HarnessService).updateHarness(
+        {
+          ref: { namespace: input.namespace, name: input.name },
+          resource: wrap("Harness", input.resource),
+        },
+        call("harnesses.update", options),
+      ),
+    );
+    return toHarness(required(response.harness, name, "updated harness"));
   },
 
   "harnesses.delete": async (input, options) => {
@@ -1402,9 +1428,20 @@ const cluster: Pick<
   ApiOperations,
   | "namespaces.list"
   | "substrate.summary"
+  | "substrate.workerPools"
   | "substrate.actors"
   | "substrate.workers"
 > = {
+  "substrate.workerPools": async (input, options) => {
+    const response = await rpc("SystemService/ListWorkerPools", options.signal, () =>
+      serviceClient(SystemService).listWorkerPools(
+        { namespace: input.namespace ?? "" },
+        call("substrate.workerPools", options),
+      ),
+    );
+    return list(response.workerPools).map(toWorkerPoolEntry);
+  },
+
   "namespaces.list": async (_input, options) => {
     const response = await rpc("SystemService/ListNamespaces", options.signal, () =>
       serviceClient(SystemService).listNamespaces({}, call("namespaces.list", options)),

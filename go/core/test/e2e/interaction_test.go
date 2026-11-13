@@ -22,7 +22,6 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	a2agrpc "github.com/a2aproject/a2a-go/v2/a2agrpc/v1"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
@@ -196,7 +195,7 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 			Answers: []kagenta2a.AskUserAnswer{{Answer: []string{"PostgreSQL"}}},
 		})
 		reply.TaskID, reply.ContextID = waiting.ID, waiting.ContextID
-		response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
+		response, err := sendResume(t, fixture, reply)
 		if err != nil {
 			t.Fatalf("resume A2A task: %v", err)
 		}
@@ -205,6 +204,23 @@ func TestSessionAskUserSurvivesSuspension(t *testing.T) {
 			t.Fatalf("resumed A2A task = %#v, want completed PostgreSQL response", response)
 		}
 	})
+}
+
+// sendResume answers a waiting task after its Actor was suspended. Waking the
+// Actor can fail before the runtime accepts the reply; the server then answers
+// KAGENT_SEND_NOT_ACCEPTED, and a client retries that send as it would any other.
+func sendResume(t *testing.T, fixture *interactionFixture, reply *a2atype.Message) (a2atype.SendMessageResult, error) {
+	t.Helper()
+	request, err := pbconv.ToProtoSendMessageRequest(&a2atype.SendMessageRequest{Message: reply})
+	if err != nil {
+		t.Fatalf("build resume request: %v", err)
+	}
+	request.Tenant = fixture.tenant
+	response, err := sendMessageWithRetry(fixture.ctx, fixture.client, request)
+	if err != nil {
+		return nil, err
+	}
+	return pbconv.FromProtoSendMessageResponse(response)
 }
 
 func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantTool string, approved bool) *a2atype.Task {
@@ -242,7 +258,7 @@ func sendToolDecision(t *testing.T, fixture *interactionFixture, prompt, wantToo
 	}); err != nil {
 		t.Fatalf("attach tool approval response: %v", err)
 	}
-	response, err := a2agrpc.NewGRPCTransportFromClient(fixture.client).SendMessage(fixture.ctx, nil, &a2atype.SendMessageRequest{Tenant: fixture.tenant, Message: reply})
+	response, err := sendResume(t, fixture, reply)
 	if err != nil {
 		t.Fatalf("resume A2A task after tool approval: %v", err)
 	}
@@ -1110,7 +1126,7 @@ func createInteractionTemplate(t *testing.T, harness testHarness, modelURL strin
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: model.Name},
 			Description:  "Agent interaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},
@@ -1144,12 +1160,12 @@ func createStructuredOutputInteractionTemplate(t *testing.T, harness testHarness
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:        &v1alpha3.ObjectReference{Name: model.Name},
+			ModelConfig:        &v1alpha3.ModelConfigReference{Name: model.Name},
 			SystemPrompt:       "Use available tools when needed, then return the arithmetic answer and a short explanation.",
 			OutputSchema:       &apiextensionsv1.JSON{Raw: []byte(structuredOutputSchema)},
 			OutputSchemaStrict: true,
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name},
 				Tools:  []string{"add_numbers"},
 			}}},
 		},
@@ -1210,11 +1226,11 @@ func createMCPReferenceTemplate(t *testing.T, harness testHarness, server *v1alp
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: model.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: model.Name},
 			Description:  "MCP interaction E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server:          corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name, Namespace: new(server.Namespace)},
+				Server:          v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name, Namespace: server.Namespace},
 				RequireApproval: requireApproval,
 			}}},
 		},
@@ -1234,7 +1250,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: childModel.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: childModel.Name},
 			Description:  "Shared specialist",
 			SystemPrompt: "Answer as the shared specialist.",
 		},
@@ -1246,7 +1262,7 @@ func createSharedInteractionTemplates(t *testing.T, harness testHarness, modelUR
 			Labels: harness.labels(),
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: rootModel.Name},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: rootModel.Name},
 			Description:  "Shared agent interaction E2E fixture",
 			SystemPrompt: "Delegate every request to the specialist.",
 			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
