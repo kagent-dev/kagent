@@ -11,6 +11,13 @@ metadata:
   {{- end }}
 spec:
   type: {{ .Values.controller.service.type }}
+  {{- with .Values.controller.service.ipFamilyPolicy }}
+  ipFamilyPolicy: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.controller.service.ipFamilies }}
+  ipFamilies:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   ports:
     - port: {{ .Values.controller.service.ports.port }}
       targetPort: {{ .Values.controller.service.ports.targetPort }}

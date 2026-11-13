@@ -322,6 +322,12 @@ controller:
       memory: 512Mi
   service:
     type: ClusterIP
+    # -- Service IP-family policy: SingleStack, PreferDualStack or RequireDualStack.
+    # Leave empty to use the cluster default.
+    ipFamilyPolicy: ""
+    # -- Ordered Service IP families (IPv4, IPv6). Leave empty to use the cluster default.
+    # Preserve the current primary family when adding a secondary family on upgrade.
+    ipFamilies: []
     ports:
       port: 8083
       targetPort: 8083
@@ -501,6 +507,12 @@ ui:
       memory: 1Gi
   service:
     type: ClusterIP
+    # -- Service IP-family policy: SingleStack, PreferDualStack or RequireDualStack.
+    # Leave empty to use the cluster default.
+    ipFamilyPolicy: ""
+    # -- Ordered Service IP families (IPv4, IPv6). Leave empty to use the cluster default.
+    # Preserve the current primary family when adding a secondary family on upgrade.
+    ipFamilies: []
     ports:
       port: 8080
       targetPort: 8080
