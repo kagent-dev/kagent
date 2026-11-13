@@ -13,6 +13,7 @@ import {
   extensionNavOverrides,
   extensionProviderIcons,
   extensionShell,
+  extensionRowActions,
   extensionTableColumns,
   initialExtensionFieldValues,
   isNavPathActive,
@@ -337,6 +338,21 @@ describe("composing several installed extensions", () => {
     expect(columns.map((c) => c.id)).toEqual(["region", "cluster"]);
   });
 
+  it("concatenates row actions for the menu they target", () => {
+    const rowAction = (id: string, menuId: "app_agents_agentsList_rowMenu" | "app_agents_harnessesList_rowMenu") =>
+      ({ id, menuId, label: id, onClick: () => {} });
+
+    const actions = extensionRowActions(
+      [
+        extension("a", { rowActions: [rowAction("one", "app_agents_agentsList_rowMenu")] }),
+        extension("b", { rowActions: [rowAction("other", "app_agents_harnessesList_rowMenu"), rowAction("two", "app_agents_agentsList_rowMenu")] }),
+      ],
+      "app_agents_agentsList_rowMenu",
+    );
+
+    expect(actions.map((a) => a.id)).toEqual(["one", "two"]);
+  });
+
   it("merges shell regions, later extensions winning per region", () => {
     const firstHeader = noopComponent;
     const secondHeader = () => null;
@@ -519,6 +535,29 @@ describe("validateAppExtensions", () => {
         { id: "b", name: "B", routes: [page] },
       ]),
     ).toThrow(/contributed by more than one extension/);
+  });
+
+  it("rejects two extensions contributing the same row action to one menu", () => {
+    const action = { id: "trace", menuId: "app_agents_agentsList_rowMenu" as const, label: "Trace", onClick: () => {} };
+    expect(() =>
+      validateAppExtensions([
+        { id: "a", name: "A", rowActions: [action] },
+        { id: "b", name: "B", rowActions: [action] },
+      ]),
+    ).toThrow(/row action "app_agents_agentsList_rowMenu:trace" is contributed by more than one extension/);
+  });
+
+  it("reports a row action repeated inside one extension once, and one with no label", () => {
+    const action = { id: "trace", menuId: "app_agents_agentsList_rowMenu" as const, label: "Trace", onClick: () => {} };
+    let thrown = "";
+    try {
+      validateAppExtensions([{ id: "a", name: "A", rowActions: [action, action, { ...action, id: "x", label: "" }] }]);
+    } catch (error) {
+      thrown = String(error);
+    }
+    expect(thrown).toMatch(/declared twice/);
+    expect(thrown).toMatch(/needs an id, a label and an onClick/);
+    expect(thrown).not.toMatch(/more than one extension/);
   });
 
   it("rejects two extensions contributing the same nav key", () => {

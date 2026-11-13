@@ -1,5 +1,6 @@
 import { isExtensionPointId } from "./extensionPoints";
 import { isExtensionFormId } from "./formFields";
+import { isExtensionRowMenuId } from "./rowActions";
 import { isExtensionTableId } from "./tableColumns";
 import { coreRouteKeys } from "@/router/router";
 import type { AppExtensionConfig } from "./types";
@@ -122,6 +123,21 @@ function problemsIn(
     seenColumnIds.add(scoped);
   }
 
+  const seenRowActionIds = new Set<string>();
+  for (const action of config.rowActions ?? []) {
+    if (!isExtensionRowMenuId(action.menuId)) {
+      problems.push(`row action "${action.id}" targets unknown menu "${action.menuId}"`);
+    }
+    if (!action.id || !action.label || typeof action.onClick !== "function") {
+      problems.push(`row action "${action.id}" needs an id, a label and an onClick`);
+    }
+    const scoped = `${action.menuId}:${action.id}`;
+    if (seenRowActionIds.has(scoped)) {
+      problems.push(`row action "${action.id}" is declared twice`);
+    }
+    seenRowActionIds.add(scoped);
+  }
+
   for (const item of config.navItems ?? []) {
     if (seenNavKeys.has(item.key)) {
       problems.push(`nav item key "${item.key}" is declared twice`);
@@ -189,6 +205,21 @@ function collisionsAcross(extensions: readonly AppExtensionConfig[]): string[] {
     ).map(
       ([key, owners]) =>
         `nav item key "${key}" is contributed by more than one extension (${owners.join(", ")})`,
+    ),
+  );
+
+  problems.push(
+    ...duplicates(
+      extensions.flatMap((extension) =>
+        // Once per extension: a repeat inside one is the per-config check's to report.
+        [...new Set((extension.rowActions ?? []).map((action) => `${action.menuId}:${action.id}`))].map((value) => ({
+          owner: extension.id,
+          value,
+        })),
+      ),
+    ).map(
+      ([key, owners]) =>
+        `row action "${key}" is contributed by more than one extension (${owners.join(", ")})`,
     ),
   );
 

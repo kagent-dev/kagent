@@ -1,4 +1,6 @@
 import { defined, mergeDefined } from "./merge";
+import { extensionRowActionsForMenu } from "./rowActions";
+import type { ExtensionRowAction, ExtensionRowMenuId } from "./rowActions";
 import { extensionColumnsForTable } from "./tableColumns";
 import type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
 import { extensionFieldsForForm } from "./formFields";
@@ -112,6 +114,17 @@ export function extensionTableColumns<TRow>(
   return extensionColumnsForTable<TRow>(
     extensions.flatMap((extension) => extension.tableColumns ?? []),
     tableId,
+  );
+}
+
+/** The contributed items for one row menu, in install order. */
+export function extensionRowActions(
+  extensions: readonly AppExtensionConfig[],
+  menuId: ExtensionRowMenuId,
+): ExtensionRowAction[] {
+  return extensionRowActionsForMenu(
+    extensions.flatMap((extension) => extension.rowActions ?? []),
+    menuId,
   );
 }
 

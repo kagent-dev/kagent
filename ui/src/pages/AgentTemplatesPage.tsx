@@ -159,6 +159,7 @@ export function AgentTemplatesTab() {
         render: (_, row) => (
           <RowActionsMenu
             kind="agent template"
+            extensionMenu="app_agents_agentTemplatesList_rowMenu"
             namespace={row.namespace}
             name={row.name}
             editLabel="Open"

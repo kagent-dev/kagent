@@ -41,7 +41,7 @@ cover everything:
 
 | | Rule |
 |---|---|
-| `navItems`, `routes`, `formFields`, `tableColumns`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
+| `navItems`, `routes`, `formFields`, `tableColumns`, `rowActions`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
 | `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `chatPartRenderers`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
 
 So list the extension whose opinion should prevail **last**.
@@ -55,6 +55,7 @@ So list the extension whose opinion should prevail **last**.
 | `slots` | **Every** contribution renders, in array order, inside the one wrapper the point declares. |
 | `formFields` | Concatenated, then sorted by `order` within the target form. |
 | `tableColumns` | Concatenated, each placed after the core column its `after` names. |
+| `rowActions` | Concatenated, in array order, within the menu each targets. Two extensions offering one `id` on one menu is a startup error. |
 | `providers` | Concatenated and nested outermost-first, so the earlier extension's providers wrap the later one's. |
 | `theme.tokens` / `modeTokens` | Folded one level deep in order; the later extension wins a token both name, and keeps one only the earlier names. |
 | `theme.antd.components` | Merged per component, then per token — so naming one property of `Input` does not discard the others. |
@@ -341,6 +342,29 @@ table can lose a column without an extension's disappearing with it.
 
 Pages fold contributions in with `withExtensionColumns`, so adding one needs no
 change to the page.
+
+## Row actions
+
+Items in the ellipsis menu on an agent, agent template or harness list row. They are
+data, not a component, so the application draws each as a real menu item beside Edit
+and Delete: same look, keyboard navigation, and the menu closes once one is chosen.
+
+```ts
+rowActions: [{
+  id: "editInNewWindow",
+  menuId: "app_agents_agentsList_rowMenu",
+  label: "Edit in new window",
+  visible: ({ name }) => !name.startsWith("system-"),   // optional; defaults to every row
+  onClick: ({ namespace, name }) => window.open(buildPath(paths.agentEdit, { namespace, name }), "_blank", "noopener"),
+}]
+```
+
+Menus are listed in `EXTENSION_ROW_MENU_IDS`. Items sit between "Create new … from
+this" and Delete. `visible` and `onClick` are told the row (`kind`, `namespace`,
+`name`). One that throws, or an `onClick` whose promise rejects, is logged and
+contained: it never breaks the table, and `visible` throwing just leaves the item out.
+`id` must be unique per menu across every installed extension, and `label` and
+`onClick` are required; a violation is a startup error.
 
 ## API overrides and transforms
 

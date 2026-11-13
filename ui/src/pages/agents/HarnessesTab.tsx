@@ -107,6 +107,7 @@ export function HarnessesTab() {
       render: (_: unknown, row: Harness) => (
         <RowActionsMenu
           kind="harness"
+          extensionMenu="app_agents_harnessesList_rowMenu"
           namespace={row.namespace}
           name={row.name}
           editTo={buildPath(paths.harnessEdit, { namespace: row.namespace, name: row.name })}

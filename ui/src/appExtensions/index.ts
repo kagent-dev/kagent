@@ -28,6 +28,7 @@ export {
   useExtensionNavItems,
   useExtensionNavOverrides,
   useExtensionProviderIcons,
+  useExtensionRowActions,
   useExtensionRoutes,
   useExtensionShell,
   useExtensionSlotComponents,
@@ -48,6 +49,7 @@ export {
   extensionNavOverrides,
   extensionProviderIcons,
   extensionProviders,
+  extensionRowActions,
   extensionRouteHandles,
   extensionRoutes,
   extensionShell,
@@ -158,6 +160,15 @@ export {
   withExtensionColumns,
 } from "./tableColumns";
 export type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
+
+// Row menu actions: items in a list row's ellipsis menu, as data so the host renders
+// them as real menu items.
+export {
+  EXTENSION_ROW_MENU_IDS,
+  extensionRowActionsForMenu,
+  isExtensionRowMenuId,
+} from "./rowActions";
+export type { ExtensionRowAction, ExtensionRowContext, ExtensionRowMenuId } from "./rowActions";
 
 // Branding: the product's own name and mark, which is identity rather than
 // styling and so should not cost a layout replacement.
