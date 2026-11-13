@@ -19,6 +19,7 @@ for (const template of CASES) {
   test(`agents: CRUD with ${template === "inline" ? "an" : "a"} ${template} template and referenced harness`, async ({ page }) => {
     await test.step("1. create through the full-page form", async () => {
       await loadPage(page, routes.agents, { title: "Agents" });
+      await page.getByTestId("agents-create").click();
       await page.getByTestId("agents-new").click();
       await expect(page).toHaveURL(/\/agents\/new$/);
       await expect(page.getByTestId("agent-form-namespace")).toContainText("kagent");

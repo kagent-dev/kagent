@@ -24,7 +24,7 @@ import (
 
 type Config struct {
 	Store                  *database.Client
-	Kube                   client.Client
+	Kube                   client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	Authorizer             auth.Authorizer
 	Actors                 substrate.LifecycleClient
 	Guests                 *GuestDialer

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -71,7 +72,7 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 	store := database.NewClient(db, "public")
 	control := &revertTestControl{actors: map[string]*ateapipb.Actor{}}
 	actors := &substrate.Client{ControlClient: control}
-	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener: listener, Authenticator: &authimpl.InsecureAuthenticator{},
@@ -147,14 +148,6 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
 			control.actors[name].Status.State = ateapipb.ActorState_ACTOR_STATE_CRASHED
 			before := proto.CloneOf(control.actors[name])
-			control.actors[name].Metadata.Uid = "replacement-uid"
-			_, err = client.RevertSession(owner, request)
-			require.Equal(t, codes.FailedPrecondition, status.Code(err), "a same-name replacement is not this runtime")
-			control.actors[name].Metadata.Uid = before.Metadata.Uid
-			delete(control.actors, name)
-			_, err = client.RevertSession(owner, request)
-			require.Equal(t, codes.FailedPrecondition, status.Code(err), "a missing runtime cannot authorize recovery")
-			control.actors[name] = proto.CloneOf(before)
 			calls := 0
 			failOnce := true
 			control.revert = func(actor *ateapipb.Actor) error {
@@ -200,6 +193,66 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 				require.Equal(t, want, stored.Status.State)
 			}
 			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()))
+		})
+	}
+
+	for _, test := range []struct {
+		name     string
+		admitted bool
+		lose     func(*ateapipb.Actor) *ateapipb.Actor
+	}{
+		{name: "replaced Actor", lose: func(actor *ateapipb.Actor) *ateapipb.Actor {
+			actor.Metadata.Uid = "replacement-uid"
+			return actor
+		}},
+		{name: "missing Actor", lose: func(*ateapipb.Actor) *ateapipb.Actor { return nil }},
+		{name: "Actor lost during an admitted recovery", admitted: true, lose: func(*ateapipb.Actor) *ateapipb.Actor { return nil }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := createTaskStoreSession(t, store)
+			name := substrate.ActorName(session.Id)
+			original := &ateapipb.Actor{
+				Metadata:      &ateapipb.ResourceMetadata{Atespace: "team-a", Name: name, Uid: "actor-uid"},
+				ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "assistant-kagent-revision"},
+				Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_CRASHED},
+			}
+			control.actors[name] = proto.CloneOf(original)
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("original input"))
+			message.ContextID = session.ContextId
+			task := a2a.NewSubmittedTask(message, message)
+			task.Status.State = a2a.TaskStateInputRequired
+			hash := sha256.Sum256([]byte(task.ID))
+			version, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, "")
+			require.NoError(t, err)
+			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			request := &apiv1.RevertSessionRequest{SessionId: session.Id}
+			control.revert = nil
+			if test.admitted {
+				control.revert = func(*ateapipb.Actor) error { return status.Error(codes.Unavailable, "temporary revert outage") }
+				_, err = client.RevertSession(owner, request)
+				require.Equal(t, codes.Unavailable, status.Code(err))
+				control.revert = nil
+			}
+			if lost := test.lose(control.actors[name]); lost == nil {
+				delete(control.actors, name)
+			}
+			_, err = client.RevertSession(owner, request)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err), "a replaced or missing runtime is not this Session's")
+			got, err := client.GetSession(owner, &apiv1.GetSessionRequest{SessionId: session.Id})
+			require.NoError(t, err)
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, got.Session.State)
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE, got.Session.Operation)
+			require.Equal(t, database.SessionRuntimeLost, got.Session.Failure.Reason)
+			stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
+			require.NoError(t, err)
+			require.Equal(t, a2a.TaskStateFailed, stored.Status.State, "no runtime remains to answer a wait")
+
+			// The loss is recorded: even the original Actor reappearing does not
+			// reopen the Session.
+			control.actors[name] = proto.CloneOf(original)
+			_, err = client.RevertSession(owner, request)
+			require.Equal(t, codes.FailedPrecondition, status.Code(err))
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()), database.ErrConflict)
 		})
 	}
 }
