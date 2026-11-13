@@ -41,8 +41,8 @@ func TestReferenceWatchesWithDiscoveryDisabled(t *testing.T) {
 		labels   map[string]string
 		actorJWT *v1alpha3.ActorJWT
 	}{
-		{name: "label", labels: map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}},
-		{name: "actor-jwt", actorJWT: &v1alpha3.ActorJWT{Audiences: []string{"mcp"}}},
+		{name: labelDiscoveryMode, labels: map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}},
+		{name: "actor-jwt", actorJWT: &v1alpha3.ActorJWT{Audiences: []string{actorJWTAudience}}},
 	}
 	for _, scenario := range scenarios {
 		t.Run("Given discovery disabled by "+scenario.name+", when a referenced Secret changes, assert that reference status follows its keys", func(t *testing.T) {
@@ -52,7 +52,7 @@ func TestReferenceWatchesWithDiscoveryDisabled(t *testing.T) {
 			server.Namespace = scenario.name
 			server.Labels = scenario.labels
 			server.Spec.ActorJWT = scenario.actorJWT
-			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "credentials", Key: "key"}}}
+			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: referenceHeaderName, ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: referenceSecretName, Key: referenceSecretKey}}}
 			require.NoError(t, kube.Create(ctx, server))
 			expect := func(reason string, status metav1.ConditionStatus) {
 				t.Helper()
@@ -62,15 +62,15 @@ func TestReferenceWatchesWithDiscoveryDisabled(t *testing.T) {
 						return false
 					}
 					condition := apimeta.FindStatusCondition(updated.Status.Conditions, v1alpha3.RemoteMCPServerConditionTypeResolvedRefs)
-					accepted := apimeta.FindStatusCondition(updated.Status.Conditions, "Accepted")
-					return condition != nil && condition.Status == status && condition.Reason == reason && condition.ObservedGeneration == server.Generation && accepted != nil && accepted.Status == metav1.ConditionTrue && accepted.Reason == "DiscoveryDisabled"
+					accepted := apimeta.FindStatusCondition(updated.Status.Conditions, conditionAccepted)
+					return condition != nil && condition.Status == status && condition.Reason == reason && condition.ObservedGeneration == server.Generation && accepted != nil && accepted.Status == metav1.ConditionTrue && accepted.Reason == discoveryDisabledReason
 				}, 10*time.Second, 10*time.Millisecond)
 			}
 			expect(v1alpha3.RemoteMCPServerReasonSecretNotFound, metav1.ConditionFalse)
-			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: "credentials"}}
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: referenceSecretName}}
 			require.NoError(t, kube.Create(ctx, secret))
 			expect(v1alpha3.RemoteMCPServerReasonSecretKeyNotFound, metav1.ConditionFalse)
-			secret.Data = map[string][]byte{"key": []byte("example")}
+			secret.Data = map[string][]byte{referenceSecretKey: []byte("example")}
 			require.NoError(t, kube.Update(ctx, secret))
 			expect("Resolved", metav1.ConditionTrue)
 			require.NoError(t, kube.Delete(ctx, secret))

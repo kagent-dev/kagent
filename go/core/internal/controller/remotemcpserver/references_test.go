@@ -18,26 +18,48 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/consts"
 )
 
+const (
+	referenceSecretName     = "credentials"
+	referenceSecretKey      = "key"
+	actorJWTDiscoveryMode   = "actorJwt"
+	disabledDiscoveryMode   = "disabled"
+	failedDiscoveryMode     = "discovery failure"
+	accountHeaderName       = "X-Account"
+	actorJWTAudience        = "mcp"
+	referenceHeaderName     = "X-Key"
+	labelDiscoveryMode      = "label"
+	discoveryDisabledReason = "DiscoveryDisabled"
+)
+
 func TestReferenceStatusAcrossDiscoveryModes(t *testing.T) {
-	for _, mode := range []string{"discovery", "disabled", "actorJwt", "discovery failure"} {
+	for _, mode := range []string{"discovery", disabledDiscoveryMode, actorJWTDiscoveryMode, failedDiscoveryMode} {
 		t.Run("Given a missing Secret key and "+mode+", when reconciled, assert that reference status recovers after repair", func(t *testing.T) {
 			server := testServer()
-			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "credentials", Key: "key"}}}
+			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "Authorization", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: referenceSecretName, Key: referenceSecretKey}}}
 			discoverer := &fakeDiscoverer{}
 			switch mode {
-			case "disabled":
+			case disabledDiscoveryMode:
 				server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
-			case "actorJwt":
-				server.Spec.HeadersFrom[0].Name = "X-Account"
-				server.Spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{"mcp"}}
-			case "discovery failure":
+			case actorJWTDiscoveryMode:
+				server.Spec.HeadersFrom[0].Name = accountHeaderName
+				server.Spec.ActorJWT = &v1alpha3.ActorJWT{Audiences: []string{actorJWTAudience}}
+			case failedDiscoveryMode:
 				discoverer.err = errors.New("remote unavailable")
 			}
-			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: "credentials"}}
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: referenceSecretName}}
 			kube := testClient(t, server, secret)
 			reconciler := New(kube, discoverer, &fakeCatalog{})
 			request := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)}
-			_, _ = reconciler.Reconcile(t.Context(), request)
+			reconcile := func() {
+				t.Helper()
+				_, err := reconciler.Reconcile(t.Context(), request)
+				if mode == failedDiscoveryMode {
+					require.ErrorIs(t, err, discoverer.err)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+			reconcile()
 			updated := &v1alpha3.RemoteMCPServer{}
 			require.NoError(t, kube.Get(t.Context(), request.NamespacedName, updated))
 			condition := apimeta.FindStatusCondition(updated.Status.Conditions, v1alpha3.RemoteMCPServerConditionTypeResolvedRefs)
@@ -45,18 +67,22 @@ func TestReferenceStatusAcrossDiscoveryModes(t *testing.T) {
 			require.Equal(t, metav1.ConditionFalse, condition.Status)
 			require.Equal(t, v1alpha3.RemoteMCPServerReasonSecretKeyNotFound, condition.Reason)
 			require.Equal(t, server.Generation, condition.ObservedGeneration)
-			require.NotNil(t, apimeta.FindStatusCondition(updated.Status.Conditions, "Accepted"))
-			secret.Data = map[string][]byte{"key": {}}
+			require.NotNil(t, apimeta.FindStatusCondition(updated.Status.Conditions, conditionAccepted))
+			secret.Data = map[string][]byte{referenceSecretKey: {}}
 			require.NoError(t, kube.Update(t.Context(), secret))
-			_, _ = reconciler.Reconcile(t.Context(), request)
+			reconcile()
 			require.NoError(t, kube.Get(t.Context(), request.NamespacedName, updated))
 			condition = apimeta.FindStatusCondition(updated.Status.Conditions, v1alpha3.RemoteMCPServerConditionTypeResolvedRefs)
 			require.Equal(t, metav1.ConditionTrue, condition.Status)
 			transition := condition.LastTransitionTime
-			_, _ = reconciler.Reconcile(t.Context(), request)
+			resourceVersion := updated.ResourceVersion
+			require.NoError(t, reconciler.updateReferenceStatus(t.Context(), updated))
+			require.NoError(t, kube.Get(t.Context(), request.NamespacedName, updated))
+			require.Equal(t, resourceVersion, updated.ResourceVersion)
+			reconcile()
 			require.NoError(t, kube.Get(t.Context(), request.NamespacedName, updated))
 			require.Equal(t, transition, apimeta.FindStatusCondition(updated.Status.Conditions, v1alpha3.RemoteMCPServerConditionTypeResolvedRefs).LastTransitionTime)
-			if mode == "disabled" || mode == "actorJwt" {
+			if mode == disabledDiscoveryMode || mode == actorJWTDiscoveryMode {
 				require.Zero(t, discoverer.calls)
 			}
 		})
@@ -67,7 +93,7 @@ func TestReferenceStatusMissingObjects(t *testing.T) {
 	for _, source := range []v1alpha3.ValueSourceType{v1alpha3.SecretValueSource, v1alpha3.ConfigMapValueSource} {
 		t.Run("Given a missing "+string(source)+", when reconciled, assert that status identifies the unresolved object", func(t *testing.T) {
 			server := testServer()
-			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-Key", ValueFrom: &v1alpha3.ValueSource{Type: source, Name: "missing", Key: "key"}}}
+			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: referenceHeaderName, ValueFrom: &v1alpha3.ValueSource{Type: source, Name: "missing", Key: referenceSecretKey}}}
 			kube := testClient(t, server)
 			_, err := New(kube, &fakeDiscoverer{}, &fakeCatalog{}).Reconcile(t.Context(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(server)})
 			require.NoError(t, err)
@@ -83,7 +109,7 @@ func TestReferenceStatusMissingObjects(t *testing.T) {
 
 func TestReferenceReadFailureRetries(t *testing.T) {
 	server := testServer()
-	server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "credentials", Key: "key"}}}
+	server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: referenceHeaderName, ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: referenceSecretName, Key: referenceSecretKey}}}
 	base := testClient(t, server)
 	kube := fake.NewClientBuilder().WithScheme(base.Scheme()).WithObjects(server).WithStatusSubresource(server).WithInterceptorFuncs(interceptor.Funcs{
 		Get: func(ctx context.Context, underlying client.WithWatch, key client.ObjectKey, object client.Object, options ...client.GetOption) error {
@@ -105,7 +131,7 @@ func TestReferenceReadFailureRetries(t *testing.T) {
 func TestConfigMapReferencesRecoverWithoutDiscovery(t *testing.T) {
 	server := testServer()
 	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
-	server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-Account", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "account", Key: "id"}}}
+	server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: accountHeaderName, ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.ConfigMapValueSource, Name: "account", Key: "id"}}}
 	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: "account"}}
 	kube := testClient(t, server, configMap)
 	reconciler := New(kube, &fakeDiscoverer{}, &fakeCatalog{})
