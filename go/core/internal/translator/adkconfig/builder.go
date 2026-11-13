@@ -147,6 +147,10 @@ func (c *Builder) compileAgent(ctx context.Context, input *translator.AgentInput
 			return nil, err
 		}
 		child.Config.Name, child.Config.Description = binding.Name, binding.Description
+		// Shared is the default and stays unset, so existing revisions do not change.
+		if binding.Isolation == v1alpha3.SubAgentIsolationSession {
+			child.Config.Isolation = configv1.ADKAgentIsolation_ADK_AGENT_ISOLATION_SESSION
+		}
 		cfg.SubAgents = append(cfg.SubAgents, child.Config)
 		result.MCPTools = append(result.MCPTools, child.MCPTools...)
 		result.Models = append(result.Models, child.Models...)

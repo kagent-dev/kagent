@@ -156,3 +156,21 @@ func (c *Builder) applyMemory(result *Result, harness *translator.HarnessConfigu
 	result.Egress = append(result.Egress, model.Egress...)
 	return nil
 }
+
+// ValidateSubAgentIsolation rejects combinations the runtime cannot honor.
+//
+// STS token exchange caches the exchanged token by session ID. A Session
+// subagent runs in a new session, so its MCP requests would find no token and
+// fall back to the caller's own credential, which the exchange exists to
+// replace. Refuse the combination instead of sending the wrong credential.
+func ValidateSubAgentIsolation(config *configv1.ADKConfig) error {
+	if config.GetRuntime().GetTokenPropagation().GetStsWellKnownUri() == "" {
+		return nil
+	}
+	for _, sub := range config.GetAgent().GetSubAgents() {
+		if sub.GetIsolation() == configv1.ADKAgentIsolation_ADK_AGENT_ISOLATION_SESSION {
+			return translator.NewValidationError("subagent %q runs in its own Session, which cannot be combined with STS token exchange: the exchanged token is cached per session", sub.GetName())
+		}
+	}
+	return nil
+}
