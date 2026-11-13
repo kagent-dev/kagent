@@ -615,6 +615,7 @@ class TestHITLResume:
         result, _ = await self._resume(tool, confirmed=True, payload=_RESUME_PAYLOAD)
         assert result["subagent_session_id"] == "ctx-1"
 
+
 # ---------------------------------------------------------------------------
 # Toolset lifecycle tests
 # ---------------------------------------------------------------------------
