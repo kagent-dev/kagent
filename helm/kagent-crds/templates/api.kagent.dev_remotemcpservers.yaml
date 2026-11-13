@@ -219,6 +219,21 @@ spec:
                 - SSE
                 - STREAMABLE_HTTP
                 type: string
+              sessionIdHeader:
+                description: |-
+                  SessionIDHeader is the name of the HTTP header that carries the kagent session ID on requests to this server.
+                  When empty, no session ID is sent.
+                  Tool discovery has no session, so the header is left out there.
+                maxLength: 256
+                minLength: 1
+                type: string
+                x-kubernetes-validations:
+                - message: sessionIdHeader must be a valid HTTP header name
+                  rule: self.matches('^[!#$%&\x27*+.^_`|~0-9A-Za-z-]+$')
+                - message: sessionIdHeader cannot use this header name
+                  rule: '!(self.lowerAscii() in [''host'', ''connection'', ''content-length'',
+                    ''transfer-encoding'', ''te'', ''trailer'', ''upgrade'', ''keep-alive'',
+                    ''proxy-authorization'', ''proxy-authenticate'', ''cookie'', ''authorization''])'
               sseReadTimeout:
                 type: string
                 x-kubernetes-validations:
@@ -275,6 +290,9 @@ spec:
             - message: headersFrom cannot set Authorization when actorJwt is enabled
               rule: '!has(self.actorJwt) || !has(self.headersFrom) || !self.headersFrom.exists(h,
                 h.name.lowerAscii() == ''authorization'')'
+            - message: sessionIdHeader must not match a name in headersFrom
+              rule: '!has(self.sessionIdHeader) || !has(self.headersFrom) || !self.headersFrom.exists(h,
+                h.name.lowerAscii() == self.sessionIdHeader.lowerAscii())'
             - message: at most one of the fields in [actorJwt tokenPassthrough] may
                 be set
               rule: (has(self.actorJwt)?1:0)+(has(self.tokenPassthrough)?1:0) <= 1

@@ -806,3 +806,56 @@ while read ignored; do :; done
 	require.NoError(t, err)
 	require.Nil(t, pending)
 }
+
+func TestProcessDriverSetsSessionIDEnvironmentPerTurn(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	capture := filepath.Join(directory, "env")
+	script := `#!/bin/sh
+printf '%s' "${KAGENT_SESSION_ID-unset}" > "$CAPTURE"
+read initialize
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"codex-app-server","version":"0.148.0"}}}'
+read initialized
+read thread
+printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"01900000-0000-7000-8000-000000000001"}}}'
+read -r turn
+printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"01900000-0000-7000-8000-000000000002","status":"inProgress"}}}'
+printf '%s\n' '{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"01900000-0000-7000-8000-000000000001","turn":{"id":"01900000-0000-7000-8000-000000000002","status":"completed"}}}'
+sleep 5
+`
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(directory, "workspace")
+	if err := os.Mkdir(workspace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driver := NewProcessDriver(ProcessConfig{
+		Executable: executable, ExpectedVersion: "0.148.0", StrictVersion: true, Workspace: workspace,
+		Model: "gpt-5.2-codex", Provider: "kagent-openai", DeveloperInstruction: "help",
+		Environment: append(os.Environ(), "CAPTURE="+capture, "KAGENT_SESSION_ID=stale"), MaxFrameBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 100 * time.Millisecond,
+	})
+	for _, tc := range []struct {
+		name      string
+		contextID string
+		want      string
+	}{
+		{name: "first session", contextID: "ctx-1", want: "ctx-1"},
+		{name: "second session replaces the first", contextID: "ctx-2", want: "ctx-2"},
+		{name: "no session leaves it unset", contextID: "", want: "unset"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome, err := driver.Run(context.Background(), runtime.Turn{Prompt: "hello", ContextID: tc.contextID}, &recordingSink{})
+			if err != nil || outcome.Failure != nil {
+				t.Fatalf("Run() = %#v, %v", outcome, err)
+			}
+			got, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("KAGENT_SESSION_ID = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

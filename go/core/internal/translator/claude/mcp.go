@@ -18,6 +18,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/egress"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	claudeconfig "github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 type mcpCompilation struct {
@@ -74,6 +75,13 @@ func (c *Compiler) compileMCP(
 		}
 		if server.Spec.ActorJWT != nil {
 			headers = translator.MCPActorJWTHeaders(headers)
+		}
+
+		if server.Spec.SessionIDHeader != "" {
+			if headers == nil {
+				headers = make(map[string]string, 1)
+			}
+			headers[server.Spec.SessionIDHeader] = "${" + runtime.SessionIDEnvVar + ":-}"
 		}
 
 		result.servers[name] = claudeconfig.MCPServer{

@@ -64,3 +64,25 @@ func TestAddRemoteMCPServerTokenPassthrough(t *testing.T) {
 	require.True(t, config.HttpTools[0].TokenPassthrough)
 	require.True(t, config.SseTools[0].TokenPassthrough)
 }
+
+func TestAddRemoteMCPServerSessionIDHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		header string
+	}{
+		{name: "unset", header: ""},
+		{name: "set", header: "X-Kagent-Session-Id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := &configv1.ADKAgentConfig{}
+			for _, protocol := range []v1alpha3.RemoteMCPServerProtocol{v1alpha3.RemoteMCPServerProtocolStreamableHttp, v1alpha3.RemoteMCPServerProtocolSse} {
+				server := &v1alpha3.RemoteMCPServer{Spec: v1alpha3.RemoteMCPServerSpec{
+					URL: "https://mcp.example.test", Protocol: protocol, SessionIDHeader: tc.header,
+				}}
+				require.NoError(t, (&Builder{}).addRemoteMCPServer(config, server, nil, false, nil))
+			}
+			require.Equal(t, tc.header, config.HttpTools[0].SessionIdHeader)
+			require.Equal(t, tc.header, config.SseTools[0].SessionIdHeader)
+		})
+	}
+}

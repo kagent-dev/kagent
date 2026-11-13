@@ -337,3 +337,36 @@ func TestDeferredTurnAbandonsChangedCachedAnswerAfterStartupFailure(t *testing.T
 		})
 	}
 }
+
+func TestDeferredMCPSendsSessionIDHeader(t *testing.T) {
+	var received atomic.Value
+	server := mcp.NewServer(&mcp.Implementation{Name: "session-test", Version: "1"}, nil)
+	mcp.AddTool(server, &mcp.Tool{Name: "write"}, func(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok"}}}, nil, nil
+	})
+	handler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{JSONResponse: true})
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Store(r.Header.Get("X-Kagent-Session-Id"))
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(endpoint.Close)
+	servers := map[string]config.MCPServer{"protected": {URL: endpoint.URL, RequireApproval: true, Headers: map[string]string{"X-Kagent-Session-Id": "${KAGENT_SESSION_ID}"}}}
+	caller := NewMCPCaller(servers, nil)
+
+	result, err := caller.Call(withSessionID(t.Context(), "sess-7"), "protected", "write", map[string]any{})
+	if err != nil || result == nil {
+		t.Fatalf("approved call failed: %v result=%#v", err, result)
+	}
+	if got := received.Load(); got != "sess-7" {
+		t.Errorf("X-Kagent-Session-Id = %v, want sess-7", got)
+	}
+
+	received.Store("")
+	var notExecuted *toolNotExecutedError
+	if _, err := caller.Call(t.Context(), "protected", "write", map[string]any{}); !errors.As(err, &notExecuted) {
+		t.Fatalf("call without a session = %v, want a not-executed error", err)
+	}
+	if got := received.Load(); got != "" {
+		t.Errorf("call without a session reached the server with header %q", got)
+	}
+}

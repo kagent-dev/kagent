@@ -174,7 +174,7 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	if seed != nil {
 		message = nil
 	} // --resume replays deferred input without a new user turn.
-	environment := traceEnvironment(ctx, d.config.Environment)
+	environment := runtime.SessionEnvironment(traceEnvironment(ctx, d.config.Environment), turn.ContextID)
 	var gate *tracingGate
 	if d.config.AwaitTelemetry {
 		if gate, err = newTracingGate(); err != nil {

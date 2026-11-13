@@ -5,8 +5,27 @@ package runtime
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 )
+
+// SessionIDEnvVar names the environment variable that carries the kagent session ID to a runtime process.
+const SessionIDEnvVar = "KAGENT_SESSION_ID"
+
+// SessionEnvironment returns environment with the session ID variable set to contextID, or removed when contextID is empty.
+func SessionEnvironment(environment []string, contextID string) []string {
+	prefix := SessionIDEnvVar + "="
+	result := make([]string, 0, len(environment)+1)
+	for _, variable := range environment {
+		if !strings.HasPrefix(variable, prefix) {
+			result = append(result, variable)
+		}
+	}
+	if contextID != "" {
+		result = append(result, prefix+contextID)
+	}
+	return result
+}
 
 // ErrSessionAbandoned means a deferred continuation cannot safely be resumed.
 var ErrSessionAbandoned = errors.New("deferred continuation cannot be resumed; start a new session")
