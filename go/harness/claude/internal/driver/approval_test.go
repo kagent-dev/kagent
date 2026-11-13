@@ -348,7 +348,10 @@ func TestDeferredFailureAbandonsSession(t *testing.T) {
 	}
 }
 
-func TestDeferredInvalidAnswerAbandonsSessionBeforeReplay(t *testing.T) {
+// An answer the question did not ask for is refused before any of it is used,
+// so it costs the session nothing: the question is still there to be answered.
+// Both harnesses decide it by the same rules.
+func TestDeferredInvalidAnswerIsRefusedWithoutEndingTheSession(t *testing.T) {
 	for _, answers := range [][][]string{{{}}, {{"PostgreSQL", "MySQL"}}} {
 		t.Run(fmt.Sprint(answers), func(t *testing.T) {
 			b := newTestBroker(t)
@@ -359,12 +362,25 @@ func TestDeferredInvalidAnswerAbandonsSessionBeforeReplay(t *testing.T) {
 			d := NewProcessDriver(ProcessConfig{ApprovalBroker: b, MaxEventBytes: 1 << 20, Executable: "must-not-run"})
 			_, _, pending, err := d.RestorePending()
 			require.NoError(t, err)
+
 			_, err = pending.Resume(t.Context(), &runtime.AskUserResponse{ID: r.RequestID, Answers: answers}, &recordingSink{})
-			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+			require.ErrorIs(t, err, runtime.ErrInvalidInputResponse)
+			require.NotErrorIs(t, err, runtime.ErrSessionAbandoned)
+
+			saved, err := loadDeferred(b.directory, 1<<20)
+			require.NoError(t, err)
+			require.Equal(t, "waiting", saved.Phase)
+			require.Nil(t, saved.Answer)
+
+			// The question is still the one Claude asked, and a well-formed
+			// answer is still accepted: only the missing executable stops it.
 			fresh := NewProcessDriver(d.config)
-			_, _, restored, err := fresh.RestorePending()
-			require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
-			require.Nil(t, restored)
+			taskID, _, restored, err := fresh.RestorePending()
+			require.NoError(t, err)
+			require.Equal(t, r.TaskID, taskID)
+			require.NotNil(t, restored)
+			_, err = restored.Resume(t.Context(), &runtime.AskUserResponse{ID: r.RequestID, Answers: [][]string{{"PostgreSQL"}}}, &recordingSink{})
+			require.NotErrorIs(t, err, runtime.ErrInvalidInputResponse)
 		})
 	}
 }
