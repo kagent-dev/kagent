@@ -350,8 +350,11 @@ func (s *InteractionService) RecoverRejectedSend(ctx context.Context, agent type
 }
 
 // ErrRuntimeUnrecoverable answers a send to a Session whose recorded Actor is
-// missing or was replaced. Retrying cannot succeed.
-var ErrRuntimeUnrecoverable = a2atype.NewError(a2atype.ErrUnsupportedOperation, "Session runtime cannot be recovered; start another conversation")
+// missing or was replaced. Retrying the send cannot succeed. The message names
+// the manual recovery call, so a client that only sends knows where to look;
+// for a lost runtime, RevertSession answers FAILED_PRECONDITION with the loss.
+var ErrRuntimeUnrecoverable = a2atype.NewError(a2atype.ErrUnsupportedOperation,
+	"Session runtime cannot be recovered; start another conversation. To retry recovery manually, call kagent.api.v1.SessionService/RevertSession with this Session's ID.")
 
 // errRecoveryUnavailable reports that a send's recovery did not run and none is
 // admitted, so the send keeps the answer it would give without recovery.

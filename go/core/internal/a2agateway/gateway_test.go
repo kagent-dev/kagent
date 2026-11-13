@@ -886,6 +886,7 @@ func TestGatewaySendToLostRuntimeFailsFromStoredState(t *testing.T) {
 	if meta, _ := protocolError.ErrorInfo().Value["metadata"].(map[string]string); meta["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
 		t.Fatalf("a lost runtime must not invite a retry: %v", err)
 	}
+	require.Contains(t, err.Error(), "SessionService/RevertSession", "the refusal names the manual recovery call")
 	if store.reverts != 0 || runtime.sendCalls != 0 {
 		t.Fatalf("reverts = %d, sends = %d: a recorded loss is answered from PostgreSQL", store.reverts, runtime.sendCalls)
 	}
