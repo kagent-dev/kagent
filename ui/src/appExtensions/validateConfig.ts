@@ -124,16 +124,20 @@ function problemsIn(
   }
 
   const seenRowActionIds = new Set<string>();
-  for (const action of config.rowActions ?? []) {
-    if (!isExtensionRowMenuId(action.menuId)) {
-      problems.push(`row action "${action.id}" targets unknown menu "${action.menuId}"`);
-    }
+  for (const [index, action] of (config.rowActions ?? []).entries()) {
+    // Named by position until it has an id, so the message can be traced to the entry.
+    const name = action.id ? `row action "${action.id}"` : `row action #${index + 1}`;
     if (!action.id || !action.label || typeof action.onClick !== "function") {
-      problems.push(`row action "${action.id}" needs an id, a label and an onClick`);
+      problems.push(`${name} needs an id, a label and an onClick`);
+      continue;
+    }
+    if (!isExtensionRowMenuId(action.menuId)) {
+      problems.push(`${name} targets unknown menu "${action.menuId}"`);
+      continue;
     }
     const scoped = `${action.menuId}:${action.id}`;
     if (seenRowActionIds.has(scoped)) {
-      problems.push(`row action "${action.id}" is declared twice`);
+      problems.push(`${name} is declared twice`);
     }
     seenRowActionIds.add(scoped);
   }
@@ -212,7 +216,7 @@ function collisionsAcross(extensions: readonly AppExtensionConfig[]): string[] {
     ...duplicates(
       extensions.flatMap((extension) =>
         // Once per extension: a repeat inside one is the per-config check's to report.
-        [...new Set((extension.rowActions ?? []).map((action) => `${action.menuId}:${action.id}`))].map((value) => ({
+        [...new Set((extension.rowActions ?? []).filter((action) => action.id).map((action) => `${action.menuId}:${action.id}`))].map((value) => ({
           owner: extension.id,
           value,
         })),

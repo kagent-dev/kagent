@@ -167,6 +167,8 @@ export {
   EXTENSION_ROW_MENU_IDS,
   extensionRowActionsForMenu,
   isExtensionRowMenuId,
+  isRowActionVisible,
+  runRowAction,
 } from "./rowActions";
 export type { ExtensionRowAction, ExtensionRowContext, ExtensionRowMenuId } from "./rowActions";
 

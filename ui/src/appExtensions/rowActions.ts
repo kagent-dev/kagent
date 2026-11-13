@@ -39,7 +39,12 @@ export interface ExtensionRowAction {
   menuId: ExtensionRowMenuId;
   label: string;
   icon?: ReactNode;
-  /** Whether this row gets the item. Defaults to every row. */
+  /**
+   * Whether this row gets the item. Defaults to every row.
+   *
+   * Called on every render of the row, so keep it cheap; it may read state outside the
+   * row. Must be synchronous: a Promise hides the item and logs an error.
+   */
   visible?: (row: ExtensionRowContext) => boolean;
   onClick: (row: ExtensionRowContext) => void | Promise<void>;
 }
@@ -55,7 +60,15 @@ export function extensionRowActionsForMenu(
 /** Whether `action` is offered for `row`. One that throws is left out, not the whole table. */
 export function isRowActionVisible(action: ExtensionRowAction, row: ExtensionRowContext): boolean {
   try {
-    return action.visible?.(row) ?? true;
+    if (!action.visible) return true;
+    const result: unknown = action.visible(row);
+    // An `async` callback returns a Promise, which is always truthy: it would show the
+    // item on every row. Hide it and say why. Any other truthy value counts as true.
+    if (result instanceof Promise) {
+      console.error(`Extension row action "${action.id}": visible must be synchronous, got a Promise`);
+      return false;
+    }
+    return Boolean(result);
   } catch (error) {
     console.error(`Extension row action "${action.id}" crashed deciding visibility`, error);
     return false;

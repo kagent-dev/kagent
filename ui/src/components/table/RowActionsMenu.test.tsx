@@ -22,7 +22,6 @@ function renderMenu(onDelete = vi.fn().mockResolvedValue(undefined), extensions:
             name="web"
             editTo="/agents/ns/web/edit"
             copyTo={copyPath("/agents/new", { namespace: "ns", name: "web" })}
-            extensionMenu="app_agents_agentsList_rowMenu"
             remove={{ onDelete, onDeleted: () => {} }}
           />
           <Routes>

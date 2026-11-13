@@ -213,7 +213,6 @@ export function AgentsTab() {
         render: (_, row) => (
           <RowActionsMenu
             kind="agent"
-            extensionMenu="app_agents_agentsList_rowMenu"
             namespace={row.namespace}
             name={row.name}
             editTo={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}
