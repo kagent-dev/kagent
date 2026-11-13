@@ -60,7 +60,7 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			if test.accepted {
 				tasks.dispatchErr = database.ErrMessageAccepted
 			}
-			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
+			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false, false)
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			message.ID, message.ContextID, message.TaskID = original.ID, id, test.taskID
 			apia2a.SetTimelinePosition(message, time.Unix(1, 0))
@@ -100,7 +100,7 @@ func TestPrepareSendReservesTaskOpeningMessages(t *testing.T) {
 				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
 				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 			tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}}}
-			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false)
+			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false, false)
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
 			message.ID, message.ContextID, message.TaskID = "opening", id, test.taskID
 			_, err := service.PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
@@ -245,7 +245,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 					sessionStore.getResult = nil
 				}
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
-				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false)
+				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false, false)
 				want := test.want
 				_, shared := auth.ShareContextFrom(test.ctx)
 				if shared && operation.verb != auth.VerbGet {
@@ -274,7 +274,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 }
 
 func TestInteractionsRequireAgentForUnfilteredTaskList(t *testing.T) {
-	service := NewInteractionService(nil, nil, nil, false)
+	service := NewInteractionService(nil, nil, nil, false, false)
 	for _, agent := range []types.NamespacedName{
 		{},
 		{Namespace: "team-a"},
@@ -299,7 +299,7 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 			ctx := serviceTestContext("alice")
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
 			message.ContextID = id
-			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(ctx, agent, message)
+			_, err := NewInteractionService(nil, nil, sessions, false, false).messageSession(ctx, agent, message)
 			if denySession {
 				if !errors.Is(err, a2atype.ErrUnauthorized) {
 					t.Fatalf("error = %v, want Session denial", err)
@@ -335,7 +335,7 @@ func TestScheduledMessageIDPrefixIsReserved(t *testing.T) {
 			sessions := NewService(&serviceTestStore{getResult: stored}, &recordingAuthorizer{}, serviceTestWorkflow{})
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
 			message.ID, message.ContextID = test.id, id
-			_, err := NewInteractionService(nil, nil, sessions, false).messageSession(test.ctx, agent, message)
+			_, err := NewInteractionService(nil, nil, sessions, false, false).messageSession(test.ctx, agent, message)
 			if test.wantOK {
 				require.NoError(t, err)
 			} else {
@@ -351,7 +351,7 @@ func TestScheduledMessageIDPrefixCannotStartAConversation(t *testing.T) {
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello"))
 	message.ID = scheduling.MessageIDPrefix + uuid.NewString()
 	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
-	_, err := NewInteractionService(nil, nil, sessions, false).PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
+	_, err := NewInteractionService(nil, nil, sessions, false, false).PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
 	require.ErrorIs(t, err, a2atype.ErrInvalidParams)
 	require.Nil(t, store.createInput)
 }

@@ -42,7 +42,7 @@ func TestCrossNamespaceModelCredentialDelivery(t *testing.T) {
 				shared.Spec.AllowedNamespaces = &v1alpha3.AllowedNamespaces{From: v1alpha3.NamespacesFromAll}
 				require.NoError(t, kube.Create(t.Context(), shared))
 				t.Cleanup(func() { require.NoError(t, kube.Delete(context.Background(), shared)) })
-				template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "cross-namespace-model-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: shared.Name, Namespace: namespace}, SystemPrompt: "Reply briefly."}}
+				template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "cross-namespace-model-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: shared.Name, Namespace: namespace}, SystemPrompt: "Reply briefly."}}
 				createAndWaitInteractionTemplate(t, harness, kube, template)
 				fixture := newInteractionFixtureForTemplate(t, harness, interactionTarget(t), template.Name)
 				_, _, task := fixture.send(t, "What is 2+2?")

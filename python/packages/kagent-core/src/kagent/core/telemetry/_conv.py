@@ -121,6 +121,9 @@ KAGENT_RUNTIME: Final = "kagent.runtime"
 KAGENT_TURN_SENDER: Final = "kagent.turn.sender"
 """The kind of authenticated principal that sent a turn."""
 
+KAGENT_WORKER_TRIGGER: Final = "kagent.worker.trigger"
+"""What prompted a work claim, either initial discovery or continued backlog processing."""
+
 GEN_AI_CLIENT_INFERENCE_DURATION: Final = "gen_ai.client.inference.duration"
 GEN_AI_CLIENT_INFERENCE_DURATION_UNIT: Final = "s"
 GEN_AI_CLIENT_INFERENCE_DURATION_DESCRIPTION: Final = "The duration of one model call of a harness turn."
@@ -181,6 +184,10 @@ GEN_AI_INVOKE_AGENT_TOOL_CALLS: Final = "gen_ai.invoke_agent.tool_calls"
 GEN_AI_INVOKE_AGENT_TOOL_CALLS_UNIT: Final = "{tool_call}"
 GEN_AI_INVOKE_AGENT_TOOL_CALLS_DESCRIPTION: Final = "The tool calls of one execution segment of a harness agent."
 
+KAGENT_PUSH_DELIVERY_CLAIMED: Final = "kagent.push.delivery.claimed"
+KAGENT_PUSH_DELIVERY_CLAIMED_UNIT: Final = "{attempt}"
+KAGENT_PUSH_DELIVERY_CLAIMED_DESCRIPTION: Final = "Number of push delivery attempts claimed."
+
 KAGENT_RUNTIME_REVISION_GC_DURATION: Final = "kagent.runtime_revision.gc.duration"
 KAGENT_RUNTIME_REVISION_GC_DURATION_UNIT: Final = "s"
 KAGENT_RUNTIME_REVISION_GC_DURATION_DESCRIPTION: Final = "Duration of a runtime revision garbage collection attempt."
@@ -190,6 +197,10 @@ KAGENT_RUNTIME_REVISION_GC_PENDING_UNIT: Final = "{revision}"
 KAGENT_RUNTIME_REVISION_GC_PENDING_DESCRIPTION: Final = (
     "Number of cleanup-eligible runtime revisions in the last successful discovery."
 )
+
+KAGENT_SESSION_QUIESCENCE_CLAIMED: Final = "kagent.session.quiescence.claimed"
+KAGENT_SESSION_QUIESCENCE_CLAIMED_UNIT: Final = "{session}"
+KAGENT_SESSION_QUIESCENCE_CLAIMED_DESCRIPTION: Final = "Number of session quiescence claims acquired."
 
 KAGENT_TURN_USAGE_CACHE_READ_INPUT_TOKENS: Final = "kagent.turn.usage.cache_read.input_tokens"
 KAGENT_TURN_USAGE_CACHE_READ_INPUT_TOKENS_UNIT: Final = "{token}"
@@ -389,3 +400,18 @@ class KagentTurnSenderValues(StrEnum):
     """An agent's runtime, calling on behalf of the principal that created its Session."""
     CONTROLLER = "controller"
     """The controller, starting a scheduled run on behalf of the principal that created its Session."""
+
+
+class KagentWorkerTriggerValues(StrEnum):
+    """Values of KAGENT_WORKER_TRIGGER."""
+
+    SIGNAL = "signal"
+    """A local task settlement signal."""
+    RECOVERY = "recovery"
+    """The idle recovery timer expired."""
+    STARTUP = "startup"
+    """The initial processing pass after worker startup."""
+    RETRY = "retry"
+    """A scheduled recheck for pending work or an earlier error."""
+    BACKLOG = "backlog"
+    """A follow-on claim, including worker handoffs and freed delivery capacity."""

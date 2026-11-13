@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_TOTAL_BYTES, isAllowedFile, mediaTypeOf, stageFiles, textLinks } from "./attachments";
+import { MAX_TOTAL_BYTES, formatBytes, isAllowedFile, mediaTypeOf, stageFiles, textLinks } from "./attachments";
 
 const sized = (name: string, type: string, size: number) =>
   ({ name, type, size }) as File;
@@ -101,5 +101,21 @@ describe("stageFiles", () => {
 
   it("reports nothing when everything fits", () => {
     expect(stageFiles([], [sized("a.md", "", 10)]).error).toBeUndefined();
+  });
+});
+
+describe("formatBytes", () => {
+  it.each([
+    [0, "0 B"],
+    [1023, "1023 B"],
+    [1024, "1 KB"],
+    [1536, "1.5 KB"],
+    [1048524, "1023.9 KB"],
+    [1048525, "1 MB"],
+    [1048575, "1 MB"],
+    [1048576, "1 MB"],
+    [5 * 1024 * 1024, "5 MB"],
+  ])("formats %d bytes as %s", (bytes, expected) => {
+    expect(formatBytes(bytes)).toBe(expected);
   });
 });

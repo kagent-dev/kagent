@@ -92,6 +92,50 @@ metrics:
         requirement_level:
           conditionally_required: The runtime reported the model of the calls.
 
+  - name: kagent.session.quiescence.claimed
+    requirement_level: recommended
+    instrument: counter
+    unit: "{session}"
+    brief: Number of session quiescence claims acquired.
+    note: >
+      A synchronous integer counter incremented before runtime I/O. Each returned
+      claim adds one, even if processing later fails. Every trigger series is
+      initialized to zero at worker startup. Repeated quiescence of the
+      same session counts separately; this is not a count of unique sessions or
+      successful suspensions. Empty scans and failed claim requests add nothing.
+      Only the first claim after startup, a settlement signal, a recovery timer,
+      or a retry recheck uses that trigger. Continued claims and worker handoffs
+      use backlog. Recovery therefore counts timer-driven discoveries of work,
+      not all items processed afterward or items proven to have missed a signal.
+      An unchanged counter does not establish that scans ran successfully.
+      Session, task, and error identities are excluded.
+    stability: development
+    attributes:
+      - ref: kagent.worker.trigger
+        requirement_level: required
+
+  - name: kagent.push.delivery.claimed
+    requirement_level: recommended
+    instrument: counter
+    unit: "{attempt}"
+    brief: Number of push delivery attempts claimed.
+    note: >
+      A synchronous integer counter incremented before delivery I/O. Each returned
+      claim adds one, even if processing later fails. Push retries count as
+      separate attempts. Every trigger series is initialized to zero at worker
+      startup. Empty scans and failed claim requests add nothing.
+      Only the first claim after startup, a settlement signal, a recovery timer,
+      or a retry recheck uses that trigger. Continued claims, including capacity
+      refills, use backlog until a claim finds no work or fails. Recovery therefore
+      counts timer-driven discoveries of work, not all items processed afterward
+      or items proven to have missed a signal. An unchanged counter does not
+      establish that scans ran successfully. Task, registration, destination,
+      and error identities are excluded.
+    stability: development
+    attributes:
+      - ref: kagent.worker.trigger
+        requirement_level: required
+
   - name: kagent.runtime_revision.gc.pending
     requirement_level: recommended
     instrument: gauge

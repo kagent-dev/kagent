@@ -53,7 +53,7 @@ func TestForceDeletionFencesTurnsAndSurvivesPreparationFailure(t *testing.T) {
 	_, err = client.FinishSessionOperation(t.Context(), session.Id, operation.ID, uuid.Nil, "", "", "read failed")
 	require.NoError(t, err)
 	// A new controller/client can continue durable deletion without the force flag.
-	restarted := NewClient(client.db, "public")
+	restarted := NewClient(client.db.pool, "public")
 	operation, err = restarted.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.NoError(t, err)
 	finishAdmittedDeletion(t, restarted, operation)

@@ -12,13 +12,17 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"k8s.io/apimachinery/pkg/types"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
 func (a *lifecycleTestActors) RevertActor(_ context.Context, atespace, name string) (*ateapipb.Actor, error) {
@@ -76,7 +80,7 @@ func crashedTurnFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestActors
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	var err error
-	session, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+	session, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
 	require.NoError(t, err)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("original input"))
 	message.ContextID = session.ContextId
@@ -113,7 +117,7 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 				}
 				return base.RevertActor(ctx, atespace, name)
 			}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			_, err := workflow.Revert(t.Context(), session)
 			require.Error(t, err)
 			failed, err := store.GetSessionByID(t.Context(), session.Id)
@@ -131,7 +135,7 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString(), nil), database.ErrConflict)
 			// A retried RevertSession on another workflow instance joins the admitted
 			// operation from PostgreSQL.
-			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			_, err = restarted.Revert(t.Context(), failed)
 			require.NoError(t, err)
 			ready, err := store.GetSessionByID(t.Context(), session.Id)
@@ -169,7 +173,7 @@ func TestCrashedSessionRecoveryFencesConcurrentWork(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 	done := make(chan error, 1)
 	go func() { _, err := workflow.Revert(ctx, session); done <- err }()
 	select {
@@ -224,7 +228,7 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 				t.Fatal("unconfirmed crash issued a revert")
 				return nil, nil
 			}
-			returned, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second).Revert(t.Context(), session)
+			returned, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Revert(t.Context(), session)
 			switch {
 			case test.healthy:
 				require.NoError(t, err)
@@ -238,10 +242,18 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 			}
 			current, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
-			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
-			require.Nil(t, current.Failure)
 			stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.NoError(t, err)
+			if test.want != nil {
+				// The loss is recorded so later sends and reverts need not ask Substrate.
+				require.True(t, database.RuntimeLost(current), "state = %s/%s", current.State, current.Operation)
+				require.Equal(t, a2a.TaskStateFailed, stored.Status.State, "no runtime remains to finish the turn")
+				_, err = NewActorWorkflow(store, &recoveryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Internal, "Substrate must not be read")}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Revert(t.Context(), current)
+				require.ErrorIs(t, err, errRuntimeUnrecoverable)
+				return
+			}
+			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.State)
+			require.Nil(t, current.Failure)
 			require.Equal(t, a2a.TaskStateWorking, stored.Status.State)
 		})
 	}
@@ -263,7 +275,7 @@ func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Neither check reaches the store or Substrate.
-			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), time.Second)
+			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			session := &apiv1.Session{Id: uuid.NewString(), State: test.state, Operation: test.operation}
 			returned, err := workflow.Revert(t.Context(), session)
 			if test.want == nil {
@@ -310,7 +322,7 @@ func TestCrashedSessionRecoversAnOlderResumedTask(t *testing.T) {
 	hash = sha256.Sum256([]byte("resume older task"))
 	_, err = store.UpdateSessionTask(t.Context(), session.Id, waitingVersion, hash[:], older, older, "")
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	failed, err := store.GetSettledSessionTask(t.Context(), session.Id, string(older.ID), nil)
@@ -340,7 +352,7 @@ func TestExplicitRevertRespectsCheckpointCreation(t *testing.T) {
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, uuid.NewString())
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.ErrorIs(t, err, database.ErrConflict)
 	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
@@ -363,7 +375,7 @@ func TestExplicitRevertRetiresIdleSuspensionOfCrashedActor(t *testing.T) {
 	require.NoError(t, err)
 	work, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
 	recovered, err := workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, recovered.State)
@@ -388,7 +400,7 @@ func TestExplicitRevertRejectsCrashObservedBeforeAnotherRevert(t *testing.T) {
 	key := actorKey("team-a", substrate.ActorName(session.Id))
 	var next *a2a.Task
 	paused := &recoveryTestActors{lifecycleTestActors: base, revert: base.RevertActor, afterRead: func(ctx context.Context) {
-		recovered, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Revert(ctx, session)
+		recovered, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(ctx, session)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, recovered.State)
 		base.mu.Lock()
@@ -402,7 +414,7 @@ func TestExplicitRevertRejectsCrashObservedBeforeAnotherRevert(t *testing.T) {
 		_, err = store.CreateRuntimeTask(ctx, session.Id, hash[:], next, "")
 		require.NoError(t, err)
 	}}
-	_, err := NewActorWorkflow(store, paused, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+	_, err := NewActorWorkflow(store, paused, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
 	require.ErrorIs(t, err, database.ErrConflict)
 	current, err := store.GetSessionByID(t.Context(), session.Id)
 	require.NoError(t, err)
@@ -421,7 +433,7 @@ func TestExplicitRevertCannotCheckpointDiscardedTerminalState(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	_, err = store.ClaimSessionQuiescence(t.Context())
@@ -459,7 +471,7 @@ func TestExplicitRevertPreservesOnlyCapturedWaits(t *testing.T) {
 						Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING},
 					})
 				}
-				_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+				_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
 				require.NoError(t, err)
 				stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 				require.NoError(t, err)
@@ -496,7 +508,7 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 		Atespace: "team-a", URI: "s3://snapshots/later-turn", Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES.String(),
 	}))
 	actors.actors[actorKey("team-a", substrate.ActorName(session.Id))].Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/later-turn"}}}}
-	_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+	_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
 	require.NoError(t, err)
 	retained, err := store.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
@@ -507,7 +519,8 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 }
 
 // A revert restores the recorded Actor in place and creates nothing Delete could
-// miss, so Delete supersedes an admitted recovery even after the revert was issued.
+// miss, so Delete supersedes an admitted recovery even after the revert was issued,
+// and deletes a Session whose recovery ended with a lost Actor.
 func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 	for _, test := range []struct {
 		name     string
@@ -529,7 +542,7 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 				unavailable := &recoveryTestActors{lifecycleTestActors: base, revert: func(context.Context, string, string) (*ateapipb.Actor, error) {
 					return nil, status.Error(codes.Unavailable, "response unavailable")
 				}}
-				_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), time.Minute).Revert(t.Context(), session)
+				_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
 				require.Error(t, err)
 			} else {
 				_, err := store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, session.Id, base.actors[key].GetMetadata().GetUid()), database.SessionTaskSnapshot{})
@@ -548,7 +561,7 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 					t.Fatal("an unread or replaced Actor was reverted")
 					return nil, nil
 				}
-				workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute)
+				workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
 				for range 2 {
 					admitted, err := store.GetSessionByID(t.Context(), session.Id)
 					require.NoError(t, err)
@@ -561,8 +574,12 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 			pending, err := store.GetSessionByID(t.Context(), session.Id)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_FAILED, pending.State)
-			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
-			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute).Delete(t.Context(), pending, false)
+			if test.gone || test.replaced {
+				require.True(t, database.RuntimeLost(pending), "a lost Actor ends the recovery")
+			} else {
+				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
+			}
+			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Delete(t.Context(), pending, false)
 			if test.replaced {
 				require.NotErrorIs(t, err, database.ErrConflict)
 				deleting, err := store.GetSessionByID(t.Context(), session.Id)
@@ -577,6 +594,195 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
 			_, err = base.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
 			require.Equal(t, codes.NotFound, status.Code(err))
+		})
+	}
+}
+
+func TestSendRecoveryAnswersTheSend(t *testing.T) {
+	unavailable := status.Error(codes.Unavailable, "control plane unavailable")
+	denied := serviceerrors.NewPermissionDenied("denied", nil)
+	for _, test := range []struct {
+		name     string
+		err      error
+		authErr  error
+		admitted bool
+		want     error
+	}{
+		{name: "the runtime is healthy or restored"},
+		{name: "the runtime is lost", err: fmt.Errorf("runtime Actor is missing: %w", errRuntimeUnrecoverable), want: ErrRuntimeUnrecoverable},
+		{name: "another operation holds the Session", err: database.ErrConflict, want: errRecoveryUnavailable},
+		{name: "Substrate is unavailable before admission", err: unavailable, want: errRecoveryUnavailable},
+		{name: "Substrate is unavailable after admission", err: unavailable, admitted: true, want: ErrRuntimeRecovering},
+		// Sending needs only create access; reverting needs RevertSession's update access.
+		{name: "the caller cannot revert", authErr: denied, want: errRecoveryUnavailable},
+		{name: "the caller cannot revert an admitted recovery", authErr: denied, admitted: true, want: ErrRuntimeRecovering},
+	} {
+		t.Run("Given "+test.name+", when a send recovers, assert that it answers accordingly", func(t *testing.T) {
+			session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_READY}
+			if test.admitted {
+				session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+			}
+			authorizer := &verbAuthorizer{denied: auth.VerbUpdate, err: test.authErr}
+			sessions := NewService(&serviceTestStore{getResult: session}, authorizer, serviceTestWorkflow{err: test.err})
+			interactions := NewInteractionService(nil, nil, sessions, false, true)
+			err := interactions.recoverForSend(serviceTestContext("alice"), session.Id)
+			if test.want == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, test.want)
+			}
+			require.Equal(t, []auth.Verb{auth.VerbUpdate}, authorizer.checked, "recovery is authorized as RevertSession")
+		})
+	}
+}
+
+// A revert that outlasts the send's wait is cut off and answered as recovering;
+// the admitted operation stays for the client's retry to continue.
+func TestSendRecoveryIsBounded(t *testing.T) {
+	session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_FAILED,
+		Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT}
+	workflow := &blockingRevertWorkflow{stopped: make(chan error, 1)}
+	interactions := NewInteractionService(nil, nil, NewService(&serviceTestStore{getResult: session}, serviceTestAuthorizer{}, workflow), false, true)
+	interactions.recoveryWait = 50 * time.Millisecond
+	ctx, cancel := context.WithCancel(serviceTestContext("alice"))
+	defer cancel()
+	started := time.Now()
+	err := interactions.recoverForSend(ctx, session.Id)
+	require.ErrorIs(t, err, ErrRuntimeRecovering)
+	require.Less(t, time.Since(started), 5*time.Second, "the send answers within its wait")
+	require.ErrorIs(t, <-workflow.stopped, context.DeadlineExceeded, "the attempt is cut off by the wait, not the caller")
+}
+
+type blockingRevertWorkflow struct {
+	serviceTestWorkflow
+	stopped chan error
+}
+
+func (w *blockingRevertWorkflow) Revert(ctx context.Context, _ *apiv1.Session) (*apiv1.Session, error) {
+	<-ctx.Done()
+	w.stopped <- ctx.Err()
+	return nil, fmt.Errorf("revert attempt stopped: %w", ctx.Err())
+}
+
+// verbAuthorizer denies one verb with err, so a test can grant send but not revert.
+type verbAuthorizer struct {
+	denied  auth.Verb
+	err     error
+	checked []auth.Verb
+}
+
+func (a *verbAuthorizer) Check(_ context.Context, _ auth.Principal, verb auth.Verb, _ auth.Resource) error {
+	a.checked = append(a.checked, verb)
+	if verb == a.denied {
+		return a.err
+	}
+	return nil
+}
+
+// A refused send whose Session can no longer be read answers with that error, so
+// a deleted Session or a revoked grant does not become an endless retry.
+func TestRecoverRejectedSendReturnsSessionErrors(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		store      *serviceTestStore
+		authorizer serviceTestAuthorizer
+		want       error
+	}{
+		{name: "not found", store: &serviceTestStore{getErr: database.ErrNotFound}, want: a2a.ErrTaskNotFound},
+		{name: "permission denied", store: &serviceTestStore{}, authorizer: serviceTestAuthorizer{err: serviceerrors.NewPermissionDenied("denied", nil)}, want: a2a.ErrUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false, true)
+			message := &a2a.Message{ID: "input", ContextID: uuid.NewString()}
+			err := interactions.RecoverRejectedSend(serviceTestContext("alice"), types.NamespacedName{Namespace: "team-a", Name: "assistant"}, message)
+			require.ErrorIs(t, err, test.want)
+			require.NotErrorIs(t, err, ErrSendNotAccepted)
+		})
+	}
+}
+
+// suspensionTestStore answers reservations with reserveErr until a revert clears it.
+type suspensionTestStore struct {
+	*database.Client
+	reserveErr error
+	reserves   int
+	senders    []*database.TurnSender
+}
+
+func (s *suspensionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, _ string, sender *database.TurnSender) error {
+	s.reserves++
+	s.senders = append(s.senders, sender)
+	return s.reserveErr
+}
+
+// suspensionTestWorkflow reverts a crashed runtime by retiring the held claim.
+type suspensionTestWorkflow struct {
+	serviceTestWorkflow
+	store   *suspensionTestStore
+	crashed bool
+	reverts int
+}
+
+func (w *suspensionTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	w.reverts++
+	if w.err != nil {
+		return nil, w.err
+	}
+	if w.crashed {
+		w.store.reserveErr = nil
+	}
+	return session, nil
+}
+
+// A worker lost during the post-turn suspension leaves the Actor CRASHED and the
+// suspension's claim held, so every send waits and is told to retry. Only a send
+// that outlasted the wait on that claim, with automatic recovery on, recovers it.
+func TestSendRecoversACrashDuringSuspension(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		disabled   bool
+		reserveErr error
+		crashed    bool
+		revertErr  error
+		reverts    int
+		dispatched bool
+	}{
+		{name: "a crash during suspension", reserveErr: database.ErrDispatchSuspending, crashed: true, reverts: 1, dispatched: true},
+		{name: "a crash during an active turn", reserveErr: database.ErrActiveTurn, crashed: true, reverts: 1, dispatched: true},
+		{name: "a suspension still running", reserveErr: database.ErrDispatchSuspending, reverts: 1},
+		{name: "a revert that cannot run", reserveErr: database.ErrDispatchSuspending, crashed: true,
+			revertErr: status.Error(codes.Unavailable, "control plane unavailable"), reverts: 1},
+		{name: "automatic recovery off", disabled: true, reserveErr: database.ErrDispatchSuspending, crashed: true},
+		{name: "an ordinary dispatch in flight", reserveErr: database.ErrDispatchBusy, crashed: true},
+	} {
+		t.Run("Given "+test.name+", when a send outlasts the busy wait, assert that it recovers only a crashed suspension", func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+				Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE,
+				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+			store := &suspensionTestStore{reserveErr: test.reserveErr}
+			workflow := &suspensionTestWorkflow{serviceTestWorkflow: serviceTestWorkflow{err: test.revertErr}, store: store, crashed: test.crashed}
+			interactions := NewInteractionService(store, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, workflow), false, !test.disabled)
+			const wait = 200 * time.Millisecond
+			interactions.dispatchWait = wait
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("What is 2+2?"))
+			message.ContextID = id
+			started := time.Now()
+			prepared, err := interactions.PrepareSend(serviceTestContext("alice"), agent, &a2a.SendMessageRequest{Message: message})
+			elapsed := time.Since(started)
+			require.Equal(t, test.reverts, workflow.reverts)
+			for _, sender := range store.senders {
+				require.Equal(t, &database.TurnSender{Kind: "principal", PrincipalID: "alice"}, sender)
+			}
+			if test.dispatched {
+				require.NoError(t, err)
+				require.NotEqual(t, uuid.Nil, prepared.DispatchID)
+				return
+			}
+			require.ErrorIs(t, err, ErrSendNotAccepted, "the client still sees an ordinary retryable refusal")
+			require.GreaterOrEqual(t, elapsed, wait, "a send first waits out the busy period")
+			require.Less(t, elapsed, 2*wait, "the reservation after a recovery attempt does not wait again")
 		})
 	}
 }

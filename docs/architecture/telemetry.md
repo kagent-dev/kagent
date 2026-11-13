@@ -26,7 +26,35 @@ The contract is a Weaver registry in [`telemetry/registry`](../../telemetry/regi
 | Model calls | `gen_ai.client.inference.duration`, `gen_ai.client.inference.operation.*_tokens`, `gen_ai.client.inference.usage.*` | Recorded with the chat spans of the Claude Code and Codex runtimes |
 | Tools and call counts | `gen_ai.execute_tool.duration`, `gen_ai.invoke_agent.inference_calls`, `gen_ai.invoke_agent.tool_calls` | Recorded with the execute_tool and invoke_agent spans of the Claude Code and Codex runtimes |
 
-The registry describes the contract the runtimes are moving to. The next section says what each runtime emits today, and [Blind spots](#blind-spots) lists where the two still differ.
+The registry describes the contract the runtimes are moving to. [Who emits what](#who-emits-what) says what each runtime emits today, and [Blind spots](#blind-spots) lists where the two still differ.
+
+## Session and push recovery
+
+| Metric | Unit | Counts |
+| --- | --- | --- |
+| `kagent.session.quiescence.claimed` | `{session}` | Session quiescence claims |
+| `kagent.push.delivery.claimed` | `{attempt}` | Push delivery attempts, including retries |
+
+The first claim after a wake uses `kagent.worker.trigger` = `signal`, `recovery`,
+`startup`, or `retry`. Follow-on claims, including worker handoffs and capacity
+refills, use `backlog`. All five series start at zero; claims count even if
+processing later fails.
+
+To inspect recovery activity in Prometheus, with the usual name translation:
+
+```promql
+increase(kagent_session_quiescence_claimed_total{kagent_worker_trigger="recovery"}[1h])
+```
+
+A recovery increase of 20 means 20 timer-driven discoveries of work, not 20
+delayed items. Repeated discoveries warrant investigating whether the interval
+is acceptable; the counter does not measure waiting time or prove lost signals,
+including when another replica is already processing work. Zero discoveries
+support retaining the interval only with healthy workers and telemetry.
+
+Each recovery discovery logs `recovery scan found work` at info level with
+`operation`, `recovery_interval_seconds`, and the first `session_id` or
+`registration_id` for investigation. Empty scans remain silent.
 
 ## Who emits what
 

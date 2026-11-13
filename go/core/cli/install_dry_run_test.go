@@ -126,3 +126,31 @@ func TestDryRunFlagsAreIndependent(t *testing.T) {
 	require.Equal(t, "kagent-install", secondInstall.Flags().Lookup("output-dir").Value.String())
 	require.Equal(t, "false", secondInstall.Flags().Lookup("dry-run").Value.String())
 }
+
+func TestInstallProviderFlag(t *testing.T) {
+	// Helm splits -f arguments on commas, which sentence-named subtest
+	// directories contain, so the charts and config live in the parent test directory.
+	config := installConfigWithLocalCharts(t)
+	t.Run("Given a config defaulting to OpenAI, when a dry run selects --provider Anthropic, assert that the export uses the Anthropic provider and credential", func(t *testing.T) {
+		if _, err := exec.LookPath("helm"); err != nil {
+			t.Skip("Helm is required for dry-run integration")
+		}
+		t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "missing-kubeconfig"))
+		destination := filepath.Join(t.TempDir(), "export")
+		_, err := executeConfig(t, "--config", config, "install", "--dry-run", "--provider", "Anthropic", "--output-dir", destination)
+		require.NoError(t, err)
+		values, err := os.ReadFile(filepath.Join(destination, "values", "kagent.yaml"))
+		require.NoError(t, err)
+		require.Contains(t, string(values), "default: anthropic")
+		require.Contains(t, string(values), "${ANTHROPIC_API_KEY}")
+		require.NotContains(t, string(values), "${OPENAI_API_KEY}")
+	})
+
+	t.Run("Given a valid config, when install runs with an unknown --provider, assert that it is rejected with the allowed providers", func(t *testing.T) {
+		destination := filepath.Join(t.TempDir(), "export")
+		_, err := executeConfig(t, "--config", config, "install", "--dry-run", "--provider", "Unknown", "--output-dir", destination)
+		require.ErrorContains(t, err, `invalid --provider "Unknown": must be one of OpenAI, Anthropic`)
+		_, statErr := os.Stat(destination)
+		require.True(t, os.IsNotExist(statErr), "a rejected provider must not export anything")
+	})
+}

@@ -18,6 +18,32 @@ attributes:
           brief: The controller, starting a scheduled run on behalf of the principal that created its Session.
           stability: development
 
+  - key: kagent.worker.trigger
+    brief: What prompted a work claim, either initial discovery or continued backlog processing.
+    stability: development
+    type:
+      members:
+        - id: signal
+          value: signal
+          brief: A local task settlement signal.
+          stability: development
+        - id: recovery
+          value: recovery
+          brief: The idle recovery timer expired.
+          stability: development
+        - id: startup
+          value: startup
+          brief: The initial processing pass after worker startup.
+          stability: development
+        - id: retry
+          value: retry
+          brief: A scheduled recheck for pending work or an earlier error.
+          stability: development
+        - id: backlog
+          value: backlog
+          brief: A follow-on claim, including worker handoffs and freed delivery capacity.
+          stability: development
+
   - key: kagent.gc.stage
     brief: The stage of a runtime revision garbage collection attempt.
     stability: development

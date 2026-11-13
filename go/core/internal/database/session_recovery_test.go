@@ -143,6 +143,43 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 // A crash during post-turn suspension leaves the worker's claim issued, because
 // the worker cannot tell whether its suspension took effect. The confirmed crash
 // settles that: admission retires the claim instead of waiting for it.
+// A suspension whose worker was lost keeps its claim. Reservation names that
+// cause so a send can recover the Session; a crash recovery retires the claim.
+func TestDispatchReportsUnsettledSuspension(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+	session, task := waitingTaskFixture(t, client)
+	_, version, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
+	require.NoError(t, err)
+	dispatch := uuid.New()
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatch, "", nil))
+	busy := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "", nil)
+	require.ErrorIs(t, busy, ErrDispatchBusy)
+	require.NotErrorIs(t, busy, ErrDispatchSuspending, "an ordinary dispatch in flight is not a suspension")
+	revoked, err := client.RevokeSessionDispatch(t.Context(), session.Id, dispatch, "unused")
+	require.NoError(t, err)
+	require.True(t, revoked)
+
+	for _, state := range []a2a.TaskState{a2a.TaskStateWorking, a2a.TaskStateInputRequired} {
+		task.Status.State = state
+		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
+		require.NoError(t, err)
+	}
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
+	_, err = client.ClaimSessionQuiescence(t.Context())
+	require.NoError(t, err)
+	suspending := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "", nil)
+	require.ErrorIs(t, suspending, ErrDispatchSuspending)
+	require.ErrorIs(t, suspending, ErrDispatchBusy, "callers that only wait keep treating it as busy")
+
+	uid := "actor-" + session.Id
+	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
+	require.NoError(t, err)
+	finishCrashedRecovery(t, client, session.Id, operation, uid)
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "", nil), "recovery retires the claim")
+}
+
 func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
 	sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
@@ -329,4 +366,59 @@ func TestRevertCanOnlyJoinAnAdmittedRecovery(t *testing.T) {
 	joined, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, false)
 	require.NoError(t, err)
 	require.Equal(t, admitted.ID, joined.ID)
+}
+
+func TestRecordLostSessionRuntime(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		admitted bool
+	}{
+		{name: "observed by an idle revert"},
+		{name: "observed by an admitted recovery's claimed attempt", admitted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			sessionFixture(t, client, t.Context(), "team-a", "revision", "assistant", "kagent")
+			session, task := waitingTaskFixture(t, client)
+			uid := "actor-" + session.Id
+			generation := sessionGeneration(t, client, session.Id).OperationID
+			var executor uuid.UUID
+			if test.admitted {
+				operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
+				require.NoError(t, err)
+				executor = uuid.New()
+				claimed, err := client.ClaimSessionOperation(t.Context(), session.Id, operation.ID, executor)
+				require.NoError(t, err)
+				require.True(t, claimed)
+				_, err = client.RecordLostSessionRuntime(t.Context(), session.Id, generation, "lost")
+				require.ErrorIs(t, err, ErrConflict, "an observation older than the admitted recovery is stale")
+				generation = operation.ID
+			}
+			_, err := client.RecordLostSessionRuntime(t.Context(), session.Id, uuid.New(), "lost")
+			require.ErrorIs(t, err, ErrConflict, "a stale generation records nothing")
+
+			lost, err := client.RecordLostSessionRuntime(t.Context(), session.Id, generation, "Runtime cannot be recovered")
+			require.NoError(t, err)
+			require.True(t, RuntimeLost(lost))
+			require.Equal(t, "Runtime cannot be recovered", lost.Failure.Message)
+			stored, err := client.GetSessionByID(t.Context(), session.Id)
+			require.NoError(t, err)
+			require.True(t, proto.Equal(lost, stored))
+			settled, err := client.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
+			require.NoError(t, err)
+			require.Equal(t, a2a.TaskStateFailed, settled.Status.State, "no runtime remains to answer the wait")
+
+			replayed, err := client.RecordLostSessionRuntime(t.Context(), session.Id, uuid.New(), "again")
+			require.NoError(t, err)
+			require.True(t, proto.Equal(stored, replayed), "recording a loss twice changes nothing")
+			if test.admitted {
+				_, err = client.FinishSessionOperation(t.Context(), session.Id, generation, executor, "", uid, "")
+				require.ErrorIs(t, err, ErrConflict, "the abandoned revert cannot finish")
+			}
+			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next", nil), ErrConflict)
+			deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
+			require.NoError(t, err, "a lost runtime can still be deleted")
+			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
+		})
+	}
 }

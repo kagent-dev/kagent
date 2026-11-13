@@ -1,10 +1,10 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, routes } from "../../helpers/app";
+import { loadPage, rowNamed, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
   confirmDelete,
   expectRequired,
-  selectFirstOption,
+  selectOption,
 } from "../../helpers/resource";
 
 /**
@@ -13,21 +13,24 @@ import {
  * One test, because a video and a trace are recorded per *test* — see
  * `playwright/README.md`.
  *
- * **There is no update half.** The tab offers create and delete and no edit, so the
- * journey is create, read back, remove. That is narrower than `HarnessService`, which
- * implements update too — this application has never called it.
+ * The journey is create, read back, edit, read back again, remove: every call the tab
+ * makes to `HarnessService`.
  *
  * ## Why the form is short
  *
  * The CRD is strict, and the constraints the form enforces are the cluster's rather than
- * this page's: exactly one runtime adapter, an image pinned by digest, and a worker pool
- * for the Substrate Actors to be scheduled onto. A form that accepted a tag would build a
- * resource the cluster rejects — the failure that is invisible until somebody tries it
- * for real, which is why the fixture refuses it too.
+ * this page's: exactly one runtime adapter, an image (when one is set) pinned by digest,
+ * a worker pool for the Substrate Actors to be scheduled onto and a snapshot location. A
+ * form that accepted a tag would build a resource the cluster rejects — the failure that
+ * is invisible until somebody tries it for real, which is why the fixture refuses it too.
+ * The defaults fill in what a fresh install has: the release's built-in image, the
+ * chart's `kagent-default` pool and a snapshot path.
  */
 
 /** The one this journey makes, reads back and removes. */
 const CREATED = "made-here";
+const CREATED_REF = `kagent/${CREATED}`;
+const PINNED = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
 
 /** Its rows, which is the surface that can say whether any of this happened. */
 const table = "harnesses-table";
@@ -39,11 +42,12 @@ const table = "harnesses-table";
  */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("harnesses: a harness is created, read and deleted", async ({ page }) => {
+test("harnesses: a harness is created, read, edited and deleted", async ({ page }) => {
   await test.step("1. the harnesses are listed", async () => {
     await loadPage(page, routes.harnesses, { title: "Agents" });
     await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId(table).getByText("k8s-agent", { exact: true })).toBeVisible();
+    await expect(page.getByTestId(table).getByText("kagent-default", { exact: true })).toBeVisible();
     await expect(page.getByTestId(table).getByRole("columnheader", { name: "Ready", exact: true })).toHaveCount(0);
   });
 
@@ -62,50 +66,45 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before);
   });
 
-  await test.step("3. the form requires a complete runtime configuration", async () => {
+  await test.step("3. the form explains itself and marks what the cluster requires", async () => {
+    await page.getByTestId("agents-create").click();
     await page.getByTestId("agents-new-harness").click();
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 
+    await expect(page.getByTestId("harness-intro")).toContainText("worker pool");
     await expectRequired(page, {
-      marked: [
-        "Namespace",
-        "Name",
-        "Runtime adapter",
-        "Workload image",
-        "Worker pool",
-        "Snapshot location",
-      ],
-      unmarked: [],
+      marked: ["Namespace", "Name", "Runtime adapter", "Worker pool", "Snapshot location"],
+      // The release ships an image for every built-in adapter; only bring-your-own needs one.
+      unmarked: ["Workload image"],
     });
   });
 
-  await test.step("4. an image that is not pinned cannot be submitted", async () => {
-    // Any namespace will do: this step is about the image, not about where the harness
-    // lives.
-    await selectFirstOption(page, "harness-namespace");
+  await test.step("4. the namespace's default pool and a snapshot path are filled in", async () => {
+    await selectOption(page, "harness-namespace", "kagent");
     await page.getByTestId("harness-name").fill(CREATED);
-    await page.getByTestId("harness-worker-pool").fill("kagent-default");
 
+    await expect(page.getByTestId("harness-worker-pool").locator("input")).toHaveValue("kagent-default");
+    await expect(page.getByTestId("harness-snapshot")).toHaveValue("s3://ate-snapshots/kagent/");
+  });
+
+  await test.step("5. an image that is not pinned cannot be submitted", async () => {
     await page.getByTestId("harness-image").fill("ghcr.io/example/runtime:latest");
     await expect(
       page.getByTestId("harness-create"),
       "a tag can move under a running agent, and the CRD refuses one",
     ).toBeDisabled();
+    await page.getByTestId("harness-image").fill("");
   });
 
-  await test.step("5. nor can one with no snapshot location", async () => {
-    // The CRD requires it. This form used to treat it as optional, so a harness could be
-    // submitted without one and the controller answered "Invalid Harness" — naming
-    // neither the field nor what was wrong with it.
-    await page
-      .getByTestId("harness-image")
-      .fill(`ghcr.io/example/runtime@sha256:${"a".repeat(64)}`);
+  await test.step("6. nor can one with no snapshot location", async () => {
+    // The CRD requires it, and the controller's answer to a missing one is "Invalid
+    // Harness" — naming neither the field nor what was wrong with it.
+    await page.getByTestId("harness-snapshot").fill("");
     await expect(page.getByTestId("harness-create")).toBeDisabled();
   });
 
-  await test.step("6. pinned by digest and told where snapshots go, it is created", async () => {
-    await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent");
-
+  await test.step("7. with the release image and the defaults, it is created", async () => {
+    await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent/");
     await expect(page.getByTestId("harness-create")).toBeEnabled();
     await page.getByTestId("harness-create").click();
 
@@ -114,9 +113,24 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     // thing exists" are different claims, and only the list checks the second.
     await page.waitForURL(/tab=harnesses/);
     await expect(page.getByTestId(table)).toContainText(CREATED, { timeout: 30_000 });
+    await expect(rowNamed(page, CREATED)).toContainText("Release default");
   });
 
-  await test.step("7. a rejected delete reports failure and keeps the row", async () => {
+  await test.step("8. it is edited in place, and the change reads back", async () => {
+    await page.getByTestId(`harness-edit-${CREATED_REF}`).click();
+    await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}/edit`));
+
+    await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
+    await expect(page.getByTestId("harness-name")).toBeDisabled();
+    await page.getByTestId("harness-image").fill(PINNED);
+    await page.getByTestId("harness-save").click();
+
+    await page.waitForURL(/tab=harnesses/);
+    await expect(rowNamed(page, CREATED)).toContainText(PINNED.slice(0, 20), { timeout: 30_000 });
+    await expect(rowNamed(page, CREATED)).not.toContainText("Release default");
+  });
+
+  await test.step("9. a rejected delete reports failure and keeps the row", async () => {
     await page.evaluate(() => {
       const url = new URL(window.location.href);
       url.searchParams.set("mock", "error");
@@ -136,7 +150,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     });
   });
 
-  await test.step("8. it is removed from the same tab, and the rest stays", async () => {
+  await test.step("10. it is removed from the same tab, and the rest stays", async () => {
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
 
@@ -150,7 +164,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before - 1);
   });
 
-  await test.step("9. an empty result leaves the tab standing, with no rows", async () => {
+  await test.step("11. an empty result leaves the tab standing, with no rows", async () => {
     // Last, after the delete: reaching these needs the backend answering differently and
     // `?mock=` is per-navigation, which discards what the journey made.
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
@@ -159,7 +173,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
   });
 
-  await test.step("10. a failed load is reported, not disguised as an empty tab", async () => {
+  await test.step("12. a failed load is reported, not disguised as an empty tab", async () => {
     await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("harnesses-error");

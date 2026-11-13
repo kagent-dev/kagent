@@ -110,6 +110,9 @@ LDFLAGS := -X github.com/kagent-dev/kagent/go/core/internal/version.Version=$(VE
 TOOLS_UV_VERSION ?= 0.10.4
 TOOLS_NODE_VERSION ?= 24
 TOOLS_PYTHON_VERSION ?= 3.13
+# Alpine release for the runtime stage of every Go image (go/Dockerfile, the
+# Claude and Codex harnesses, and the sandbox guest).
+ALPINE_VERSION ?= 3.24
 BUF_VERSION ?= v1.72.0
 BUF := go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 
@@ -123,6 +126,7 @@ TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_GO_VERSION=$(TOOLS_GO_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_UV_VERSION=$(TOOLS_UV_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_PYTHON_VERSION=$(TOOLS_PYTHON_VERSION)
 TOOLS_IMAGE_BUILD_ARGS += --build-arg TOOLS_NODE_VERSION=$(TOOLS_NODE_VERSION)
+TOOLS_IMAGE_BUILD_ARGS += --build-arg ALPINE_VERSION=$(ALPINE_VERSION)
 
 
 ##@ General
@@ -148,6 +152,8 @@ print-tools-versions: ## Print tools versions
 	@echo "Tools Go     : $(TOOLS_GO_VERSION)"
 	@echo "Tools UV     : $(TOOLS_UV_VERSION)"
 	@echo "Tools Node   : $(TOOLS_NODE_VERSION)"
+	@echo "Tools Python : $(TOOLS_PYTHON_VERSION)"
+	@echo "Tools Buf    : $(BUF_VERSION)"
 	@echo "Tools Weaver : $(WEAVER_VERSION)"
 	@echo "Tools Istio  : $(TOOLS_ISTIO_VERSION)"
 	@echo "Tools Argo CD: $(TOOLS_ARGO_CD_VERSION)"
@@ -212,6 +218,29 @@ semconv-verify: semconv-check semconv-policies-test semconv-generate ## Check th
 	@if test -n "$$(git status --porcelain -- $(SEMCONV_GENERATED_PATHS))"; then \
 		echo "Generated telemetry conventions are out of date. Run 'make semconv-generate' and commit the result:"; \
 		git status --short -- $(SEMCONV_GENERATED_PATHS); \
+		exit 1; \
+	fi
+
+##@ Diagrams
+
+# Kroki's Excalidraw renderer: POST a scene, receive an SVG. The Diagram Render
+# Check service container in ci.yaml must run the same image, and CI fails when
+# it does not; that job also sets KROKI_EXCALIDRAW_URL itself.
+KROKI_EXCALIDRAW_IMAGE ?= yuzutech/kroki-excalidraw:0.35.0@sha256:9697a29506d2bea4268586c402735754fe6eb0bcff974ca37676b27b1bd48bcb
+KROKI_EXCALIDRAW_URL ?= http://localhost:8004/
+DIAGRAM_SCENES = $(shell git ls-files -- '*.excalidraw')
+DIAGRAM_SVGS = $(DIAGRAM_SCENES:.excalidraw=.svg)
+
+.PHONY: diagrams-render
+diagrams-render: ## Render every Excalidraw scene, NAME.excalidraw, to NAME.svg beside it, starting the pinned renderer for the run unless one answers at KROKI_EXCALIDRAW_URL
+	@CONTAINER_RUNTIME=$(CONTAINER_RUNTIME) KROKI_EXCALIDRAW_IMAGE=$(KROKI_EXCALIDRAW_IMAGE) KROKI_EXCALIDRAW_URL=$(KROKI_EXCALIDRAW_URL) \
+		bash scripts/render-diagrams.sh $(DIAGRAM_SCENES)
+
+.PHONY: diagrams-check
+diagrams-check: diagrams-render ## Fail when a diagram SVG is missing or differs from a fresh render of its scene
+	@if test -n "$$(git status --porcelain -- $(DIAGRAM_SVGS))"; then \
+		echo "Diagrams are out of date. Run 'make diagrams-render' and commit the result:"; \
+		git status --short -- $(DIAGRAM_SVGS); \
 		exit 1; \
 	fi
 
@@ -345,7 +374,7 @@ controller-manifests: ## Regenerate CRD manifests in the Helm chart
 build-controller: ## Build and push the controller image
 build-controller: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
-		--build-arg BUILD_PACKAGE=core/cmd/controller/main.go \
+		--build-arg BUILD_PACKAGE=./core/cmd/controller \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
 
@@ -442,6 +471,7 @@ helm-test: helm-version
 .PHONY: helm-version
 helm-version: ## Stamp chart versions, update dependencies, and package kagent + kagent-crds
 helm-version: helm-cleanup
+	rm -rf "$(HELM_SOURCE_DIR)/kagent/charts" "$(HELM_SOURCE_DIR)/kagent-crds/charts"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent-crds/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent-crds/Chart.yaml"
 	VERSION=$(VERSION) envsubst < "$(HELM_SOURCE_DIR)/kagent/Chart-template.yaml" > "$(HELM_SOURCE_DIR)/kagent/Chart.yaml"
 	helm dependency update "$(HELM_SOURCE_DIR)/kagent"
@@ -603,6 +633,15 @@ helm-publish: helm-release
 	helm push "$(HELM_DIST_FOLDER)/kagent-$(VERSION).tgz" $(HELM_REPO)/kagent/helm
 
 ##@ Dev
+
+.PHONY: setup
+setup: create-kind-cluster ## Create the kind cluster if it does not exist
+
+.PHONY: deploy
+deploy: build kagent-cli-deploy ## Build images from this checkout and install them into the kind cluster
+
+.PHONY: run
+run: setup deploy ## Bootstrap a local dev environment
 
 .PHONY: kagent-cli-install
 kagent-cli-install: ## Build CLI locally, install kagent, and open the dashboard
