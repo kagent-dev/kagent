@@ -1884,8 +1884,10 @@ type RuntimeDefaultsConfig struct {
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,6,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	BuiltinTools     *BuiltinToolsConfig     `protobuf:"bytes,7,opt,name=builtin_tools,json=builtinTools,proto3" json:"builtin_tools,omitempty"`
 	// Per-agent runtime limits, in Kubernetes quantity notation.
-	Cpu           *string `protobuf:"bytes,8,opt,name=cpu,proto3,oneof" json:"cpu,omitempty"`
-	Memory        *string `protobuf:"bytes,9,opt,name=memory,proto3,oneof" json:"memory,omitempty"`
+	Cpu    *string `protobuf:"bytes,8,opt,name=cpu,proto3,oneof" json:"cpu,omitempty"`
+	Memory *string `protobuf:"bytes,9,opt,name=memory,proto3,oneof" json:"memory,omitempty"`
+	// Omitted or false keeps chat recaps enabled.
+	DisableRecaps bool `protobuf:"varint,10,opt,name=disable_recaps,json=disableRecaps,proto3" json:"disable_recaps,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1981,6 +1983,13 @@ func (x *RuntimeDefaultsConfig) GetMemory() string {
 		return *x.Memory
 	}
 	return ""
+}
+
+func (x *RuntimeDefaultsConfig) GetDisableRecaps() bool {
+	if x != nil {
+		return x.DisableRecaps
+	}
+	return false
 }
 
 // BuiltinToolsConfig configures built-in tools independently of skills.
@@ -2338,7 +2347,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\bendpoint\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01R\bendpoint\x12;\n" +
 	"\bprotocol\x18\x02 \x01(\tB\x1a\xbaH\x17r\x15R\x04grpcR\rhttp/protobufH\x00R\bprotocol\x88\x01\x01\x12G\n" +
 	"\atimeout\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x12\xbaH\x0f\xaa\x01\f\"\x04\b\x80\xa3\x052\x04\x10\xc0\x84=R\atimeoutB\v\n" +
-	"\t_protocol\"\x9a\a\n" +
+	"\t_protocol\"\xc1\a\n" +
 	"\x15RuntimeDefaultsConfig\x12L\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\x0fcontrolPlaneUrl\x88\x01\x01\x12A\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x01R\n" +
@@ -2350,7 +2359,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x11token_propagation\x18\x06 \x01(\v2(.kagent.config.v1.TokenPropagationConfigR\x10tokenPropagation\x12I\n" +
 	"\rbuiltin_tools\x18\a \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinTools\x12\x1e\n" +
 	"\x03cpu\x18\b \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x03R\x03cpu\x88\x01\x01\x12$\n" +
-	"\x06memory\x18\t \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x04R\x06memory\x88\x01\x01B\x14\n" +
+	"\x06memory\x18\t \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x04R\x06memory\x88\x01\x01\x12%\n" +
+	"\x0edisable_recaps\x18\n" +
+	" \x01(\bR\rdisableRecapsB\x14\n" +
 	"\x12_control_plane_urlB\x0e\n" +
 	"\f_gateway_urlB\x15\n" +
 	"\x13_max_content_lengthB\x06\n" +

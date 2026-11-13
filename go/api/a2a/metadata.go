@@ -14,6 +14,9 @@ const (
 	UsageMetadataKey            = MetadataPrefix + "usage"
 	// ThoughtMetadataKey marks a text part that summarizes the model's reasoning, not its answer.
 	ThoughtMetadataKey = MetadataPrefix + "thought"
+	// RecappingMetadataKey marks a non-terminal status update sent once the answer is done,
+	// while the runtime writes the chat recap before it ends the turn.
+	RecappingMetadataKey = MetadataPrefix + "recapping"
 )
 
 // IsThought reports whether a part summarizes the model's reasoning rather than answering.

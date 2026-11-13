@@ -2787,8 +2787,10 @@ type ADKRuntimeConfig struct {
 	TokenPropagation *TokenPropagationConfig `protobuf:"bytes,9,opt,name=token_propagation,json=tokenPropagation,proto3" json:"token_propagation,omitempty"`
 	Telemetry        *TelemetryConfig        `protobuf:"bytes,10,opt,name=telemetry,proto3" json:"telemetry,omitempty"`
 	BuiltinTools     *BuiltinToolsConfig     `protobuf:"bytes,11,opt,name=builtin_tools,json=builtinTools,proto3" json:"builtin_tools,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Omitted or false keeps chat recaps enabled.
+	DisableRecaps bool `protobuf:"varint,12,opt,name=disable_recaps,json=disableRecaps,proto3" json:"disable_recaps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ADKRuntimeConfig) Reset() {
@@ -2896,6 +2898,13 @@ func (x *ADKRuntimeConfig) GetBuiltinTools() *BuiltinToolsConfig {
 		return x.BuiltinTools
 	}
 	return nil
+}
+
+func (x *ADKRuntimeConfig) GetDisableRecaps() bool {
+	if x != nil {
+		return x.DisableRecaps
+	}
+	return false
 }
 
 var File_kagent_config_v1_adk_proto protoreflect.FileDescriptor
@@ -3215,7 +3224,7 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\x03key\x18\x03 \x01(\tR\x03key\x12\x1d\n" +
 	"\n" +
 	"version_id\x18\x04 \x01(\tR\tversionId\x12\x16\n" +
-	"\x06region\x18\x05 \x01(\tR\x06region\"\x83\a\n" +
+	"\x06region\x18\x05 \x01(\tR\x06region\"\xaa\a\n" +
 	"\x10ADKRuntimeConfig\x12J\n" +
 	"\x11control_plane_url\x18\x01 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\x0fcontrolPlaneUrl\x12?\n" +
 	"\vgateway_url\x18\x02 \x01(\tB\x1e\xbaH\x1b\xd8\x01\x01r\x162\x11^https?://[^/?#]+\x88\x01\x01R\n" +
@@ -3230,7 +3239,8 @@ const file_kagent_config_v1_adk_proto_rawDesc = "" +
 	"\ttelemetry\x18\n" +
 	" \x01(\v2!.kagent.config.v1.TelemetryConfigB\xf5\x01\xbaH\xf1\x01\xba\x01\xed\x01\n" +
 	"\"runtime.telemetry.service_identity\x12bruntime telemetry resource_attributes must not override compiled service.name or service.namespace\x1ac!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)R\ttelemetry\x12I\n" +
-	"\rbuiltin_tools\x18\v \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinToolsB\a\n" +
+	"\rbuiltin_tools\x18\v \x01(\v2$.kagent.config.v1.BuiltinToolsConfigR\fbuiltinTools\x12%\n" +
+	"\x0edisable_recaps\x18\f \x01(\bR\rdisableRecapsB\a\n" +
 	"\x05_portB\x15\n" +
 	"\x13_max_content_lengthBCZAgithub.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1b\x06proto3"
 

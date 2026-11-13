@@ -126,6 +126,11 @@ func TestHelmControllerConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, tools.GetRuntimeDefaults().GetBuiltinTools().GetDisableAskUser())
 	require.NotEqual(t, checksum, toolsChecksum)
+	require.False(t, tools.GetRuntimeDefaults().GetDisableRecaps())
+	recaps, recapsChecksum, err := render("config:\n  runtimeDefaults:\n    disableRecaps: true\n")
+	require.NoError(t, err)
+	require.True(t, recaps.GetRuntimeDefaults().GetDisableRecaps())
+	require.NotEqual(t, checksum, recapsChecksum)
 	_, _, err = render("config:\n  loging: {level: debug}\n")
 	require.ErrorContains(t, err, "unknown field")
 }

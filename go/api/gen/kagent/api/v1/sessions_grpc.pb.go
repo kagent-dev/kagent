@@ -19,15 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SessionService_CreateSession_FullMethodName      = "/kagent.api.v1.SessionService/CreateSession"
-	SessionService_GetSession_FullMethodName         = "/kagent.api.v1.SessionService/GetSession"
-	SessionService_ListSessions_FullMethodName       = "/kagent.api.v1.SessionService/ListSessions"
-	SessionService_UpdateSessionName_FullMethodName  = "/kagent.api.v1.SessionService/UpdateSessionName"
-	SessionService_RevertSession_FullMethodName      = "/kagent.api.v1.SessionService/RevertSession"
-	SessionService_DeleteSession_FullMethodName      = "/kagent.api.v1.SessionService/DeleteSession"
-	SessionService_CreateSessionShare_FullMethodName = "/kagent.api.v1.SessionService/CreateSessionShare"
-	SessionService_ListSessionShares_FullMethodName  = "/kagent.api.v1.SessionService/ListSessionShares"
-	SessionService_RevokeSessionShare_FullMethodName = "/kagent.api.v1.SessionService/RevokeSessionShare"
+	SessionService_CreateSession_FullMethodName         = "/kagent.api.v1.SessionService/CreateSession"
+	SessionService_GetSession_FullMethodName            = "/kagent.api.v1.SessionService/GetSession"
+	SessionService_ListSessions_FullMethodName          = "/kagent.api.v1.SessionService/ListSessions"
+	SessionService_UpdateSessionName_FullMethodName     = "/kagent.api.v1.SessionService/UpdateSessionName"
+	SessionService_SetSessionNameIfEmpty_FullMethodName = "/kagent.api.v1.SessionService/SetSessionNameIfEmpty"
+	SessionService_SetSessionRecap_FullMethodName       = "/kagent.api.v1.SessionService/SetSessionRecap"
+	SessionService_RevertSession_FullMethodName         = "/kagent.api.v1.SessionService/RevertSession"
+	SessionService_DeleteSession_FullMethodName         = "/kagent.api.v1.SessionService/DeleteSession"
+	SessionService_CreateSessionShare_FullMethodName    = "/kagent.api.v1.SessionService/CreateSessionShare"
+	SessionService_ListSessionShares_FullMethodName     = "/kagent.api.v1.SessionService/ListSessionShares"
+	SessionService_RevokeSessionShare_FullMethodName    = "/kagent.api.v1.SessionService/RevokeSessionShare"
 )
 
 // SessionServiceClient is the client API for SessionService service.
@@ -44,6 +46,11 @@ type SessionServiceClient interface {
 	GetSession(ctx context.Context, in *GetSessionRequest, opts ...grpc.CallOption) (*GetSessionResponse, error)
 	ListSessions(ctx context.Context, in *ListSessionsRequest, opts ...grpc.CallOption) (*ListSessionsResponse, error)
 	UpdateSessionName(ctx context.Context, in *UpdateSessionNameRequest, opts ...grpc.CallOption) (*UpdateSessionNameResponse, error)
+	// Names a conversation only while it has no name, so a generated title never
+	// replaces one a person chose.
+	SetSessionNameIfEmpty(ctx context.Context, in *SetSessionNameIfEmptyRequest, opts ...grpc.CallOption) (*SetSessionNameIfEmptyResponse, error)
+	// Stores the latest recap of the conversation, replacing any earlier one.
+	SetSessionRecap(ctx context.Context, in *SetSessionRecapRequest, opts ...grpc.CallOption) (*SetSessionRecapResponse, error)
 	// Restores a crashed runtime to its last snapshot without replaying its turn.
 	RevertSession(ctx context.Context, in *RevertSessionRequest, opts ...grpc.CallOption) (*RevertSessionResponse, error)
 	DeleteSession(ctx context.Context, in *DeleteSessionRequest, opts ...grpc.CallOption) (*DeleteSessionResponse, error)
@@ -94,6 +101,26 @@ func (c *sessionServiceClient) UpdateSessionName(ctx context.Context, in *Update
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateSessionNameResponse)
 	err := c.cc.Invoke(ctx, SessionService_UpdateSessionName_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sessionServiceClient) SetSessionNameIfEmpty(ctx context.Context, in *SetSessionNameIfEmptyRequest, opts ...grpc.CallOption) (*SetSessionNameIfEmptyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetSessionNameIfEmptyResponse)
+	err := c.cc.Invoke(ctx, SessionService_SetSessionNameIfEmpty_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sessionServiceClient) SetSessionRecap(ctx context.Context, in *SetSessionRecapRequest, opts ...grpc.CallOption) (*SetSessionRecapResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetSessionRecapResponse)
+	err := c.cc.Invoke(ctx, SessionService_SetSessionRecap_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +191,11 @@ type SessionServiceServer interface {
 	GetSession(context.Context, *GetSessionRequest) (*GetSessionResponse, error)
 	ListSessions(context.Context, *ListSessionsRequest) (*ListSessionsResponse, error)
 	UpdateSessionName(context.Context, *UpdateSessionNameRequest) (*UpdateSessionNameResponse, error)
+	// Names a conversation only while it has no name, so a generated title never
+	// replaces one a person chose.
+	SetSessionNameIfEmpty(context.Context, *SetSessionNameIfEmptyRequest) (*SetSessionNameIfEmptyResponse, error)
+	// Stores the latest recap of the conversation, replacing any earlier one.
+	SetSessionRecap(context.Context, *SetSessionRecapRequest) (*SetSessionRecapResponse, error)
 	// Restores a crashed runtime to its last snapshot without replaying its turn.
 	RevertSession(context.Context, *RevertSessionRequest) (*RevertSessionResponse, error)
 	DeleteSession(context.Context, *DeleteSessionRequest) (*DeleteSessionResponse, error)
@@ -191,6 +223,12 @@ func (UnimplementedSessionServiceServer) ListSessions(context.Context, *ListSess
 }
 func (UnimplementedSessionServiceServer) UpdateSessionName(context.Context, *UpdateSessionNameRequest) (*UpdateSessionNameResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateSessionName not implemented")
+}
+func (UnimplementedSessionServiceServer) SetSessionNameIfEmpty(context.Context, *SetSessionNameIfEmptyRequest) (*SetSessionNameIfEmptyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetSessionNameIfEmpty not implemented")
+}
+func (UnimplementedSessionServiceServer) SetSessionRecap(context.Context, *SetSessionRecapRequest) (*SetSessionRecapResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetSessionRecap not implemented")
 }
 func (UnimplementedSessionServiceServer) RevertSession(context.Context, *RevertSessionRequest) (*RevertSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RevertSession not implemented")
@@ -296,6 +334,42 @@ func _SessionService_UpdateSessionName_Handler(srv interface{}, ctx context.Cont
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SessionServiceServer).UpdateSessionName(ctx, req.(*UpdateSessionNameRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SessionService_SetSessionNameIfEmpty_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSessionNameIfEmptyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServiceServer).SetSessionNameIfEmpty(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SessionService_SetSessionNameIfEmpty_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServiceServer).SetSessionNameIfEmpty(ctx, req.(*SetSessionNameIfEmptyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SessionService_SetSessionRecap_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSessionRecapRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServiceServer).SetSessionRecap(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SessionService_SetSessionRecap_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServiceServer).SetSessionRecap(ctx, req.(*SetSessionRecapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -412,6 +486,14 @@ var SessionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateSessionName",
 			Handler:    _SessionService_UpdateSessionName_Handler,
+		},
+		{
+			MethodName: "SetSessionNameIfEmpty",
+			Handler:    _SessionService_SetSessionNameIfEmpty_Handler,
+		},
+		{
+			MethodName: "SetSessionRecap",
+			Handler:    _SessionService_SetSessionRecap_Handler,
 		},
 		{
 			MethodName: "RevertSession",

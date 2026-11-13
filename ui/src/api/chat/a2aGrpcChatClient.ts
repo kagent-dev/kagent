@@ -743,7 +743,12 @@ export class A2AGrpcChatClient implements ChatClient {
           const event = payload.value as {
             taskId: string;
             status?: TaskStatus;
+            metadata?: Record<string, unknown>;
           };
+          if (event.metadata?.[A2A_METADATA.recapping] === true) {
+            yield { type: "recapping" };
+            continue;
+          }
           const status = event.status;
           const message = status?.message;
           const parts = visibleParts(toParts(message?.parts, message?.role), { hideRejected: true });

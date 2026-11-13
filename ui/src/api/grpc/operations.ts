@@ -605,6 +605,13 @@ function toAgentInstance(instance: PbSession): AgentInstance {
           message: orUndefined(instance.failure.message),
         }
       : undefined,
+    recap: instance.recap
+      ? {
+          text: instance.recap.text,
+          turnCount: instance.recap.turnCount,
+          generatedAt: isoFrom(instance.recap.generatedAt),
+        }
+      : undefined,
     createdAt: isoFrom(instance.createdAt),
     updatedAt: isoFrom(instance.updatedAt),
   };

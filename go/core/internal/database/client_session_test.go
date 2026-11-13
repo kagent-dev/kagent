@@ -780,6 +780,189 @@ func TestSessionNameRoundTripsAndRenames(t *testing.T) {
 	}
 }
 
+func TestSetSessionNameIfEmpty(t *testing.T) {
+	ctx := t.Context()
+	newClient := func(t *testing.T, name string) (*Client, string) {
+		client := NewClient(setupTestDB(t), "public")
+		sessionFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+		id := uuid.NewString()
+		_, _, err := client.CreateSession(ctx, newSessionRequest(id, "assistant", "kagent", name), id)
+		require.NoError(t, err)
+		return client, id
+	}
+
+	t.Run("Given an unnamed session, when a name is set, assert that it is applied and persisted", func(t *testing.T) {
+		client, id := newClient(t, "")
+		session, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Generated title")
+		require.NoError(t, err)
+		require.True(t, applied)
+		require.Equal(t, "Generated title", session.GetName())
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Generated title", read.GetName())
+	})
+
+	t.Run("Given a named session, when a name is set, assert that the existing name is kept", func(t *testing.T) {
+		client, id := newClient(t, "Chosen by a person")
+		session, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Generated title")
+		require.NoError(t, err)
+		require.False(t, applied)
+		require.Equal(t, "Chosen by a person", session.GetName())
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Chosen by a person", read.GetName())
+	})
+
+	t.Run("Given a session renamed first, when a name is set afterwards, assert that the rename wins", func(t *testing.T) {
+		client, id := newClient(t, "")
+		_, err := client.UpdateSessionName(ctx, id, "alice", "Renamed by a person")
+		require.NoError(t, err)
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Generated title")
+		require.NoError(t, err)
+		require.False(t, applied)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Renamed by a person", read.GetName())
+	})
+
+	t.Run("Given a session owned by alice, when another user sets a name, assert that it is not found and unchanged", func(t *testing.T) {
+		client, id := newClient(t, "")
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, id, "bob", "Stolen")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, applied)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Empty(t, read.GetName())
+	})
+
+	t.Run("Given no such session, when a name is set, assert that it is not found", func(t *testing.T) {
+		client, _ := newClient(t, "")
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, uuid.NewString(), "alice", "Nothing")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, applied)
+	})
+
+	t.Run("Given a deleted session, when a name is set, assert that it is not found", func(t *testing.T) {
+		client, id := newClient(t, "")
+		_, err := markSessionReady(ctx, client, id, "runtime.example")
+		require.NoError(t, err)
+		require.NoError(t, deleteSession(ctx, client, id))
+		_, applied, err := client.SetSessionNameIfEmpty(ctx, id, "alice", "Resurrect")
+		require.ErrorIs(t, err, ErrNotFound)
+		require.False(t, applied)
+	})
+}
+
+func TestSetSessionRecap(t *testing.T) {
+	ctx := t.Context()
+	newClient := func(t *testing.T) (*Client, string) {
+		client := NewClient(setupTestDB(t), "public")
+		sessionFixture(t, client, ctx, "team-a", "revision-1", "assistant", "kagent")
+		id := uuid.NewString()
+		_, _, err := client.CreateSession(ctx, newSessionRequest(id, "assistant", "kagent", "Chosen by a person"), id)
+		require.NoError(t, err)
+		return client, id
+	}
+
+	t.Run("Given a session without a recap, when one is set, assert that text, turn count and time are stored", func(t *testing.T) {
+		client, id := newClient(t)
+		before := time.Now().Add(-time.Second)
+		session, err := client.SetSessionRecap(ctx, id, "alice", "Fixed the ingress.", 4)
+		require.NoError(t, err)
+		require.Equal(t, "Fixed the ingress.", session.GetRecap().GetText())
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Fixed the ingress.", read.GetRecap().GetText())
+		require.Equal(t, int32(4), read.GetRecap().GetTurnCount())
+		require.True(t, read.GetRecap().GetGeneratedAt().AsTime().After(before))
+	})
+
+	t.Run("Given a stored recap, when a later one covers more turns, assert that it replaces the earlier one", func(t *testing.T) {
+		client, id := newClient(t)
+		_, err := client.SetSessionRecap(ctx, id, "alice", "First recap.", 2)
+		require.NoError(t, err)
+		_, err = client.SetSessionRecap(ctx, id, "alice", "Second recap.", 5)
+		require.NoError(t, err)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Second recap.", read.GetRecap().GetText())
+		require.Equal(t, int32(5), read.GetRecap().GetTurnCount())
+	})
+
+	t.Run("Given a stored recap, when one covering the same turns is set, assert that it replaces the stored one", func(t *testing.T) {
+		client, id := newClient(t)
+		_, err := client.SetSessionRecap(ctx, id, "alice", "First recap.", 3)
+		require.NoError(t, err)
+		_, err = client.SetSessionRecap(ctx, id, "alice", "Retried recap.", 3)
+		require.NoError(t, err)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Retried recap.", read.GetRecap().GetText())
+	})
+
+	t.Run("Given a recap of turn 5, when a stale write for turn 3 arrives, assert that the stored recap is returned unchanged", func(t *testing.T) {
+		client, id := newClient(t)
+		_, err := client.SetSessionRecap(ctx, id, "alice", "Newer recap.", 5)
+		require.NoError(t, err)
+		session, err := client.SetSessionRecap(ctx, id, "alice", "Stale recap.", 3)
+		require.NoError(t, err)
+		require.Equal(t, "Newer recap.", session.GetRecap().GetText())
+		require.Equal(t, int32(5), session.GetRecap().GetTurnCount())
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Newer recap.", read.GetRecap().GetText())
+		require.Equal(t, int32(5), read.GetRecap().GetTurnCount())
+	})
+
+	t.Run("Given a ready session, when a recap is set, assert that the name and state are untouched", func(t *testing.T) {
+		client, id := newClient(t)
+		_, err := markSessionReady(ctx, client, id, "runtime.example")
+		require.NoError(t, err)
+		_, err = client.SetSessionRecap(ctx, id, "alice", "Fixed the ingress.", 4)
+		require.NoError(t, err)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "Chosen by a person", read.GetName())
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, read.GetState())
+		require.Equal(t, "Fixed the ingress.", read.GetRecap().GetText())
+	})
+
+	t.Run("Given a session, when a recap is set, assert that its updated time does not change", func(t *testing.T) {
+		client, id := newClient(t)
+		before, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		_, err = client.SetSessionRecap(ctx, id, "alice", "Fixed the ingress.", 4)
+		require.NoError(t, err)
+		after, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Equal(t, before.GetUpdatedAt().AsTime(), after.GetUpdatedAt().AsTime())
+	})
+
+	t.Run("Given a session owned by alice, when another user sets a recap, assert that it is not found and unchanged", func(t *testing.T) {
+		client, id := newClient(t)
+		_, err := client.SetSessionRecap(ctx, id, "bob", "Stolen.", 1)
+		require.ErrorIs(t, err, ErrNotFound)
+		read, err := client.GetSession(ctx, id, "alice")
+		require.NoError(t, err)
+		require.Nil(t, read.GetRecap())
+	})
+
+	t.Run("Given no such session, when a recap is set, assert that it is not found", func(t *testing.T) {
+		client, _ := newClient(t)
+		_, err := client.SetSessionRecap(ctx, uuid.NewString(), "alice", "Nothing.", 1)
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("Given a deleted session, when a recap is set, assert that it is not found", func(t *testing.T) {
+		client, id := newClient(t)
+		_, err := markSessionReady(ctx, client, id, "runtime.example")
+		require.NoError(t, err)
+		require.NoError(t, deleteSession(ctx, client, id))
+		_, err = client.SetSessionRecap(ctx, id, "alice", "Resurrect.", 1)
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+}
+
 func TestListSessionsFiltersByAgent(t *testing.T) {
 	c := NewClient(setupTestDB(t), "public")
 	ctx := t.Context()

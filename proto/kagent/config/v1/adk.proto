@@ -431,4 +431,6 @@ message ADKRuntimeConfig {
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
   BuiltinToolsConfig builtin_tools = 11;
+  // Omitted or false keeps chat recaps enabled.
+  bool disable_recaps = 12;
 }

@@ -99,6 +99,8 @@ export type ChatEvent =
    * rather than only after a reload.
    */
   | { type: "status"; state: ChatTurnState; taskId?: string; awaiting?: PendingRequest }
+  /** The answer is done and the runtime is writing a recap before it ends the stream. */
+  | { type: "recapping" }
   /** The turn failed. The stream ends after this. */
   | { type: "error"; error: Error };
 

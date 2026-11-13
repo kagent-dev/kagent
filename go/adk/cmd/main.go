@@ -13,6 +13,7 @@ import (
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
+	agentpkg "github.com/kagent-dev/kagent/go/adk/pkg/agent"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/adk/pkg/config"
@@ -178,6 +179,23 @@ func run(logLevel, host, port, configDir string) error {
 		return fmt.Errorf("create Google ADK Runner config: %w", err)
 	}
 
+	var titler a2a.Titler
+	var recapper a2a.Recapper
+	if agentConfig.Model != nil {
+		agentTitler, err := agentpkg.NewTitler(ctx, agentConfig.Model)
+		if err != nil {
+			return fmt.Errorf("create titler: %w", err)
+		}
+		titler = agentTitler
+		if !runtime.GetDisableRecaps() {
+			agentRecapper, err := agentpkg.NewRecapper(ctx, agentConfig.Model)
+			if err != nil {
+				return fmt.Errorf("create recapper: %w", err)
+			}
+			recapper = agentRecapper
+		}
+	}
+
 	stream := agentConfig.GetStream()
 	executor, err := a2a.NewKAgentExecutor(a2a.KAgentExecutorConfig{
 		RunnerConfig:   runnerConfig,
@@ -188,6 +206,10 @@ func run(logLevel, host, port, configDir string) error {
 		Output:         agentConfig.Output,
 		Flush:          providers.ForceFlush,
 		AgentName:      runtimeTelemetry.AgentName,
+
+		ControllerClient: controllerClient,
+		Titler:           titler,
+		Recapper:         recapper,
 	})
 	if err != nil {
 		return fmt.Errorf("create A2A executor: %w", err)

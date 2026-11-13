@@ -46,6 +46,10 @@ export const instances = {
   idle: "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
   /** Failed, with a reason the conversation's record page shows. */
   failed: "d4b02f87-3a55-4c18-9e6b-1f70c9a8e332",
+  /** Three turns and a recap that covers them. */
+  recapCurrent: "c71a5d3e-92b4-4f08-a6e1-5d0b83f2c917",
+  /** Four turns and a recap that covers only three. */
+  recapStale: "e03f8b64-17c9-4d52-b8a0-6a94d1e7f25b",
   /** Somebody else's: listable under its agent, and not openable. */
   someoneElses: "8e5f2b09-6c14-4a7d-83b0-9d1c7e40f5a6",
 } as const;

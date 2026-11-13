@@ -671,6 +671,13 @@ function agentInstanceMessage(
     failure: row.failure
       ? { reason: row.failure.reason ?? "", message: row.failure.message ?? "" }
       : undefined,
+    recap: row.recap
+      ? {
+          text: row.recap.text,
+          turnCount: row.recap.turnCount,
+          generatedAt: stamp(row.recap.generatedAt),
+        }
+      : undefined,
     createdAt: stamp(row.createdAt),
     updatedAt: stamp(row.updatedAt),
   };

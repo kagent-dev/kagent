@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -22,16 +23,22 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
+	"github.com/kagent-dev/kagent/go/adk/pkg/controllerclient"
 	"github.com/kagent-dev/kagent/go/adk/pkg/mcp"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	"github.com/kagent-dev/kagent/go/adk/pkg/telemetry"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 const (
 	sessionNameMaxLength = 20
+	defaultTitleTimeout  = 3 * time.Second
+	titleMaxLength       = 200
+	// titleGenerationTimeout bounds the model call that writes a title.
+	titleGenerationTimeout = 30 * time.Second
 )
 
 // KAgentExecutorConfig holds the configuration for KAgentExecutor.
@@ -44,6 +51,16 @@ type KAgentExecutorConfig struct {
 	Output         *configv1.ADKOutputConfig
 	Flush          func(context.Context) error
 	AgentName      string
+	// ControllerClient and Titler together enable first-turn chat titles.
+	ControllerClient *controllerclient.Client
+	Titler           Titler
+	// Recapper, with ControllerClient, enables chat recaps after longer chats.
+	Recapper Recapper
+}
+
+// Titler generates a short chat title from the first user message.
+type Titler interface {
+	Title(ctx context.Context, userMessage string) (string, error)
 }
 
 // KAgentExecutor keeps kagent's request/session glue around the upstream ADK
@@ -57,6 +74,13 @@ type KAgentExecutor struct {
 	flush                   func(context.Context) error
 	runningUsage            runningUsage
 	agentName               string
+	controllerClient        *controllerclient.Client
+	titler                  Titler
+	titleTimeout            time.Duration
+	recapper                Recapper
+	recapWait               time.Duration
+	recapMu                 sync.Mutex
+	recap                   *pendingRecap
 }
 
 type structuredOutput struct {
@@ -128,6 +152,11 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
 		agentName:               cfg.AgentName,
+		controllerClient:        cfg.ControllerClient,
+		titler:                  cfg.Titler,
+		titleTimeout:            defaultTitleTimeout,
+		recapper:                cfg.Recapper,
+		recapWait:               recapCleanupWait,
 	}, nil
 }
 
@@ -300,10 +329,13 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		// Run our own session management before upstream executor runs its prepareSession function.
 		// This ensures that we create a session that contains metadata like x-kagent-source,
 		// and the upstream executor will find this session already exists and skip creation.
-		if err := e.ensureSession(ctx, reqCtx.Message, userID, sessionID); err != nil {
+		created, err := e.ensureSession(ctx, reqCtx.Message, userID, sessionID)
+		if err != nil {
 			yield(nil, err)
 			return
 		}
+		e.cancelRecap()
+		finishTitle := e.startTitle(ctx, reqCtx.Message, sessionID, created)
 
 		hitlActivated := HitlActivated(ctx)
 		if hitlActivated && IsHITLResponse(reqCtx.Message) {
@@ -355,7 +387,21 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			stampStatusMessageTimeline(event)
 			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
+				recapStarted := false
+				if turnCompleted(event, err) {
+					finishTitle(ctx)
+					recapStarted = e.startRecap(ctx, userID, sessionID)
+				}
 				e.flushTurnSpans(ctx)
+				// Cleanup holds the terminal event while the recap generates, so tell the client why.
+				if recapStarted {
+					done := event.(*a2atype.TaskStatusUpdateEvent)
+					marker := a2atype.NewStatusUpdateEvent(done, a2atype.TaskStateWorking, nil)
+					marker.SetMeta(apia2a.RecappingMetadataKey, true)
+					if !yield(marker, nil) {
+						return
+					}
+				}
 			}
 			if !yield(event, err) {
 				return
@@ -410,6 +456,94 @@ func endsTurn(event a2atype.Event, err error) bool {
 	return state.Terminal() || state == a2atype.TaskStateInputRequired || state == a2atype.TaskStateAuthRequired
 }
 
+// startTitle begins title generation for a new session and returns the function
+// that waits for it and writes the title.
+func (e *KAgentExecutor) startTitle(ctx context.Context, message *a2atype.Message, sessionID string, created bool) func(context.Context) {
+	noop := func(context.Context) {}
+	if !created || e.titler == nil || e.controllerClient == nil {
+		return noop
+	}
+	// The call outlives the request but not the model's own deadline.
+	titleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), titleGenerationTimeout)
+	text := userText(message)
+	result := make(chan string, 1)
+	go func() {
+		defer cancel()
+		title, err := e.titler.Title(titleCtx, text)
+		if err != nil {
+			e.logger.DebugContext(ctx, "title generation failed", "error", err, "session_id", sessionID)
+			title = ""
+		}
+		result <- cleanTitle(title)
+	}()
+
+	var once sync.Once
+	return func(ctx context.Context) {
+		once.Do(func() {
+			timer := time.NewTimer(e.titleTimeout)
+			defer timer.Stop()
+			var title string
+			select {
+			case title = <-result:
+			case <-timer.C:
+				e.logger.DebugContext(ctx, "title not ready in time", "session_id", sessionID)
+			case <-ctx.Done():
+			}
+			if title == "" {
+				return
+			}
+			callCtx, callCancel := e.controllerClient.CallContext(ctx, "")
+			defer callCancel()
+			if _, err := e.controllerClient.SessionService().SetSessionNameIfEmpty(callCtx, &apiv1.SetSessionNameIfEmptyRequest{
+				SessionId: sessionID, Name: title,
+			}); err != nil {
+				e.logger.WarnContext(ctx, "failed to set session title", "error", err, "session_id", sessionID)
+			}
+		})
+	}
+}
+
+// userText joins the text parts of a message.
+func userText(message *a2atype.Message) string {
+	if message == nil {
+		return ""
+	}
+	var texts []string
+	for _, part := range message.Parts {
+		if part != nil && part.Text() != "" {
+			texts = append(texts, part.Text())
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
+// turnCompleted reports whether the event ends the turn successfully.
+func turnCompleted(event a2atype.Event, err error) bool {
+	if err != nil {
+		return false
+	}
+	update, ok := event.(*a2atype.TaskStatusUpdateEvent)
+	return ok && update.Status.State == a2atype.TaskStateCompleted
+}
+
+// cleanTitle turns raw model output into a short single-line chat title.
+func cleanTitle(raw string) string {
+	// Keep only the first non-empty line, with whitespace collapsed.
+	var title string
+	for l := range strings.SplitSeq(raw, "\n") {
+		if words := strings.Fields(l); len(words) > 0 {
+			title = strings.Join(words, " ")
+			break
+		}
+	}
+	title = strings.Trim(title, "\"'`“”‘’")
+	title = strings.TrimRight(title, ".,;:!?。 ")
+	if runes := []rune(title); len(runes) > titleMaxLength {
+		title = strings.TrimSpace(string(runes[:titleMaxLength]))
+	}
+	return title
+}
+
 // flushTurnSpans exports the turn's spans before the event that ends the turn
 // leaves the process.
 //
@@ -431,15 +565,15 @@ func (e *KAgentExecutor) flushTurnSpans(ctx context.Context) {
 
 // ensureSession ensures that a session exists for the given user and session ID.
 // If a session does not exist, it creates a new session with the given user and session ID.
-func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Message, userID, sessionID string) error {
+func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Message, userID, sessionID string) (bool, error) {
 	if e.sessionService == nil {
-		return nil
+		return false, nil
 	}
 	resp, err := e.sessionService.Get(ctx, &adksession.GetRequest{
 		AppName: e.appName, UserID: userID, SessionID: sessionID,
 	})
 	if err == nil && resp != nil && resp.Session != nil {
-		return nil
+		return false, nil
 	}
 	if err != nil {
 		e.logger.DebugContext(ctx, "session lookup failed, will create", "error", err, "session_id", sessionID)
@@ -459,9 +593,9 @@ func (e *KAgentExecutor) ensureSession(ctx context.Context, message *a2atype.Mes
 	if _, err := e.sessionService.Create(ctx, &adksession.CreateRequest{
 		AppName: e.appName, UserID: userID, State: state, SessionID: sessionID,
 	}); err != nil {
-		return fmt.Errorf("failed to create session: %w", err)
+		return false, fmt.Errorf("failed to create session: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // Cancel delegates cancellation to the upstream executor.
@@ -490,6 +624,7 @@ func (e *KAgentExecutor) Cleanup(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 	if cleaner, ok := e.builtin.(a2asrv.AgentExecutionCleaner); ok {
 		cleaner.Cleanup(ctx, reqCtx, result, cause)
 	}
+	e.waitRecap(ctx, reqCtx.ContextID)
 }
 
 // extractSessionName extracts session name from the first text part of a message.

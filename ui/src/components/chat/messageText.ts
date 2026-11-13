@@ -22,3 +22,16 @@ export function messageSummary(message: ChatMessage): string {
       .join(", ")
   );
 }
+
+/**
+ * The user turns the runtime counts: messages with typed text. Tool-approval and
+ * ask_user answers and file-only sends carry no text event, so they are left out.
+ */
+export function userTurnCount(messages: readonly ChatMessage[]): number {
+  return messages.filter(
+    (message) =>
+      message.role === "user" &&
+      messageText(message).trim() !== "" &&
+      !message.parts.some((part) => part.kind === "tool_approval" || part.kind === "ask_user"),
+  ).length;
+}

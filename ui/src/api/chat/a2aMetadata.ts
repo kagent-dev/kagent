@@ -2,6 +2,7 @@ export const A2A_METADATA = {
   outputSchemaSha256: "kagent.dev/a2a/output-schema-sha256",
   partType: "kagent.dev/a2a/part-type",
   timelinePosition: "kagent.dev/a2a/timeline-position",
+  recapping: "kagent.dev/a2a/recapping",
 } as const;
 
 export function metadataString(

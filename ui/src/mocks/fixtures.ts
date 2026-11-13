@@ -593,6 +593,42 @@ export const mockAgentInstances: AgentInstance[] = [
     createdAt: "2026-08-20T15:30:00Z",
     updatedAt: "2026-08-20T15:44:00Z",
   },
+  {
+    // Three turns, and a recap that covers all three.
+    id: "c71a5d3e-92b4-4f08-a6e1-5d0b83f2c917",
+    name: "Recap, current",
+    creator: MOCK_INSTANCE_CREATOR,
+    agent: "kagent/triage-on-claude",
+    preparedRevision: "rev-2b91d0e",
+    a2aAuthority: undefined,
+    state: "ready",
+    operation: "unspecified",
+    recap: {
+      text: "Checkout was crashlooping on a failing liveness probe. Raised the probe delay and the pods settled.",
+      turnCount: 3,
+      generatedAt: "2026-08-21T10:30:00Z",
+    },
+    createdAt: "2026-08-21T10:00:00Z",
+    updatedAt: "2026-08-21T10:30:00Z",
+  },
+  {
+    // Four turns, and a recap that stops at the third.
+    id: "e03f8b64-17c9-4d52-b8a0-6a94d1e7f25b",
+    name: "Recap, stale",
+    creator: MOCK_INSTANCE_CREATOR,
+    agent: "kagent/triage-on-claude",
+    preparedRevision: "rev-2b91d0e",
+    a2aAuthority: undefined,
+    state: "ready",
+    operation: "unspecified",
+    recap: {
+      text: "Checkout was crashlooping on a failing liveness probe. Raised the probe delay and the pods settled.",
+      turnCount: 3,
+      generatedAt: "2026-08-21T10:30:00Z",
+    },
+    createdAt: "2026-08-21T11:00:00Z",
+    updatedAt: "2026-08-21T11:40:00Z",
+  },
 ];
 
 /**
