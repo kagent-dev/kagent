@@ -127,14 +127,14 @@ function problemsIn(
   for (const [index, action] of (config.rowActions ?? []).entries()) {
     // Named by position until it has an id, so the message can be traced to the entry.
     const name = action.id ? `row action "${action.id}"` : `row action #${index + 1}`;
-    if (!action.id || !action.label || typeof action.onClick !== "function") {
-      problems.push(`${name} needs an id, a label and an onClick`);
-      continue;
+    if (!action.id || !action.label || (typeof action.onClick === "function") === (typeof action.link === "function")) {
+      problems.push(`${name} needs an id, a label and exactly one of link or onClick`);
     }
     if (!isExtensionRowMenuId(action.menuId)) {
       problems.push(`${name} targets unknown menu "${action.menuId}"`);
-      continue;
     }
+    // Checked even when the entry has other problems, so one pass reports them all.
+    if (!action.id) continue;
     const scoped = `${action.menuId}:${action.id}`;
     if (seenRowActionIds.has(scoped)) {
       problems.push(`${name} is declared twice`);

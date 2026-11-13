@@ -51,7 +51,44 @@ describe("RowActionsMenu", () => {
   const action = (over: Partial<ExtensionRowAction> = {}): AppExtensionConfig => ({
     id: "ext",
     name: "Ext",
-    rowActions: [{ id: "trace", menuId: "app_agents_agentsList_rowMenu", label: "Trace", onClick: vi.fn(), ...over }],
+    rowActions: [{ id: "trace", menuId: "app_agents_agentsList_rowMenu", label: "Trace", onClick: vi.fn(), ...over } as ExtensionRowAction],
+  });
+
+  it("renders a link action as a real link to the row's route", async () => {
+    renderMenu(undefined, [action({ link: ({ name }) => `/traces/${name}`, onClick: undefined })]);
+    const link = await screen.findByTestId("row-extension-trace-ns/web");
+    expect(link).toHaveAttribute("href", "/traces/web");
+    fireEvent.click(link);
+    expect(screen.getByTestId("where")).toHaveTextContent("/traces/web");
+  });
+
+  it("renders edit as a link, so it can open in a new tab", async () => {
+    renderMenu();
+    expect(await screen.findByTestId("row-edit-ns/web")).toHaveAttribute("href", "/agents/ns/web/edit");
+  });
+
+  it("navigates for a keypress on a link item, which never touches the anchor", async () => {
+    renderMenu();
+    const link = await screen.findByTestId("row-edit-ns/web");
+    fireEvent.keyDown(link.closest("li")!, { key: "Enter", keyCode: 13 });
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/agents/ns/web/edit"));
+  });
+
+  it("navigates for a click on the item outside the anchor", async () => {
+    renderMenu();
+    const item = (await screen.findByTestId("row-edit-ns/web")).closest("li")!;
+    fireEvent.click(item);
+    expect(screen.getByTestId("where")).toHaveTextContent("/agents/ns/web/edit");
+  });
+
+  it("leaves out a link action whose link throws or returns nothing, keeping the rest", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const throws = { id: "bad", menuId: "app_agents_agentsList_rowMenu", label: "Bad", link: () => { throw new Error("x"); } };
+    const empty = { id: "none", menuId: "app_agents_agentsList_rowMenu", label: "None", link: () => undefined };
+    renderMenu(undefined, [{ id: "ext", name: "Ext", rowActions: [throws, empty] as unknown as ExtensionRowAction[] }]);
+    expect(await screen.findByTestId("row-edit-ns/web")).toBeInTheDocument();
+    expect(screen.queryByText("Bad")).toBeNull();
+    expect(screen.queryByText("None")).toBeNull();
   });
 
   it("runs an installed extension's action, told which row it is for", async () => {

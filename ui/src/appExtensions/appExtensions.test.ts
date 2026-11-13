@@ -556,7 +556,7 @@ describe("validateAppExtensions", () => {
       thrown = String(error);
     }
     expect(thrown).toMatch(/declared twice/);
-    expect(thrown).toMatch(/needs an id, a label and an onClick/);
+    expect(thrown).toMatch(/needs an id, a label and exactly one of link or onClick/);
     expect(thrown).not.toMatch(/more than one extension/);
   });
 

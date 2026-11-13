@@ -351,20 +351,21 @@ and Delete: same look, keyboard navigation, and the menu closes once one is chos
 
 ```ts
 rowActions: [{
-  id: "editInNewWindow",
+  id: "openEditPage",
   menuId: "app_agents_agentsList_rowMenu",
-  label: "Edit in new window",
+  label: "Open edit page",
   visible: ({ name }) => !name.startsWith("system-"),   // optional; defaults to every row
-  onClick: ({ namespace, name }) => window.open(buildPath(paths.agentEdit, { namespace, name }), "_blank", "noopener"),
+  link: ({ namespace, name }) => buildPath(paths.agentEdit, { namespace, name }),   // or onClick, not both
 }]
 ```
 
 Menus are listed in `EXTENSION_ROW_MENU_IDS`. Items sit between "Create new … from
-this" and Delete. `visible` and `onClick` are told the row (`kind`, `namespace`,
-`name`). One that throws, or an `onClick` whose promise rejects, is logged and
+this" and Delete. `visible`, `link` and `onClick` are told the row (`kind`, `namespace`,
+`name`). `link` returns an in-app route and is drawn as a real link, so ctrl/middle-click
+opens a new tab; use `onClick` for anything else. One that throws, or an `onClick` whose promise rejects, is logged and
 contained: it never breaks the table, and `visible` throwing just leaves the item out.
-`id` must be unique per menu across every installed extension, and `label` and
-`onClick` are required; a violation is a startup error.
+`id` must be unique per menu across every installed extension, and an item needs a
+`label` and exactly one of `link` or `onClick`; a violation is a startup error.
 
 ## API overrides and transforms
 

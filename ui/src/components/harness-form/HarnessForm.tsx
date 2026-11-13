@@ -26,12 +26,16 @@ export function HarnessForm({
   onCancel,
 }: {
   harness?: Harness;
-  /** Prefills a create from this harness, in its namespace; nothing of it is edited. */
+  /**
+   * Prefills a create from this harness, in its namespace; nothing of it is edited.
+   * Not combinable with `namespace`: a copy pinned to another namespace would keep
+   * references to resources that only exist in the source's.
+   */
   copyOf?: Harness;
   namespace?: string;
   onSaved: (saved: Harness) => void;
   onCancel: () => void;
-}) {
+} & ({ copyOf?: undefined } | { namespace?: undefined })) {
   const theme = useTheme();
   const namespaces = useNamespaces();
   const invalidateHarnesses = useInvalidateHarnesses();

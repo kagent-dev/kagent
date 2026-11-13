@@ -32,8 +32,11 @@ export interface ExtensionRowContext {
  * Data rather than a component, so the host renders it as a real menu item: it looks
  * like Edit and Delete beside it, takes part in keyboard navigation, closes the menu
  * once chosen, and is absent for a row that `visible` rules out.
+ *
+ * Give it a `link` to go somewhere in the app (rendered as a real link, so ctrl/middle-click
+ * opens a new tab) or an `onClick` to do something else; exactly one of the two.
  */
-export interface ExtensionRowAction {
+export type ExtensionRowAction = {
   /** Unique within the menu. Also the item's key. */
   id: string;
   menuId: ExtensionRowMenuId;
@@ -43,11 +46,20 @@ export interface ExtensionRowAction {
    * Whether this row gets the item. Defaults to every row.
    *
    * Called on every render of the row, so keep it cheap; it may read state outside the
-   * row. Must be synchronous: a Promise hides the item and logs an error.
+   * row. Must be synchronous: a Promise is truthy, so it would show the item on every row.
    */
   visible?: (row: ExtensionRowContext) => boolean;
-  onClick: (row: ExtensionRowContext) => void | Promise<void>;
-}
+} & (
+  | {
+      /** An in-app route (router `to`) for this row. */
+      link: (row: ExtensionRowContext) => string;
+      onClick?: undefined;
+    }
+  | {
+      onClick: (row: ExtensionRowContext) => void | Promise<void>;
+      link?: undefined;
+    }
+);
 
 /** Contributions for one menu, in declaration order. */
 export function extensionRowActionsForMenu(
@@ -57,26 +69,48 @@ export function extensionRowActionsForMenu(
   return (actions ?? []).filter((action) => action.menuId === menuId);
 }
 
+// Visibility and links are computed on every render of every row, so a failure is reported
+// once per action and distinct failure, not each time. Held per action object, so nothing
+// outlives the action or leaks between tests, and a different error is still reported.
+const reported = new WeakMap<ExtensionRowAction, Set<string>>();
+
+function reportOnce(action: ExtensionRowAction, what: string, error: unknown) {
+  const seen = reported.get(action) ?? new Set<string>();
+  reported.set(action, seen);
+  const key = `${what}: ${String(error)}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  console.error(`Extension row action "${action.id}" ${what}`, error);
+}
+
 /** Whether `action` is offered for `row`. One that throws is left out, not the whole table. */
 export function isRowActionVisible(action: ExtensionRowAction, row: ExtensionRowContext): boolean {
   try {
     if (!action.visible) return true;
-    const result: unknown = action.visible(row);
-    // An `async` callback returns a Promise, which is always truthy: it would show the
-    // item on every row. Hide it and say why. Any other truthy value counts as true.
-    if (result instanceof Promise) {
-      console.error(`Extension row action "${action.id}": visible must be synchronous, got a Promise`);
-      return false;
-    }
-    return Boolean(result);
+    return action.visible(row);
   } catch (error) {
-    console.error(`Extension row action "${action.id}" crashed deciding visibility`, error);
+    reportOnce(action, "crashed deciding visibility", error);
     return false;
   }
 }
 
+/** The route a link action points at for `row`, or undefined when it throws or returns no route. */
+export function rowActionLink(
+  action: Extract<ExtensionRowAction, { link: unknown }>,
+  row: ExtensionRowContext,
+): string | undefined {
+  try {
+    const to = action.link(row);
+    if (typeof to === "string" && to) return to;
+    reportOnce(action, "returned no route from link", to);
+  } catch (error) {
+    reportOnce(action, "crashed building its link", error);
+  }
+  return undefined;
+}
+
 /** Runs `action` for `row`, containing a failure, sync or async, so a click never breaks the page. */
-export function runRowAction(action: ExtensionRowAction, row: ExtensionRowContext): void {
+export function runRowAction(action: Extract<ExtensionRowAction, { onClick: unknown }>, row: ExtensionRowContext): void {
   const report = (error: unknown) => console.error(`Extension row action "${action.id}" failed`, error);
   try {
     void Promise.resolve(action.onClick(row)).catch(report);

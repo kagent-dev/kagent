@@ -130,6 +130,22 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(rowNamed(page, CREATED)).not.toContainText("Release default");
   });
 
+  await test.step("8b. a copy opens prefilled, and saving it adds a second harness", async () => {
+    await rowAction(page, `kagent/${CREATED}`, "copy");
+    await page.waitForURL(/\/harnesses\/new\?from=/);
+
+    await expect(page.getByTestId("harness-name")).toHaveValue(`${CREATED}-copy`);
+    await expect(page.getByTestId("harness-image")).toHaveValue(PINNED);
+    await page.getByTestId("harness-create").click();
+
+    await page.waitForURL(/tab=harnesses/);
+    await expect(rowNamed(page, `${CREATED}-copy`)).toContainText(PINNED.slice(0, 20), { timeout: 30_000 });
+
+    // Removed again: the later steps find the original by a name this one contains.
+    await confirmDelete(page, `kagent/${CREATED}-copy`, { fromMenu: true });
+    await expect(page.getByTestId(table)).not.toContainText(`${CREATED}-copy`, { timeout: 30_000 });
+  });
+
   await test.step("9. a rejected delete reports failure and keeps the row", async () => {
     await page.evaluate(() => {
       const url = new URL(window.location.href);
