@@ -225,7 +225,7 @@ config:
       disableBash: false
       # Disable built-in questions across ADK agents, including Shared subagents.
       disableAskUser: false
-    # Stop agents from writing a recap of a chat after its third turn.
+    # Stop agents from writing a recap of a chat on every third turn.
     disableRecaps: false
     logging:
       level: info

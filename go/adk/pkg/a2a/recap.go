@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	// recapMinTurns is the number of user turns a chat needs before it gets a recap.
-	recapMinTurns = 3
+	// recapEveryTurns is the user turn interval between recaps: turns 3, 6, 9 and so on.
+	recapEveryTurns = 3
 	// recapTranscriptMaxLength caps the transcript, in characters, sent to the model.
 	recapTranscriptMaxLength = 20000
 	// recapMaxLength is the longest recap, in characters, the session API accepts.
@@ -87,7 +87,7 @@ type pendingRecap struct {
 	text string
 }
 
-// startRecap begins a recap when the chat has enough turns and reports whether it did.
+// startRecap begins a recap on every third turn and reports whether it did.
 func (e *KAgentExecutor) startRecap(ctx context.Context, userID, sessionID string) bool {
 	if e.recapper == nil || e.controllerClient == nil {
 		return false
@@ -99,7 +99,7 @@ func (e *KAgentExecutor) startRecap(ctx context.Context, userID, sessionID strin
 	}
 	events := slices.Collect(resp.Session.Events().All())
 	turns := countUserTurns(events)
-	if turns < recapMinTurns {
+	if turns == 0 || turns%recapEveryTurns != 0 {
 		return false
 	}
 	transcript := buildTranscript(events, recapTranscriptMaxLength)

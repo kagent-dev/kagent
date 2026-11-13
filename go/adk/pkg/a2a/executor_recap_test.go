@@ -335,6 +335,25 @@ func TestRecapsDisabled(t *testing.T) {
 	})
 }
 
+func TestRecapEveryThirdTurn(t *testing.T) {
+	t.Run("Given a chat running seven turns, when each turn completes and cleanup runs, assert that only turns three and six are marked and recapped", func(t *testing.T) {
+		f := newRecapFixture(t)
+		var markers, calls []int
+		for _, message := range []string{"q1", "q2", "q3", "q4", "q5", "q6", "q7"} {
+			f.whenTurnsRun(message).whenCleanupRuns()
+			markers = append(markers, len(f.recappingMarkers()))
+			calls = append(calls, len(f.recapper.calls()))
+		}
+		assert.Equal(t, []int{0, 0, 1, 0, 0, 1, 0}, markers)
+		assert.Equal(t, []int{0, 0, 1, 1, 1, 2, 2}, calls)
+		assert.Equal(t, []recapWrite{
+			{"context-1", "Debugged the login page", 3},
+			{"context-1", "Debugged the login page", 6},
+		}, f.server.snapshot())
+		assert.Contains(t, f.recapper.calls()[1], "User: q6")
+	})
+}
+
 func TestRecappingMarker(t *testing.T) {
 	t.Run("Given a chat on its third turn, when the turn completes, assert that one non-terminal marker precedes the completed event", func(t *testing.T) {
 		f := newRecapFixture(t).whenTurnsRun("q1", "q2", "q3")
