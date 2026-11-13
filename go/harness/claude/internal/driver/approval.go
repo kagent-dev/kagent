@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -31,6 +32,8 @@ type ApprovalBroker struct {
 	listener  net.Listener
 	server    *http.Server
 	mu        sync.Mutex
+	// elicitation is the URL elicitation the running process asked for, if any.
+	elicitation *observedElicitation
 }
 
 type permissionPromptInput struct {
@@ -51,6 +54,23 @@ type hookInput struct {
 	ToolID    string         `json:"tool_use_id"`
 	ToolName  string         `json:"tool_name"`
 	Input     map[string]any `json:"tool_input"`
+}
+
+type elicitationHookInput struct {
+	SessionID     string `json:"session_id"`
+	Event         string `json:"hook_event_name"`
+	Server        string `json:"mcp_server_name"`
+	Message       string `json:"message"`
+	Mode          string `json:"mode"`
+	URL           string `json:"url"`
+	ElicitationID string `json:"elicitation_id"`
+}
+
+type elicitationHookOutput struct {
+	Specific struct {
+		Event  string `json:"hookEventName"`
+		Action string `json:"action"`
+	} `json:"hookSpecificOutput"`
 }
 
 type hookOutput struct {
@@ -87,6 +107,7 @@ func NewApprovalBroker(protectedServers []string, directory string, maxBodyBytes
 	mux.Handle("/mcp", mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, nil))
 	mux.HandleFunc("/hook", b.handleHook)
 	mux.HandleFunc("/failure", b.handleFailure)
+	mux.HandleFunc("/elicitation", b.handleElicitation)
 	b.server = &http.Server{Handler: b.authorizeAndLimit(mux), ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = b.server.Serve(listener) }()
 	return b, nil
@@ -163,6 +184,7 @@ func (b *ApprovalBroker) SettingsJSON() ([]byte, error) {
 			PreToolUse         []matcher `json:"PreToolUse"`
 			PostToolUse        []matcher `json:"PostToolUse"`
 			PostToolUseFailure []matcher `json:"PostToolUseFailure"`
+			Elicitation        []matcher `json:"Elicitation"`
 		} `json:"hooks"`
 	}
 	settings.Permissions.Ask = []string{"AskUserQuestion"}
@@ -175,6 +197,7 @@ func (b *ApprovalBroker) SettingsJSON() ([]byte, error) {
 	settings.Hooks.PreToolUse = []matcher{{Matcher: "*", Hooks: []hook{{Type: "http", URL: "http://" + b.listener.Addr().String() + "/hook", Headers: b.Headers(), Timeout: 10}}}}
 	settings.Hooks.PostToolUseFailure = []matcher{{Matcher: "*", Hooks: []hook{{Type: "http", URL: "http://" + b.listener.Addr().String() + "/failure", Headers: b.Headers(), Timeout: 10}}}}
 	settings.Hooks.PostToolUse = settings.Hooks.PostToolUseFailure
+	settings.Hooks.Elicitation = []matcher{{Matcher: "*", Hooks: []hook{{Type: "http", URL: "http://" + b.listener.Addr().String() + "/elicitation", Headers: b.Headers(), Timeout: 10}}}}
 
 	return json.Marshal(settings)
 }
@@ -230,9 +253,20 @@ func (b *ApprovalBroker) resolveHook(r *http.Request, output *hookOutput) error 
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.elicitation != nil && b.elicitation.SessionID == input.SessionID {
+		stop := false
+		output.Continue = &stop
+		output.StopReason = waitingForURLElicitation
+		output.Specific.Reason = output.StopReason
+		return nil
+	}
 	record, err := loadDeferred(b.directory, int(b.maxBody))
 	if err != nil {
 		return err
+	}
+	if record != nil && record.Elicitation != nil {
+		// The call that asked for the URL already ended; this is a new call.
+		record = nil
 	}
 	if record != nil && record.Canceling && record.Phase != phaseCanceled && record.SessionID == input.SessionID && (record.Tool.ID != input.ToolID || record.Tool.Name != input.ToolName || !equalArguments(record.Tool.Input, input.Input)) {
 		stop := false
@@ -307,9 +341,73 @@ func (b *ApprovalBroker) handleFailure(w http.ResponseWriter, r *http.Request) {
 			stop := false
 			output.Continue = &stop
 			output.StopReason = "The task was canceled."
+		} else if b.elicitation != nil && b.elicitation.SessionID == input.SessionID {
+			stop := false
+			output.Continue = &stop
+			output.StopReason = waitingForURLElicitation
 		}
 		b.mu.Unlock()
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(output)
+}
+
+const waitingForURLElicitation = "Waiting for the person to answer an MCP server's request to open a URL."
+
+// handleElicitation answers Claude's Elicitation hook. A URL mode request is
+// canceled and kept for the driver, which parks it once the process ends; the
+// PreToolUse and PostToolUse hooks stop the turn before another tool runs. A
+// form is declined: what the person typed into it would reach the model's
+// context.
+func (b *ApprovalBroker) handleElicitation(w http.ResponseWriter, r *http.Request) {
+	var output elicitationHookOutput
+	output.Specific.Event, output.Specific.Action = "Elicitation", apia2a.URLElicitationDecline
+	input, err := decodeElicitationHook(r)
+	if err != nil {
+		logging.FromContext(r.Context()).ErrorContext(r.Context(), "failed to decode claude elicitation hook", "error", err)
+	} else if input.Mode == "url" && input.SessionID != "" && input.Server != "" && apia2a.ValidateElicitationURL(input.URL) == nil {
+		output.Specific.Action = apia2a.URLElicitationCancel
+		b.mu.Lock()
+		if b.elicitation == nil {
+			b.elicitation = &observedElicitation{SessionID: input.SessionID, Server: input.Server, Message: input.Message, URL: input.URL, ElicitationID: input.ElicitationID}
+		}
+		b.mu.Unlock()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(output)
+}
+
+func decodeElicitationHook(r *http.Request) (elicitationHookInput, error) {
+	var input elicitationHookInput
+	if r.Method != http.MethodPost {
+		return input, fmt.Errorf("Claude elicitation hook method %s is not POST", r.Method)
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		return input, fmt.Errorf("decode Claude elicitation hook: %w", err)
+	}
+	if input.Event != "Elicitation" {
+		return input, fmt.Errorf("Claude elicitation hook has event %q", input.Event)
+	}
+	return input, nil
+}
+
+// takeElicitation returns and clears the URL elicitation the process with
+// session asked for. One from any other session is discarded.
+func (b *ApprovalBroker) takeElicitation(session string) *observedElicitation {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	observed := b.elicitation
+	b.elicitation = nil
+	if observed == nil || observed.SessionID != session {
+		return nil
+	}
+	return observed
+}
+
+// clearElicitation drops a URL elicitation left by a process that ended
+// without parking it.
+func (b *ApprovalBroker) clearElicitation() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.elicitation = nil
 }

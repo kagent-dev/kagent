@@ -202,6 +202,9 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	if err != nil {
 		logging.FromContext(ctx).WarnContext(ctx, "failed to read the Claude session usage, so this turn adds no tokens that only its totals show", "error", err)
 	}
+	if d.config.ApprovalBroker != nil {
+		d.config.ApprovalBroker.clearElicitation()
+	}
 	if err := cmd.Start(); err != nil {
 		return runtime.Outcome{}, fmt.Errorf("start Claude: %w", err)
 	}
@@ -239,10 +242,22 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	go sendPrompt(ctx, stdin, message, gate, parseDone)
 	defer d.stopSession(session, sink)
 	outcome, err = d.consume(ctx, session, sink)
-	if err == nil && session.deferred != nil {
-		return d.parkDeferred(turn, session.sessionID, session.deferred)
+	if err != nil {
+		return outcome, err
 	}
-	return outcome, err
+	var elicitation *observedElicitation
+	if d.config.ApprovalBroker != nil {
+		elicitation = d.config.ApprovalBroker.takeElicitation(session.sessionID)
+	}
+	switch {
+	case session.deferred != nil && elicitation != nil:
+		return runtime.Outcome{}, fmt.Errorf("Claude deferred a tool while waiting for a URL elicitation")
+	case session.deferred != nil:
+		return d.parkDeferred(turn, session.sessionID, session.deferred)
+	case elicitation != nil && outcome.Failure == nil && ctx.Err() == nil:
+		return d.parkElicitation(turn, session.sessionID, elicitation)
+	}
+	return outcome, nil
 }
 
 // sessionUsage reads the session totals Claude Code saved when its last process ended. A resumed
