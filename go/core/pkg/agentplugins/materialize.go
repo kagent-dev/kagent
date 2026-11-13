@@ -2,7 +2,9 @@ package agentplugins
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net"
@@ -26,6 +28,7 @@ const (
 )
 
 var pluginNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$`)
+var packageCacheEntryPattern = regexp.MustCompile(`^(source-[a-f0-9]{64}|(standalone|plugin)-[0-9]+(\.source)?|\.fetch-.+)$`)
 
 // Paths contains the package cache and selected-skill destinations.
 type Paths struct {
@@ -83,12 +86,9 @@ func (m Materialization) ClaudeFormatPluginRoots() []string {
 // Materialize fetches Agent Plugin resources and copies explicitly selected
 // skills into their runtime directory; Claude-format plugins are kept whole.
 // It does not load runtime configuration.
+// The caller must serialize access to the package cache.
 func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
-	plugins, err := materializeResources(ctx, resources, paths)
-	if err != nil {
-		return Materialization{}, err
-	}
-	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+	return materialize(ctx, resources, paths, fetchArtifact)
 }
 
 // LoadMCP resolves standard MCP configuration from a materialization. The
@@ -107,7 +107,34 @@ func LoadMCP(ctx context.Context, materialization Materialization, dataRoot stri
 	return result, nil
 }
 
-func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
+// fetchFunc writes the contents of a Git or S3 source into an empty staging
+// directory. Materialize publishes the directory only when fetchFunc succeeds
+// and the selected package is valid.
+type fetchFunc func(ctx context.Context, source agentplugin.Source, staging string) error
+
+func fetchArtifact(ctx context.Context, source agentplugin.Source, staging string) error {
+	switch {
+	case source.Git != nil:
+		return skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, staging)
+	case source.S3 != nil:
+		return skillsinit.FetchS3(ctx, skillsinit.S3Ref{
+			URI: "s3://" + source.S3.Bucket + "/" + source.S3.Key, Dest: staging,
+			Endpoint: source.S3.Endpoint, Region: source.S3.Region, VersionID: source.S3.VersionID,
+		})
+	default:
+		return fmt.Errorf("artifact source is required")
+	}
+}
+
+func materialize(ctx context.Context, resources agentplugin.Resources, paths Paths, fetch fetchFunc) (Materialization, error) {
+	plugins, err := materializeResources(ctx, resources, paths, fetch)
+	if err != nil {
+		return Materialization{}, err
+	}
+	return Materialization{SkillsDirectory: paths.Skills, plugins: plugins}, nil
+}
+
+func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths, fetch fetchFunc) ([]materializedPlugin, error) {
 	selectedSkills := make([]string, 0, len(resources.Skills))
 	for _, skill := range resources.Skills {
 		selectedSkills = append(selectedSkills, skill.Name)
@@ -126,22 +153,35 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 		return nil, fmt.Errorf("create package directory: %w", err)
 	}
 
-	for i, skill := range resources.Skills {
-		root := filepath.Join(paths.Packages, fmt.Sprintf("standalone-%d", i))
-		sourceRoot, err := fetchSource(ctx, skill.Source, root, "SKILL.md")
+	activePackages := make(map[string]struct{})
+	var mountedPackages []string
+	for _, skill := range resources.Skills {
+		root, err := packageDirectory(paths.Packages, skill.Source)
+		if err != nil {
+			return nil, err
+		}
+		sourceRoot, err := fetchSource(ctx, skill.Source, root, fetch, "SKILL.md")
 		if err != nil {
 			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
 		}
 		if err := copySkill(sourceRoot, filepath.Join(paths.Skills, skill.Name)); err != nil {
 			return nil, fmt.Errorf("materialize skill %q: %w", skill.Name, err)
 		}
+		if skill.Source.Directory == "" {
+			activePackages[filepath.Base(root)] = struct{}{}
+		} else {
+			mountedPackages = append(mountedPackages, skill.Source.Directory)
+		}
 	}
 
 	pluginNames := make(map[string]struct{})
 	plugins := make([]materializedPlugin, 0, len(resources.Plugins))
 	for i, plugin := range resources.Plugins {
-		root := filepath.Join(paths.Packages, fmt.Sprintf("plugin-%d", i))
-		pluginRoot, err := fetchSource(ctx, plugin.Source, root, "plugin.json", claudeManifest)
+		root, err := packageDirectory(paths.Packages, plugin.Source)
+		if err != nil {
+			return nil, err
+		}
+		pluginRoot, err := fetchSource(ctx, plugin.Source, root, fetch, "plugin.json", claudeManifest)
 		if err != nil {
 			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
@@ -162,8 +202,46 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 			}
 		}
 		plugins = append(plugins, materializedPlugin{name: manifest.Name, root: pluginRoot, claudeFormat: claudeFormat})
+		if plugin.Source.Directory == "" {
+			activePackages[filepath.Base(root)] = struct{}{}
+		} else {
+			mountedPackages = append(mountedPackages, plugin.Source.Directory)
+		}
+	}
+	if err := prunePackages(paths.Packages, activePackages, mountedPackages); err != nil {
+		return nil, fmt.Errorf("prune package cache: %w", err)
 	}
 	return plugins, nil
+}
+
+func packageDirectory(packages string, source agentplugin.Source) (string, error) {
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return "", fmt.Errorf("encode artifact source: %w", err)
+	}
+	return filepath.Join(packages, fmt.Sprintf("source-%x", sha256.Sum256(raw))), nil
+}
+
+func prunePackages(packages string, active map[string]struct{}, mounted []string) error {
+	entries, err := os.ReadDir(packages)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if _, keep := active[entry.Name()]; keep || !packageCacheEntryPattern.MatchString(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(packages, entry.Name())
+		if slices.ContainsFunc(mounted, func(root string) bool {
+			return pathWithin(root, path) || pathWithin(path, root)
+		}) {
+			continue
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateSkillSelections(names []string) error {
@@ -189,7 +267,7 @@ func validateSkillName(name string) error {
 
 const claudeManifest = ".claude-plugin/plugin.json"
 
-func fetchSource(ctx context.Context, source agentplugin.Source, destination string, requiredFiles ...string) (string, error) {
+func fetchSource(ctx context.Context, source agentplugin.Source, destination string, fetch fetchFunc, requiredFiles ...string) (root string, resultErr error) {
 	selected := 0
 	if source.Directory != "" {
 		selected++
@@ -213,42 +291,60 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		}
 		return root, nil
 	}
-	if _, err := os.Stat(destination); err == nil {
+	if _, err := os.Stat(destination); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	} else if err == nil {
 		root, err := validatedPackageRoot(destination, source.Path)
 		if err == nil {
-			for _, requiredFile := range requiredFiles {
-				if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
-					return root, nil
-				} else if err != nil && !os.IsNotExist(err) {
-					return "", err
-				}
+			if err := requirePackageFile(root, requiredFiles); err == nil {
+				return root, nil
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return "", err
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return "", err
 		}
-	} else if !os.IsNotExist(err) {
-		return "", err
 	}
 	if err := os.RemoveAll(destination); err != nil {
 		return "", err
 	}
-	switch {
-	case source.Git != nil:
-		if err := skillsinit.CloneGitCommit(source.Git.URL, source.Git.Commit, destination); err != nil {
-			return "", err
+	staging, err := os.MkdirTemp(filepath.Dir(destination), ".fetch-")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := os.RemoveAll(staging); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("remove staged artifact: %w", err))
 		}
-	case source.S3 != nil:
-		ref := skillsinit.S3Ref{
-			URI: "s3://" + source.S3.Bucket + "/" + source.S3.Key, Dest: destination,
-			Endpoint: source.S3.Endpoint, Region: source.S3.Region, VersionID: source.S3.VersionID,
-		}
-		if err := skillsinit.FetchS3(ctx, ref); err != nil {
-			return "", err
-		}
-	default:
-		return "", fmt.Errorf("artifact source is required")
+	}()
+	if err := fetch(ctx, source, staging); err != nil {
+		return "", err
+	}
+	root, err = validatedPackageRoot(staging, source.Path)
+	if err != nil {
+		return "", err
+	}
+	if err := requirePackageFile(root, requiredFiles); err != nil {
+		return "", err
+	}
+	if err := os.Rename(staging, destination); err != nil {
+		return "", fmt.Errorf("publish artifact: %w", err)
 	}
 	return validatedPackageRoot(destination, source.Path)
+}
+
+func requirePackageFile(root string, requiredFiles []string) error {
+	for _, requiredFile := range requiredFiles {
+		if info, err := os.Stat(filepath.Join(root, filepath.FromSlash(requiredFile))); err == nil && info.Mode().IsRegular() {
+			return nil
+		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	if len(requiredFiles) != 0 {
+		return fmt.Errorf("artifact must contain one of %v: %w", requiredFiles, os.ErrNotExist)
+	}
+	return nil
 }
 
 func validatedPackageRoot(root, relative string) (string, error) {

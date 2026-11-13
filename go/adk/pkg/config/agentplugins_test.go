@@ -1,10 +1,8 @@
 package config
 
 import (
-	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
@@ -19,23 +17,15 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 		Skills:   filepath.Join(root, "skills"),
 		Data:     filepath.Join(root, "data"),
 	}
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
+	source := agentplugin.Source{Directory: t.TempDir()}
+	if err := os.WriteFile(filepath.Join(source.Directory, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	agentConfig := &configv1.ADKAgentConfig{
 		AgentPlugins: PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "root", Source: source}}}),
 		SubAgents:    []*configv1.ADKAgentConfig{{Name: "child", AgentPlugins: PluginConfig(agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "child", Source: source}}})}},
 	}
-	for _, path := range []string{
-		filepath.Join(paths.Packages, "standalone-0"),
-		filepath.Join(paths.Packages, "subagents", "0", "standalone-0"),
-	} {
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("# Skill"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err != nil {
+	if err := MaterializeAgentPlugins(t.Context(), agentConfig, paths); err != nil {
 		t.Fatal(err)
 	}
 	if agentConfig.SkillsDirectory == agentConfig.SubAgents[0].SkillsDirectory {
@@ -54,17 +44,16 @@ func TestMaterializeAgentPluginsIsolatesSubagentSkills(t *testing.T) {
 func TestMaterializeAgentPluginsRejectsClaudeFormatPlugin(t *testing.T) {
 	root := t.TempDir()
 	paths := AgentPluginPaths{Packages: filepath.Join(root, "packages"), Skills: filepath.Join(root, "skills"), Data: filepath.Join(root, "data")}
-	// Pre-seeded package cache: Materialize reuses it instead of fetching.
-	manifest := filepath.Join(paths.Packages, "plugin-0", ".claude-plugin", "plugin.json")
+	source := agentplugin.Source{Directory: t.TempDir()}
+	manifest := filepath.Join(source.Directory, ".claude-plugin", "plugin.json")
 	if err := os.MkdirAll(filepath.Dir(manifest), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(manifest, []byte(`{"name":"acme-claude"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	source := agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}}
 	agentConfig := &configv1.ADKAgentConfig{AgentPlugins: PluginConfig(agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: source}}})}
-	if err := MaterializeAgentPlugins(context.Background(), agentConfig, paths); err == nil {
+	if err := MaterializeAgentPlugins(t.Context(), agentConfig, paths); err == nil {
 		t.Fatal("MaterializeAgentPlugins() accepted a Claude-format plugin")
 	}
 }
