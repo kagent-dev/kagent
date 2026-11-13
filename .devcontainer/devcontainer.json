@@ -52,5 +52,9 @@
   //mount docker directly on the host
   "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
 
-  "postCreateCommand": "KIND_KUBECONFIG_SERVER_HOST=host.docker.internal make create-kind-cluster"
+  "containerEnv": {
+    "KIND_USE_INTERNAL_ENDPOINT": "true"
+  },
+
+  "postCreateCommand": "make create-kind-cluster"
 }

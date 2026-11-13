@@ -63,6 +63,10 @@ endif
 
 KIND_CLUSTER_NAME ?= kagent
 KIND_IMAGE_VERSION ?= 1.35.0
+KIND_INTERNAL_ENDPOINT_ARG :=
+ifeq ($(KIND_USE_INTERNAL_ENDPOINT),true)
+  KIND_INTERNAL_ENDPOINT_ARG := --internal
+endif
 # Written by use-kind-cluster. CLI installs use it so they always target the Kind
 # cluster, whatever the current kubectl context is.
 KIND_KUBECONFIG ?= /tmp/kind-config
@@ -440,8 +444,11 @@ create-kind-cluster: ## Create a local kind cluster with MetalLB
 
 .PHONY: use-kind-cluster
 use-kind-cluster: ## Merge kind kubeconfig and set kagent as the default namespace
-	kind get kubeconfig --name $(KIND_CLUSTER_NAME) > $(KIND_KUBECONFIG)
-	KUBECONFIG=~/.kube/config:$(KIND_KUBECONFIG) kubectl config view --merge --flatten > ~/.kube/config.tmp && mv ~/.kube/config.tmp ~/.kube/config && chmod $(KUBECONFIG_PERM) ~/.kube/config
+	kind get kubeconfig --name $(KIND_CLUSTER_NAME) $(KIND_INTERNAL_ENDPOINT_ARG) > $(KIND_KUBECONFIG)
+	KUBECONFIG=$(KIND_KUBECONFIG):~/.kube/config \
+		kubectl config view --merge --flatten > ~/.kube/config.tmp
+	mv ~/.kube/config.tmp ~/.kube/config
+	chmod $(KUBECONFIG_PERM) ~/.kube/config
 	kubectl --context kind-$(KIND_CLUSTER_NAME) create namespace kagent || true
 	kubectl config set-context kind-$(KIND_CLUSTER_NAME) --namespace kagent || true
 

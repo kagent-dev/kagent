@@ -65,6 +65,14 @@ else
     --wait 60s
 fi
 
+if [ "${KIND_USE_INTERNAL_ENDPOINT:-false}" = true ]; then
+  # The devcontainer shares the host Docker socket, not its loopback network.
+  if [ "$(docker inspect -f '{{if index .NetworkSettings.Networks "kind"}}true{{end}}' "$(hostname)")" != true ]; then
+    docker network connect kind "$(hostname)"
+  fi
+  kind export kubeconfig --name "${KIND_CLUSTER_NAME}" --internal
+fi
+
 # 3. Add the registry config to the nodes
 #
 # This is necessary because localhost resolves to loopback addresses that are
