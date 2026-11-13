@@ -36,32 +36,45 @@ func TestReferenceWatchesWithDiscoveryDisabled(t *testing.T) {
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
 	kube, err := client.New(config, client.Options{Scheme: scheme})
 	require.NoError(t, err)
-	require.NoError(t, kube.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "references"}}))
-	server := testServer()
-	server.ResourceVersion = ""
-	server.Namespace = "references"
-	server.Labels = map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}
-	server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "credentials", Key: "key"}}}
-	require.NoError(t, kube.Create(ctx, server))
-	expect := func(reason string) {
-		t.Helper()
-		require.Eventually(t, func() bool {
-			updated := &v1alpha3.RemoteMCPServer{}
-			if err := kube.Get(ctx, client.ObjectKeyFromObject(server), updated); err != nil {
-				return false
-			}
-			condition := apimeta.FindStatusCondition(updated.Status.Conditions, v1alpha3.RemoteMCPServerConditionTypeResolvedRefs)
-			accepted := apimeta.FindStatusCondition(updated.Status.Conditions, "Accepted")
-			return condition != nil && condition.Reason == reason && condition.ObservedGeneration == server.Generation && accepted != nil && accepted.Reason == "DiscoveryDisabled"
-		}, 10*time.Second, 10*time.Millisecond)
+	scenarios := []struct {
+		name     string
+		labels   map[string]string
+		actorJWT *v1alpha3.ActorJWT
+	}{
+		{name: "label", labels: map[string]string{consts.DiscoveryLabel: consts.DiscoveryDisabled}},
+		{name: "actor-jwt", actorJWT: &v1alpha3.ActorJWT{Audiences: []string{"mcp"}}},
 	}
-	expect(v1alpha3.RemoteMCPServerReasonSecretNotFound)
-	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: "credentials"}}
-	require.NoError(t, kube.Create(ctx, secret))
-	expect(v1alpha3.RemoteMCPServerReasonSecretKeyNotFound)
-	secret.Data = map[string][]byte{"key": []byte("example")}
-	require.NoError(t, kube.Update(ctx, secret))
-	expect("Resolved")
-	require.NoError(t, kube.Delete(ctx, secret))
-	expect(v1alpha3.RemoteMCPServerReasonSecretNotFound)
+	for _, scenario := range scenarios {
+		t.Run("Given discovery disabled by "+scenario.name+", when a referenced Secret changes, assert that reference status follows its keys", func(t *testing.T) {
+			require.NoError(t, kube.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: scenario.name}}))
+			server := testServer()
+			server.ResourceVersion = ""
+			server.Namespace = scenario.name
+			server.Labels = scenario.labels
+			server.Spec.ActorJWT = scenario.actorJWT
+			server.Spec.HeadersFrom = []v1alpha3.ValueRef{{Name: "X-Key", ValueFrom: &v1alpha3.ValueSource{Type: v1alpha3.SecretValueSource, Name: "credentials", Key: "key"}}}
+			require.NoError(t, kube.Create(ctx, server))
+			expect := func(reason string, status metav1.ConditionStatus) {
+				t.Helper()
+				require.Eventually(t, func() bool {
+					updated := &v1alpha3.RemoteMCPServer{}
+					if err := kube.Get(ctx, client.ObjectKeyFromObject(server), updated); err != nil {
+						return false
+					}
+					condition := apimeta.FindStatusCondition(updated.Status.Conditions, v1alpha3.RemoteMCPServerConditionTypeResolvedRefs)
+					accepted := apimeta.FindStatusCondition(updated.Status.Conditions, "Accepted")
+					return condition != nil && condition.Status == status && condition.Reason == reason && condition.ObservedGeneration == server.Generation && accepted != nil && accepted.Status == metav1.ConditionTrue && accepted.Reason == "DiscoveryDisabled"
+				}, 10*time.Second, 10*time.Millisecond)
+			}
+			expect(v1alpha3.RemoteMCPServerReasonSecretNotFound, metav1.ConditionFalse)
+			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: server.Namespace, Name: "credentials"}}
+			require.NoError(t, kube.Create(ctx, secret))
+			expect(v1alpha3.RemoteMCPServerReasonSecretKeyNotFound, metav1.ConditionFalse)
+			secret.Data = map[string][]byte{"key": []byte("example")}
+			require.NoError(t, kube.Update(ctx, secret))
+			expect("Resolved", metav1.ConditionTrue)
+			require.NoError(t, kube.Delete(ctx, secret))
+			expect(v1alpha3.RemoteMCPServerReasonSecretNotFound, metav1.ConditionFalse)
+		})
+	}
 }
