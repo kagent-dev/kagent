@@ -311,6 +311,20 @@ func TestGenaiContentsToOpenAIMessages(t *testing.T) {
 			t.Errorf("arguments = %q, want {}", got)
 		}
 	})
+
+	t.Run("model text turn in multi-turn history becomes assistant message", func(t *testing.T) {
+		contents := []*genai.Content{
+			{Role: string(genai.RoleUser), Parts: []*genai.Part{{Text: "What is 2+2?"}}},
+			{Role: string(genai.RoleModel), Parts: []*genai.Part{{Text: "4"}}},
+			{Role: string(genai.RoleUser), Parts: []*genai.Part{{Text: "And times 3?"}}},
+		}
+		msgs, _ := genaiContentsToOpenAIMessages(contents, nil)
+		require.Len(t, msgs, 3)
+		require.NotNil(t, msgs[0].OfUser)
+		require.NotNil(t, msgs[1].OfAssistant, "model turn must be sent as assistant, got %#v", msgs[1])
+		require.Equal(t, "4", msgs[1].OfAssistant.Content.OfString.Value)
+		require.NotNil(t, msgs[2].OfUser)
+	})
 }
 
 func TestApplyOpenAIConfig(t *testing.T) {
