@@ -107,6 +107,36 @@ func TestGetAgentByName(t *testing.T) {
 	assert.Equal(t, "ready-agent", agent.Name)
 }
 
+// fakeAgentLifecycleClient records DeleteAgent requests.
+type fakeAgentLifecycleClient struct {
+	deleteRequest *apiv1.DeleteAgentRequest
+}
+
+func (f *fakeAgentLifecycleClient) CreateAgent(context.Context, *apiv1.CreateAgentRequest) (*apiv1.CreateAgentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not used")
+}
+
+func (f *fakeAgentLifecycleClient) UpdateAgent(context.Context, *apiv1.UpdateAgentRequest) (*apiv1.UpdateAgentResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "not used")
+}
+
+func (f *fakeAgentLifecycleClient) DeleteAgent(_ context.Context, request *apiv1.DeleteAgentRequest) (*apiv1.DeleteAgentResponse, error) {
+	f.deleteRequest = request
+	return &apiv1.DeleteAgentResponse{}, nil
+}
+
+func TestDeleteAgent(t *testing.T) {
+	t.Run("Given an Agent, when it is deleted, assert that the request names it and the output confirms", func(t *testing.T) {
+		ref := &apiv1.ResourceReference{Namespace: "team-a", Name: "researcher"}
+		client := &fakeAgentLifecycleClient{}
+		var output bytes.Buffer
+
+		require.NoError(t, deleteAgent(t.Context(), client, ref, clioutput.FormatJSON, &output))
+		assert.True(t, proto.Equal(&apiv1.DeleteAgentRequest{Ref: ref}, client.deleteRequest))
+		assert.JSONEq(t, `{"namespace":"team-a","name":"researcher"}`, output.String())
+	})
+}
+
 // An API error is returned as-is, with no fallback to Kubernetes.
 func TestGetAgentsReturnsAPIErrors(t *testing.T) {
 	for _, cfg := range []*AgentGetCfg{{Namespace: "kagent"}, {Namespace: "kagent", Name: "hidden"}} {

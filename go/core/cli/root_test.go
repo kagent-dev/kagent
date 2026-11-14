@@ -162,7 +162,7 @@ func TestRootCommandRemovesLegacyPaths(t *testing.T) {
 	for _, command := range agentCmd.Commands() {
 		agentCommands = append(agentCommands, command.Name())
 	}
-	assert.ElementsMatch(t, []string{"list", "get", "invoke", "session", "template"}, agentCommands)
+	assert.ElementsMatch(t, []string{"list", "get", "delete", "invoke", "session", "template"}, agentCommands)
 }
 
 func TestRootCommandRequiresTerminalForInteractiveUse(t *testing.T) {
@@ -182,16 +182,21 @@ func TestRootCommandOutputFormatReachesResourceCommands(t *testing.T) {
 	// An unparseable format is rejected before any command connects, so this
 	// reaches the run function without touching the network or a cluster.
 	for name, args := range map[string][]string{
-		"list agents":    {"agent", "list"},
-		"get agent":      {"agent", "get", "example"},
-		"list templates": {"agent", "template", "list"},
-		"get template":   {"agent", "template", "get", "example"},
-		"list sessions":  {"agent", "session", "list"},
-		"get session":    {"agent", "session", "get", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
-		"create session": {"agent", "session", "create", "--agent", "example"},
-		"apply template": {"apply", "--file", "template.yaml"},
-		"delete session": {"agent", "session", "delete", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
-		"invoke":         {"agent", "invoke", "--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
+		"list agents":     {"agent", "list"},
+		"get agent":       {"agent", "get", "example"},
+		"list templates":  {"agent", "template", "list"},
+		"get template":    {"agent", "template", "get", "example"},
+		"list sessions":   {"agent", "session", "list"},
+		"get session":     {"agent", "session", "get", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
+		"create session":  {"agent", "session", "create", "--agent", "example"},
+		"apply template":  {"apply", "--file", "template.yaml"},
+		"delete agent":    {"agent", "delete", "example"},
+		"delete template": {"agent", "template", "delete", "example"},
+		"list harnesses":  {"harness", "list"},
+		"list models":     {"model", "list"},
+		"list tools":      {"tool", "list"},
+		"delete session":  {"agent", "session", "delete", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"},
+		"invoke":          {"agent", "invoke", "--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			rootCmd := cli.Root()
