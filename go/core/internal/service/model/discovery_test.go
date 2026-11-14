@@ -106,6 +106,11 @@ func TestDiscoveryStaticModelCatalog(t *testing.T) {
 	assert.Equal(t, "gpt-5.6-terra", models[v1alpha3.ModelProviderOpenAI][0].Name)
 	assert.True(t, models[v1alpha3.ModelProviderOpenAI][0].FunctionCalling)
 	assert.Equal(t, model.ModelInfo{Name: "glm-5.3-flash", FunctionCalling: true}, models[v1alpha3.ModelProviderOllama][6])
+	assert.Equal(t, []model.ModelInfo{
+		{Name: "minimax-m3.1-flash", FunctionCalling: true},
+		{Name: "minimax-m3", FunctionCalling: true},
+	}, models[v1alpha3.ModelProviderOllama][7:9])
+	assert.NotContains(t, models[v1alpha3.ModelProviderOllama], model.ModelInfo{Name: "minimax-m2.7", FunctionCalling: true})
 	assert.Equal(t, model.ModelInfo{Name: "us.amazon.nova-2-lite-v1:0", FunctionCalling: false}, models[v1alpha3.ModelProviderBedrock][10])
 
 	encoded, err := json.Marshal(models[v1alpha3.ModelProviderOpenAI][0])
