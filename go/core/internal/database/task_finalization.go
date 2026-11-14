@@ -54,7 +54,10 @@ func publishSavedSessionResults(ctx context.Context, tx pgx.Tx, session sessionR
 // retireSessionQuiescence drops idle-work markers for a runtime that no longer
 // needs a later suspension.
 func retireSessionQuiescence(ctx context.Context, tx pgx.Tx, session sessionRow) error {
-	return execSQL(ctx, tx, `UPDATE session_task_event SET quiescence_pending = FALSE WHERE history_id = $1 AND quiescence_pending`, session.HistoryID)
+	if err := execSQL(ctx, tx, `UPDATE session_task_event SET quiescence_pending = FALSE WHERE history_id = $1 AND quiescence_pending`, session.HistoryID); err != nil {
+		return err
+	}
+	return retireSessionDispatchCleanup(ctx, tx, session.ID)
 }
 
 // settleSessionTask publishes one saved boundary under the session lock. Runtime

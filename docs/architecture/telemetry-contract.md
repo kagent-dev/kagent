@@ -24,6 +24,9 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `kagent.invocation.segment` | enum | `initial`, `resumed` | Whether an execution starts a task or continues it. A task that pauses for an approval or a question runs as several segments. Count turns by this attribute, not by invoke_agent spans. |
 | `kagent.mcp.server.name` | string |  | The name of the MCP server that serves a tool call. The value is the server name in the runtime's MCP configuration. A `.` in a RemoteMCPServer name shows as `_`. The `gen_ai.tool.name` attribute holds the tool name without the server, so the same tool groups together in all runtimes. |
 | `kagent.runtime` | enum | `adk-go`, `adk-python`, `claude`, `codex`, `langgraph`, `crewai`, `openai-agents`, `byo` | The framework or harness that runs an agent. Every runtime declares it on its resource. The name of a Harness object is not its runtime. |
+| `kagent.runtime_lifecycle.job.event` | enum | `claimed`, `retry`, `parked`, `suspending`, `completed`, `released`, `stopped` | The observed runtime lifecycle job event. |
+| `kagent.runtime_lifecycle.job.kind` | enum | `RECOVER_ABANDONED_DISPATCH` | The runtime lifecycle operation being processed. |
+| `kagent.runtime_lifecycle.job.phase` | enum | `RECOVERING`, `SUSPENDING` | The last persisted phase of runtime lifecycle work. |
 | `kagent.worker.trigger` | enum | `signal`, `recovery`, `startup`, `retry`, `backlog` | What prompted a work claim, either initial discovery or continued backlog processing. |
 
 ## Metrics
@@ -182,6 +185,16 @@ Instrument: counter. Unit: `{attempt}`. Number of push delivery attempts claimed
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 | `kagent.worker.trigger` | required |  |
+
+### `kagent.runtime_lifecycle.job.events`
+
+Instrument: counter. Unit: `{event}`. Runtime lifecycle job transitions and retries. Counts successful claims, persisted transitions and completion, retries, and stopped attempts. A stopped attempt may be superseded or temporarily blocked. Empty scans add nothing. Runtime identities and errors remain in structured logs rather than metric attributes.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `kagent.runtime_lifecycle.job.event` | required |  |
+| `kagent.runtime_lifecycle.job.kind` | required |  |
+| `kagent.runtime_lifecycle.job.phase` | required |  |
 
 ### `kagent.runtime_revision.gc.duration`
 

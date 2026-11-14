@@ -69,7 +69,7 @@ func newTestSessions(store *gatewayTestStore, authorizer auth.Authorizer) *sessi
 }
 
 func newTestGateway(store *gatewayTestStore, authorizer auth.Authorizer, dialer *gatewayTestDialer, url string) a2asrv.RequestHandler {
-	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, true)
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, true, nil)
 	return New(interactions, dialer, url)
 }
 
@@ -171,7 +171,7 @@ func TestSendRecoveryDisabled(t *testing.T) {
 				runtime.onSend = func() error { return a2a.ErrInternalError }
 			}
 			authorizer := &gatewayTestAuthorizer{}
-			interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, false)
+			interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, false, nil)
 			gateway := New(interactions, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 			require.ErrorIs(t, err, scenario.want)

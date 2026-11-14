@@ -1,5 +1,24 @@
 file_format: definition/2
 metrics:
+  - name: kagent.runtime_lifecycle.job.events
+    requirement_level: recommended
+    instrument: counter
+    unit: "{event}"
+    brief: Runtime lifecycle job transitions and retries.
+    note: >
+      Counts successful claims, persisted transitions and completion, retries,
+      and stopped attempts. A stopped attempt may be superseded or temporarily
+      blocked. Empty scans add nothing. Runtime identities and errors remain
+      in structured logs rather than metric attributes.
+    stability: development
+    attributes:
+      - ref: kagent.runtime_lifecycle.job.kind
+        requirement_level: required
+      - ref: kagent.runtime_lifecycle.job.phase
+        requirement_level: required
+      - ref: kagent.runtime_lifecycle.job.event
+        requirement_level: required
+
   - name: kagent.session.quiescence.claimed
     requirement_level: recommended
     instrument: counter

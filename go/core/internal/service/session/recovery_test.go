@@ -616,7 +616,7 @@ func TestSendRecoveryAnswersTheSend(t *testing.T) {
 			}
 			authorizer := &verbAuthorizer{denied: auth.VerbUpdate, err: test.authErr}
 			sessions := NewService(&serviceTestStore{getResult: session}, authorizer, serviceTestWorkflow{err: test.err})
-			interactions := NewInteractionService(nil, nil, sessions, false, true)
+			interactions := NewInteractionService(nil, nil, sessions, false, true, nil)
 			err := interactions.recoverForSend(serviceTestContext("alice"), session.Id)
 			if test.want == nil {
 				require.NoError(t, err)
@@ -634,7 +634,7 @@ func TestSendRecoveryIsBounded(t *testing.T) {
 	session := &apiv1.Session{Id: uuid.NewString(), State: apiv1.RuntimeState_RUNTIME_STATE_FAILED,
 		Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT}
 	workflow := &blockingRevertWorkflow{stopped: make(chan error, 1)}
-	interactions := NewInteractionService(nil, nil, NewService(&serviceTestStore{getResult: session}, serviceTestAuthorizer{}, workflow), false, true)
+	interactions := NewInteractionService(nil, nil, NewService(&serviceTestStore{getResult: session}, serviceTestAuthorizer{}, workflow), false, true, nil)
 	interactions.recoveryWait = 50 * time.Millisecond
 	ctx, cancel := context.WithCancel(serviceTestContext("alice"))
 	defer cancel()
@@ -684,7 +684,7 @@ func TestRecoverRejectedSendReturnsSessionErrors(t *testing.T) {
 		{name: "permission denied", store: &serviceTestStore{}, authorizer: serviceTestAuthorizer{err: serviceerrors.NewPermissionDenied("denied", nil)}, want: a2a.ErrUnauthorized},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false, true)
+			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false, true, nil)
 			message := &a2a.Message{ID: "input", ContextID: uuid.NewString()}
 			err := interactions.RecoverRejectedSend(serviceTestContext("alice"), types.NamespacedName{Namespace: "team-a", Name: "assistant"}, message)
 			require.ErrorIs(t, err, test.want)
@@ -752,7 +752,7 @@ func TestSendRecoversACrashDuringSuspension(t *testing.T) {
 				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 			store := &suspensionTestStore{reserveErr: test.reserveErr}
 			workflow := &suspensionTestWorkflow{serviceTestWorkflow: serviceTestWorkflow{err: test.revertErr}, store: store, crashed: test.crashed}
-			interactions := NewInteractionService(store, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, workflow), false, !test.disabled)
+			interactions := NewInteractionService(store, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, workflow), false, !test.disabled, nil)
 			const wait = 200 * time.Millisecond
 			interactions.dispatchWait = wait
 			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("What is 2+2?"))

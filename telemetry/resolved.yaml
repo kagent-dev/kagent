@@ -2572,6 +2572,82 @@ refinements:
     stability: development
     unit: \u0027{attempt}\u0027
   - attributes:
+    - brief: The observed runtime lifecycle job event.
+      key: kagent.runtime_lifecycle.job.event
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A worker acquired ownership.
+          id: claimed
+          stability: development
+          value: claimed
+        - brief: A failed attempt was scheduled for retry.
+          id: retry
+          stability: development
+          value: retry
+        - brief: An earlier suspension was observed and rechecking was scheduled.
+          id: parked
+          stability: development
+          value: parked
+        - brief: Suspension intent was persisted.
+          id: suspending
+          stability: development
+          value: suspending
+        - brief: The snapshot was committed and matching work was retired.
+          id: completed
+          stability: development
+          value: completed
+        - brief: A confirmed actor crash released the job.
+          id: released
+          stability: development
+          value: released
+        - brief: The attempt lost authority or encountered conflicting work.
+          id: stopped
+          stability: development
+          value: stopped
+    - brief: The runtime lifecycle operation being processed.
+      key: kagent.runtime_lifecycle.job.kind
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Recover and suspend an actor after abandoned delivery.
+          id: recover_abandoned_dispatch
+          stability: development
+          value: RECOVER_ABANDONED_DISPATCH
+    - brief: The last persisted phase of runtime lifecycle work.
+      key: kagent.runtime_lifecycle.job.phase
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Recover an interrupted resume before suspension.
+          id: recovering
+          stability: development
+          value: RECOVERING
+        - brief: Complete authorized suspension and persist its snapshot.
+          id: suspending
+          stability: development
+          value: SUSPENDING
+    brief: Runtime lifecycle job transitions and retries.
+    id: kagent.runtime_lifecycle.job.events
+    instrument: counter
+    name: kagent.runtime_lifecycle.job.events
+    note: |
+      Counts successful claims, persisted transitions and completion, retries, and stopped attempts. A stopped attempt may be superseded or temporarily blocked. Empty scans add nothing. Runtime identities and errors remain in structured logs rather than metric attributes.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{event}\u0027
+  - attributes:
     - brief: |
         Describes a class of error the operation ended with.
       examples:
@@ -5836,6 +5912,67 @@ registry:
         id: byo
         stability: development
         value: byo
+  - brief: The observed runtime lifecycle job event.
+    key: kagent.runtime_lifecycle.job.event
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: A worker acquired ownership.
+        id: claimed
+        stability: development
+        value: claimed
+      - brief: A failed attempt was scheduled for retry.
+        id: retry
+        stability: development
+        value: retry
+      - brief: An earlier suspension was observed and rechecking was scheduled.
+        id: parked
+        stability: development
+        value: parked
+      - brief: Suspension intent was persisted.
+        id: suspending
+        stability: development
+        value: suspending
+      - brief: The snapshot was committed and matching work was retired.
+        id: completed
+        stability: development
+        value: completed
+      - brief: A confirmed actor crash released the job.
+        id: released
+        stability: development
+        value: released
+      - brief: The attempt lost authority or encountered conflicting work.
+        id: stopped
+        stability: development
+        value: stopped
+  - brief: The runtime lifecycle operation being processed.
+    key: kagent.runtime_lifecycle.job.kind
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: Recover and suspend an actor after abandoned delivery.
+        id: recover_abandoned_dispatch
+        stability: development
+        value: RECOVER_ABANDONED_DISPATCH
+  - brief: The last persisted phase of runtime lifecycle work.
+    key: kagent.runtime_lifecycle.job.phase
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: Recover an interrupted resume before suspension.
+        id: recovering
+        stability: development
+        value: RECOVERING
+      - brief: Complete authorized suspension and persist its snapshot.
+        id: suspending
+        stability: development
+        value: SUSPENDING
   - brief: What prompted a work claim, either initial discovery or continued backlog processing.
     key: kagent.worker.trigger
     provenance:
@@ -5905,6 +6042,81 @@ registry:
     requirement_level: recommended
     stability: development
     unit: \u0027{attempt}\u0027
+  - attributes:
+    - brief: The observed runtime lifecycle job event.
+      key: kagent.runtime_lifecycle.job.event
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: A worker acquired ownership.
+          id: claimed
+          stability: development
+          value: claimed
+        - brief: A failed attempt was scheduled for retry.
+          id: retry
+          stability: development
+          value: retry
+        - brief: An earlier suspension was observed and rechecking was scheduled.
+          id: parked
+          stability: development
+          value: parked
+        - brief: Suspension intent was persisted.
+          id: suspending
+          stability: development
+          value: suspending
+        - brief: The snapshot was committed and matching work was retired.
+          id: completed
+          stability: development
+          value: completed
+        - brief: A confirmed actor crash released the job.
+          id: released
+          stability: development
+          value: released
+        - brief: The attempt lost authority or encountered conflicting work.
+          id: stopped
+          stability: development
+          value: stopped
+    - brief: The runtime lifecycle operation being processed.
+      key: kagent.runtime_lifecycle.job.kind
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Recover and suspend an actor after abandoned delivery.
+          id: recover_abandoned_dispatch
+          stability: development
+          value: RECOVER_ABANDONED_DISPATCH
+    - brief: The last persisted phase of runtime lifecycle work.
+      key: kagent.runtime_lifecycle.job.phase
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: Recover an interrupted resume before suspension.
+          id: recovering
+          stability: development
+          value: RECOVERING
+        - brief: Complete authorized suspension and persist its snapshot.
+          id: suspending
+          stability: development
+          value: SUSPENDING
+    brief: Runtime lifecycle job transitions and retries.
+    instrument: counter
+    name: kagent.runtime_lifecycle.job.events
+    note: |
+      Counts successful claims, persisted transitions and completion, retries, and stopped attempts. A stopped attempt may be superseded or temporarily blocked. Empty scans add nothing. Runtime identities and errors remain in structured logs rather than metric attributes.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{event}\u0027
   - attributes:
     - brief: |
         Describes a class of error the operation ended with.

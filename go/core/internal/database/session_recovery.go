@@ -81,7 +81,8 @@ func (c *Client) GetSessionGeneration(ctx context.Context, id string) (*SessionG
 // BeginCrashedSessionRecovery admits recovery of a confirmed crash and preserves
 // durable results. generation must be read before the crash was observed: a
 // concurrent revert keeps the Actor UID and returns to READY, so only a newer
-// lifecycle operation shows that the observation is stale.
+// lifecycle operation shows that the observation is stale. Recovery supersedes
+// abandoned dispatch cleanup; its later steps and completion must stop.
 func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *SessionGeneration, snapshot SessionTaskSnapshot) (*SessionOperation, error) {
 	var operation *SessionOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
@@ -107,10 +108,7 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if current != generation.OperationID {
 			return ErrConflict
 		}
-		// An issued idle suspension does not block recovery. It cannot finish against
-		// the crashed Actor and its worker keeps the claim when suspension fails, so
-		// waiting would block forever. Settlement below retires the claim; a late
-		// finish changes nothing.
+		// Recovery supersedes idle cleanup, including calls already issued.
 		busy, err := queryOne(ctx, tx, `
 			SELECT EXISTS (SELECT 1 FROM session_checkpoint WHERE source_session_id = $1 AND state = 'CREATING')
 		`, pgx.RowTo[bool], row.ID)
@@ -132,7 +130,13 @@ func (c *Client) BeginCrashedSessionRecovery(ctx context.Context, generation *Se
 		if err != nil {
 			return err
 		}
-		if err := execSQL(ctx, tx, `UPDATE session SET data = $2, dispatch_id = NULL, dispatch_expires_at = NULL WHERE id = $1`, row.ID, row.Data); err != nil {
+		if err := execSQL(ctx, tx, `
+			UPDATE session SET data = $2
+			WHERE id = $1
+		`, row.ID, row.Data); err != nil {
+			return err
+		}
+		if err := retireSessionDispatchCleanup(ctx, tx, row.ID); err != nil {
 			return err
 		}
 		if err := settleCrashedSessionTasks(ctx, tx, row, snapshot, "The runtime crashed before this turn completed. Send a new message to continue."); err != nil {

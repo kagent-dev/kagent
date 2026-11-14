@@ -320,7 +320,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	for _, source := range sources {
 		expected := []int64{0, 1}
 		if source.Name == "core" {
-			expected = append(expected, 2, 3)
+			expected = append(expected, 2, 3, 4)
 		}
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
@@ -336,6 +336,9 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	if !testColumnExists(t, dsn, "session", "deletion_reason") {
 		t.Fatal("session deletion reason is missing")
+	}
+	if !testTableExists(t, dsn, "runtime_lifecycle_job") {
+		t.Fatal("runtime lifecycle job table is missing")
 	}
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
@@ -377,6 +380,86 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if err := VerifyMigrated(context.Background(), config, sources); err != nil {
 		t.Fatalf("second VerifyMigrated: %v", err)
 	}
+}
+
+func TestRuntimeLifecycleJobMigrationPreservesSessions(t *testing.T) {
+	dsn, config := startTestDB(t)
+	source := BuiltinSourcesInSchema(false, "public", "public")[0]
+	if err := WithProvider(t.Context(), config, source, func(provider *goose.Provider) error {
+		_, err := provider.UpTo(t.Context(), 3)
+		return err
+	}); err != nil {
+		t.Fatalf("migrate to schema 3: %v", err)
+	}
+	const (
+		sessionID  = "00000000-0000-0000-0000-000000000002"
+		historyID  = "00000000-0000-0000-0000-000000000003"
+		dispatchID = "00000000-0000-0000-0000-000000000004"
+		payload    = "existing session payload"
+	)
+	execSQL(t, dsn, `INSERT INTO a2a_context (id, context_id) VALUES ($1, $2)`, historyID, sessionID)
+	execSQL(t, dsn, `WITH created AS (
+		INSERT INTO runtime_instance (id, kind, user_id, request_id, state)
+		VALUES ($1, 'agent', 'user', 'request', 'RUNTIME_STATE_READY') RETURNING id)
+		INSERT INTO session (id, data, context_id, history_id, dispatch_id, dispatch_expires_at)
+		SELECT id, $2, id, $3, $4, clock_timestamp() FROM created`, sessionID, []byte(payload), historyID, dispatchID)
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	assertSessionPreserved := func(t *testing.T) {
+		t.Helper()
+		var data []byte
+		var dispatch string
+		if err := db.QueryRowContext(t.Context(), `SELECT data, dispatch_id::text FROM session WHERE id = $1`, sessionID).Scan(&data, &dispatch); err != nil {
+			t.Fatal(err)
+		}
+		if string(data) != payload || dispatch != dispatchID {
+			t.Fatalf("Session after migration = (%q, %q), want (%q, %q)", data, dispatch, payload, dispatchID)
+		}
+	}
+
+	t.Run("Given a populated schema 3, when cleanup is installed, assert that Sessions are preserved", func(t *testing.T) {
+		if err := RunUp(t.Context(), config, []Source{source}); err != nil {
+			t.Fatal(err)
+		}
+		assertSessionPreserved(t)
+		if !testTableExists(t, dsn, "runtime_lifecycle_job") {
+			t.Fatal("lifecycle job table was not installed")
+		}
+	})
+	if t.Failed() {
+		return
+	}
+	execSQL(t, dsn, `INSERT INTO runtime_lifecycle_job (runtime_id, kind, generation, phase, executor_id, available_at)
+		VALUES ($1, 'RECOVER_ABANDONED_DISPATCH', $2, 'SUSPENDING', $2, clock_timestamp() + interval '1 minute')`, sessionID, dispatchID)
+	t.Run("Given remaining cleanup metadata, when the schema is rolled back, assert that Sessions are preserved", func(t *testing.T) {
+		if err := WithProvider(t.Context(), config, source, func(provider *goose.Provider) error {
+			_, err := provider.DownTo(t.Context(), 3)
+			return err
+		}); err != nil {
+			t.Fatalf("rollback to schema 3: %v", err)
+		}
+		assertSessionPreserved(t)
+		if testTableExists(t, dsn, "runtime_lifecycle_job") || testTableExists(t, dsn, "runtime_lifecycle_job_due_idx") || testTableExists(t, dsn, "session_dispatch_pending_idx") {
+			t.Fatal("rollback left lifecycle job schema objects")
+		}
+		if err := RunUp(t.Context(), config, []Source{source}); err != nil {
+			t.Fatalf("reinstall schema 4: %v", err)
+		}
+		assertSessionPreserved(t)
+		var count int
+		if err := db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM runtime_lifecycle_job`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("reinstalled cleanup retained %d old claims", count)
+		}
+		if err := VerifyMigrated(t.Context(), config, []Source{source}); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestMigrationIsAtomic(t *testing.T) {

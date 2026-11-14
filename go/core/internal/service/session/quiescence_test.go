@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,16 +20,52 @@ import (
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type idleQuiescenceStore struct {
 	workflowStore
-	claims        atomic.Int32
-	pendingChecks atomic.Int32
-	pending       atomic.Bool
-	claimErr      error
-	pendingErr    error
-	beforeIdle    func()
+	claims         atomic.Int32
+	pendingChecks  atomic.Int32
+	pending        atomic.Bool
+	claimErr       error
+	pendingErr     error
+	beforeDispatch func()
+	beforeIdle     func()
+}
+
+// quiesceAbandonedDispatch drives the same queued steps synchronously for tests
+// focused on a single cleanup. Worker scheduling is tested through Start.
+func (w *ActorWorkflow) quiesceAbandonedDispatch(ctx context.Context) error {
+	cleanup, err := w.claimAbandonedDispatch(ctx, "")
+	if errors.Is(err, database.ErrNotFound) {
+		return nil
+	}
+	if err != nil || cleanup == nil {
+		return err
+	}
+	return w.finishDispatchCleanup(ctx, cleanup)
+}
+
+// finishDispatchCleanup drives an already-claimed job through its queued steps.
+func (w *ActorWorkflow) finishDispatchCleanup(ctx context.Context, cleanup *dispatchCleanup) error {
+	for {
+		done, delay, err := w.retryDispatchCleanup(ctx, cleanup)
+		if err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "test cleanup stopped", "error", err)
+		}
+		if done {
+			return nil
+		}
+		if delay > 0 {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(delay):
+			}
+		}
+	}
 }
 
 var _ workflowStore = (*idleQuiescenceStore)(nil)
@@ -39,6 +76,13 @@ func (w *ActorWorkflow) wakeQuiescence() {
 	case w.quiescenceWake <- struct{}{}:
 	default:
 	}
+}
+
+func (s *idleQuiescenceStore) ClaimSessionDispatchCleanup(context.Context, string) (*database.SessionDispatchCleanup, error) {
+	if s.beforeDispatch != nil {
+		s.beforeDispatch()
+	}
+	return nil, database.ErrNotFound
 }
 
 func (s *idleQuiescenceStore) ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error) {
@@ -80,6 +124,107 @@ func TestConfiguredQuiescenceInterval(t *testing.T) {
 	})
 }
 
+func TestDispatchCleanupScanSkipsActorsUntilRecovery(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given two pending cleanups whose actors are not ready to suspend.
+		store := &dispatchScanStore{
+			idleQuiescenceStore: &idleQuiescenceStore{},
+			revision:            &database.RuntimeRevision{Revision: "revision-1", ActorTemplateAtespace: "team-a", ActorTemplateName: "assistant"},
+		}
+		base := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
+		for i, state := range []ateapipb.ActorState{ateapipb.ActorState_ACTOR_STATE_CRASHED, ateapipb.ActorState_ACTOR_STATE_SUSPENDED} {
+			id := uuid.UUID{15: byte(i + 1)}.String()
+			session := &apiv1.Session{Id: id, PreparedRevision: store.revision.Revision}
+			actor, err := base.CreateActor(t.Context(), store.revision.ActorTemplateAtespace, substrate.ActorName(id), store.revision.ActorTemplateAtespace, store.revision.ActorTemplateName)
+			require.NoError(t, err)
+			base.actors[actorKey(actor.Metadata.Atespace, actor.Metadata.Name)].Status.State = state
+			store.pending = append(store.pending, &database.SessionDispatchCleanup{Session: session, DispatchID: uuid.New(), ActorUID: actor.Metadata.Uid})
+		}
+		release := make(chan struct{})
+		close(release)
+		actors := &gatedQuiescenceActors{lifecycleTestActors: base, release: release, calls: map[string]int{}}
+		actorReads := func(name string) int {
+			actors.mu.Lock()
+			defer actors.mu.Unlock()
+			return actors.calls[name]
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			done <- NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Start(ctx)
+		}()
+		defer func() { cancel(); require.NoError(t, <-done) }()
+
+		// When the workers scan, assert that the first skipped actor does not
+		// hide the later actor or immediately wake another scan.
+		synctest.Wait()
+		require.EqualValues(t, 12, store.lookups.Load(), "each worker should visit both candidates and reach the end of its scan")
+		for _, work := range store.pending {
+			require.Equal(t, 4, actorReads(substrate.ActorName(work.Session.Id)))
+		}
+		time.Sleep(59 * time.Second)
+		synctest.Wait()
+		require.EqualValues(t, 12, store.lookups.Load(), "skipped actors must not cause a busy loop between recovery scans")
+
+		// The durable markers are unchanged. The next recovery scan must
+		// nevertheless revisit both actors, including the first skipped one.
+		time.Sleep(time.Second)
+		synctest.Wait()
+		require.EqualValues(t, 24, store.lookups.Load())
+		for _, work := range store.pending {
+			require.Equal(t, 8, actorReads(substrate.ActorName(work.Session.Id)))
+		}
+	})
+}
+
+type dispatchScanStore struct {
+	*idleQuiescenceStore
+	revision *database.RuntimeRevision
+	pending  []*database.SessionDispatchCleanup
+	lookups  atomic.Int32
+}
+
+var _ workflowStore = (*dispatchScanStore)(nil)
+
+func (s *dispatchScanStore) ClaimSessionDispatchCleanup(_ context.Context, afterSessionID string) (*database.SessionDispatchCleanup, error) {
+	if s.lookups.Add(1) > 100 {
+		// Bound a broken scan so the regression fails its assertions instead
+		// of hanging synctest.Wait in a goroutine that never becomes idle.
+		return nil, status.Error(codes.Unavailable, "cleanup scan did not advance")
+	}
+	for _, work := range s.pending {
+		if work.Session.Id > afterSessionID {
+			return work, nil
+		}
+	}
+	return nil, database.ErrNotFound
+}
+
+func (s *dispatchScanStore) GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error) {
+	return s.revision, nil
+}
+
+func (*dispatchScanStore) ContinueSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup, bool) error {
+	return nil
+}
+
+func (*dispatchScanStore) ReleaseSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup) error {
+	return nil
+}
+
+func (*dispatchScanStore) ParkSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup) error {
+	return nil
+}
+
+func (s *dispatchScanStore) GetSessionForRuntime(_ context.Context, sessionID, actorUID string) (*apiv1.Session, error) {
+	for _, work := range s.pending {
+		if work.Session.Id == sessionID && work.ActorUID == actorUID {
+			return work.Session, nil
+		}
+	}
+	return nil, database.ErrNotFound
+}
+
 func TestQuiescenceWakeRacesIdleScan(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
@@ -91,19 +236,79 @@ func TestQuiescenceWakeRacesIdleScan(t *testing.T) {
 		done := make(chan error, 1)
 		go func() { done <- workflow.Start(ctx) }()
 		synctest.Wait()
-		require.EqualValues(t, 5, store.claims.Load(), "a signal during an empty scan must trigger another claim")
+		claimsAfterWake := store.claims.Load()
+		require.Greater(t, claimsAfterWake, int32(4), "a signal during an empty scan must trigger another claim")
 		var senders sync.WaitGroup
 		for range 100 {
 			senders.Go(workflow.wakeQuiescence)
 		}
 		senders.Wait()
 		synctest.Wait()
-		require.Greater(t, store.claims.Load(), int32(5))
+		require.Greater(t, store.claims.Load(), claimsAfterWake)
 		cancel()
 		require.NoError(t, <-done)
 		for range 100 {
 			workflow.wakeQuiescence() // Shutdown cannot block a committing caller.
 		}
+	})
+}
+
+func TestQuiescenceSignalFollowsSuccessfulClaim(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given idle workers, delay the first scan awakened by a settlement.
+		ctx, provider, reader, _ := captureWorkTelemetry(t)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		var delayNext atomic.Bool
+		release := make(chan struct{})
+		store := &telemetryQuiescenceStore{idleQuiescenceStore: &idleQuiescenceStore{}}
+		store.beforeDispatch = func() {
+			if delayNext.Swap(false) {
+				select {
+				case <-release:
+				case <-ctx.Done():
+				}
+			}
+		}
+		workflow := NewActorWorkflow(store, nil, make(chan struct{}, 1), time.Hour, provider)
+		done := make(chan error, 1)
+		go func() { done <- workflow.Start(ctx) }()
+		synctest.Wait()
+		delayNext.Store(true)
+		store.remaining.Store(1)
+
+		// When another scan claims the task, assert that the stalled scan does
+		// not consume the signal or make the successful claim count as backlog.
+		workflow.wakeQuiescence()
+		synctest.Wait()
+		require.Equal(t, wantWorkClaims("signal", 1), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
+		close(release)
+		cancel()
+		require.NoError(t, <-done)
+	})
+}
+
+func TestQuiescenceClaimsOnlyForAvailableWorkers(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given more settled tasks than workers, hold every worker in runtime I/O.
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		store := &telemetryQuiescenceStore{idleQuiescenceStore: &idleQuiescenceStore{}, runtimeGate: make(chan struct{})}
+		store.remaining.Store(12)
+		workflow := NewActorWorkflow(store, nil, make(chan struct{}, 1), time.Hour, noop.NewMeterProvider())
+		done := make(chan error, 1)
+		go func() { done <- workflow.Start(ctx) }()
+		synctest.Wait()
+		require.EqualValues(t, 4, store.runtimeCalls.Load())
+
+		// When another signal arrives and the controller stops, assert that no
+		// additional permanent task claims were queued and abandoned on shutdown.
+		workflow.wakeQuiescence()
+		synctest.Wait()
+		require.EqualValues(t, 8, store.remaining.Load())
+		cancel()
+		require.NoError(t, <-done)
+		require.EqualValues(t, 8, store.remaining.Load())
 	})
 }
 

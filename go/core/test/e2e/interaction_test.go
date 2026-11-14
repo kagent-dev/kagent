@@ -1026,11 +1026,13 @@ func startBlockingInteractionMock(t *testing.T) (string, <-chan struct{}) {
 	if err != nil {
 		t.Fatalf("load mock LLM response: %v", err)
 	}
-	baseURL, started := startBlockingMockServer(t, cfg.OpenAI[0].Response)
+	baseURL, started, _ := startBlockingMockServer(t, cfg.OpenAI[0].Response)
 	return reachableModelURL(t, baseURL), started
 }
 
-func startBlockingMockServer(t *testing.T, response any) (string, <-chan struct{}) {
+// startBlockingMockServer holds responses until release or test cleanup. The
+// started signal lets callers synchronize cancellation with an actual request.
+func startBlockingMockServer(t *testing.T, response any) (string, <-chan struct{}, func()) {
 	t.Helper()
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -1041,6 +1043,10 @@ func startBlockingMockServer(t *testing.T, response any) (string, <-chan struct{
 		case <-r.Context().Done():
 			return
 		case <-release:
+		}
+		if response == nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(response); err != nil {
@@ -1054,11 +1060,12 @@ func startBlockingMockServer(t *testing.T, response any) (string, <-chan struct{
 	}
 	server.Listener = listener
 	server.Start()
+	releaseResponse := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(func() {
-		releaseOnce.Do(func() { close(release) })
+		releaseResponse()
 		server.Close()
 	})
-	return server.URL, started
+	return server.URL, started, releaseResponse
 }
 
 func startSharedInteractionMock(t *testing.T) string {

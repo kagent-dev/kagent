@@ -86,6 +86,12 @@ const (
 	KagentMcpServerNameKey = attribute.Key("kagent.mcp.server.name")
 	// KagentRuntimeKey is "kagent.runtime". The framework or harness that runs an agent.
 	KagentRuntimeKey = attribute.Key("kagent.runtime")
+	// KagentRuntimeLifecycleJobEventKey is "kagent.runtime_lifecycle.job.event". The observed runtime lifecycle job event.
+	KagentRuntimeLifecycleJobEventKey = attribute.Key("kagent.runtime_lifecycle.job.event")
+	// KagentRuntimeLifecycleJobKindKey is "kagent.runtime_lifecycle.job.kind". The runtime lifecycle operation being processed.
+	KagentRuntimeLifecycleJobKindKey = attribute.Key("kagent.runtime_lifecycle.job.kind")
+	// KagentRuntimeLifecycleJobPhaseKey is "kagent.runtime_lifecycle.job.phase". The last persisted phase of runtime lifecycle work.
+	KagentRuntimeLifecycleJobPhaseKey = attribute.Key("kagent.runtime_lifecycle.job.phase")
 	// KagentWorkerTriggerKey is "kagent.worker.trigger". What prompted a work claim, either initial discovery or continued backlog processing.
 	KagentWorkerTriggerKey = attribute.Key("kagent.worker.trigger")
 )
@@ -264,6 +270,38 @@ const (
 	KagentRuntimeBYO = "byo"
 )
 
+// Values of KagentRuntimeLifecycleJobEventKey.
+const (
+	// KagentRuntimeLifecycleJobEventClaimed: A worker acquired ownership.
+	KagentRuntimeLifecycleJobEventClaimed = "claimed"
+	// KagentRuntimeLifecycleJobEventRetry: A failed attempt was scheduled for retry.
+	KagentRuntimeLifecycleJobEventRetry = "retry"
+	// KagentRuntimeLifecycleJobEventParked: An earlier suspension was observed and rechecking was scheduled.
+	KagentRuntimeLifecycleJobEventParked = "parked"
+	// KagentRuntimeLifecycleJobEventSuspending: Suspension intent was persisted.
+	KagentRuntimeLifecycleJobEventSuspending = "suspending"
+	// KagentRuntimeLifecycleJobEventCompleted: The snapshot was committed and matching work was retired.
+	KagentRuntimeLifecycleJobEventCompleted = "completed"
+	// KagentRuntimeLifecycleJobEventReleased: A confirmed actor crash released the job.
+	KagentRuntimeLifecycleJobEventReleased = "released"
+	// KagentRuntimeLifecycleJobEventStopped: The attempt lost authority or encountered conflicting work.
+	KagentRuntimeLifecycleJobEventStopped = "stopped"
+)
+
+// Values of KagentRuntimeLifecycleJobKindKey.
+const (
+	// KagentRuntimeLifecycleJobKindRecoverAbandonedDispatch: Recover and suspend an actor after abandoned delivery.
+	KagentRuntimeLifecycleJobKindRecoverAbandonedDispatch = "RECOVER_ABANDONED_DISPATCH"
+)
+
+// Values of KagentRuntimeLifecycleJobPhaseKey.
+const (
+	// KagentRuntimeLifecycleJobPhaseRecovering: Recover an interrupted resume before suspension.
+	KagentRuntimeLifecycleJobPhaseRecovering = "RECOVERING"
+	// KagentRuntimeLifecycleJobPhaseSuspending: Complete authorized suspension and persist its snapshot.
+	KagentRuntimeLifecycleJobPhaseSuspending = "SUSPENDING"
+)
+
 // Values of KagentWorkerTriggerKey.
 const (
 	// KagentWorkerTriggerSignal: A local task settlement signal.
@@ -367,6 +405,13 @@ const (
 	KagentPushDeliveryClaimed            = "kagent.push.delivery.claimed"
 	KagentPushDeliveryClaimedUnit        = "{attempt}"
 	KagentPushDeliveryClaimedDescription = "Number of push delivery attempts claimed."
+)
+
+// KagentRuntimeLifecycleJobEvents: Runtime lifecycle job transitions and retries.
+const (
+	KagentRuntimeLifecycleJobEvents            = "kagent.runtime_lifecycle.job.events"
+	KagentRuntimeLifecycleJobEventsUnit        = "{event}"
+	KagentRuntimeLifecycleJobEventsDescription = "Runtime lifecycle job transitions and retries."
 )
 
 // KagentRuntimeRevisionGCDuration: Duration of a runtime revision garbage collection attempt.
