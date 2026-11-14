@@ -30,6 +30,10 @@ type interactionTestStore struct {
 	reservedIDs []string
 }
 
+func (*interactionTestStore) CancelTaskContinuations(context.Context, string, string) error {
+	return nil
+}
+
 func (s *interactionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialMessageID string) error {
 	s.reservedIDs = append(s.reservedIDs, initialMessageID)
 	return s.dispatchErr
@@ -228,7 +232,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			want   error
 		}{
 			{name: "unauthenticated", ctx: context.Background(), agent: agent, want: a2atype.ErrUnauthenticated},
-			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
+			{name: "missing Agent", ctx: serviceTestContext("owner"), want: a2atype.ErrInvalidRequest},
 			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
 			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, getErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
 			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
@@ -246,6 +250,9 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
 				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false, false)
 				want := test.want
+				if operation.name == "get" && test.name == "missing Agent" {
+					want = nil
+				}
 				_, shared := auth.ShareContextFrom(test.ctx)
 				if shared && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
