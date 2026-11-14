@@ -509,9 +509,9 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
           # Keep race builds separate from generators and refresh after code changes.
-          key: go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-${{ github.sha }}
+          key: go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'go/integrations/agentgateway/go.mod', 'go/integrations/agentgateway/go.sum', 'ui/entrypoint/go.mod') }}-${{ github.sha }}
           restore-keys: |
-            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'ui/entrypoint/go.mod') }}-
+            go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('go/go.mod', 'go/go.sum', 'go/integrations/agentgateway/go.mod', 'go/integrations/agentgateway/go.sum', 'ui/entrypoint/go.mod') }}-
             go-unit-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-
 
       - name: Run Go unit tests
@@ -522,6 +522,13 @@ jobs:
           # processes of `go test ./...`, intermittently timing out the Postgres tests.
           TESTCONTAINERS_RYUK_DISABLED: "true"
         run: make test
+
+      - name: Run optional agentgateway integration tests
+        working-directory: go/integrations/agentgateway
+        run: |
+          export KUBEBUILDER_ASSETS="$(make -s -C ../.. envtest-path)"
+          go test -race ./...
+          go vet ./...
 
       - name: Run UI entrypoint tests
         working-directory: ui/entrypoint
@@ -670,10 +677,16 @@ jobs:
         with:
           go-version-file: go/go.mod
           cache: true
-          cache-dependency-path: go/go.sum
+          cache-dependency-path: |
+            go/go.sum
+            go/integrations/agentgateway/go.sum
       - name: golangci-lint
         working-directory: go
         run: make lint
+
+      - name: Lint optional agentgateway integration
+        working-directory: go/integrations/agentgateway
+        run: ../../bin/golangci-lint-custom run --config ../../.golangci.yaml ./...
 
   python-test:
     env:
