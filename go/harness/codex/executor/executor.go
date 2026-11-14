@@ -26,7 +26,9 @@ type Config struct {
 	Environment []string
 }
 
-// New validates the configuration and Codex installation, then returns the executor.
+// New validates the configuration and Codex installation, then returns the
+// executor. Its credential forwarder, when the configuration needs one, lives
+// as long as the process.
 func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, error) {
 	runner, err := adapter.New(ctx, adapter.Input{
 		ConfigJSON: cfg.ConfigJSON, Workspace: cfg.DataDir + "/workspace", DurableDir: cfg.DataDir, Environment: cfg.Environment,
@@ -37,10 +39,12 @@ func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, error) {
 	validateCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := runner.Validate(validateCtx); err != nil {
+		_ = runner.Close()
 		return nil, err
 	}
 	store, err := continuation.New(cfg.DataDir+"/adapter", "codex", validateThreadID)
 	if err != nil {
+		_ = runner.Close()
 		return nil, err
 	}
 	// Read here rather than taken as a Config field: the identity travels in the
@@ -49,10 +53,12 @@ func New(ctx context.Context, cfg Config) (a2asrv.AgentExecutor, error) {
 	// harness, which is a silence rather than an error.
 	parsed, err := config.Parse(cfg.ConfigJSON)
 	if err != nil {
+		_ = runner.Close()
 		return nil, err
 	}
 	executor, err := runtimea2a.New(runner, store, parsed.RuntimeTelemetry)
 	if err != nil {
+		_ = runner.Close()
 		return nil, err
 	}
 	return executor, nil

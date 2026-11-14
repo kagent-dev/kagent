@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/kagent-dev/kagent/go/harness/internal/forwarder"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -37,6 +38,9 @@ type ProcessConfig struct {
 	ApprovalServers      map[string]struct{}
 	PendingDir           string
 	Tools                ToolCaller
+	// Forwarder fronts the upstreams that receive the caller's
+	// credential. It is nil when none does.
+	Forwarder *forwarder.Forwarder
 }
 
 // ProcessDriver supervises Codex App Server. Pending input is persisted and
@@ -58,6 +62,23 @@ type processSession struct {
 
 // NewProcessDriver constructs a Codex process driver.
 func NewProcessDriver(config ProcessConfig) *ProcessDriver { return &ProcessDriver{config: config} }
+
+// BindCallerCredential holds the A2A request's authorization in the forwarder
+// until the returned function drops it.
+func (d *ProcessDriver) BindCallerCredential(authorization string) (release func()) {
+	if d.config.Forwarder == nil {
+		return func() {}
+	}
+	return d.config.Forwarder.Bind(authorization)
+}
+
+// Close releases the credential forwarder when one fronts an upstream.
+func (d *ProcessDriver) Close() error {
+	if d.config.Forwarder == nil {
+		return nil
+	}
+	return d.config.Forwarder.Close()
+}
 
 // Validate checks that the configured executable is the pinned Codex version.
 func (d *ProcessDriver) Validate(ctx context.Context) error {

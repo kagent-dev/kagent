@@ -42,6 +42,7 @@ func TestParseRejectsUnsafeConfiguration(t *testing.T) {
 		{"version", func(c *Config) { c.Version++ }, "unsupported config version"},
 		{"provider", func(c *Config) { c.Provider.Name = "other" }, "unsupported Codex provider"},
 		{"URL", func(c *Config) { c.Provider.BaseURL = "https://user:pass@example.com" }, "invalid provider base URL"},
+		{"passthrough provider", func(c *Config) { c.Provider = Provider{Name: "amazon-bedrock", TokenPassthrough: true} }, "token passthrough is supported only for the OpenAI provider"},
 		{"agent name", func(c *Config) {
 			c.Agents = map[string]Agent{"../bad": {Description: "x", Instruction: "x", Model: "x"}}
 		}, "agent name"},
