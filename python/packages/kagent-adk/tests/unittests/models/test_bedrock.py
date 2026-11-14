@@ -236,7 +236,11 @@ class TestKAgentBedrockLlm:
             KAgentBedrockLlm(model="meta.llama3-8b-instruct-v1:0", **{field: value})
 
     @pytest.mark.asyncio
-    async def test_generate_calls_converse(self):
+    @pytest.mark.parametrize(
+        "cached,want_cached,want_prompt",
+        [({}, 0, 13), ({"cacheReadInputTokens": 8}, 8, 21), ({"cacheReadInputTokens": -1}, 0, 13)],
+    )
+    async def test_generate_calls_converse(self, cached, want_cached, want_prompt):
         fields = {"thinking": {"budget_tokens": 1024}, "large": 9007199254740993, "values": [False, None, 0.25]}
         llm = KAgentBedrockLlm(
             model="us.anthropic.claude-sonnet-4-20250514-v1:0", additional_model_request_fields=fields
@@ -244,7 +248,7 @@ class TestKAgentBedrockLlm:
         converse_response = {
             "output": {"message": {"role": "assistant", "content": [{"text": "hello"}]}},
             "stopReason": "end_turn",
-            "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+            "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15, "cacheWriteInputTokens": 3, **cached},
         }
         mock_client = mock.MagicMock()
         mock_client.converse.return_value = converse_response
@@ -269,16 +273,32 @@ class TestKAgentBedrockLlm:
         assert sent == fields
         assert type(sent["thinking"]["budget_tokens"]) is int
         assert type(sent["large"]) is int
+        assert responses[0].usage_metadata.prompt_token_count == want_prompt
+        assert responses[0].usage_metadata.cached_content_token_count == want_cached
 
     @pytest.mark.asyncio
-    async def test_streaming_captures_usage_metadata(self):
+    @pytest.mark.parametrize(
+        "cached,want_cached,want_prompt",
+        [({}, 0, 13), ({"cacheReadInputTokens": 8}, 8, 21), ({"cacheReadInputTokens": -1}, 0, 13)],
+    )
+    async def test_streaming_captures_usage_metadata(self, cached, want_cached, want_prompt):
         llm = KAgentBedrockLlm(model="us.anthropic.claude-sonnet-4-20250514-v1:0")
 
         stream_events = [
             {"contentBlockStart": {"start": {}}},
             {"contentBlockDelta": {"delta": {"text": "hello"}}},
             {"messageStop": {"stopReason": "end_turn"}},
-            {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+            {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 10,
+                        "outputTokens": 5,
+                        "totalTokens": 15,
+                        "cacheWriteInputTokens": 3,
+                        **cached,
+                    }
+                }
+            },
         ]
         mock_client = mock.MagicMock()
         mock_client.converse_stream.return_value = {"stream": stream_events}
@@ -299,9 +319,10 @@ class TestKAgentBedrockLlm:
 
         final = responses[-1]
         assert final.usage_metadata is not None
-        assert final.usage_metadata.prompt_token_count == 10
+        assert final.usage_metadata.prompt_token_count == want_prompt
         assert final.usage_metadata.candidates_token_count == 5
         assert final.usage_metadata.total_token_count == 15
+        assert final.usage_metadata.cached_content_token_count == want_cached
 
     @pytest.mark.asyncio
     async def test_dot_tool_name_sanitized_to_bedrock_and_remapped_in_response(self):
