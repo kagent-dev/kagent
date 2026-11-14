@@ -115,6 +115,7 @@ func controllerServiceAccount(ctx context.Context, runner Runner, namespace stri
 	if err != nil {
 		return "", fmt.Errorf("failed to render controller deployment: %w: %s", err, strings.TrimSpace(manifest))
 	}
+	manifest = helmRenderedManifest(manifest)
 	var deployment appsv1.Deployment
 	if err := yaml.Unmarshal([]byte(manifest), &deployment); err != nil {
 		return "", fmt.Errorf("failed to decode controller deployment: %w", err)
@@ -123,4 +124,21 @@ func controllerServiceAccount(ctx context.Context, runner Runner, namespace stri
 		return "", fmt.Errorf("rendered controller deployment has no service account")
 	}
 	return deployment.Spec.Template.Spec.ServiceAccountName, nil
+}
+
+// helmRenderedManifest drops registry status that Helm 4.2 writes to stdout
+// ahead of an OCI template. A manifest that already starts as YAML is unchanged.
+func helmRenderedManifest(output string) string {
+	trimmed := strings.TrimLeft(output, " \t\r\n")
+	if trimmed == "" ||
+		strings.HasPrefix(trimmed, "---") ||
+		strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "apiVersion:") ||
+		strings.HasPrefix(trimmed, "kind:") {
+		return output
+	}
+	if i := strings.Index(output, "\n---"); i >= 0 {
+		return output[i+1:]
+	}
+	return output
 }
