@@ -35,6 +35,7 @@ type ProcessConfig struct {
 	AppendSystemPromptFile string
 	AgentsJSON             string
 	MCPConfigPath          string
+	DisallowedTools        []string
 	SettingsPath           string
 	PermissionPromptTool   string
 	PluginDirs             []string
@@ -126,6 +127,9 @@ func (d *ProcessDriver) Args(turn runtime.Turn) []string {
 	}
 	if d.config.Model != "" {
 		args = append(args, "--model", d.config.Model)
+	}
+	if len(d.config.DisallowedTools) != 0 {
+		args = append(args, "--disallowedTools", strings.Join(d.config.DisallowedTools, ","))
 	}
 	if d.config.AppendSystemPromptFile != "" {
 		args = append(args, "--append-system-prompt-file", d.config.AppendSystemPromptFile)
