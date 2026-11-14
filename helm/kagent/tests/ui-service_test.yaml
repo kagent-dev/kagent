@@ -61,3 +61,88 @@ tests:
       - equal:
           path: metadata.namespace
           value: NAMESPACE
+
+  - it: should leave IP-family fields unset by default
+    asserts:
+      - notExists:
+          path: spec.ipFamilyPolicy
+      - notExists:
+          path: spec.ipFamilies
+
+  - it: should render IPv4-only service settings
+    set:
+      ui.service.ipFamilyPolicy: SingleStack
+      ui.service.ipFamilies: [IPv4]
+    asserts:
+      - equal:
+          path: spec.ipFamilyPolicy
+          value: SingleStack
+      - equal:
+          path: spec.ipFamilies
+          value: [IPv4]
+
+  - it: should render IPv6-only service settings
+    set:
+      ui.service.ipFamilyPolicy: SingleStack
+      ui.service.ipFamilies: [IPv6]
+    asserts:
+      - equal:
+          path: spec.ipFamilyPolicy
+          value: SingleStack
+      - equal:
+          path: spec.ipFamilies
+          value: [IPv6]
+
+  - it: should render IPv4-primary dual-stack service settings
+    set:
+      ui.service.ipFamilyPolicy: PreferDualStack
+      ui.service.ipFamilies: [IPv4, IPv6]
+    asserts:
+      - equal:
+          path: spec.ipFamilyPolicy
+          value: PreferDualStack
+      - equal:
+          path: spec.ipFamilies
+          value: [IPv4, IPv6]
+
+  - it: should render IPv6-primary required dual-stack service settings
+    set:
+      ui.service.ipFamilyPolicy: RequireDualStack
+      ui.service.ipFamilies: [IPv6, IPv4]
+    asserts:
+      - equal:
+          path: spec.ipFamilyPolicy
+          value: RequireDualStack
+      - equal:
+          path: spec.ipFamilies
+          value: [IPv6, IPv4]
+
+  - it: should not inherit the other component's IP-family settings
+    set:
+      controller.service.ipFamilyPolicy: SingleStack
+      controller.service.ipFamilies: [IPv6]
+    asserts:
+      - notExists:
+          path: spec.ipFamilyPolicy
+      - notExists:
+          path: spec.ipFamilies
+
+  - it: should allow the cluster to choose families when only a policy is set
+    set:
+      ui.service.ipFamilyPolicy: PreferDualStack
+    asserts:
+      - equal:
+          path: spec.ipFamilyPolicy
+          value: PreferDualStack
+      - notExists:
+          path: spec.ipFamilies
+
+  - it: should allow the cluster to choose a policy when only families are set
+    set:
+      ui.service.ipFamilies: [IPv6]
+    asserts:
+      - equal:
+          path: spec.ipFamilies
+          value: [IPv6]
+      - notExists:
+          path: spec.ipFamilyPolicy

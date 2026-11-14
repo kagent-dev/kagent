@@ -22,6 +22,43 @@ helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=az
 helm install kagent ./helm/kagent/ --namespace kagent --set providers.default=mistral      --set providers.mistral.apiKey=your-mistral-api-key
 ```
 
+### Service IP Families
+
+The UI and controller Services accept optional `ipFamilyPolicy` and `ipFamilies`
+settings independently. By default, both fields are omitted and Kubernetes uses
+the cluster defaults, preserving the chart's existing behavior.
+
+For an IPv4-primary dual-stack installation:
+
+```yaml
+ipv6:
+  enabled: true
+ui:
+  service:
+    ipFamilyPolicy: PreferDualStack
+    ipFamilies: [IPv4, IPv6]
+controller:
+  service:
+    ipFamilyPolicy: PreferDualStack
+    ipFamilies: [IPv4, IPv6]
+```
+
+Use `SingleStack` with `[IPv4]` or `[IPv6]` to request one family, or
+`RequireDualStack` to require both. The cluster must support the requested
+families. When setting both families, their order determines the primary family.
+
+These values configure Service addresses and discovery, not process listeners
+or client address-family preference. `ipv6.enabled` separately enables the UI's
+IPv6 nginx listener; keep it enabled when the UI Service uses IPv6. Service
+settings do not change the controller's configured bind address or migrate its
+external dependencies to IPv6.
+
+For an existing Service, preserve its current primary family and ClusterIP when
+adding a secondary family. Kubernetes does not allow changing the primary family
+in place; moving an existing IPv4-primary Service directly to IPv6-only requires
+a separate Service migration and coordinated consumer changes. Check cluster
+support and existing Service addresses before upgrading.
+
 ### Controller RBAC
 
 The chart separates controller permissions into two Roles and bindings:
