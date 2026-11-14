@@ -4,12 +4,16 @@
 
 Kagent has been successfully deployed to namespace: {{ include "kagent.namespace" . }}
 
+{{- if .Values.ui.enabled }}
 ACCESSING THE UI:
   1. Forward the UI service port:
      kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-ui 8080:{{ .Values.ui.service.ports.port }}
 
   2. Open your browser and visit:
      http://localhost:8080
+{{- else }}
+UI: disabled (ui.enabled=false). Use the controller API, CLI, or MCP/A2A endpoints.
+{{- end }}
 
 ACCESSING THE CONTROLLER:
   kubectl -n {{ include "kagent.namespace" . }} port-forward service/{{ include "kagent.fullname" . }}-controller {{ .Values.controller.service.ports.port }}:{{ .Values.controller.service.ports.port }}
@@ -21,7 +25,9 @@ The controller port serves native gRPC, gRPC-Web, A2A, MCP, and health.
 DEPLOYED COMPONENTS:
   - Controller: {{ include "kagent.fullname" . }}-controller (manages Kubernetes resources)
   - Engine: {{ include "kagent.fullname" . }}-engine (AI agent runtime)
+{{- if .Values.ui.enabled }}
   - UI: {{ include "kagent.fullname" . }}-ui (web interface)
+{{- end }}
 ENABLED TOOLS:
 {{- if index .Values "kagent-tools" "enabled" }}
   - Tool Server: Kagent's Built-in tools
@@ -63,7 +69,7 @@ DOCUMENTATION:
 
   Ensure migrations are applied out-of-band before installing or upgrading.
 {{- end }}
-{{- range $component := (list "controller" "ui") }}
+{{- range $component := (ternary (list "controller" "ui") (list "controller") .Values.ui.enabled) }}
 {{- $cfg := index $.Values $component }}
 {{- $pdb := $cfg.pdb | default dict }}
 {{- if and $pdb.enabled (include "kagent.pdb.isSet" $pdb.minAvailable) (le (int $cfg.replicas) (int $pdb.minAvailable)) }}

@@ -1,3 +1,4 @@
+{{- if .Values.ui.enabled -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,3 +9,4 @@ metadata:
 data:
   nginx.conf: |
     {{- tpl (.Files.Get "files/nginx.conf") . | nindent 4 }}
+{{ end }}

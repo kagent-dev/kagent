@@ -1,0 +1,39 @@
+suite: test ui.enabled toggle
+templates:
+  - ui-configmap.yaml
+  - ui-deployment.yaml
+  - ui-nginx-configmap.yaml
+  - ui-service.yaml
+  - ui-serviceaccount.yaml
+  - ui-pdb.yaml
+  - ui-httproute.yaml
+tests:
+  - it: renders the UI Deployment by default
+    template: ui-deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - hasDocuments:
+          count: 1
+
+  - it: renders no UI resources when ui.enabled is false
+    set:
+      ui.enabled: false
+      ui.pdb.enabled: true
+      ui.replicas: 2
+      ui.httpRoute.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # ui.pdb defaults maxUnavailable to 1, so setting minAvailable=5 is mutually
+  # exclusive. Validation must not run when the UI is off.
+  - it: does not fail on a stale ui.pdb when ui.enabled is false
+    template: ui-pdb.yaml
+    set:
+      ui.enabled: false
+      ui.pdb.enabled: true
+      ui.pdb.minAvailable: 5
+    asserts:
+      - hasDocuments:
+          count: 0
