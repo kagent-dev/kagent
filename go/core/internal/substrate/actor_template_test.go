@@ -270,7 +270,7 @@ func TestActorResources(t *testing.T) {
 }
 
 func TestGoldenEgressPolicyIsPartOfTemplateIdentity(t *testing.T) {
-	policy, err := bootstrapEgressPolicy("team-a", "https://controller.example")
+	policy, err := goldenEgressPolicy("team-a", "https://controller.example", nil)
 	require.NoError(t, err)
 	original := &ateapipb.ActorTemplate{GoldenEgressPolicy: policy}
 	for _, scenario := range []struct {
@@ -294,4 +294,63 @@ func TestGoldenEgressPolicyIsPartOfTemplateIdentity(t *testing.T) {
 			require.NotEqual(t, mustSpecDigest(t, original), mustSpecDigest(t, changed))
 		})
 	}
+}
+
+func TestActorTemplateGoldenEgress(t *testing.T) {
+	t.Run("Given compiled destinations, when the template is built, assert that preparation reaches them without credentials", func(t *testing.T) {
+		template, err := goldenEgressTemplate(t, "http://skills.agents.svc.cluster.local:8080", "https://models.example.com", testControlPlaneURL)
+		require.NoError(t, err)
+		rules := goldenEgressRules(template)
+		require.Len(t, rules, 3)
+		skills := rules["skills.agents.svc.cluster.local"].GetHttp()
+		require.Equal(t, []int32{8080}, skills.GetPorts().GetNumbers())
+		require.Nil(t, skills.GetEffects())
+		require.Nil(t, rules["models.example.com"].GetHttps().GetEffects())
+		requireBootstrapAuthority(t, rules["kagent-controller.kagent.svc"])
+	})
+	t.Run("Given no compiled destinations, when the template is built, assert that preparation reaches only the control plane", func(t *testing.T) {
+		template, err := goldenEgressTemplate(t)
+		require.NoError(t, err)
+		rules := goldenEgressRules(template)
+		require.Len(t, rules, 1)
+		requireBootstrapAuthority(t, rules["kagent-controller.kagent.svc"])
+	})
+	t.Run("Given an invalid destination, when the template is built, assert that it is rejected", func(t *testing.T) {
+		_, err := goldenEgressTemplate(t, "invalid")
+		require.ErrorContains(t, err, "compile golden actor egress")
+	})
+}
+
+func goldenEgressTemplate(t *testing.T, destinations ...string) (*ateapipb.ActorTemplate, error) {
+	t.Helper()
+	spec := &translator.Revision{ControlPlaneURL: testControlPlaneURL, CPU: "1", Memory: "1Gi",
+		Namespace: "agents", AgentName: "helper", WorkerPoolName: "default", ConfigJSON: []byte(`{}`),
+		AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+			SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
+			DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"}},
+		EgressDestinations: destinations,
+	}
+	id, err := spec.Digest()
+	require.NoError(t, err)
+	bundle, err := spec.BootstrapBundle(id)
+	require.NoError(t, err)
+	return ActorTemplateForRevision(spec, id, bundle)
+}
+
+func goldenEgressRules(template *ateapipb.ActorTemplate) map[string]*ateapipb.EgressRule {
+	rules := map[string]*ateapipb.EgressRule{}
+	for _, rule := range template.GetGoldenEgressPolicy().GetRules() {
+		for _, hostname := range append(rule.GetHttp().GetHostnames(), rule.GetHttps().GetHostnames()...) {
+			rules[hostname] = rule
+		}
+	}
+	return rules
+}
+
+func requireBootstrapAuthority(t *testing.T, rule *ateapipb.EgressRule) {
+	t.Helper()
+	headers := rule.GetHttp().GetEffects().GetReplaceHeaders()
+	require.Len(t, headers, 1)
+	require.Equal(t, "authorization", headers[0].GetHeader())
+	require.Equal(t, []string{bootstrap.Audience}, headers[0].GetActorJwt().GetAudiences())
 }
