@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -82,6 +83,33 @@ func TestNativeProcessRetriesAreOptIn(t *testing.T) {
 				t.Fatalf("native process did not receive the expected retry setting: %v", err)
 			}
 		})
+	}
+}
+
+func TestNativeModelRequestsCarryWorkloadIdentity(t *testing.T) {
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "claude")
+	script := fmt.Sprintf("#!/bin/sh\n[ \"$ANTHROPIC_CUSTOM_HEADERS\" = '%s: required' ] || exit 42\necho %s\n", egresspolicy.ActorIdentityHeader, config.PinnedClaudeVersion)
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Production("claude-test", "help")
+	cfg.ClaudeExecutable = executable
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner, err := New(t.Context(), Input{
+		ConfigJSON: raw, Workspace: filepath.Join(dir, "workspace"),
+		DurableDir: filepath.Join(dir, "data"), EphemeralDir: filepath.Join(dir, "ephemeral"),
+		Environment: []string{config.AnthropicCustomHeadersEnvName + "=forged"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runner.Close() })
+	if err := runner.Validate(t.Context()); err != nil {
+		t.Fatalf("native process did not receive the workload identity header: %v", err)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/agentplugins"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/harness/codex/config"
 	"github.com/kagent-dev/kagent/go/harness/codex/internal/driver"
@@ -163,10 +164,11 @@ type nativeOTLPHTTP struct {
 }
 
 type nativeModelProvider struct {
-	Name    string `toml:"name"`
-	WireAPI string `toml:"wire_api"`
-	EnvKey  string `toml:"env_key"`
-	BaseURL string `toml:"base_url,omitempty"`
+	Name        string            `toml:"name"`
+	WireAPI     string            `toml:"wire_api"`
+	EnvKey      string            `toml:"env_key"`
+	BaseURL     string            `toml:"base_url,omitempty"`
+	HTTPHeaders map[string]string `toml:"http_headers,omitempty"`
 	// TODO: REMOVE these test-only retry budgets once upstream denial handling permits
 	// bounded native retries. Alpha3 fixes DNS search fallback, not native backoff:
 	// https://github.com/agent-substrate/substrate/issues/2663
@@ -210,6 +212,7 @@ func renderConfig(cfg config.Config, codexHome string, disableRetries bool) ([]b
 	if cfg.Provider.Name == "openai" {
 		provider := nativeModelProvider{
 			Name: "OpenAI", WireAPI: "responses", EnvKey: "OPENAI_API_KEY", BaseURL: cfg.Provider.BaseURL,
+			HTTPHeaders: map[string]string{egresspolicy.ActorIdentityHeader: "required"},
 		}
 		if disableRetries {
 			provider.RequestMaxRetries = new(uint(0))
