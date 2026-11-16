@@ -2,11 +2,11 @@ suite: test ui configmap
 templates:
   - ui-configmap.yaml
 set:
-  builtins.enabled: true
+  examples.enabled: true
 tests:
   - it: offers no built-in skills with the chart defaults
     set:
-      builtins.enabled: false
+      examples.enabled: false
     asserts:
       - notExists:
           path: data.KAGENT_UI_BUILTIN_SKILLS
@@ -28,9 +28,9 @@ tests:
           path: data.KAGENT_UI_BUILTIN_SKILLS
           pattern: ^\{"image":"mirror\.example/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}"
 
-  - it: offers no built-in skills when the built-ins values are missing
+  - it: offers no built-in skills when the examples values are missing
     set:
-      builtins: null
+      examples: null
     asserts:
       - notExists:
           path: data.KAGENT_UI_BUILTIN_SKILLS

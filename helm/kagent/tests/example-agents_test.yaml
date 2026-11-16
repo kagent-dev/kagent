@@ -1,13 +1,13 @@
-suite: test the built-in Agents and their AgentTemplates
+suite: test the example Agents and their AgentTemplates
 templates:
-  - builtin-agents.yaml
+  - example-agents.yaml
 release:
   namespace: kagent
 set:
-  builtins.enabled: true
+  examples.enabled: true
   harnesses.enabled: true
 tests:
-  - it: platform-agent is the only built-in Agent, and the Kubernetes specialist is an AgentTemplate
+  - it: platform-agent is the only example Agent, and the Kubernetes specialist is an AgentTemplate
     asserts:
       - containsDocument:
           apiVersion: api.kagent.dev/v1alpha3
@@ -107,16 +107,16 @@ tests:
           path: spec.skills[0].source.oci
           pattern: ^mirror\.example/kagent-dev/kagent/tools@sha256:[0-9a-f]{64}$
 
-  - it: platform-agent is skipped when all built-ins are turned off
+  - it: platform-agent is skipped when all examples are turned off
     set:
-      builtins.enabled: false
+      examples.enabled: false
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: platform-agent is skipped when the built-ins values are missing
+  - it: platform-agent is skipped when the examples values are missing
     set:
-      builtins: null
+      examples: null
     asserts:
       - hasDocuments:
           count: 0
@@ -126,12 +126,12 @@ tests:
       harnesses.enabled: false
     asserts:
       - failedTemplate:
-          errorMessage: "builtins.platformAgent needs the kagent-default Harness: set harnesses.enabled and harnesses.kagent.enabled, or set builtins.platformAgent.enabled=false"
+          errorMessage: "examples.platformAgent needs the kagent-default Harness: set harnesses.enabled and harnesses.kagent.enabled, or set examples.platformAgent.enabled=false"
 
   - it: the built-in skills need no Harness when platform-agent is off
     set:
       harnesses.enabled: false
-      builtins.platformAgent.enabled: false
+      examples.platformAgent.enabled: false
     asserts:
       - hasDocuments:
           count: 0
@@ -141,14 +141,14 @@ tests:
       harnesses.kagent.enabled: false
     asserts:
       - failedTemplate:
-          errorMessage: "builtins.platformAgent needs the kagent-default Harness: set harnesses.enabled and harnesses.kagent.enabled, or set builtins.platformAgent.enabled=false"
+          errorMessage: "examples.platformAgent needs the kagent-default Harness: set harnesses.enabled and harnesses.kagent.enabled, or set examples.platformAgent.enabled=false"
 
   - it: platform-agent fails without kagent-tools
     set:
       kagent-tools.enabled: false
     asserts:
       - failedTemplate:
-          errorMessage: "builtins.platformAgent needs kagent-tools: set kagent-tools.enabled, or set builtins.platformAgent.enabled=false"
+          errorMessage: "examples.platformAgent needs kagent-tools: set kagent-tools.enabled, or set examples.platformAgent.enabled=false"
 
   - it: platform-agent routes to one specialist per skill
     documentSelector:
@@ -263,7 +263,7 @@ tests:
 
   - it: platform-agent and its specialists are skipped when turned off
     set:
-      builtins.platformAgent.enabled: false
+      examples.platformAgent.enabled: false
     asserts:
       - hasDocuments:
           count: 0

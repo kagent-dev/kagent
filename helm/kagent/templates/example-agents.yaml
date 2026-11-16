@@ -4,12 +4,12 @@
 {{- $_ := set $byName .name . }}
 {{- end }}
 {{- $toolServer := printf "%s-tool-server" (include "kagent.fullname" .) }}
-{{- if and (dig "builtins" "enabled" false .Values.AsMap) (dig "builtins" "platformAgent" "enabled" false .Values.AsMap) }}
+{{- if and (dig "examples" "enabled" false .Values.AsMap) (dig "examples" "platformAgent" "enabled" false .Values.AsMap) }}
 {{- if not (and (dig "harnesses" "enabled" false .Values.AsMap) (dig "harnesses" "kagent" "enabled" false .Values.AsMap)) }}
-{{- fail "builtins.platformAgent needs the kagent-default Harness: set harnesses.enabled and harnesses.kagent.enabled, or set builtins.platformAgent.enabled=false" }}
+{{- fail "examples.platformAgent needs the kagent-default Harness: set harnesses.enabled and harnesses.kagent.enabled, or set examples.platformAgent.enabled=false" }}
 {{- end }}
 {{- if not (index .Values "kagent-tools" "enabled") }}
-{{- fail "builtins.platformAgent needs kagent-tools: set kagent-tools.enabled, or set builtins.platformAgent.enabled=false" }}
+{{- fail "examples.platformAgent needs kagent-tools: set kagent-tools.enabled, or set examples.platformAgent.enabled=false" }}
 {{- end }}
 {{- $kubernetesDescription := "Kubernetes specialist: diagnoses and fixes unhealthy pods, deployments and services." }}
 {{- $skill := get $byName "k8s-troubleshooting" }}

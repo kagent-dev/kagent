@@ -14,10 +14,10 @@
 {{- end -}}
 
 {{/*
-The built-in skills catalog from the kagent-tools image, as JSON. Empty when builtins.enabled is false.
+The built-in skills catalog from the kagent-tools image, as JSON. Empty when examples.enabled is false.
 */}}
 {{- define "kagent.builtinSkillsCatalog" -}}
-{{- if dig "builtins" "enabled" false .Values.AsMap -}}
+{{- if dig "examples" "enabled" false .Values.AsMap -}}
   {{- $catalog := .Files.Get "files/builtin-skills.json" | mustFromJson -}}
   {{/* The Prometheus skill needs a tool server URL it accepts (http:// or https://). */}}
   {{- $prometheusURL := dig "kagent-tools" "tools" "prometheus" "url" "" .Values.AsMap -}}

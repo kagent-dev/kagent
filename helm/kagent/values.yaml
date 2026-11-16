@@ -814,13 +814,13 @@ kagent-tools:
       url: ""
 
 # ==============================================================================
-# BUILT-INS
+# EXAMPLES
 # ==============================================================================
 # Ready-made Agents and skills for a new install. Off in the chart; `kagent install`
 # turns them on.
 
-builtins:
-  # -- Create the built-in Agent and offer the kagent-tools skills in the UI.
+examples:
+  # -- Create the example Agent and offer the kagent-tools skills in the UI.
   # The Agent needs `harnesses.enabled`, `harnesses.kagent.enabled` and `kagent-tools.enabled`.
   enabled: false
   platformAgent:
