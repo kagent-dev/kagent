@@ -11,6 +11,13 @@ tests:
       - notExists:
           path: data.KAGENT_UI_BUILTIN_SKILLS
 
+  - it: offers no built-in skills when kagent-tools is off
+    set:
+      kagent-tools.enabled: false
+    asserts:
+      - notExists:
+          path: data.KAGENT_UI_BUILTIN_SKILLS
+
   - it: offers the skills of the packaged kagent-tools image
     asserts:
       - matchRegex:

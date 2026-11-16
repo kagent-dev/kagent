@@ -83,27 +83,27 @@ spec:
         path: {{ $skill.path | quote }}
 {{- /* One specialist per skill. Read-only tools run freely; tools that change things need approval. */}}
 {{- $specialists := list
-  (dict "name" "helm" "skill" "helm-release-management"
+  (dict "name" "helm" "skill" "helm-release-management" "topic" "Helm"
     "description" "Helm specialist: lists, inspects, upgrades and uninstalls Helm releases and manages chart repositories."
     "prompt" "You are a Helm specialist. You help users inspect, troubleshoot, upgrade and uninstall Helm releases."
     "read" (list "helm_get_release" "helm_list_releases")
     "write" (list "helm_repo_add" "helm_repo_update" "helm_uninstall" "helm_upgrade"))
-  (dict "name" "istio" "skill" "istio-traffic-debugging"
+  (dict "name" "istio" "skill" "istio-traffic-debugging" "topic" "Istio"
     "description" "Istio specialist: debugs service mesh traffic, mTLS, routing, sidecars, ztunnel and waypoints."
     "prompt" "You are an Istio specialist. You diagnose and fix service mesh traffic, security and waypoint problems."
     "read" (list "istio_analyze_cluster_configuration" "istio_generate_waypoint" "istio_list_waypoints" "istio_proxy_config" "istio_proxy_status" "istio_version" "istio_waypoint_status" "istio_ztunnel_config")
     "write" (list "istio_apply_waypoint" "istio_delete_waypoint"))
-  (dict "name" "argo-rollouts" "skill" "argo-rollouts-progressive-delivery"
+  (dict "name" "argo-rollouts" "skill" "argo-rollouts-progressive-delivery" "topic" "Argo Rollouts"
     "description" "Argo Rollouts specialist: checks, promotes, pauses and updates canary and blue-green Rollouts."
     "prompt" "You are an Argo Rollouts specialist. You help users run canary and blue-green releases with Argo Rollouts."
     "read" (list "argo_check_plugin_logs" "argo_rollouts_list" "argo_verify_argo_rollouts_controller_install" "argo_verify_kubectl_plugin_install")
     "write" (list "argo_pause_rollout" "argo_promote_rollout" "argo_set_rollout_image" "argo_verify_gateway_plugin"))
-  (dict "name" "kubescape" "skill" "kubescape-security-posture"
+  (dict "name" "kubescape" "skill" "kubescape-security-posture" "topic" "security"
     "description" "Security specialist: reviews Kubescape configuration scans, image vulnerabilities and workload behavior."
     "prompt" "You are a Kubernetes security specialist. You review Kubescape results and recommend hardening steps."
     "read" (list "kubescape_check_health" "kubescape_get_application_profile" "kubescape_get_configuration_scan" "kubescape_get_network_neighborhood" "kubescape_get_vulnerability_details" "kubescape_list_application_profiles" "kubescape_list_configuration_scans" "kubescape_list_network_neighborhoods" "kubescape_list_vulnerabilities" "kubescape_list_vulnerability_manifests")
     "write" (list))
-  (dict "name" "prometheus" "skill" "prometheus-observability"
+  (dict "name" "prometheus" "skill" "prometheus-observability" "topic" "metrics"
     "description" "Observability specialist: writes and runs PromQL queries about cluster and application metrics."
     "prompt" "You are an observability specialist. You turn questions about metrics into PromQL, run them and explain the results."
     "read" (list "prometheus_label_names_tool" "prometheus_promql_tool" "prometheus_query_range_tool" "prometheus_query_tool" "prometheus_targets_tool")
@@ -111,7 +111,10 @@ spec:
 }}
 {{- /* The catalog has the Prometheus skill only when kagent-tools has a Prometheus URL. */}}
 {{- $active := list }}
-{{- range $specialists }}{{ if hasKey $byName .skill }}{{ $active = append $active . }}{{ end }}{{ end }}
+{{- $topics := list "Kubernetes" }}
+{{- range $specialists }}{{ if hasKey $byName .skill }}{{ $active = append $active . }}{{ $topics = append $topics .topic }}{{ end }}{{ end }}
+{{- $covers := $topics | first }}
+{{- if gt (len $topics) 1 }}{{ $covers = printf "%s and %s" (initial $topics | join ", ") (last $topics) }}{{ end }}
 {{- range $active }}
 {{- $skill := get $byName .skill }}
 ---
@@ -169,7 +172,7 @@ metadata:
   labels:
     {{- include "kagent.labels" . | nindent 4 }}
 spec:
-  description: "Platform assistant: sends Kubernetes, Helm, Istio, Argo Rollouts, security and metrics questions to a specialist."
+  description: {{ printf "Platform assistant: sends %s questions to a specialist." $covers | quote }}
   modelConfig:
     name: {{ include "kagent.defaultModelConfigName" . }}
   systemPrompt: |

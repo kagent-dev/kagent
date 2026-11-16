@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Prints the built-in skills catalog: the kagent-tools image that the chart
-# deploys, pinned by digest, and the name, description and path of every skill
-# in it. Rerun with make builtin-skills-catalog after you bump kagent-tools in
+# Prints the built-in skills catalog: the kagent-tools version the chart depends
+# on, its image digest, and the name, description and path of every skill in it.
+# Rerun with make builtin-skills-catalog after you bump kagent-tools in
 # helm/kagent/Chart-template.yaml.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repository="ghcr.io/kagent-dev/kagent/tools"
@@ -52,5 +52,5 @@ for dir in "${skills[@]}"; do
       if (name != dir) fail("name " name " must match its directory " dir)
       print name; print description
     }' "$file" | jq -Rn --arg path "$skills_root/$dir" '[inputs] | {name: .[0], description: .[1], path: $path}'
-done | jq -es --arg image "$image" '
-  if length == 0 then error("no skills found") else {image: $image, skills: sort_by(.name)} end'
+done | jq -es --arg version "$version" --arg image "$image" '
+  if length == 0 then error("no skills found") else {version: $version, image: $image, skills: sort_by(.name)} end'

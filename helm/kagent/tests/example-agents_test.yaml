@@ -29,7 +29,7 @@ tests:
           path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-kubernetes")]
       - equal:
           path: spec.description
-          value: "Platform assistant: sends Kubernetes, Helm, Istio, Argo Rollouts, security and metrics questions to a specialist."
+          value: "Platform assistant: sends Kubernetes, Helm, Istio, Argo Rollouts and security questions to a specialist."
         documentSelector:
           path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
 
@@ -258,6 +258,11 @@ tests:
               description: "Observability specialist: writes and runs PromQL queries about cluster and application metrics."
               templateRef:
                 name: platform-prometheus
+        documentSelector:
+          path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
+      - equal:
+          path: spec.description
+          value: "Platform assistant: sends Kubernetes, Helm, Istio, Argo Rollouts, security and metrics questions to a specialist."
         documentSelector:
           path: $[?(@.kind == "AgentTemplate" && @.metadata.name == "platform-agent")]
 

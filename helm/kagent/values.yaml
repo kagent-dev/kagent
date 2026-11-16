@@ -820,8 +820,8 @@ kagent-tools:
 # turns them on.
 
 examples:
-  # -- Create the example Agent and offer the kagent-tools skills in the UI.
-  # The Agent needs `harnesses.enabled`, `harnesses.kagent.enabled` and `kagent-tools.enabled`.
+  # -- Create the example Agent and offer the kagent-tools skills in the UI. Both need
+  # `kagent-tools.enabled`; the Agent also needs `harnesses.enabled` and `harnesses.kagent.enabled`.
   enabled: false
   platformAgent:
     # -- Create platform-agent, which hands each task to a specialist subagent
