@@ -133,9 +133,7 @@ Default selection does not inspect or validate the CLI version inside an overrid
 Every harness compiler preserves explicit `spec.workload.command` and
 `spec.workload.args` in the runtime revision and generated ActorTemplate,
 regardless of the runtime image's implementation language. Omitted overrides
-remain unset. BYO harnesses require `command`. Claude and Codex harnesses do
-not honor either field, so Harness admission rejects them there rather than
-silently starting the image entrypoint.
+remain unset. BYO harnesses require `command`.
 
 For example, this Harness excerpt selects debug logging for the Go ADK image
 without changing the AgentTemplate:
