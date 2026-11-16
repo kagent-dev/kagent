@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package kagent.api.v1;
 
+import "buf/validate/validate.proto";
 import "kagent/api/v1/common.proto";
 import "kagent/api/v1/models.proto";
 
@@ -28,7 +29,17 @@ message ListToolsResponse {
   repeated Tool tools = 1;
 }
 
-message ListToolServersRequest {}
+message ListToolServersRequest {
+  // When set, return only RemoteMCPServers whose allowedNamespaces policy permits
+  // references from this namespace. Empty returns the management catalog.
+  string reference_namespace = 1 [(buf.validate.field) = {
+    ignore: IGNORE_IF_ZERO_VALUE
+    string: {
+      max_len: 63
+      pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    }
+  }];
+}
 
 message DiscoveredTool {
   string name = 1;

@@ -133,7 +133,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
                   loading={namespaces.isLoading}
                   onChange={(value: string) =>
                     // Clear the selection because local references resolve in the new namespace.
-                    setDraft({ ...draft, namespace: value, modelConfig: undefined })
+                    setDraft({ ...draft, namespace: value, modelConfig: undefined, mcpTools: [] })
                   }
                   options={(namespaces.data ?? []).map((entry) => ({
                     value: entry.name,
