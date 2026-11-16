@@ -15,8 +15,9 @@ This directory is a single Go module (`github.com/kagent-dev/kagent/go`) contain
 
 ### Dependencies between trees
 
-`go/api` does not import any other tree in this module, so external consumers can
-depend on it alone. The other trees import each other at the package level:
+`go/api` does not import any other tree in this module, so importing its packages
+does not compile the controller, ADK, or harness code. The other trees import each
+other at the package level:
 
 - `core` uses `adk` and `harness` configuration packages to compile runtime inputs.
 - `adk` and `harness` use `core` packages such as `core/pkg/env` and `core/pkg/config`.
