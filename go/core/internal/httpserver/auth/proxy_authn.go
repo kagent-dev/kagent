@@ -31,8 +31,9 @@ func (a *ProxyAuthenticator) Authenticate(ctx context.Context, reqHeaders http.H
 	}
 	authHeader := reqHeaders.Get("Authorization")
 
-	tokenString, ok := strings.CutPrefix(authHeader, "Bearer ")
-	if !ok {
+	// Authentication schemes are case-insensitive (RFC 9110 section 11.1).
+	scheme, tokenString, ok := strings.Cut(authHeader, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || tokenString == "" {
 		return nil, ErrUnauthenticated
 	}
 
