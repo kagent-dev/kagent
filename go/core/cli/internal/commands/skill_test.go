@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
 
+	apiv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
@@ -256,8 +257,11 @@ func TestSkillManifestExamplesMatchTypes(t *testing.T) {
 				_, _, err = readAgentManifest(file, "kagent")
 			case agentTemplateKind:
 				_, _, err = readAgentTemplateManifest(file, "kagent")
+			case "ModelConfig":
+				// kubectl applies ModelConfig, so a strict decode stands in for the API server's unknown-field check.
+				err = yaml.UnmarshalStrict([]byte(block.text), &apiv1alpha3.ModelConfig{})
 			default:
-				t.Fatalf("%s: kind %q is not Agent or AgentTemplate; show full resources so this test can parse them", block.where, kind.Kind)
+				t.Fatalf("%s: kind %q is not Agent, AgentTemplate, or ModelConfig; show full resources so this test can parse them", block.where, kind.Kind)
 			}
 			require.NoError(t, err, block.where)
 		})

@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 	"sigs.k8s.io/yaml"
 
@@ -182,13 +182,9 @@ func confirmSkillInstall(in io.Reader, out io.Writer, paths []string) error {
 		return nil
 	}
 	_, _ = fmt.Fprintln(out, "kagent will install its Agent Skill to:")
-	table := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintf(table, "  %s\tread by most skills-compatible AI agents\n", paths[0])
+	_, _ = fmt.Fprintf(out, "  %s (read by most skills-compatible AI agents)\n", paths[0])
 	for _, link := range paths[1:] {
-		_, _ = fmt.Fprintf(table, "  %s\tClaude Code, links to the folder above\n", link)
-	}
-	if err := table.Flush(); err != nil {
-		return err
+		_, _ = fmt.Fprintf(out, "  %s (Claude Code, links to the folder above)\n", link)
 	}
 	ok, err := prompt.Confirm(in, out, "Continue?")
 	if err != nil {
@@ -403,10 +399,11 @@ func writeSkillResults(w io.Writer, format clioutput.Format, results []skillResu
 	if format == clioutput.FormatJSON {
 		return clioutput.WriteJSON(w, results)
 	}
-	table := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(table, "PATH\tSTATUS")
+	tw := table.NewWriter()
+	tw.AppendHeader(table.Row{"PATH", "STATUS"})
 	for _, result := range results {
-		_, _ = fmt.Fprintf(table, "%s\t%s\n", result.Path, result.Status)
+		tw.AppendRow(table.Row{result.Path, result.Status})
 	}
-	return table.Flush()
+	_, err := fmt.Fprintln(w, tw.Render())
+	return err
 }

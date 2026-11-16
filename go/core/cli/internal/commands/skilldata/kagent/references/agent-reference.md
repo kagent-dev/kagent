@@ -9,7 +9,7 @@ Pick one value for each line of the card. Do not list alternatives: the user can
 
 | Value | Default | Note |
 | --- | --- | --- |
-| Harness | Runtime `kagent`. It supports all model providers. | `claude`: Anthropic, Bedrock, AnthropicVertexAI only. `codex`: OpenAI, Bedrock only. |
+| Harness | Runtime `kagent`. It supports all model providers. | `claude`: Anthropic, Bedrock, AnthropicVertexAI only, and it binds whole MCP servers (see [Agent manifest](#agent-manifest)). `codex`: OpenAI with `openAI.apiFormat: responses`, or Bedrock. |
 | Model | `default-model-config`, else the first in `model list` | |
 | Template | A new inline template | Reuse a template from `agent template list` that fits the goal. |
 | Name | Lowercase letters, digits, and hyphens from the goal | Not in `agent list`, or `agent template list` for a template. `apply` replaces a resource with the same name. |
@@ -18,7 +18,7 @@ Pick one value for each line of the card. Do not list alternatives: the user can
 ## Find tools
 
 ```sh
-kagent tool list -o json | jq -r '.toolServers[] | .ref as $s | .discoveredTools[] | "\($s) \(.name): \(.description)"' | grep ' k8s_'
+kagent tool list -o json | jq -r '.toolServers[]? | .ref as $s | .discoveredTools[]? | "\($s) \(.name): \(.description)"' | grep ' k8s_'
 ```
 
 - Each line starts with `NAMESPACE/SERVER`. Filter on a tool prefix, such as `k8s_` or `helm_`.
@@ -27,8 +27,10 @@ kagent tool list -o json | jq -r '.toolServers[] | .ref as $s | .discoveredTools
 ## Readiness check
 
 ```sh
-kagent agent get NAME -o json | jq '{generation: .metadata.generation, observed: .status.observedGeneration, revision: .status.desiredRevision, conditions: [.status.conditions[]? | {type, status, reason, message}]}'
+kagent agent get NAME -o json | jq '{generation: .metadata.generation, observed: .status.observedGeneration, revision: .status.desiredRevision, warnings: .status.warnings, conditions: [.status.conditions[]? | {type, status, reason, message}]}'
 ```
+
+Show each entry of `warnings` to the user, also when the Agent is ready.
 
 | Result (the first row that matches) | Meaning and next step |
 | --- | --- |
@@ -54,8 +56,8 @@ spec:
       description: PURPOSE         # one line
       modelConfig:
         name: MODEL                # kagent model list
-      systemPrompt: |
-        PROMPT                     # see "Write the prompt"
+      systemPrompt: |              # see "Write the prompt"
+        PROMPT
       tools:
         - mcp:
             server:
@@ -71,6 +73,10 @@ spec:
 - A tool changes state when its name or description says that it creates, changes, deletes, or runs something,
   for example `k8s_check_service_connectivity`, which starts a temporary pod.
 - `requireApproval: true` pauses each call until the user approves it in the kagent dashboard.
+- On the `claude` harness, a `tools` list binds the whole MCP server, and the Agent reports a warning. The CRD says:
+  "Harnesses that cannot enforce a partial selection may expose the whole server and report a warning."
+  So the split above does not work there. Set `requireApproval: true` on each binding to a server that has
+  tools that change state, and show `SERVER (all tools)` on the card.
 - Some read tools can show Secret data, for example `k8s_get_resource_yaml`. Bind them only when the goal needs them.
 
 ## Sandbox tools
@@ -147,9 +153,34 @@ spec:
 Before you delete an AgentTemplate, run both lists. Each prints the resources that refer to `TEMPLATE`:
 
 ```sh
-kagent agent list -o json | jq -r --arg t TEMPLATE '.items[] | select([.spec.template.ref.name, (.. | .subAgent?.templateRef?.name?)] | index($t)) | .metadata.name'
-kagent agent template list -o json | jq -r --arg t TEMPLATE '.items[] | select([.. | .subAgent?.templateRef?.name?] | index($t)) | .metadata.name'
+kagent agent list -o json | jq -r --arg t TEMPLATE '.items[]? | select([.spec.template.ref.name, (.. | .subAgent?.templateRef?.name?)] | index($t)) | .metadata.name'
+kagent agent template list -o json | jq -r --arg t TEMPLATE '.items[]? | select([.. | .subAgent?.templateRef?.name?] | index($t)) | .metadata.name'
 ```
+
+## Add a model
+
+Use this when `model list` is empty or no model fits the harness. `kagent apply` does not take a ModelConfig,
+so the user applies it with `kubectl`. This example is for Anthropic, which the `kagent` and `claude` harnesses support.
+
+```yaml
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata: {name: MODEL}
+spec:
+  provider: Anthropic
+  model: MODEL_ID                 # an Anthropic model ID
+  apiKeySecret: SECRET
+  apiKeySecretKey: ANTHROPIC_API_KEY
+```
+
+Give the user these commands to run in their own terminal. Never ask for the API key in chat:
+
+```sh
+read -rs KEY && kubectl create secret generic SECRET -n NAMESPACE --from-literal=ANTHROPIC_API_KEY="$KEY"; unset KEY
+kubectl apply -n NAMESPACE -f MODEL.yaml
+```
+
+Then run `kagent model list` and continue with Confirm.
 
 ## Write the prompt
 
@@ -168,25 +199,26 @@ Do not change any resource.
 ## Failures
 
 `apply` creates or changes the Agent also when a condition then fails. Fix the file and apply
-again, or delete the Agent. Match the `apply` error, or the `message` of the failed condition.
+again, or delete the Agent. Match the `apply` error, or the `message` of the failed condition, to the first row that fits.
 
 | Text | Fix |
 | --- | --- |
 | `unknown field "FIELD"` | Correct the field name with the shapes in this file. |
 | `internal server error` | Remove all `metadata` fields except `name`. |
 | `resolve Harness "NS/NAME": not found` | Use a NAME from `kagent harness list`. If the list is empty, see "Troubleshooting" in SKILL.md. |
+| `resolve ModelConfig "NS/NAME": secret NAME not found` | An admin must create the API key Secret of the ModelConfig. Or use another model. |
 | `resolve ModelConfig "NS/NAME": not found` | Use a NAME from `kagent model list`. |
 | `resolve RemoteMCPServer "NAME": not found` | Use a SERVER from `kagent tool list`. |
 | `resolve AgentTemplate "NS/NAME": not found` (a `ref`), or `"NAME"` (a `subAgent`) | Apply the AgentTemplate first, or use a NAME from `kagent agent template list`. |
 | `ModelConfig is required` | Add `modelConfig.name` to the template. |
 | `does not support ModelConfig provider` | Use the harness with runtime `kagent`, or a model that the harness supports. |
+| `Codex OpenAI requires openAI.apiFormat responses` | Use the harness with runtime `kagent`, or a ModelConfig with `openAI.apiFormat: responses`. |
 | `denied by allowedNamespaces` | Use a model or tool server from `-n`. Or an admin adds this namespace to its `allowedNamespaces`. For the built-in tool server, the Helm value is `kagent-tools.remoteMCPServer.allowedNamespaces`. |
-| `APIKeySecretNotFound` | An admin must create the API key Secret of the ModelConfig. |
 
 This command shows the API key Secret of each ModelConfig, for example after a `401 Unauthorized`:
 
 ```sh
-kagent model list -o json | jq -r '.modelConfigs[] | "\(.ref.name) \(.resource.value.spec.apiKeySecret) \(.resource.value.spec.apiKeySecretKey)"'
+kagent model list -o json | jq -r '.modelConfigs[]? | "\(.ref.name) \(.resource.value.spec.apiKeySecret) \(.resource.value.spec.apiKeySecretKey)"'
 ```
 
 ## Get a manifest back
@@ -197,5 +229,5 @@ If you do not have the file of an Agent, write it again from the server:
 kagent agent get NAME -o json | jq '{apiVersion, kind, metadata: {name: .metadata.name}, spec}' > NAME.yaml
 ```
 
-JSON is valid YAML, so Update can apply this file. Other `metadata` fields make `apply` fail.
+JSON is valid YAML, so Update can apply this file. Server fields such as `resourceVersion` make `apply` fail. Labels are fine.
 `kagent agent template get NAME -o json` works the same way.
