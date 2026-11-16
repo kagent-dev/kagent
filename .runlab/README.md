@@ -20,9 +20,9 @@ The microVM is discarded when you finish. The pull request's code runs inside it
 
 ## What you need
 
-- A Linux x86_64 machine with KVM. The [author pack](https://runlabs.io/author-pack) installs the rest: unpack it, run `./prereqs` once, and put its directory on your `PATH`.
-- `gh`, logged in on your machine: `trylab pr` uses it to read the pull request.
-- About 16 GiB of memory free for the VM, and about 40 GB of disk for this lab (a 23 GB disk and a 17 GB memory snapshot).
+- A Linux x86_64 machine with KVM. The [author pack](https://runlabs.io/author-pack), **version 1.6.0 or later** (an older `trylab pr` does not give the VM the pull request), installs the rest: unpack it, run `./prereqs` once, and put its directory on your `PATH`.
+- `gh`, logged in on your machine: `trylab pr` uses it to read the pull request and to check it out in your checkout.
+- About 16 GiB of memory free for the VM, and about 42 GB of disk for this lab (a 25 GB disk and a 17 GB memory snapshot).
 - One variable in your environment when you start:
   - `OPENAI_API_KEY`: the model provider for the agents (the lab sets `MODEL_PROVIDER=openAI`; change that line in `pr-review/config.yaml` for another provider). The key is passed into the VM.
 
