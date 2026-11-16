@@ -16,10 +16,6 @@ snapshots:
 # The model is OpenAI. The key comes from the host's environment when the session starts.
 env:
   OPENAI_API_KEY: $OPENAI_API_KEY
-  # gh in the guest checks out and diffs the pull request, and it needs a token even for a public repository.
-  # The lab runs the pull request's code, so use a fine-grained token with no permissions beyond reading public
-  # repositories, never your own login's token: export GH_TOKEN=<that token>
-  GH_TOKEN: $GH_TOKEN
   # A literal, not a host variable: kagent's install reads it. Change the line to try another provider.
   MODEL_PROVIDER: openAI
 services:

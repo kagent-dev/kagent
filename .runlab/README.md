@@ -14,7 +14,7 @@ From anywhere inside your kagent checkout:
 trylab pr 3564
 ```
 
-`trylab pr` reads the pull request with your own `gh`, opens `pr-review`, and puts the pull request's title, author and changed files above the lab's steps. The lab then has two panes: the build runs in the bottom one while you read `gh pr diff` in the top one, and a link at the end opens the kagent UI on that pull request.
+`trylab pr` reads the pull request with your own `gh`, **checks it out in your checkout** (your checkout is switched to the pull request's branch, and the command stops if tracked files of yours have changes that are not committed), opens `pr-review`, and puts the pull request's title, author and changed files above the lab's steps. The VM is given the checkout's commits as one small file over its own connection: it fetches nothing from GitHub and holds no token. The lab then has two panes: the build runs in the bottom one while you read `git diff` in the top one, and a link at the end opens the kagent UI on that pull request.
 
 The microVM is discarded when you finish. The pull request's code runs inside it, not on your machine, and sees only what `pr-review/config.yaml` passes in (below).
 
@@ -23,9 +23,8 @@ The microVM is discarded when you finish. The pull request's code runs inside it
 - A Linux x86_64 machine with KVM. The [author pack](https://runlabs.io/author-pack) installs the rest: unpack it, run `./prereqs` once, and put its directory on your `PATH`.
 - `gh`, logged in on your machine: `trylab pr` uses it to read the pull request.
 - About 16 GiB of memory free for the VM, and about 40 GB of disk for this lab (a 23 GB disk and a 17 GB memory snapshot).
-- Two variables in your environment when you start:
+- One variable in your environment when you start:
   - `OPENAI_API_KEY`: the model provider for the agents (the lab sets `MODEL_PROVIDER=openAI`; change that line in `pr-review/config.yaml` for another provider). The key is passed into the VM.
-  - `GH_TOKEN`: the VM's own `gh` checks out and diffs the pull request, and needs a token even for a public repository. Use a **fine-grained token with no permissions beyond reading public repositories**, not your login's token, because the VM runs the pull request's code.
 
 ## The first run
 
