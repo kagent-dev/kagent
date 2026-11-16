@@ -14,8 +14,8 @@ import { useAgent } from "./useAgents";
  * empty one — it is a Kubernetes list, not a per-namespace database query — so
  * "all namespaces" is one request rather than a fan-out.
  */
-export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
-  return useApiResource(["harnesses.list", namespace ?? ""], () =>
+export function useHarnesses(namespace?: string, enabled = true): ApiResource<Harness[]> {
+  return useApiResource(enabled ? ["harnesses.list", namespace ?? ""] : null, () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
 }

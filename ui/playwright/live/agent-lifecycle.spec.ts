@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { expectNoLoadFailure, liveRoutes, loadLive, rowNamed } from "./helpers/live";
 import { liveApi } from "./helpers/api";
+import { confirmDelete, rowAction } from "../helpers/resource";
 
 /**
  * Agent CRUD on a real cluster, through the UI, for each template source.
@@ -101,7 +102,7 @@ for (const { template, slug } of CASES) {
     await test.step("4. an edit is saved, read back and becomes a new revision", async () => {
       const before = await liveApi(baseURL!).latestRevision(NAMESPACE, name);
       await loadLive(page, liveRoutes.agents);
-      await page.getByTestId(`edit-${name}`).click();
+      await rowAction(page, `kagent/${name}`, "edit");
       await expect(page.getByTestId("agent-form-name")).toBeDisabled();
       // A referenced template is switched to inline; an inline one gets a new description.
       await fillInlineTemplate(page, `Edited ${name}`);
@@ -115,8 +116,7 @@ for (const { template, slug } of CASES) {
     });
 
     await test.step("5. delete asks first, then the row is gone and the rest remain", async () => {
-      await page.getByTestId(`delete-${name}`).click();
-      await page.locator(".ant-popconfirm:visible").getByRole("button", { name: "Delete" }).click();
+      await confirmDelete(page, `kagent/${name}`, { fromMenu: true });
       await expect(rowNamed(page, name)).toHaveCount(0, { timeout: 60_000 });
       // Other specs add and remove rows in parallel, so check a fixed neighbour, not a count.
       await expect(page.getByTestId(`agent-link-${NAMESPACE}-assistant`)).toBeVisible();

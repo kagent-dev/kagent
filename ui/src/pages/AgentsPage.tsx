@@ -4,10 +4,10 @@ import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { RowActionsMenu } from "@/components/table/RowActionsMenu";
+import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
 import {
   agentDescription,
@@ -209,25 +209,20 @@ export function AgentsTab() {
       {
         title: "",
         key: "actions",
-        width: 96,
+        width: 56,
         render: (_, row) => (
-          <Space size={4}>
-            <Link to={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}>
-              <Button
-                type="text"
-                icon={<Pencil size={16} />}
-                data-testid={`edit-${row.name}`}
-                aria-label={`Edit agent ${row.name}`}
-              />
-            </Link>
-            <DeleteResourceButton
-              kind="agent"
-              name={row.name}
-              description="New conversations stop. Existing ones keep running. Shared templates and harnesses stay."
-              onDelete={() => apiClient.agentBuildingBlocks.removeAgent(row.namespace, row.name)}
-              onDeleted={invalidateAgents}
-            />
-          </Space>
+          <RowActionsMenu
+            kind="agent"
+            namespace={row.namespace}
+            name={row.name}
+            editTo={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}
+            copyTo={copyPath(paths.agentNew, row)}
+            remove={{
+              description: "New conversations stop. Existing ones keep running. Shared templates and harnesses stay.",
+              onDelete: () => apiClient.agentBuildingBlocks.removeAgent(row.namespace, row.name),
+              onDeleted: invalidateAgents,
+            }}
+          />
         ),
       },
     ],
