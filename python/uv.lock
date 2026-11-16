@@ -1135,7 +1135,7 @@ wheels = [
 
 [[package]]
 name = "google-adk"
-version = "2.13.0"
+version = "2.14.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -1163,9 +1163,9 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fe/2b/9616b2a498b8f247c1a9bef8c630e16151dd3a8ed768fa3118a961b19689/google_adk-2.13.0.tar.gz", hash = "sha256:bc2389c9d41bfadd9f0c87d6bfd8d5c7eaf1c449e8906079600b8f3752ddaa88", size = 4444119, upload-time = "2026-10-23T18:26:34.717Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/74/63/51ed9edb6c992b3b6253389851e2347960e220632a3a54456094d7f7e854/google_adk-2.14.1.tar.gz", hash = "sha256:b0033571ca101f6bb8617f4791ada0f141f7ef32b0f21ff32116f1161b32ee3c", size = 4574372, upload-time = "2026-11-12T21:32:04.054Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/1a/6da4a8048b7cd47681928daed5d4d1c3ef971b3847fcc3cbc63f94df39d2/google_adk-2.13.0-py3-none-any.whl", hash = "sha256:bec4c4ee0aa3e63a2243c23365c5aef666ea539bc48c78dfbbf004dbddfc5f00", size = 5157034, upload-time = "2026-10-23T18:26:31.805Z" },
+    { url = "https://files.pythonhosted.org/packages/53/47/fd40131a2ea09a2084e97253759d1325f1becab8185a6676961c7e48033a/google_adk-2.14.1-py3-none-any.whl", hash = "sha256:a92783e99babba5611163ce8fb4ced3ce6c5e630a34f15a3460bc577571a41a3", size = 5302763, upload-time = "2026-11-12T21:32:01.551Z" },
 ]
 
 [package.optional-dependencies]
@@ -1898,7 +1898,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.28.57" },
     { name = "fastapi", specifier = ">=0.115.1" },
     { name = "filelock", specifier = ">=4.0.9" },
-    { name = "google-adk", extras = ["a2a", "db"], specifier = ">=2.13.0,<3" },
+    { name = "google-adk", extras = ["a2a", "db"], specifier = ">=2.14.1,<3" },
     { name = "google-auth", specifier = ">=2.62.1" },
     { name = "google-genai", specifier = ">=2.34.0,<3" },
     { name = "grpcio", specifier = ">=1.83.0" },
