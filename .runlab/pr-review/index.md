@@ -5,11 +5,11 @@ Kagent itself is not installed yet: this builds the pull request and installs it
 
 ## Start the build
 
-Check out the pull request, build its images and install it.
+The pull request is already checked out in the lab: trylab gave it the commits of your own checkout, so it is
+the branch you are on. Build its images and install it.
 
 ```shell panel="build"
-gh pr checkout <pr> &&
-  make build &&
+make build &&
   make kagent-cli-install
 ```
 
@@ -17,10 +17,10 @@ The build takes a while. Read about the pull request below while it runs.
 
 ## Read the changes
 
-Once the checkout in the build pane has finished, show what the pull request changes (until then there is nothing to compare):
+Show what the pull request changes, against the commit it branched from:
 
 ```shell panel="view"
-gh pr diff <pr>
+git diff <merge-base>...HEAD
 ```
 
 ## Open kagent
