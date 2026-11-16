@@ -1,6 +1,7 @@
 # Sandbox details
 
-This file gives the sandbox behavior that `kagent sandbox <command> --help` does not show.
+This file gives the sandbox behavior that `kagent sandbox <command> --help` does not show,
+and the sandbox tools that an agent can bind.
 
 ## Choose a template
 
@@ -82,3 +83,16 @@ With `-o json`, `exec` and `wait` write one JSON record on each line:
 2. Delete each sandbox that you made for the task.
 3. If the user wants to keep a sandbox, report its ID, expiry time, and file paths.
 4. If `delete` fails, report the error and the sandbox ID. Do not say that the delete succeeded.
+
+## Sandbox tools
+
+Bind these from server `kagent-api` in the [Agent manifest](agent-reference.md#agent-manifest) when the agent needs
+an isolated workspace. They change only the sandbox.
+
+- A usual set is `list_sandbox_templates`, `create_sandbox`, `get_sandbox`, `write_sandbox_file`, `start_sandbox_process`,
+  `get_sandbox_process`, `read_sandbox_outputs`, `read_sandbox_file`, and `delete_sandbox`.
+- Put them in one binding. Ask once whether `start_sandbox_process` needs approval.
+- Do not bind the `shell` tool of `kagent-tool-server` for a workspace. It runs in the shared tool-server pod.
+- `kagent sandbox templates` must show a template in `-n`. If it is empty, an admin creates a SandboxTemplate first.
+- The agent's sandbox calls use the identity of its connection to `kagent-api`. To act as the invoking user, an admin
+  sets the Helm value `config.runtimeDefaults.tokenPropagation.enabled=true`. It applies to the `kagent` runtime only.

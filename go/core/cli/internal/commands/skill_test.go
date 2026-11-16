@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -237,9 +238,12 @@ func TestEmbeddedSkillMatchesRepository(t *testing.T) {
 func TestSkillManifestExamplesMatchTypes(t *testing.T) {
 	repo, err := filepath.Abs(filepath.Join("..", "..", "..", "..", ".."))
 	require.NoError(t, err)
+	skill := os.DirFS(filepath.Join(repo, ".agents", "skills", "kagent"))
+	references, err := fs.Glob(skill, "references/*.md")
+	require.NoError(t, err)
 	var blocks []skillYAMLBlock
-	for _, name := range []string{"SKILL.md", filepath.Join("references", "agent-reference.md")} {
-		data, err := os.ReadFile(filepath.Join(repo, ".agents", "skills", "kagent", name))
+	for _, name := range append([]string{"SKILL.md"}, references...) {
+		data, err := fs.ReadFile(skill, name)
 		require.NoError(t, err)
 		blocks = append(blocks, skillYAMLBlocks(name, string(data))...)
 	}

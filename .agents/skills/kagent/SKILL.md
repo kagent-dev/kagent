@@ -42,8 +42,8 @@ If none fits, offer to [Create](#create) one. Before you use an Agent whose Read
    agent running, use a placeholder goal instead. Do not list resources yet.
 2. **List resources.** Run `kagent harness list`, `kagent model list`, `kagent agent template list`, `kagent agent list`,
    and "Find tools" in agent-reference.md. Choose each value with "Choosing values" in agent-reference.md.
-   If the agent needs an isolated workspace, also bind the "Sandbox tools" in agent-reference.md.
-   If it hands work to another agent, see "Helper agents" in agent-reference.md.
+   If the agent needs an isolated workspace, also bind the [Sandbox tools](references/sandboxes.md#sandbox-tools).
+   If it hands work to another agent, see [Helper agents](references/templates.md#helper-agents).
 3. **Draft.** Write the name, description, and system prompt from the goal, unless the user gave them. Never
    replace a value the user gave. If one is not valid, such as an unknown model, say so on the card.
    Write the manifest from agent-reference.md to `NAME.yaml` in the current directory.
@@ -91,7 +91,7 @@ kagent agent session list                                # or session get ID, fo
 2. Edit the file. Show the user the changed lines, and wait for a yes.
 3. Run `kagent apply -f NAME.yaml`, then the check from the Apply step of [Create](#create).
 
-To add a capability, see "Sandbox tools" or "Helper agents" in agent-reference.md.
+To add a capability, see [Sandbox tools](references/sandboxes.md#sandbox-tools) or [Helper agents](references/templates.md#helper-agents).
 A Session runs the revision that it was created from. Start a new Session to use the change.
 
 An AgentTemplate change keeps the `generation` of its Agents. Record each Agent's `status.desiredRevision`
@@ -101,14 +101,14 @@ before the apply. After it, wait for a new revision and `Ready` `True`.
 
 Deletes do not ask for confirmation. Get a yes first.
 
-1. List what you made in this conversation: Agents, AgentTemplates, Sessions, sandboxes, and `NAME.yaml` files.
+1. List the resources that the user named, or that you made: Agents, AgentTemplates, Sessions, sandboxes, and `NAME.yaml` files.
    Name each one in the confirmation.
 2. `kagent agent delete NAME` keeps the Sessions of the Agent.
    To delete them too, run:
    ```sh
    kagent agent session list -o json | jq -r '.sessions[]? | select("\(.agent.ref.namespace)/\(.agent.ref.name)" == "NS/NAME") | .id' | xargs -n1 kagent agent session delete
    ```
-3. Before `kagent agent template delete NAME`, run "Find what uses a template" in agent-reference.md.
+3. Before `kagent agent template delete NAME`, run [Find what uses a template](references/templates.md#find-what-uses-a-template).
    Delete it only when nothing uses it. An inline template needs no delete.
 4. Delete each sandbox with `kagent sandbox delete ID`, and each file that you wrote.
 

@@ -1,7 +1,6 @@
 # Agent manifests
 
 Read this file when you choose values for an Agent, or write, check, fix, or recover a manifest.
-`kagent apply` rejects a field that is not in these shapes, with `unknown field`.
 
 ## Choosing values
 
@@ -11,7 +10,7 @@ Pick one value for each line of the card. Do not list alternatives: the user can
 | --- | --- | --- |
 | Harness | Runtime `kagent`. It supports all model providers. | `claude`: Anthropic, Bedrock, AnthropicVertexAI only, and it binds whole MCP servers (see [Agent manifest](#agent-manifest)). `codex`: OpenAI with `openAI.apiFormat: responses`, or Bedrock. |
 | Model | `default-model-config`, else the first in `model list` | |
-| Template | A new inline template | Reuse a template from `agent template list` that fits the goal. |
+| Template | A new inline template | Reuse a template from `agent template list` that fits the goal. See [templates.md](templates.md). |
 | Name | Lowercase letters, digits, and hyphens from the goal | Not in `agent list`, or `agent template list` for a template. `apply` replaces a resource with the same name. |
 | Tools | Only the tools that the goal needs, by exact name | Mark a tool that changes state "(needs approval)", and a helper "(helper)". |
 
@@ -37,6 +36,7 @@ Show each entry of `warnings` to the user, also when the Agent is ready.
 | `ResolvedRefs` or `Compatible` is `False` | Failure. Stop. Find the `message` in [Failures](#failures). |
 | `observed` is less than `generation`, or there is no `Ready` condition | The controller did not report yet. Run the check again. |
 | `Ready` is `False` with reason `ActorTemplatePending` | The runtime is in preparation. Run the check again. |
+| `Ready` is `False` with reason `ActorTemplateRetrying` | The runtime failed to build, and kagent retries with a backoff. Run the check again. After 5 minutes, report the `message`. |
 | `observed` equals `generation`, and `Ready` is `True` | The Agent is ready. |
 
 ## Agent manifest
@@ -73,89 +73,10 @@ spec:
 - A tool changes state when its name or description says that it creates, changes, deletes, or runs something,
   for example `k8s_check_service_connectivity`, which starts a temporary pod.
 - `requireApproval: true` pauses each call until the user approves it in the kagent dashboard.
-- On the `claude` harness, a `tools` list binds the whole MCP server, and the Agent reports a warning. The CRD says:
-  "Harnesses that cannot enforce a partial selection may expose the whole server and report a warning."
+- On the `claude` harness, a `tools` list binds the whole MCP server, and the Agent reports a warning.
   So the split above does not work there. Set `requireApproval: true` on each binding to a server that has
   tools that change state, and show `SERVER (all tools)` on the card.
 - Some read tools can show Secret data, for example `k8s_get_resource_yaml`. Bind them only when the goal needs them.
-
-## Sandbox tools
-
-Bind these from server `kagent-api` when the agent needs an isolated workspace.
-
-| Tools | State |
-| --- | --- |
-| `list_sandbox_templates`, `list_sandboxes`, `get_sandbox`, `get_sandbox_process`, `read_sandbox_outputs`, `read_sandbox_file` | Read only |
-| `create_sandbox`, `write_sandbox_file`, `start_sandbox_process`, `kill_sandbox_process`, `suspend_sandbox`, `resume_sandbox`, `delete_sandbox` | Change only the sandbox |
-
-- A usual set is `list_sandbox_templates`, `create_sandbox`, `get_sandbox`, `write_sandbox_file`, `start_sandbox_process`,
-  `get_sandbox_process`, `read_sandbox_outputs`, `read_sandbox_file`, and `delete_sandbox`.
-- Put them in one binding. Ask once whether `start_sandbox_process` needs approval.
-- Do not bind the `shell` tool of `kagent-tool-server` for a workspace. It runs in the shared tool-server pod.
-- `kagent sandbox templates` must show a template in `-n`. If it is empty, an admin creates a SandboxTemplate first.
-- The agent's sandbox calls use the identity of its connection to `kagent-api`. To act as the invoking user, an admin
-  sets the Helm value `config.runtimeDefaults.tokenPropagation.enabled=true`. It applies to the `kagent` runtime only.
-
-## Reuse a template
-
-An AgentTemplate `spec` is the `inline` block above, with `kind: AgentTemplate`. Use one when two or more
-Agents share one behavior. Apply it first, in its own file. It has no status, so run the readiness check
-on each Agent that refers to it:
-
-```yaml
-apiVersion: api.kagent.dev/v1alpha3
-kind: Agent
-metadata: {name: NAME}
-spec:
-  harnessRef: {name: HARNESS}
-  template: {ref: {name: TEMPLATE}}  # kagent agent template list
-```
-
-## Helper agents
-
-A `subAgent` binding lets an agent hand work to an AgentTemplate in the same namespace. The helper runs in the
-agent's own runtime, on its Harness. On `codex` and `claude`, the helper must use the same model provider and key. On `codex`, it cannot have tools.
-Put the helper AgentTemplate in its own file, and apply it first:
-
-```yaml
-apiVersion: api.kagent.dev/v1alpha3
-kind: AgentTemplate
-metadata: {name: TEMPLATE}
-spec:
-  description: PURPOSE
-  modelConfig: {name: MODEL}
-  systemPrompt: PROMPT
-```
-
-The helper is not an Agent. It does not show in `agent list` and has no Session.
-To also chat with it, create an Agent that refers to the template. Then bind it in the agent:
-
-```yaml
-apiVersion: api.kagent.dev/v1alpha3
-kind: Agent
-metadata: {name: NAME}
-spec:
-  harnessRef: {name: HARNESS}
-  template:
-    inline:
-      description: PURPOSE
-      modelConfig: {name: MODEL}
-      systemPrompt: PROMPT
-      tools:
-        - subAgent:
-            name: HELPER                    # the tool name that the agent sees
-            description: WHEN_TO_USE        # tells the agent when to hand work to the helper
-            templateRef: {name: TEMPLATE}   # kagent agent template list
-```
-
-## Find what uses a template
-
-Before you delete an AgentTemplate, run both lists. Each prints the resources that refer to `TEMPLATE`:
-
-```sh
-kagent agent list -o json | jq -r --arg t TEMPLATE '.items[]? | select([.spec.template.ref.name, (.. | .subAgent?.templateRef?.name?)] | index($t)) | .metadata.name'
-kagent agent template list -o json | jq -r --arg t TEMPLATE '.items[]? | select([.. | .subAgent?.templateRef?.name?] | index($t)) | .metadata.name'
-```
 
 ## Add a model
 
