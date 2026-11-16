@@ -472,6 +472,10 @@ harnesses:
 # ==============================================================================
 
 ui:
+  # -- Deploy the UI (Deployment, Service, ServiceAccount, ConfigMaps, PDB, HTTPRoute, OpenShift Route).
+  # Set to false to run kagent headless; the controller API, CLI, A2A and MCP endpoints are unaffected.
+  enabled: true
+
   # -- ServiceAccount settings for the UI pod
   serviceAccount:
     # -- Annotations to add to the UI ServiceAccount.

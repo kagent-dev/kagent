@@ -1,3 +1,4 @@
+{{- if .Values.ui.enabled -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,3 +20,4 @@ data:
   {{- if .Values.ui.streamTimeoutSeconds }}
   KAGENT_UI_STREAM_TIMEOUT_MS: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
   {{- end }}
+{{ end }}

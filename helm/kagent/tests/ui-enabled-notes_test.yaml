@@ -1,0 +1,19 @@
+suite: test ui.enabled NOTES
+templates:
+  - NOTES.txt
+tests:
+  - it: NOTES omit UI access steps when ui.enabled is false
+    template: NOTES.txt
+    set:
+      ui.enabled: false
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "ACCESSING THE UI"
+      - matchRegexRaw:
+          pattern: "UI: disabled"
+
+  - it: NOTES keep UI access steps by default
+    template: NOTES.txt
+    asserts:
+      - matchRegexRaw:
+          pattern: "ACCESSING THE UI"
