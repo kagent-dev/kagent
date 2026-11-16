@@ -13,7 +13,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import toast from "react-hot-toast";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -29,6 +29,7 @@ import {
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { agentTemplatesTab } from "@/router/routes";
+import { useBackLink } from "@/router/backLink";
 import {
   apiClient,
   useAgentConversations,
@@ -47,9 +48,13 @@ const TAB_PARAM = "tab";
 
 export function AgentTemplateDetailsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
   const { namespace, name } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  // Back to wherever the reader came from — a conversation's context panel, say — and
+  // to the list when they opened this page directly.
+  const back = useBackLink({ to: agentTemplatesTab, label: "Back to templates" });
 
   const template = useAgentTemplate(namespace, name);
   const invalidateTemplates = useInvalidateAgentTemplates();
@@ -100,13 +105,16 @@ export function AgentTemplateDetailsPage() {
     JSON.stringify(draft) !== JSON.stringify(loaded);
 
   const [isConfirmingDiscard, setConfirmingDiscard] = useState(false);
+  /** Set when the back button opened the discard prompt, so confirming it also leaves. */
+  const [isLeavingAfterDiscard, setLeavingAfterDiscard] = useState(false);
 
   const activeTab = searchParams.get(TAB_PARAM) === "agents" ? "agents" : "details";
   const setTab = (tab: string) => {
     const next = new URLSearchParams(searchParams);
     if (tab === "details") next.delete(TAB_PARAM);
     else next.set(TAB_PARAM, tab);
-    setSearchParams(next, { replace: true });
+    // Carry the router state across, or switching tabs drops the way back.
+    setSearchParams(next, { replace: true, state: location.state });
   };
 
   const missing = template.error !== undefined && isNotFound(template.error);
@@ -129,6 +137,30 @@ export function AgentTemplateDetailsPage() {
     setEdited(undefined);
     setError(undefined);
     setConfirmingDiscard(false);
+    if (isLeavingAfterDiscard) {
+      setLeavingAfterDiscard(false);
+      goBack();
+    }
+  }
+
+  /*
+   * Follows the back button. A return steps back through history rather than pushing
+   * the origin again, so it leaves no duplicate entry for the browser's Back button to
+   * land on; tab switches replace their entry, so the one before is still the origin.
+   */
+  function goBack() {
+    if (back.isReturn) navigate(-1);
+    else navigate(back.to);
+  }
+
+  /** Leaves the page by its back button, asking first when an unsaved draft would be lost. */
+  function leave() {
+    if (isDirty) {
+      setLeavingAfterDiscard(true);
+      setConfirmingDiscard(true);
+      return;
+    }
+    goBack();
   }
 
   async function save(): Promise<void> {
@@ -335,7 +367,12 @@ export function AgentTemplateDetailsPage() {
             description="Agents referencing this template cannot prepare new configuration until it is restored or replaced. Existing conversations and last successful revisions are retained."
             />
           ) : null}
-          <Button onClick={() => navigate(agentTemplatesTab)}>Back to templates</Button>
+          <Button
+            onClick={leave}
+            data-testid="template-back"
+          >
+            {back.label}
+          </Button>
         </Space>
       }
     >
@@ -482,12 +519,15 @@ export function AgentTemplateDetailsPage() {
         okButtonProps={{ danger: true }}
         cancelText="Keep editing"
         onOk={discardEdit}
-        onCancel={() => setConfirmingDiscard(false)}
+        onCancel={() => {
+          setConfirmingDiscard(false);
+          setLeavingAfterDiscard(false);
+        }}
         data-testid="template-discard-modal"
       >
         <Paragraph css={{ margin: 0 }} data-testid="template-discard-body">
-          This template has edits that have not been saved. Leaving edit mode throws them
-          away; the template on the cluster is unchanged either way.
+          This template has edits that have not been saved. Discarding throws them away;
+          the template on the cluster is unchanged either way.
         </Paragraph>
       </Modal>
     </PageFrame>
