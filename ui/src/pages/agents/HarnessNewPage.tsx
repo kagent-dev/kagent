@@ -1,16 +1,25 @@
 import { Alert, Card, Skeleton } from "antd";
 import toast from "react-hot-toast";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { useHarnesses } from "@/api";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
+import { copySource, useMountedBlank } from "@/components/table/copyFrom";
+import { CopyNotice } from "@/components/table/CopyNotice";
 import { paths } from "@/router/routes";
 
 const harnessesTab = `${paths.agents}?tab=harnesses`;
 
 export function HarnessNewPage() {
   const navigate = useNavigate();
+  const from = copySource(useSearchParams()[0]);
+  const { namespace, name } = from ?? {};
+  // No source, no read: a plain new harness has nothing to fetch.
+  const source = useHarnesses(namespace, Boolean(from));
+  const copyOf = source.data?.find((row) => row.namespace === namespace && row.name === name);
+  const waiting = Boolean(from) && !source.error && !source.data;
+  const mountedBlank = useMountedBlank(from && `${from.namespace}/${from.name}`, !waiting, Boolean(copyOf));
   return (
     <PageFrame
       title="New harness"
@@ -18,13 +27,22 @@ export function HarnessNewPage() {
     >
       <Card size="small" css={{ maxWidth: 720 }}>
         <HarnessIntro />
+        {/* A source that cannot be had still leaves a form to fill in: the alert says why it is blank. */}
+        {from && <CopyNotice kind="harness" from={from} error={source.error?.message} notFound={Boolean(source.data) && !copyOf} loaded={Boolean(copyOf)} mountedBlank={mountedBlank} testId="harness-copy" />}
+        {waiting ? (
+          <Skeleton active paragraph={{ rows: 8 }} />
+        ) : (
         <HarnessForm
+          // Keyed on the requested source, so a late-arriving one never remounts an edited form.
+          key={from ? `${from.namespace}/${from.name}` : "new"}
+          copyOf={copyOf}
           onSaved={(saved) => {
             toast.success(`Harness ${saved.name} created`);
             void navigate(harnessesTab);
           }}
           onCancel={() => void navigate(harnessesTab)}
         />
+        )}
       </Card>
     </PageFrame>
   );

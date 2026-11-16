@@ -234,11 +234,21 @@ export function anyDialog(page: Page): Locator {
  * first press opened. The `toBeVisible` between the two is what makes a Delete aimed
  * at nothing fail here rather than several assertions downstream.
  */
-export async function confirmDelete(page: Page, name: string): Promise<void> {
-  const open = confirmation(page);
+export async function confirmDelete(
+  page: Page,
+  name: string, // the row's `namespace/name` when `fromMenu`
+  { fromMenu = false }: { fromMenu?: boolean } = {},
+): Promise<void> {
+  // The agent, template and harness lists keep delete in a row menu, confirmed in a modal.
+  const open = fromMenu ? dialog(page) : confirmation(page);
   await expect(open).toHaveCount(0);
 
-  await page.getByTestId(`delete-${name}`).click();
+  if (fromMenu) {
+    await page.getByTestId(`row-actions-${name}`).click();
+    await page.getByTestId(`row-delete-${name}`).click();
+  } else {
+    await page.getByTestId(`delete-${name}`).click();
+  }
   await expect(open).toBeVisible();
   await pressOnce(open.getByRole("button", { name: "Delete" }));
 }
@@ -286,4 +296,10 @@ export async function expectRequired(
     );
     await expect(label).not.toHaveClass(/ant-form-item-required/);
   }
+}
+
+/** Opens a list row's ellipsis menu and picks `action`. `ref` is the row's `namespace/name`. */
+export async function rowAction(page: Page, ref: string, action: "edit" | "copy"): Promise<void> {
+  await page.getByTestId(`row-actions-${ref}`).click();
+  await page.getByTestId(`row-${action}-${ref}`).click();
 }

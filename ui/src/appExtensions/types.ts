@@ -9,6 +9,7 @@ import type { ExtensionShell } from "./shell";
 import type { ExtensionBranding } from "./branding";
 import type { ExtensionNavOverrides } from "./navOverrides";
 import type { ExtensionTableColumn } from "./tableColumns";
+import type { ExtensionRowAction } from "./rowActions";
 
 /** Props a contributed nav item's renderer receives. */
 export interface ExtensionNavItemProps {
@@ -212,6 +213,8 @@ export interface AppExtensionConfig {
    * than the application's shows that dimension on a page the application owns.
    */
   tableColumns?: readonly ExtensionTableColumn<never>[];
+  /** Extra items in the agent, agent template and harness list rows' actions menus. */
+  rowActions?: readonly ExtensionRowAction[];
   /**
    * Operation overrides and payload transforms, keyed by the
    * data layer's own call ids so an override naming a call that does not exist

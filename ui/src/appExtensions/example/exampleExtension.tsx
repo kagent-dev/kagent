@@ -6,6 +6,7 @@ import { ExampleRailItem } from "./ExampleRailItem";
 import { ExampleTenantProvider } from "./ExampleTenantProvider";
 import { exampleTeamField } from "./exampleFormFields";
 import { exampleAgentCreatorColumn } from "./exampleTableColumns";
+import { exampleEditInWindowAction } from "./exampleRowActions";
 import { EXAMPLE_PATH } from "./paths";
 import {
   ExampleAgentBadge,
@@ -70,6 +71,10 @@ export const exampleAppExtension: AppExtensionConfig = {
   // A column on a core table. The application has no concept of the dimension
   // this adds, which is the case a column contribution exists for.
   tableColumns: [exampleAgentCreatorColumn],
+
+  // An item in a list row's actions menu, which a slot could not give keyboard
+  // navigation or a per-row "not for this one".
+  rowActions: [exampleEditInWindowAction],
 
   // Restyling the host, not just the contributions. The application's own pages
   // pick these up because every one of its components reads its colours and
