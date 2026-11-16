@@ -26,6 +26,8 @@ export interface EnvironmentVariables {
   ENABLE_MOCK_UI: string;
   /** Public path prefix the UI is served under, e.g. `/ui`; empty at the root. */
   BASE_PATH: string;
+  /** JSON naming the skills image and the skills in it; read through `runtimeConfig`. */
+  BUILTIN_SKILLS: string;
 }
 
 /**
@@ -46,6 +48,7 @@ export const CORE_ENV_VARS = {
   STREAM_TIMEOUT_MS: "KAGENT_UI_STREAM_TIMEOUT_MS",
   ENABLE_MOCK_UI: "KAGENT_UI_ENABLE_MOCK",
   BASE_PATH: "KAGENT_UI_BASE_PATH",
+  BUILTIN_SKILLS: "KAGENT_UI_BUILTIN_SKILLS",
 } as const satisfies Record<keyof EnvironmentVariables, string>;
 
 /**
@@ -59,6 +62,7 @@ export const ENV_DEFAULTS: EnvironmentVariables = {
   STREAM_TIMEOUT_MS: "1800000",
   ENABLE_MOCK_UI: "false",
   BASE_PATH: "",
+  BUILTIN_SKILLS: "",
 };
 
 declare global {
