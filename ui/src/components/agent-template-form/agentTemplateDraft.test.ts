@@ -510,7 +510,8 @@ describe("skills", () => {
       'The skill "git" needs a Git URL that starts with http:// or https://.',
       'The skill "git" needs a full Git commit ID: 40 or 64 hex characters.',
       'The skill "s3" needs an S3 endpoint that starts with http:// or https://.',
-      'The skill "s3" needs an S3 key and version ID.',
+      'The skill "s3" needs an S3 key.',
+      'The skill "s3" needs an S3 version ID.',
       'The skill "up" needs a path relative to the artifact, without ".." segments.',
       'The skill "abs" needs a path relative to the artifact, without ".." segments.',
       'The skill ".." needs a name that is one path segment: not "." or "..", and without "/" or "\\".',
@@ -545,6 +546,21 @@ describe("skills", () => {
 
     expect(draftProblems(draftFromSpec(spec, "kagent"), { isCreate: false })).toEqual([
       'A plugin on this template already selects a skill named "review". Skill names must be unique.',
+    ]);
+  });
+
+  it("ties each skill message to the field that shows it", () => {
+    const draft = draftWithSkills(
+      { name: "git", sourceKind: "git", gitUrl: "https://x.test/r.git", gitCommit: "main" },
+      { sourceKind: "s3", s3Endpoint: "https://s3.test", s3Bucket: "b", path: "/abs" },
+    );
+
+    expect(templateDraftIssues(draft, { isCreate: true }).map((issue) => issue.field)).toEqual([
+      "skill:0:gitCommit",
+      "skill:1:name",
+      "skill:1:s3Key",
+      "skill:1:s3VersionId",
+      "skill:1:path",
     ]);
   });
 

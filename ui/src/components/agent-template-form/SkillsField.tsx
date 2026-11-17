@@ -1,16 +1,18 @@
 import { useMemo, type ReactNode } from "react";
-import { Button, Card, Form, Input, Select, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Form, Input, Radio, Select, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { ExternalLink, Plus, Trash } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { runtimeConfig } from "@/api/runtimeConfig";
 import { DataPill } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
+import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import {
   builtinSkillDraft,
   emptySkillDraft,
   matchBuiltinSkill,
   type SkillDraft,
   type SkillSourceKind,
+  type SkillTextField,
   type TemplateField,
 } from "./agentTemplateDraft";
 
@@ -42,57 +44,36 @@ export function SkillsField({
     next[index] = { ...next[index], ...patch };
     onChange(next);
   };
-  const remove = (index: number) => onChange(skills.filter((_, at) => at !== index));
 
   const muted = { color: theme.color.textMuted, fontSize: 12 };
   const mono = { fontFamily: theme.font.mono, fontSize: 12, wordBreak: "break-all" as const };
 
-  // Each skill is its own card, so its remove button reads as belonging to it.
-  const card = (index: number, children: ReactNode) => {
-    const error = errorFor(`skill:${index}`);
-    return (
-      <Card
-        key={index}
-        size="small"
-        css={{ borderColor: error ? theme.color.dangerBorder : theme.color.border }}
-        data-testid={`template-form-skill-${index}`}
-      >
-        <div css={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {children}
-          {error ? (
-            <Text css={{ color: theme.color.dangerText, fontSize: 12 }} data-testid={`template-form-skill-error-${index}`}>
-              {error}
-            </Text>
-          ) : null}
-        </div>
-      </Card>
-    );
+  // A kagent skill has no fields to show its message under, so its row lists them.
+  const rowErrors = (index: number) => {
+    const messages = (Object.keys(emptySkillDraft()) as Array<keyof SkillDraft>)
+      .filter((key): key is SkillTextField => key !== "sourceKind")
+      .map((field) => errorFor(`skill:${index}:${field}`))
+      .filter((message): message is string => message !== undefined);
+    return messages.length > 0 ? (
+      <Text css={{ color: theme.color.dangerText, fontSize: 12 }} data-testid={`template-form-skill-error-${index}`}>
+        {messages.join(" ")}
+      </Text>
+    ) : null;
   };
 
-  const header = (children: ReactNode, index: number, name: string) => (
-    <div css={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minHeight: 24 }}>
-      {children}
-      {readOnly ? null : (
-        <Tooltip title={name.trim() ? `Remove ${name.trim()}` : "Remove this skill"}>
-          <Button
-            type="text"
-            danger
-            size="small"
-            // Theme reds, so the icon keeps 3:1 against its hover and pressed fills too.
-            css={{
-              marginLeft: "auto",
-              "&&": { color: theme.color.danger },
-              "&&:hover:not(:disabled), &&:focus-visible": { color: theme.color.dangerText, background: theme.color.dangerBg },
-              "&&:active:not(:disabled)": { color: theme.color.dangerText, background: theme.color.dangerBg, transform: "scale(0.9)" },
-            }}
-            aria-label={name.trim() ? `Remove skill ${name.trim()}` : `Remove skill ${index + 1}`}
-            data-testid={`template-form-skill-remove-${index}`}
-            icon={<Trash size={14} />}
-            onClick={() => remove(index)}
-          />
-        </Tooltip>
-      )}
-    </div>
+  const row = (index: number, name: string, children: ReactNode) => (
+    <FormRow
+      key={index}
+      data-testid={`template-form-skill-${index}`}
+      onRemove={readOnly ? undefined : () => onChange(skills.filter((_, at) => at !== index))}
+      removeLabel={name.trim() ? `Remove skill ${name.trim()}` : `Remove skill ${index + 1}`}
+    >
+      <div css={{ display: "flex", flexDirection: "column", gap: 6 }}>{children}</div>
+    </FormRow>
+  );
+
+  const header = (children: ReactNode) => (
+    <div css={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minHeight: 24 }}>{children}</div>
   );
 
   const details = (entries: Array<[string, ReactNode]>) => (
@@ -168,18 +149,51 @@ export function SkillsField({
 
   return (
     <SkillsItem readOnly={readOnly} error={errorFor("skills")}>
-      <div css={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {readOnly && skills.length === 0 ? <Text css={muted}>No skills.</Text> : null}
-
+      <FormRowList
+        data-testid="template-form-skills"
+        empty={readOnly ? "No skills." : undefined}
+        addLabel="Add a custom skill"
+        onAdd={readOnly ? undefined : () => onChange([...skills, emptySkillDraft()])}
+        manageFocus
+        actions={
+          !readOnly && catalog && catalog.skills.length > 0 ? (
+            <div data-testid="template-form-add-builtin-skill">
+              <Select
+                css={{ minWidth: 220 }}
+                value={null}
+                aria-label="Add a kagent skill"
+                placeholder="Add a kagent skill"
+                popupMatchSelectWidth={false}
+                onChange={(name: string) => {
+                  const skill = catalog.skills.find((entry) => entry.name === name);
+                  if (skill) onChange([...skills, builtinSkillDraft(catalog, skill)]);
+                }}
+                options={catalog.skills.map((skill) => ({
+                  value: skill.name,
+                  title: skill.name,
+                  disabled: skills.some((entry) => entry.name.trim() === skill.name),
+                  label: (
+                    <Space orientation="vertical" size={0}>
+                      <span>{skill.name}</span>
+                      <Text css={{ ...muted, whiteSpace: "normal" }}>{skill.description}</Text>
+                    </Space>
+                  ),
+                }))}
+              />
+            </div>
+          ) : undefined
+        }
+      >
         {skills.map((skill, index) => {
           const builtin = matchBuiltinSkill(skill, catalog);
           if (builtin && catalog) {
-            return card(
+            return row(
               index,
+              skill.name,
               <>
                 {header(
                   <>
-                    <Tag css={{ marginInlineEnd: 0 }}>kagent</Tag>
+                    <DataPill>kagent</DataPill>
                     <Text strong>{skill.name}</Text>
                     {builtin.current ? null : (
                       <Tag
@@ -201,17 +215,17 @@ export function SkillsField({
                       </Button>
                     )}
                   </>,
-                  index,
-                  skill.name,
                 )}
                 <Text css={muted}>{builtin.skill.description}</Text>
+                {rowErrors(index)}
               </>,
             );
           }
 
           if (readOnly) {
-            return card(
+            return row(
               index,
+              skill.name,
               <>
                 {header(
                   <>
@@ -220,8 +234,6 @@ export function SkillsField({
                       {skill.name || "Not set"}
                     </Text>
                   </>,
-                  index,
-                  skill.name,
                 )}
                 {details(readOnlySource(skill, index))}
               </>,
@@ -231,10 +243,18 @@ export function SkillsField({
           // Ids keep each visible label tied to its input for screen readers.
           const fieldId = (testId: string) => `template-form-skill-${index}-${testId}-input`;
           // `required` marks the fields the form refuses to save without.
-          const field = (label: string, testId: string, width: number, control: ReactNode, required = true) => (
+          const field = (
+            label: string,
+            testId: string,
+            width: number,
+            control: ReactNode,
+            required = true,
+            error?: string,
+          ) => (
             <FormField
               label={label}
               required={required}
+              error={error}
               htmlFor={fieldId(testId)}
               css={{ flex: `1 1 ${width}px`, minWidth: Math.min(width, 160), maxWidth: "100%", margin: 0 }}
             >
@@ -242,7 +262,7 @@ export function SkillsField({
             </FormField>
           );
           const input = (
-            name: Exclude<keyof SkillDraft, "sourceKind">,
+            name: SkillTextField,
             label: string,
             testId: string,
             example: string,
@@ -261,94 +281,53 @@ export function SkillsField({
                 onChange={(event) => setSkill(index, { [name]: event.target.value })}
               />,
               required,
+              errorFor(`skill:${index}:${name}`),
             );
-          return card(
+          return row(
             index,
-            <>
-              {header(<Text strong>{skill.name.trim() || "New skill"}</Text>, index, skill.name)}
-              <Form layout="vertical" component="div">
-                <div css={{ display: "flex", flexWrap: "wrap", gap: "8px 12px" }}>
-                  {input("name", "Skill name", "name", "", 200)}
-                  {field(
-                    "Source",
-                    "kind",
-                    120,
-                    <div data-testid={`template-form-skill-kind-${index}`}>
-                      <Select
-                        id={fieldId("kind")}
-                        css={{ width: "100%" }}
-                        value={skill.sourceKind}
-                        onChange={(value: SkillSourceKind) => setSkill(index, { sourceKind: value })}
-                        options={(Object.keys(SOURCE_LABEL) as SkillSourceKind[]).map((value) => ({
-                          value,
-                          title: SOURCE_LABEL[value],
-                          label: SOURCE_LABEL[value],
-                        }))}
-                      />
-                    </div>,
-                  )}
-                  {skill.sourceKind === "oci" ? input("oci", "Image", "oci", "ghcr.io/org/skills@sha256:…", 360) : null}
-                  {skill.sourceKind === "git" ? (
-                    <>
-                      {input("gitUrl", "Repository", "git-url", "https://github.com/org/skills.git", 320)}
-                      {input("gitCommit", "Commit", "git-commit", "Full commit ID", 340)}
-                    </>
-                  ) : null}
-                  {skill.sourceKind === "s3" ? (
-                    <>
-                      {input("s3Endpoint", "Endpoint", "s3-endpoint", "https://s3.amazonaws.com", 220)}
-                      {input("s3Bucket", "Bucket", "s3-bucket", "Bucket name", 140)}
-                      {input("s3Key", "Key", "s3-key", "Object key", 180)}
-                      {input("s3VersionId", "Version ID", "s3-version", "Object version ID", 160)}
-                      {input("s3Region", "Region", "s3-region", "Optional", 140, false)}
-                    </>
-                  ) : null}
-                  {input("path", "Path", "path", "Optional", 180, false)}
-                </div>
-              </Form>
-            </>,
+            skill.name,
+            <Form layout="vertical" component="div">
+              <div css={{ display: "flex", flexWrap: "wrap", gap: "8px 12px" }}>
+                {input("name", "Skill name", "name", "", 200)}
+                {field(
+                  "Source",
+                  "kind",
+                  200,
+                  <Radio.Group
+                    optionType="button"
+                    id={fieldId("kind")}
+                    aria-label="Source"
+                    data-testid={`template-form-skill-kind-${index}`}
+                    value={skill.sourceKind}
+                    onChange={(event) => setSkill(index, { sourceKind: event.target.value as SkillSourceKind })}
+                    options={(Object.keys(SOURCE_LABEL) as SkillSourceKind[]).map((value) => ({
+                      value,
+                      label: SOURCE_LABEL[value],
+                    }))}
+                  />,
+                )}
+                {skill.sourceKind === "oci" ? input("oci", "Image", "oci", "ghcr.io/org/skills@sha256:…", 360) : null}
+                {skill.sourceKind === "git" ? (
+                  <>
+                    {input("gitUrl", "Repository", "git-url", "https://github.com/org/skills.git", 320)}
+                    {input("gitCommit", "Commit", "git-commit", "Full commit ID", 340)}
+                  </>
+                ) : null}
+                {skill.sourceKind === "s3" ? (
+                  <>
+                    {input("s3Endpoint", "Endpoint", "s3-endpoint", "https://s3.amazonaws.com", 220)}
+                    {input("s3Bucket", "Bucket", "s3-bucket", "Bucket name", 140)}
+                    {input("s3Key", "Key", "s3-key", "Object key", 180)}
+                    {input("s3VersionId", "Version ID", "s3-version", "Object version ID", 160)}
+                    {input("s3Region", "Region", "s3-region", "us-east-1", 140, false)}
+                  </>
+                ) : null}
+                {input("path", "Path", "path", "skills/my-skill", 180, false)}
+              </div>
+            </Form>,
           );
         })}
-
-        {readOnly ? null : (
-          <Space size={8} wrap>
-            {catalog && catalog.skills.length > 0 ? (
-              <div data-testid="template-form-add-builtin-skill">
-                <Select
-                  size="small"
-                  css={{ minWidth: 220 }}
-                  value={null}
-                  placeholder="Add a kagent skill"
-                  popupMatchSelectWidth={false}
-                  onChange={(name: string) => {
-                    const skill = catalog.skills.find((entry) => entry.name === name);
-                    if (skill) onChange([...skills, builtinSkillDraft(catalog, skill)]);
-                  }}
-                  options={catalog.skills.map((skill) => ({
-                    value: skill.name,
-                    title: skill.name,
-                    disabled: skills.some((row) => row.name.trim() === skill.name),
-                    label: (
-                      <Space orientation="vertical" size={0}>
-                        <span>{skill.name}</span>
-                        <Text css={{ ...muted, whiteSpace: "normal" }}>{skill.description}</Text>
-                      </Space>
-                    ),
-                  }))}
-                />
-              </div>
-            ) : null}
-            <Button
-              size="small"
-              icon={<Plus size={13} />}
-              data-testid="template-form-add-skill"
-              onClick={() => onChange([...skills, emptySkillDraft()])}
-            >
-              Add your own skill
-            </Button>
-          </Space>
-        )}
-      </div>
+      </FormRowList>
     </SkillsItem>
   );
 }

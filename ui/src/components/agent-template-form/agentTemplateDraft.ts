@@ -67,7 +67,7 @@ export interface SkillDraft {
   path: string;
 }
 
-type SkillTextField = Exclude<keyof SkillDraft, "sourceKind">;
+export type SkillTextField = Exclude<keyof SkillDraft, "sourceKind">;
 
 /** The fields each source kind writes. Text in another kind's fields is ignored. */
 const SKILL_SOURCE_FIELDS: Record<SkillSourceKind, SkillTextField[]> = {
@@ -360,7 +360,7 @@ export type TemplateField =
   | `subAgent:${number}:description`
   | `label:${number}:key`
   | "skills"
-  | `skill:${number}`;
+  | `skill:${number}:${SkillTextField}`;
 
 /**
  * What is wrong with the draft, in the order a reader would fix it.
@@ -441,48 +441,43 @@ function skillIssues(drafts: SkillDraft[], pluginSkills: string[]): FieldIssue<T
     if (isBlankSkill(draft)) return;
     const skill = skillFromDraft(draft);
     const label = skill.name ? `The skill "${skill.name}"` : `Skill ${index + 1}`;
-    if (!skill.name) add(`skill:${index}`, `${label} needs a name.`);
+    const at = (field: SkillTextField, message: string) => add(`skill:${index}:${field}`, message);
+    if (!skill.name) at("name", `${label} needs a name.`);
     else if (skill.name === "." || skill.name === ".." || /[/\\]/.test(skill.name)) {
-      add(`skill:${index}`, `${label} needs a name that is one path segment: not "." or "..", and without "/" or "\\".`);
+      at("name", `${label} needs a name that is one path segment: not "." or "..", and without "/" or "\\".`);
     } else if (seen.has(skill.name)) repeated.add(skill.name);
     else if (pluginSkills.includes(skill.name)) fromPlugins.add(skill.name);
     seen.add(skill.name);
 
     const { source } = skill;
     if (draft.sourceKind === "oci" && !OCI_DIGEST_REF.test(source.oci ?? "")) {
-      add(`skill:${index}`, `${label} needs an OCI image pinned by digest, like ghcr.io/org/skills@sha256:<64 hex characters>.`);
+      at("oci", `${label} needs an OCI image pinned by digest, like ghcr.io/org/skills@sha256:<64 hex characters>.`);
     } else if (draft.sourceKind === "oci" && /[A-Z]/.test(ociRepository(source.oci ?? ""))) {
-      add(`skill:${index}`, `${label} needs an image path in lowercase, like ghcr.io/org/skills.`);
+      at("oci", `${label} needs an image path in lowercase, like ghcr.io/org/skills.`);
     }
     if (draft.sourceKind === "git") {
       if (!HTTP_URL.test(source.git?.url ?? "")) {
-        add(`skill:${index}`, `${label} needs a Git URL that starts with http:// or https://.`);
+        at("gitUrl", `${label} needs a Git URL that starts with http:// or https://.`);
       }
       if (!GIT_COMMIT.test(source.git?.commit ?? "")) {
-        add(`skill:${index}`, `${label} needs a full Git commit ID: 40 or 64 hex characters.`);
+        at("gitCommit", `${label} needs a full Git commit ID: 40 or 64 hex characters.`);
       }
     }
     if (draft.sourceKind === "s3") {
       const s3 = source.bucket?.s3;
       if (!HTTP_URL.test(s3?.endpoint ?? "")) {
-        add(`skill:${index}`, `${label} needs an S3 endpoint that starts with http:// or https://.`);
+        at("s3Endpoint", `${label} needs an S3 endpoint that starts with http:// or https://.`);
       }
-      const missing = [
-        s3?.bucket ? "" : "bucket",
-        s3?.key ? "" : "key",
-        s3?.versionId ? "" : "version ID",
-      ].filter(Boolean);
-      if (missing.length > 0) {
-        const fields = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(", ")} and ${missing.at(-1)}`;
-        add(`skill:${index}`, `${label} needs an S3 ${fields}.`);
-      }
+      if (!s3?.bucket) at("s3Bucket", `${label} needs an S3 bucket.`);
+      if (!s3?.key) at("s3Key", `${label} needs an S3 key.`);
+      if (!s3?.versionId) at("s3VersionId", `${label} needs an S3 version ID.`);
     }
     const path = source.path ?? "";
     if (path.startsWith("/") || path.split("/").includes("..")) {
-      add(`skill:${index}`, `${label} needs a path relative to the artifact, without ".." segments.`);
+      at("path", `${label} needs a path relative to the artifact, without ".." segments.`);
     }
     if (path.length > MAX_PATH_LENGTH) {
-      add(`skill:${index}`, `${label} needs a path of at most ${MAX_PATH_LENGTH} characters.`);
+      at("path", `${label} needs a path of at most ${MAX_PATH_LENGTH} characters.`);
     }
   });
   for (const name of repeated) {

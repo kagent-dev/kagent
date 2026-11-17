@@ -8,7 +8,7 @@ import { FormRow, FormRowList } from "./FormRowList";
 const render = (ui: ReactElement) =>
   rtlRender(<ThemeProvider theme={themeFor("dark")}>{ui}</ThemeProvider>);
 
-function Rows() {
+function Rows({ manageFocus }: { manageFocus?: boolean }) {
   const [rows, setRows] = useState(["first", "second"]);
   return (
     <FormRowList
@@ -16,9 +16,12 @@ function Rows() {
       addLabel="Add header"
       onAdd={() => setRows((current) => [...current, `row-${current.length + 1}`])}
       empty="No headers"
+      manageFocus={manageFocus}
+      actions={<button type="button">Pick one</button>}
     >
       {rows.map((row) => (
         <FormRow key={row} removeLabel={`Remove ${row}`} onRemove={() => setRows((current) => current.filter((r) => r !== row))}>
+          <input aria-label={`Value ${row}`} />
           {row}
         </FormRow>
       ))}
@@ -51,5 +54,25 @@ describe("FormRowList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove second" }));
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(screen.getByText("No headers")).toBeInTheDocument();
+  });
+
+  it("shows extra add controls beside the add button", () => {
+    render(<Rows />);
+    expect(screen.getByRole("button", { name: "Pick one" })).toBeInTheDocument();
+  });
+
+  it("moves focus into an added row, and to the add button after a remove", () => {
+    render(<Rows manageFocus />);
+    fireEvent.click(screen.getByTestId("rows-add"));
+    expect(screen.getByRole("textbox", { name: "Value row-3" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove first" }));
+    expect(screen.getByTestId("rows-add")).toHaveFocus();
+  });
+
+  it("leaves focus alone unless asked", () => {
+    render(<Rows />);
+    fireEvent.click(screen.getByTestId("rows-add"));
+    expect(screen.getByRole("textbox", { name: "Value row-3" })).not.toHaveFocus();
   });
 });

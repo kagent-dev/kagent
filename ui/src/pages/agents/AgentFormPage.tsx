@@ -11,6 +11,7 @@ import {
   draftProblems,
   emptyDraft,
   specFromDraft,
+  templateDraftIssues,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
 import { SubmitError } from "@/components/common/SubmitError";
@@ -23,7 +24,7 @@ import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
-import { useSubmitValidation, type FieldIssue } from "@/components/form/useSubmitValidation";
+import { issueFor, useSubmitValidation, type FieldIssue } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import {
   apiClient,
@@ -404,6 +405,10 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
               isCreate={false}
               namespace={namespace}
               hasUnshownFields={spec?.template.inline ? hasUnshownSpecFields(spec.template.inline) : false}
+              // Marks the inline rows once submitted, as the template's own page does.
+              errorFor={(field) =>
+                validation.submitted ? issueFor(templateDraftIssues(inlineTemplate, { isCreate: false }), field) : undefined
+              }
             />
             {templateError ? (
               <Text

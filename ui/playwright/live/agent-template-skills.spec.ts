@@ -62,9 +62,8 @@ async function storedSpec(baseURL: string, name: string) {
 }
 
 /**
- * Picks an option from the dropdown just opened. Each skill row's kind select has its own
- * dropdown with the same titles, and the last one can still be fading out; antd appends a
- * dropdown to the body the first time it opens, so the newest open one is the last.
+ * Picks an option from the dropdown just opened. An earlier dropdown can still be fading
+ * out; antd appends each to the body the first time it opens, so the newest is the last.
  */
 async function choose(page: Page, testId: string, title: string) {
   await page.getByTestId(testId).click();
@@ -77,9 +76,9 @@ async function addBuiltinSkill(page: Page, name: string) {
 }
 
 async function addOwnSkill(page: Page, index: number, name: string, kind: "OCI image" | "Git" | "S3") {
-  await page.getByTestId("template-form-add-skill").click();
+  await page.getByTestId("template-form-skills-add").click();
   await page.getByTestId(`template-form-skill-name-${index}`).fill(name);
-  if (kind !== "OCI image") await choose(page, `template-form-skill-kind-${index}`, kind);
+  if (kind !== "OCI image") await page.getByTestId(`template-form-skill-kind-${index}`).getByText(kind, { exact: true }).click();
 }
 
 test("live: agent template skills are saved, read back and kept through an edit", async ({ page, baseURL }) => {
@@ -143,7 +142,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await loadLive(page, `/agent-templates/${NAMESPACE}/${name}`);
     await expectNoLoadFailure(page);
     await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId("template-form-add-skill")).toHaveCount(0);
+    await expect(page.getByTestId("template-form-skills-add")).toHaveCount(0);
 
     const builtin = page.getByTestId("template-form-skill-0");
     await expect(builtin.locator(".ant-tag")).toHaveText("kagent");

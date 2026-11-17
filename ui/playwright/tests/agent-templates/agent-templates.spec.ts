@@ -108,17 +108,24 @@ test("agent templates: a template is created, read, edited and deleted", async (
       );
       await page.keyboard.press("Escape");
 
-      await page.getByTestId("template-form-add-skill").click();
-      // Each skill is its own card, with a visible label on every field and a named remove.
+      // A row added or removed by keyboard keeps focus where the next action is.
+      await page.getByTestId("template-form-skills-add").click();
+      await expect(page.getByTestId("template-form-skill-name-1")).toBeFocused();
+      await page.getByTestId("template-form-skills-add").click();
+      await page.getByRole("button", { name: "Remove skill 3" }).click();
+      await expect(page.getByTestId("template-form-skills-add")).toBeFocused();
+
+      // Each skill is a row with a visible label on every field and a named remove.
       const own = page.getByTestId("template-form-skill-1");
       await own.getByLabel("Skill name").fill("incident-review");
       await expect(own.getByRole("button", { name: "Remove skill incident-review" })).toBeVisible();
-      await selectOption(page, "template-form-skill-kind-1", "Git");
+      await page.getByTestId("template-form-skill-kind-1").getByText("Git", { exact: true }).click();
+      await expect(own.getByRole("radio", { name: "Git" })).toBeChecked();
       await own.getByLabel("Repository").fill(GIT_URL);
       // A branch name, which the CRD refuses; flagged on submit below.
       await own.getByLabel("Commit").fill("main");
       await own.getByLabel("Path").fill("skills/incident-review");
-      await expect(page.getByTestId("template-form-skill-error-1")).toHaveCount(0);
+      await expect(own.locator(".ant-form-item-explain-error")).toHaveCount(0);
     });
 
     await test.step("a namespace can select a visible model from another namespace", async () => {
@@ -142,12 +149,11 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByText("A name is required.")).toBeVisible();
     await expect(page.getByTestId("template-create-error")).toContainText("Fix the highlighted fields");
     await expect(page).toHaveURL(/\/agent-templates\/new/);
-    // The skill's own card says what is wrong with it, and clears once fixed.
-    await expect(page.getByTestId("template-form-skill-error-1")).toContainText(
-      'The skill "incident-review" needs a full Git commit ID',
-    );
+    // The message sits under the skill field that needs it, and clears once fixed.
+    const commit = page.getByTestId("template-form-skill-1").locator(".ant-form-item").filter({ hasText: "Commit" });
+    await expect(commit).toContainText('The skill "incident-review" needs a full Git commit ID');
     await page.getByTestId("template-form-skill-git-commit-1").fill(GIT_COMMIT);
-    await expect(page.getByTestId("template-form-skill-error-1")).toHaveCount(0);
+    await expect(commit.locator(".ant-form-item-explain-error")).toHaveCount(0);
   });
 
   await test.step("5. the template saves without creating an Agent", async () => {
@@ -197,7 +203,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-form-name")).toHaveCount(0);
     // And nothing that authors: the add buttons only exist when something can be added.
     await expect(page.getByTestId("template-form-labels-add")).toHaveCount(0);
-    await expect(page.getByTestId("template-form-add-skill")).toHaveCount(0);
+    await expect(page.getByTestId("template-form-skills-add")).toHaveCount(0);
 
     // The skills as the backend stored them: the kagent skill is still recognized as
     // one, so it was saved as the kagent-tools image and its directory.
