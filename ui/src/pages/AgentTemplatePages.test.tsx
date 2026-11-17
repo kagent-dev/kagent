@@ -250,6 +250,16 @@ describe("agent template details page, edit mode", () => {
     expect(screen.getByTestId("template-form-description")).toHaveValue("Before");
   });
 
+  it("goes to the list after deleting mid-edit, without asking to discard", async () => {
+    const router = startEditing();
+    fill("template-form-description", "After");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete agent template triage" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/agents"));
+    expect(screen.queryByTestId("template-discard-body")).not.toBeInTheDocument();
+  });
+
   it("asks before navigating away from an edit", async () => {
     const router = startEditing();
     fill("template-form-description", "After");

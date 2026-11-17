@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Alert,
   Button,
@@ -203,6 +204,8 @@ export function AgentTemplateDetailsPage() {
 
   /** Back to the list — this page is about an object that is gone. */
   async function afterDelete(): Promise<void> {
+    // Leave edit mode first, or the unsaved-changes guard blocks the navigation below.
+    flushSync(() => discardEdit());
     await invalidateTemplates();
     // See the note on the same navigation after a create: the list narrows on `ns`, and
     // the bare `/agent-templates` route is a redirect that carries no query string.
