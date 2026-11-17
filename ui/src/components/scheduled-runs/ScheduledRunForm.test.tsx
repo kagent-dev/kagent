@@ -136,6 +136,26 @@ describe("new schedule page", () => {
     expect(mocks.invoke).toHaveBeenCalledWith("scheduledRuns.create", expect.anything());
   });
 
+  it("lets Enter in a number box commit its clamped value without submitting", async () => {
+    renderAt("/schedules/new");
+    chooseAgent();
+    type("schedule-prompt", "Check it.");
+    fireEvent.mouseDown(within(screen.getByTestId("schedule-frequency")).getByRole("combobox"));
+    pick("Hourly");
+    const minute = screen.getByRole("spinbutton", { name: /Minute past the hour/ });
+    fireEvent.change(minute, { target: { value: "7" } });
+    fireEvent.change(minute, { target: { value: "75" } });
+    fireEvent.keyDown(minute, { key: "Enter" });
+    expect(mocks.invoke).not.toHaveBeenCalled();
+    expect(minute).toHaveValue("59");
+
+    fireEvent.click(screen.getByTestId("schedule-submit"));
+    expect(await screen.findByText("Schedule detail")).toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith("scheduledRuns.create", expect.objectContaining({
+      config: expect.objectContaining({ schedule: "59 * * * *" }),
+    }));
+  });
+
   it("shows the save toast after a create", async () => {
     renderAt("/schedules/new");
     chooseAgent();

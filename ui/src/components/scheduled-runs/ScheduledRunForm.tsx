@@ -117,10 +117,11 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
   }
 
   // Enter in a single-line field submits; text areas and lists keep their own Enter.
+  // Number boxes too: their Enter commits a clamped value this render has not seen yet.
   function submitOnEnter(event: KeyboardEvent) {
     const target = event.target as HTMLInputElement;
     if (event.key !== "Enter" || event.nativeEvent.isComposing || saving || target.tagName !== "INPUT") return;
-    if (target.getAttribute("role") === "combobox" || ["checkbox", "radio"].includes(target.type)) return;
+    if (["combobox", "spinbutton"].includes(target.getAttribute("role") ?? "") || ["checkbox", "radio"].includes(target.type)) return;
     event.preventDefault();
     void submit();
   }
