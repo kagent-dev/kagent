@@ -142,7 +142,7 @@ func checkSTSDelegatedTokenReachesMCP(t *testing.T, transport string) {
 	}
 	toolsets := CreateToolsets(t.Context(), httpTools, sseTools, nil, false, plugin.HeaderProvider)
 	require.Len(t, toolsets, 1)
-	inner := toolsets[0].(*mcpAppToolset).inner.(*scopedToolset).Toolset
+	inner := toolsets[0].(*mcpAppToolset).inner.(*scopedToolset).Toolset.(imageToolset).Toolset
 	closer := inner.(io.Closer)
 	t.Cleanup(func() { require.NoError(t, closer.Close()) })
 	var called bool

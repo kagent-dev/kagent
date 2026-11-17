@@ -58,7 +58,7 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = serverSession.Close() })
 
-	inner, err := mcptoolset.New(mcptoolset.Config{Client: newToolsetClient(), Transport: clientTransport})
+	inner, err := mcptoolset.New(mcptoolset.Config{Client: newMCPAppClient(nil, &mcpAppDiscovery{listedAppNames: map[string]bool{}, appToolNames: map[string]bool{}}), Transport: clientTransport})
 	require.NoError(t, err)
 	// Wrapped as addToolset wraps an approval-gated HTTP server.
 	toolset := tool.WithConfirmation(withCallScope(withImages(inner)), false, nil)

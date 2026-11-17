@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
@@ -19,9 +18,6 @@ import (
 
 // ToolResultImagesKey holds a note in the tool result and the images in the A2A result.
 const ToolResultImagesKey = "images"
-
-// mcpClientVersion is the version the toolset's MCP client reports.
-const mcpClientVersion = "1.0.0"
 
 const (
 	// Base64 caps for an image, a call and an A2A task (the task is resent under a 16 MiB gRPC limit).
@@ -104,12 +100,6 @@ type imageSink struct {
 	images []ToolImage
 }
 
-func newToolsetClient() *mcpsdk.Client {
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "adk-mcp-client", Version: mcpClientVersion}, &mcpsdk.ClientOptions{Capabilities: mcpUIClientCapabilities()})
-	client.AddSendingMiddleware(captureImages)
-	return client
-}
-
 // captureImages moves renderable images of a successful result into the call's
 // sink. Errors and images over a cap keep their placeholder. A removed image
 // between two blocks leaves a newline, as ADK would have around its placeholder.
@@ -187,14 +177,6 @@ func withImages(ts tool.Toolset) tool.Toolset {
 
 type imageToolset struct {
 	tool.Toolset
-}
-
-// Close releases the wrapped toolset's MCP session.
-func (s imageToolset) Close() error {
-	if c, ok := s.Toolset.(io.Closer); ok {
-		return c.Close()
-	}
-	return nil
 }
 
 func (s imageToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {

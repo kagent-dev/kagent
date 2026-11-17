@@ -382,7 +382,6 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 
 	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
 	client := newMCPAppClient(toolFilter, discovery)
-	client.AddSendingMiddleware(captureImages)
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
 		Client:    client,
