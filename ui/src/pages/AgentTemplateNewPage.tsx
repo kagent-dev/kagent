@@ -76,10 +76,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
   const [isSubmitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<unknown>();
 
-  // The draft follows the URL or cluster namespace until the reader picks one.
-  const effective = draft.namespace || namespace;
-  const current = { ...draft, namespace: effective };
-  const validation = useSubmitValidation(templateDraftIssues(current, { isCreate: true }));
+  const validation = useSubmitValidation(templateDraftIssues(draft, { isCreate: true }));
 
   // Compared by value against the draft the form opened with.
   const [baseline] = useState(() => JSON.stringify(draft));
@@ -96,16 +93,16 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
     setSubmitting(true);
     try {
       const created = await apiClient.agentBuildingBlocks.createAgentTemplate({
-        namespace: effective,
+        namespace: draft.namespace,
         name: draft.name.trim(),
         resource: {
           metadata: {
             name: draft.name.trim(),
-            namespace: effective,
+            namespace: draft.namespace,
             labels: labelsFromDraft(draft),
           },
           // No existing spec to merge onto: this is a create.
-          spec: specFromDraft(current),
+          spec: specFromDraft(draft),
         },
       });
       // Refreshes any list still on screen. Guarded, not load-bearing.
@@ -113,7 +110,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
       toastSaved("created", "agent template", created.name);
       // The list narrows on `ns`; `paths.agentTemplates` is a redirect that drops the query.
       release();
-      navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(effective)}`);
+      navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(draft.namespace)}`);
     } catch (cause: unknown) {
       setFailure(cause);
     } finally {
@@ -131,16 +128,16 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
         <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
           {copyNotice}
           <AgentTemplateForm
-            draft={current}
+            draft={draft}
             onChange={update}
             isCreate
-            namespace={effective}
+            namespace={draft.namespace}
             errorFor={validation.errorFor}
             namespaceField={
               <FormField label="Namespace" required error={validation.errorFor("namespace")}>
                 <div data-testid="template-form-namespace">
                   <NamespaceSelect
-                    value={effective}
+                    value={draft.namespace}
                     // Local references resolve in the new namespace, so the model and sub-agents are cleared.
                     onChange={(value) => update({ ...draft, namespace: value, modelConfig: undefined, subAgentTools: [] })}
                   />

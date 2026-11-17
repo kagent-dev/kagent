@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   toastSaved: vi.fn(),
   listedNamespace: [] as (string | undefined)[],
   templatesError: undefined as Error | undefined,
+  namespacesError: undefined as Error | undefined,
 }));
 
 function template(name: string, extra: Partial<AgentTemplate["resource"]["spec"]> = {}): AgentTemplate {
@@ -43,7 +44,10 @@ vi.mock("@/api", async (importOriginal) => ({
       removeAgentTemplate: vi.fn(),
     },
   },
-  useNamespaces: () => resource([{ name: "kagent" }, { name: "default" }]),
+  useNamespaces: () =>
+    api.namespacesError
+      ? { ...resource(undefined), error: api.namespacesError }
+      : resource([{ name: "kagent" }, { name: "default" }]),
   useModels: () => resource([]),
   useMcpServers: () => resource([]),
   useTools: () => resource([]),
@@ -65,6 +69,7 @@ beforeEach(() => {
   api.toastSaved.mockReset();
   api.listedNamespace = [];
   api.templatesError = undefined;
+  api.namespacesError = undefined;
 });
 
 function renderAt(entry: string) {
@@ -182,6 +187,26 @@ describe("new agent template page", () => {
     addSubAgent("reviewer");
     choose("template-form-namespace", "default");
     expect(screen.queryByTestId("template-form-sub-agent-0")).not.toBeInTheDocument();
+  });
+
+  it("takes a typed namespace exactly as typed when the list cannot be read", async () => {
+    api.namespacesError = new Error("forbidden");
+    api.createAgentTemplate.mockResolvedValue({ name: "helper" });
+    const router = renderAt("/agent-templates/new");
+    fill("template-form-name", "helper");
+    const box = within(screen.getByTestId("template-form-namespace")).getByRole("textbox");
+
+    fireEvent.change(box, { target: { value: "" } });
+    expect(box).toHaveValue("");
+    fireEvent.click(screen.getByTestId("template-submit"));
+    expect(screen.getByText("A namespace is required.")).toBeInTheDocument();
+    expect(api.createAgentTemplate).not.toHaveBeenCalled();
+
+    fireEvent.change(box, { target: { value: "team-b" } });
+    expect(box).toHaveValue("team-b");
+    fireEvent.click(screen.getByTestId("template-submit"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/agents"));
+    expect(api.createAgentTemplate).toHaveBeenCalledWith(expect.objectContaining({ namespace: "team-b" }));
   });
 
   it("lets a sub-agent template be typed when the list cannot be read", async () => {
