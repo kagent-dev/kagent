@@ -321,19 +321,29 @@ func TestCreateCleansTagBeforeFailing(t *testing.T) {
 		snapshotURIAfterCreate string
 		actorUIDAfterCreate    string
 	}{
-		{name: "snapshot changed", snapshotURIAfterCreate: "s3://snapshots/snapshot-2"},
-		{name: "actor replaced", actorUIDAfterCreate: "other-actor-uid"},
+		{name: "Given a reserved checkpoint, when cleanup replaces its snapshot during copying, assert that creation fails safely", snapshotURIAfterCreate: "s3://snapshots/snapshot-2"},
+		{name: "Given a reserved checkpoint, when its actor is replaced during copying, assert that creation fails safely", actorUIDAfterCreate: "other-actor-uid"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := &testStore{}
 			tags := &testTags{snapshotURI: "s3://snapshots/snapshot-1", snapshotURIAfterCreate: test.snapshotURIAfterCreate, actorUIDAfterCreate: test.actorUIDAfterCreate}
+			tags.beforeDelete = func() {
+				require.NotNil(t, tags.created, "the partial copy exists before cleanup")
+				require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_CREATING, store.prepared.State, "keep the reservation until the partial copy is removed")
+			}
 			service := NewService(store, testAuthorizer{}, tags, nil)
 			ctx := auth.AuthSessionTo(t.Context(), testSession{userID: "alice"})
 
-			_, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
+			checkpoint, err := service.Create(ctx, "018f47a2-4efb-7c21-a848-123456789abc", "request-1", "task-1")
 			require.Error(t, err)
+			require.Nil(t, checkpoint)
 			require.Equal(t, 1, tags.deleteCalls)
+			require.Nil(t, tags.created, "the partial copy must not remain retained")
 			require.NotEmpty(t, store.failed)
+			require.Empty(t, store.tagUID, "the partial copy must never be published as a ready checkpoint")
+			stored, err := service.Get(ctx, store.prepared.Id)
+			require.NoError(t, err)
+			require.Equal(t, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED, stored.State)
 		})
 	}
 }

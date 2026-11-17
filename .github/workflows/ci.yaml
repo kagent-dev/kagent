@@ -156,6 +156,7 @@ jobs:
           config:
             sessions:
               automaticRecovery: true
+              dispatchCleanupDelay: 1s
             push:
               allowHttp: true
               allowPrivateNetworks: true

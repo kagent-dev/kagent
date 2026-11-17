@@ -41,6 +41,7 @@ type sessionWorkflow interface {
 	Create(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Revert(context.Context, *apiv1.Session) (*apiv1.Session, error)
 	Delete(context.Context, *apiv1.Session, bool) (*apiv1.Session, error)
+	QueueDispatchCleanup(context.Context, string, uuid.UUID)
 }
 
 type ListRequest struct {

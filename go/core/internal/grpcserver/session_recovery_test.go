@@ -72,7 +72,7 @@ func TestRevertSessionThroughGRPC(t *testing.T) {
 	store := database.NewClient(db, "public")
 	control := &revertTestControl{actors: map[string]*ateapipb.Actor{}}
 	actors := &substrate.Client{ControlClient: control}
-	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
+	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), sessionsvc.ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider())
 	listener := bufconn.Listen(DefaultMaxMessageSize)
 	server, err := New(Config{
 		Listener: listener, Authenticator: &authimpl.InsecureAuthenticator{},

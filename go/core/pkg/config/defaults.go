@@ -42,7 +42,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Server:           &configv1.ControllerServerConfig{BindAddress: new(":8083"), Auth: &configv1.AuthenticationConfig{Mode: new("insecure")}},
 		Database:         defaultDatabase(),
 		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("https://atenet-router.ate-system.svc:443"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
-		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
+		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute), DispatchCleanupDelay: durationpb.New(2 * time.Minute)},
 		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083")},
 		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute), MaxConcurrency: new(int32(10)), SendTimeout: durationpb.New(5 * time.Second)},
 		Sandboxes:        &configv1.SandboxConfig{Cpu: new("1"), Memory: new("1Gi"), DefaultTtl: durationpb.New(time.Hour), MaxTtl: durationpb.New(24 * time.Hour), ExpirationInterval: durationpb.New(time.Second)},

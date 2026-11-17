@@ -254,7 +254,7 @@ func TestPushWorkerChecksClaimBeforeSending(t *testing.T) {
 
 func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	store, session := lifecycleFixture(t)
-	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
+	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider()).Create(t.Context(), session)
 	require.NoError(t, err)
 	entered := make(chan *a2a.TaskStatusUpdateEvent, 2)
 	release := make(chan struct{})
@@ -329,7 +329,7 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 				signer = testPushSigner(t)
 			}
 			store, session := lifecycleFixture(t)
-			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider()).Create(t.Context(), session)
 			require.NoError(t, err)
 			events := make(chan json.RawMessage, 4)
 			receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -758,7 +758,7 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
-			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider()).Create(t.Context(), session)
 			require.NoError(t, err)
 			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
 			require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{ID: "callback", URL: "http://receiver"}))
@@ -813,7 +813,7 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 
 func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 	store, session := lifecycleFixture(t)
-	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 	session, err := creator.Create(t.Context(), session)
 	require.NoError(t, err)
 	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
@@ -875,7 +875,7 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 // burst during HTTP sends must remain durable and drain without recovery scans.
 func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	store, first := lifecycleFixture(t)
-	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Hour, noop.NewMeterProvider())
+	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Hour}, noop.NewMeterProvider())
 	var sessions []*apiv1.Session
 	var requests []*runtimev1.TaskStoreServiceSettleTaskRequest
 	for i := range 12 {

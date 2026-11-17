@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"google.golang.org/grpc/codes"
@@ -68,11 +70,14 @@ func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 	stuck, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
 	require.NoError(t, err)
 	require.NotNil(t, stuck)
-	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RESUMING, stuck.GetStatus().GetState())
+	require.Contains(t, []ateapipb.ActorState{
+		ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_RUNNING,
+		ateapipb.ActorState_ACTOR_STATE_SUSPENDING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
+	}, stuck.GetStatus().GetState(), "local cancellation cleanup may already be recovering the actor")
 	current, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.GetSession().GetState())
-	t.Logf("message timeout left actor kagent/%s in RESUMING; deleting Session %s", actorName, fixture.sessionID)
+	t.Logf("actor kagent/%s is %s after message timeout; deleting Session %s", actorName, stuck.GetStatus().GetState(), fixture.sessionID)
 
 	var deleted *apiv1.DeleteSessionResponse
 	require.NoError(t, wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
@@ -98,4 +103,93 @@ func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 	actor, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
 	require.NoError(t, err)
 	require.Nil(t, actor)
+}
+
+func TestCanceledDispatchSuspendsActorWithoutTurn(t *testing.T) {
+	t.Parallel()
+	const blockedMessageID = "cancel-before-task-admission"
+	for _, scenario := range []struct {
+		name             string
+		state            ateapipb.ActorState
+		streaming        bool
+		retryDuringGrace bool
+	}{
+		{name: "Given a running actor, when delivery is canceled, assert that cleanup suspends it", state: ateapipb.ActorState_ACTOR_STATE_RUNNING},
+		{name: "Given a resuming actor, when delivery is canceled, assert that cleanup recovers and suspends it", state: ateapipb.ActorState_ACTOR_STATE_RESUMING, streaming: true},
+		{name: "Given canceled delivery, when the client retries during grace, assert that the new message succeeds", state: ateapipb.ActorState_ACTOR_STATE_RUNNING, retryDuringGrace: true},
+	} {
+		state := scenario.state
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			kube := interactionKubeClient(t)
+			base := &v1alpha3.Harness{}
+			require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: "kagent", Name: "byo-e2e"}, base))
+			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{GenerateName: "cancel-dispatch-", Namespace: "kagent"}, Spec: *base.Spec.DeepCopy()}
+			harness.Spec.Workload.Args = []string{"--block-message-id=" + blockedMessageID}
+			if state == ateapipb.ActorState_ACTOR_STATE_RESUMING {
+				// Only restored startup is delayed. Cancel as soon as RESUMING is
+				// visible, without waiting for the router's timeout budget.
+				harness.Spec.Workload.Command = []string{"/bin/sh", "-c"}
+				harness.Spec.Workload.Args = []string{`if [ -f /data/cancel-resume ]; then sleep 2; fi; touch /data/cancel-resume; exec /app --block-message-id=` + blockedMessageID}
+			}
+			require.NoError(t, kube.Create(t.Context(), harness))
+			t.Cleanup(func() {
+				if err := kube.Delete(context.Background(), harness); err != nil && !apierrors.IsNotFound(err) {
+					t.Errorf("delete cancellation Harness: %v", err)
+				}
+			})
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{GenerateName: "cancel-dispatch-", Namespace: "kagent"},
+				Spec:       v1alpha3.AgentTemplateSpec{Description: "Canceled delivery without task admission"},
+			}
+			createAndWaitInteractionTemplateForHarness(t, kube, template, harness.Name)
+			fixture := newInteractionFixtureForHarnessTemplate(t, interactionTarget(t), harness.Name, template.Name)
+			actorName := substrate.ActorName(fixture.sessionID)
+			initial, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
+			require.NoError(t, err)
+			require.NotNil(t, initial)
+			_, request := newMessageRequest(t, "This message must never start a turn")
+			request.Tenant, request.Message.ContextId, request.Message.MessageId = fixture.tenant, fixture.sessionID, blockedMessageID
+			ctx, cancel := context.WithCancel(fixture.ctx)
+			defer cancel()
+			sendDone := make(chan error, 1)
+			go func() {
+				if scenario.streaming {
+					stream, err := fixture.client.SendStreamingMessage(ctx, request)
+					for err == nil {
+						_, err = stream.Recv()
+					}
+					sendDone <- err
+					return
+				}
+				_, err := fixture.client.SendMessage(ctx, request)
+				sendDone <- err
+			}()
+			require.NoError(t, wait.PollUntilContextTimeout(fixture.ctx, 50*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
+				actor, err := findSubstrateActor(ctx, fixture.system, "kagent", actorName)
+				return actor != nil && actor.GetStatus().GetState() == state, err
+			}))
+			cancel()
+			select {
+			case err := <-sendDone:
+				require.Error(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("send did not return after cancellation")
+			}
+			if scenario.retryDuringGrace {
+				_, _, task := fixture.send(t, "Retry before cleanup")
+				require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+				return
+			}
+			require.NoError(t, wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+				actor, err := findSubstrateActor(ctx, fixture.system, "kagent", actorName)
+				return actor != nil && actor.GetMetadata().GetUid() == initial.GetMetadata().GetUid() && actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_SUSPENDED, err
+			}), "canceled delivery must suspend the same actor without an accepted turn; install with sessions.dispatchCleanupDelay: 1s")
+			listed, err := fixture.client.ListTasks(fixture.ctx, &a2apb.ListTasksRequest{Tenant: fixture.tenant, ContextId: fixture.contextID})
+			require.NoError(t, err)
+			require.Empty(t, listed.GetTasks(), "the canceled request must not have admitted a task")
+			_, _, task := fixture.send(t, "A subsequent message must resume normally")
+			require.Equal(t, a2atype.TaskStateCompleted, task.Status.State)
+		})
+	}
 }

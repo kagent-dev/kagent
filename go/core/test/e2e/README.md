@@ -59,9 +59,20 @@ the runner's `localhost:5001` registry address when workers pull the image.
 parking budget to 5 seconds and request timeout to 10 seconds. For local runs,
 include this file in `install.substrate.valuesFiles` when installing the test
 cluster. These overrides keep the test independent of the chart's defaults.
-The test requires the actor to remain `RESUMING` before ordinary Session deletion,
-then verifies Session and Actor absence through kagent APIs. Backend cleanup
-retries are allowed only after the actor reaches `DELETING` or is absent.
+The test verifies ordinary Session deletion after an interrupted resume, allowing
+cancellation cleanup to finish first, then checks Session and Actor absence.
+
+`TestCanceledDispatchSuspendsActorWithoutTurn` cancels a unary send while Running
+and a streaming send while Resuming. It verifies suspension, no accepted task,
+and a successful subsequent message. The BYO test agent's opt-in
+`--block-message-id` holds only the selected message before task admission;
+normal invocation is unchanged. Restored startup is delayed by two seconds in
+the Resuming case, allowing cancellation without waiting for the router timeout.
+Install the E2E controller with `config.sessions.dispatchCleanupDelay: 1s`, as CI
+does, to test cleanup without the production default's two-minute grace period.
+Setting it to `0s` disables dispatch cleanup; post-turn suspension is unchanged.
+Unit tests advance Go's simulated clock to check the full grace period, retry
+backoff, and deadline without wall-clock sleeps.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness

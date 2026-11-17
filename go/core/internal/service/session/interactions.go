@@ -31,7 +31,7 @@ type interactionStore interface {
 	ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error)
 	DeleteTaskPushConfig(context.Context, string, string, string) error
 	ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error
-	RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error)
+	RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (database.DispatchRevocation, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error)
 	GetSessionTask(context.Context, string, string, *int) (*a2atype.Task, error)
@@ -320,7 +320,8 @@ var ErrSendNotAccepted = a2atype.NewError(a2atype.ErrUnsupportedOperation, "inpu
 
 // RevokeSend releases an unused attempt. A true result proves that the input was
 // not accepted, allowing the gateway to distinguish rejection from uncertainty.
-func (s *InteractionService) RevokeSend(ctx context.Context, agent types.NamespacedName, message *a2atype.Message, id uuid.UUID) (bool, error) {
+// Only failed deliveries queue cleanup; admitted turns use post-turn suspension.
+func (s *InteractionService) RevokeSend(ctx context.Context, agent types.NamespacedName, message *a2atype.Message, id uuid.UUID, deliveryFailed bool) (bool, error) {
 	session, err := s.messageSession(ctx, agent, message)
 	if err != nil {
 		return false, err
@@ -329,7 +330,10 @@ func (s *InteractionService) RevokeSend(ctx context.Context, agent types.Namespa
 	if err != nil {
 		return false, interactionStoreError(ctx, err)
 	}
-	return revoked, nil
+	if deliveryFailed && revoked.CleanupID != uuid.Nil {
+		s.sessions.workflow.QueueDispatchCleanup(ctx, session.Id, revoked.CleanupID)
+	}
+	return revoked.NotAccepted, nil
 }
 
 // RecoverRejectedSend runs after the runtime refused a send it never accepted. A

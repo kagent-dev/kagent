@@ -14,6 +14,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -563,6 +564,8 @@ func (*fakeSessionStore) DeleteSessionShare(context.Context, string, string) err
 }
 
 type fakeSessionWorkflow struct{}
+
+func (*fakeSessionWorkflow) QueueDispatchCleanup(context.Context, string, uuid.UUID) {}
 
 func (*fakeSessionWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil

@@ -48,6 +48,10 @@ func TestControllerConfig(t *testing.T) {
 		{"invalid vector schema", "database: {vectorSchema: 'extension;DROP'}", true},
 		{"ttl bounds", "sandboxes: {defaultTtl: 7200s, maxTtl: 3600s}", true},
 		{"interval", "sessions: {expirationInterval: 0s}", true},
+		{"cleanup grace period", "sessions: {dispatchCleanupDelay: 1s}", false},
+		{"disabled cleanup", "sessions: {dispatchCleanupDelay: 0s}", false},
+		{"negative cleanup delay", "sessions: {dispatchCleanupDelay: -1s}", true},
+		{"overflowing cleanup delay", "sessions: {dispatchCleanupDelay: 9223372037s}", true},
 		{"old gateway push configuration", "gateway: {push: {allowHttp: true}}", true},
 		{"push configuration", "push: {issuer: https://issuer.example, allowHttp: true, allowPrivateNetworks: true}", false},
 		{"invalid push issuer", "push: {issuer: invalid}", true},
@@ -123,6 +127,24 @@ func TestDatabaseConnectRetryTimeout(t *testing.T) {
 			setLogins(cfg)
 			require.NoError(t, config.Validate(cfg))
 			require.Equal(t, scenario.want, cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration())
+		})
+	}
+}
+
+func TestDispatchCleanupDelay(t *testing.T) {
+	for _, scenario := range []struct {
+		name, input string
+		want        time.Duration
+	}{
+		{"Given no override, when defaults load, assert that cleanup waits two minutes", "{}", 2 * time.Minute},
+		{"Given a test override, when defaults load, assert that cleanup waits one second", "sessions: {dispatchCleanupDelay: 1s}", time.Second},
+		{"Given zero delay, when defaults load, assert that cleanup stays disabled", "sessions: {dispatchCleanupDelay: 0s}", 0},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			cfg := &configv1.ControllerConfig{}
+			require.NoError(t, config.Decode([]byte(scenario.input), cfg))
+			config.DefaultController(cfg)
+			require.Equal(t, scenario.want, cfg.GetSessions().GetDispatchCleanupDelay().AsDuration())
 		})
 	}
 }

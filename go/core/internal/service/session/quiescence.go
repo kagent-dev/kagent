@@ -20,9 +20,9 @@ var _ manager.LeaderElectionRunnable = (*ActorWorkflow)(nil)
 // Every API replica can process idle work; PostgreSQL grants each claim once.
 func (*ActorWorkflow) NeedLeaderElection() bool { return false }
 
-// Start suspends idle sessions to VOLUMES independently of task publication.
-// Startup and periodic recovery scans discover work missed by local signals.
-// Workers drain claims with bounded concurrency; task reads never wait for them.
+// Start runs post-turn suspension and local best-effort dispatch cleanup.
+// Startup and periodic scans recover missed task-settlement hints; canceled sends
+// are queued only on their handling replica. Both paths have bounded concurrency.
 func (w *ActorWorkflow) Start(ctx context.Context) error {
 	counter, err := newWorkClaimCounter(ctx, w.meterProvider,
 		conv.KagentSessionQuiescenceClaimed, conv.KagentSessionQuiescenceClaimedUnit, conv.KagentSessionQuiescenceClaimedDescription)
@@ -32,6 +32,7 @@ func (w *ActorWorkflow) Start(ctx context.Context) error {
 	// Keep worker handoffs distinct from settlement hints for attribution.
 	handoff := make(chan struct{}, 1)
 	var workers sync.WaitGroup
+	workers.Go(func() { w.runDispatchCleanups(ctx) })
 	for range 4 {
 		workers.Go(func() {
 			timer := time.NewTimer(w.recoveryInterval)

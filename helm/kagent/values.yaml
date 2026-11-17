@@ -197,6 +197,10 @@ config:
     # another message. It is off by default and not rendered, so the default config
     # stays readable by releases that predate the setting.
     # automaticRecovery: false
+    # Grace before cleaning up canceled messages that never started a turn.
+    # Default 120s; 0s disables dispatch cleanup.
+    # Omitted for compatibility with older releases.
+    # dispatchCleanupDelay: 120s
     idleTtl: 604800s
     shareMaxTtl: 0s
   sandboxes:

@@ -49,6 +49,10 @@ type gatewayTestWorkflow struct {
 	store *gatewayTestStore
 }
 
+func (w gatewayTestWorkflow) QueueDispatchCleanup(_ context.Context, _ string, cleanupID uuid.UUID) {
+	w.store.queuedCleanups = append(w.store.queuedCleanups, cleanupID)
+}
+
 func (w gatewayTestWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	w.store.reverts++
 	if w.store.revertErr != nil {

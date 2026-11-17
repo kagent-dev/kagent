@@ -43,7 +43,7 @@ func TestSessionDeletionForceThroughGeneratedClient(t *testing.T) {
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "assistant-kagent-revision"},
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING},
 	}}
-	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), sessionsvc.ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, workflow)
 	})

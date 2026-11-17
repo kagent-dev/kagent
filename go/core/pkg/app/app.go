@@ -201,7 +201,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
 		return err
 	}
-	quiescenceInterval := cfg.GetSessions().GetQuiescenceRecoveryInterval().AsDuration()
 	logger := slog.Default()
 	ctx = logging.IntoContext(ctx, logger)
 	if err := validateHarnessImagesRelease(cfg.GetHarnessImages(), version.Version); err != nil {
@@ -362,7 +361,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	memory := memoryservice.NewService(store, authorizer)
 	quiescenceWake := make(chan struct{}, 1)
 	pushWake := make(chan struct{}, 1)
-	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, quiescenceInterval, otel.GetMeterProvider())
+	sessionWorkflow := sessionsvc.NewActorWorkflow(store, actors, quiescenceWake, sessionsvc.ActorWorkflowConfig{
+		RecoveryInterval:     cfg.GetSessions().GetQuiescenceRecoveryInterval().AsDuration(),
+		DispatchCleanupDelay: cfg.GetSessions().GetDispatchCleanupDelay().AsDuration(),
+	}, otel.GetMeterProvider())
 	runtimeTasks := taskstore.NewService(store, quiescenceWake, pushWake)
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)

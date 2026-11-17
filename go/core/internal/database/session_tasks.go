@@ -97,31 +97,43 @@ func (c *Client) ReserveSessionDispatch(ctx context.Context, sessionID string, d
 	})
 }
 
-// RevokeSessionDispatch fences an unused attempt. True proves its first
-// save did not commit and cannot commit later, so retrying the send is safe.
-// False does not prove acceptance: callers must preserve ambiguous outcomes.
-func (c *Client) RevokeSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, messageID string) (bool, error) {
-	var notAccepted bool
+// DispatchRevocation distinguishes an unused execution authorization from input
+// acceptance: a waiting task may have saved input without starting execution.
+type DispatchRevocation struct {
+	// CleanupID replaces an unused dispatch; it is never sent to the runtime.
+	CleanupID   uuid.UUID
+	NotAccepted bool
+}
+
+// RevokeSessionDispatch expires an unused attempt atomically with checking input
+// acceptance. An expired replacement ID identifies local cleanup, invalidates
+// delayed delivery, and makes duplicate revocations harmless. It is not a durable
+// cleanup job: only the controller handling this cancellation queues it.
+func (c *Client) RevokeSessionDispatch(ctx context.Context, sessionID string, dispatchID uuid.UUID, messageID string) (DispatchRevocation, error) {
+	var result DispatchRevocation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		session, err := lockSession(ctx, tx, sessionID)
 		if err != nil {
 			return notFoundOr(err)
 		}
+		cleanupID := uuid.New()
 		tag, err := tx.Exec(ctx, `
-			UPDATE session SET dispatch_id = NULL, dispatch_expires_at = NULL
+			UPDATE session SET dispatch_id = $3,
+			    dispatch_expires_at = LEAST(dispatch_expires_at, clock_timestamp())
 			WHERE id = $1 AND dispatch_id = $2
-		`, session.ID, dispatchID)
+		`, session.ID, dispatchID, cleanupID)
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
 		}
+		result.CleanupID = cleanupID
 		// A continuation may have saved its input while still marked waiting.
 		// Revoking that attempt is safe, but it is not an unaccepted input.
-		notAccepted, err = queryOne(ctx, tx, `
+		result.NotAccepted, err = queryOne(ctx, tx, `
 			SELECT NOT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1 AND message_id = $2)
 		`, pgx.RowTo[bool], session.HistoryID, messageID)
 		return err
 	})
-	return notAccepted, err
+	return result, err
 }
 
 // UpdateSessionTask applies a runtime update only to the version it read.

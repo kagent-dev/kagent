@@ -173,7 +173,7 @@ func TestQuiescenceWorkClaimTriggers(t *testing.T) {
 				}
 				wake := make(chan struct{}, 1)
 				// Equal recovery and retry delays must still have distinct labels.
-				workflow := NewActorWorkflow(store, nil, wake, time.Second, provider)
+				workflow := NewActorWorkflow(store, nil, wake, ActorWorkflowConfig{RecoveryInterval: time.Second}, provider)
 				done := make(chan error, 1)
 				go func() { done <- workflow.Start(ctx) }()
 				synctest.Wait()
@@ -218,7 +218,9 @@ func TestQuiescenceHandoffsCountAsBacklog(t *testing.T) {
 				}
 				wake := make(chan struct{}, 1)
 				done := make(chan error, 1)
-				go func() { done <- NewActorWorkflow(store, nil, wake, time.Second, provider).Start(ctx) }()
+				go func() {
+					done <- NewActorWorkflow(store, nil, wake, ActorWorkflowConfig{RecoveryInterval: time.Second}, provider).Start(ctx)
+				}()
 				synctest.Wait()
 				require.Equal(t, wantWorkClaims("", 0), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
 				store.remaining.Store(12)
@@ -447,7 +449,7 @@ func TestWorkerClaimMetricsRemainSeparate(t *testing.T) {
 		push.deliveries = make([]database.PushDelivery, 2)
 		quiescenceDone, pushDone := make(chan error, 1), make(chan error, 1)
 		go func() {
-			quiescenceDone <- NewActorWorkflow(quiescence, nil, make(chan struct{}, 1), time.Hour, provider).Start(ctx)
+			quiescenceDone <- NewActorWorkflow(quiescence, nil, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Hour}, provider).Start(ctx)
 		}()
 		go func() {
 			pushDone <- NewPushWorker(push, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Hour), provider).Start(ctx)

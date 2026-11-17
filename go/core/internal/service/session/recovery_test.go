@@ -80,7 +80,7 @@ func crashedTurnFixture(t *testing.T) (*lifecycleTestStore, *lifecycleTestActors
 	store, session := lifecycleFixture(t)
 	actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
 	var err error
-	session, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
+	session, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider()).Create(t.Context(), session)
 	require.NoError(t, err)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("original input"))
 	message.ContextID = session.ContextId
@@ -117,7 +117,7 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 				}
 				return base.RevertActor(ctx, atespace, name)
 			}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 			_, err := workflow.Revert(t.Context(), session)
 			require.Error(t, err)
 			failed, err := store.GetSessionByID(t.Context(), session.Id)
@@ -135,7 +135,7 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()), database.ErrConflict)
 			// A retried RevertSession on another workflow instance joins the admitted
 			// operation from PostgreSQL.
-			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 			_, err = restarted.Revert(t.Context(), failed)
 			require.NoError(t, err)
 			ready, err := store.GetSessionByID(t.Context(), session.Id)
@@ -173,7 +173,7 @@ func TestCrashedSessionRecoveryFencesConcurrentWork(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 	done := make(chan error, 1)
 	go func() { _, err := workflow.Revert(ctx, session); done <- err }()
 	select {
@@ -228,7 +228,7 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 				t.Fatal("unconfirmed crash issued a revert")
 				return nil, nil
 			}
-			returned, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Revert(t.Context(), session)
+			returned, err := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider()).Revert(t.Context(), session)
 			switch {
 			case test.healthy:
 				require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestSessionRecoveryRequiresConfirmedRecordedActorCrash(t *testing.T) {
 				// The loss is recorded so later sends and reverts need not ask Substrate.
 				require.True(t, database.RuntimeLost(current), "state = %s/%s", current.State, current.Operation)
 				require.Equal(t, a2a.TaskStateFailed, stored.Status.State, "no runtime remains to finish the turn")
-				_, err = NewActorWorkflow(store, &recoveryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Internal, "Substrate must not be read")}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Revert(t.Context(), current)
+				_, err = NewActorWorkflow(store, &recoveryTestActors{lifecycleTestActors: base, readErr: status.Error(codes.Internal, "Substrate must not be read")}, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider()).Revert(t.Context(), current)
 				require.ErrorIs(t, err, errRuntimeUnrecoverable)
 				return
 			}
@@ -275,7 +275,7 @@ func TestExplicitRevertSeparatesContentionFromRestingState(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Neither check reaches the store or Substrate.
-			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+			workflow := NewActorWorkflow(nil, nil, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 			session := &apiv1.Session{Id: uuid.NewString(), State: test.state, Operation: test.operation}
 			returned, err := workflow.Revert(t.Context(), session)
 			if test.want == nil {
@@ -320,7 +320,7 @@ func TestCrashedSessionRecoversAnOlderResumedTask(t *testing.T) {
 	hash = sha256.Sum256([]byte("resume older task"))
 	_, err = store.UpdateSessionTask(t.Context(), session.Id, waitingVersion, hash[:], older, older, "")
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Second}, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	failed, err := store.GetSettledSessionTask(t.Context(), session.Id, string(older.ID), nil)
@@ -349,7 +349,7 @@ func TestExplicitRevertRespectsCheckpointCreation(t *testing.T) {
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, session.Creator, uuid.NewString())
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.ErrorIs(t, err, database.ErrConflict)
 	actor, err := actors.GetActor(t.Context(), "team-a", substrate.ActorName(session.Id))
@@ -371,7 +371,7 @@ func TestExplicitRevertRetiresIdleSuspensionOfCrashedActor(t *testing.T) {
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
 	work, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider())
 	recovered, err := workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, recovered.State)
@@ -396,7 +396,7 @@ func TestExplicitRevertRejectsCrashObservedBeforeAnotherRevert(t *testing.T) {
 	key := actorKey("team-a", substrate.ActorName(session.Id))
 	var next *a2a.Task
 	paused := &recoveryTestActors{lifecycleTestActors: base, revert: base.RevertActor, afterRead: func(ctx context.Context) {
-		recovered, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(ctx, session)
+		recovered, err := NewActorWorkflow(store, base, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider()).Revert(ctx, session)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, recovered.State)
 		base.mu.Lock()
@@ -410,7 +410,7 @@ func TestExplicitRevertRejectsCrashObservedBeforeAnotherRevert(t *testing.T) {
 		_, err = store.CreateRuntimeTask(ctx, session.Id, hash[:], next, "")
 		require.NoError(t, err)
 	}}
-	_, err := NewActorWorkflow(store, paused, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
+	_, err := NewActorWorkflow(store, paused, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider()).Revert(t.Context(), session)
 	require.ErrorIs(t, err, database.ErrConflict)
 	current, err := store.GetSessionByID(t.Context(), session.Id)
 	require.NoError(t, err)
@@ -428,7 +428,7 @@ func TestExplicitRevertCannotCheckpointDiscardedTerminalState(t *testing.T) {
 	version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
 	_, err = store.ClaimSessionQuiescence(t.Context())
@@ -465,7 +465,7 @@ func TestExplicitRevertPreservesOnlyCapturedWaits(t *testing.T) {
 						Generation: 2, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_PENDING},
 					})
 				}
-				_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
+				_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider()).Revert(t.Context(), session)
 				require.NoError(t, err)
 				stored, err := store.GetSettledSessionTask(t.Context(), session.Id, string(task.ID), nil)
 				require.NoError(t, err)
@@ -500,7 +500,7 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 		Atespace: "team-a", URI: "s3://snapshots/later-turn", Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES.String(),
 	}))
 	actors.actors[actorKey("team-a", substrate.ActorName(session.Id))].Status.Snapshots = []*ateapipb.Snapshot{{Generation: 1, Fidelity: ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES, DurableSnapshot: &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/later-turn"}}}}
-	_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
+	_, err = NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider()).Revert(t.Context(), session)
 	require.NoError(t, err)
 	retained, err := store.GetSettledSessionTask(t.Context(), session.Id, string(waiting.ID), nil)
 	require.NoError(t, err)
@@ -534,7 +534,7 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 				unavailable := &recoveryTestActors{lifecycleTestActors: base, revert: func(context.Context, string, string) (*ateapipb.Actor, error) {
 					return nil, status.Error(codes.Unavailable, "response unavailable")
 				}}
-				_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Revert(t.Context(), session)
+				_, err := NewActorWorkflow(store, unavailable, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider()).Revert(t.Context(), session)
 				require.Error(t, err)
 			} else {
 				_, err := store.BeginCrashedSessionRecovery(t.Context(), revertGeneration(t, store, session.Id, base.actors[key].GetMetadata().GetUid()), database.SessionTaskSnapshot{})
@@ -553,7 +553,7 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 					t.Fatal("an unread or replaced Actor was reverted")
 					return nil, nil
 				}
-				workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
+				workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider())
 				for range 2 {
 					admitted, err := store.GetSessionByID(t.Context(), session.Id)
 					require.NoError(t, err)
@@ -571,7 +571,7 @@ func TestDeleteSupersedesCrashRecovery(t *testing.T) {
 			} else {
 				require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT, pending.Operation, "a failed attempt keeps the recovery for a retry")
 			}
-			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider()).Delete(t.Context(), pending, false)
+			deleted, err := NewActorWorkflow(store, base, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Minute}, noop.NewMeterProvider()).Delete(t.Context(), pending, false)
 			if test.replaced {
 				require.NotErrorIs(t, err, database.ErrConflict)
 				deleting, err := store.GetSessionByID(t.Context(), session.Id)

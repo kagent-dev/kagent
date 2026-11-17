@@ -257,6 +257,12 @@ message SessionsConfig {
     gt: {}
     lte: {seconds: 9223372036}
   }];
+  // Grace period before best-effort cleanup of a canceled, unused dispatch.
+  // New messages supersede cleanup. Default 120s; zero disables dispatch cleanup.
+  google.protobuf.Duration dispatch_cleanup_delay = 6 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 9223372036}
+  }];
 }
 
 message GatewayConfig {
