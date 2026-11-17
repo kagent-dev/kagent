@@ -23,6 +23,10 @@ import {
   type OutputSource,
 } from "./agentTemplateDraft";
 import { SkillsField } from "./SkillsField";
+import { useLocation } from "react-router-dom";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { backLinkState } from "@/router/backLink";
+import { buildPath, paths } from "@/router/routes";
 
 import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
 import { KAGENT_API_VERSION } from "@/api/grpc/wire";
@@ -107,6 +111,7 @@ export function AgentTemplateForm({
   namespaceField?: ReactNode;
 }) {
   const theme = useTheme();
+  const location = useLocation();
   const models = useModels();
   const servers = useMcpServers();
   const tools = useTools();
@@ -243,6 +248,20 @@ export function AgentTemplateForm({
               options={modelOptions}
               {...readOnlySelect}
             />
+            {/* Only while reading: following it mid-edit would drop the draft. */}
+            {readOnly && draft.modelConfig?.name ? (
+              <ResourceLink
+                to={buildPath(paths.modelEdit, {
+                  namespace: draft.modelConfig.namespace || namespace,
+                  name: draft.modelConfig.name,
+                })}
+                state={backLinkState(location, "Back to template")}
+                data-testid="template-form-model-link"
+                css={{ marginInlineStart: theme.space(2), fontSize: 13 }}
+              >
+                Open model
+              </ResourceLink>
+            ) : null}
           </div>
         </Form.Item>
 

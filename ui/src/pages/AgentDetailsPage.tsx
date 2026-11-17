@@ -1,7 +1,7 @@
 import { Alert, Button, Card, Descriptions, Skeleton, Space, Typography } from "antd";
 import type { DescriptionsProps } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import {
   NotReported,
@@ -18,7 +18,8 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { bareName, isNotFound, useAgent, useAgentInstance, useAgentInstances } from "@/api";
 import { buildPath } from "@/router/routes";
-import { linkInk } from "@/components/common/linkStyles";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { backLinkState } from "@/router/backLink";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 
 const { Paragraph, Text } = Typography;
@@ -77,7 +78,9 @@ export function AgentDetailsPage() {
 
   const agentNamespace = data?.agent?.split("/")[0];
   const agent = useAgent(agentNamespace, data?.agent ? bareName(data.agent) : undefined);
-  const egressRefs = agent.data?.resource.spec.egressPolicyRefs ?? [];
+  const agentSpec = agent.data?.resource.spec;
+  const egressRefs = agentSpec?.egressPolicyRefs ?? [];
+  const back = backLinkState(useLocation(), "Back to conversation details");
 
   // A 404 is a different answer from a failed request: the controller told us this
   // instance does not exist — or that it is not ours, which the API reports the same
@@ -112,13 +115,9 @@ export function AgentDetailsPage() {
           // therefore a test failure rather than a cosmetic one.
           span: 2,
           children: agentHref ? (
-            <Link
-              to={agentHref}
-              data-testid="instance-agent-link"
-              css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
-            >
+            <ResourceLink mono to={agentHref} data-testid="instance-agent-link">
               {data.agent}
-            </Link>
+            </ResourceLink>
           ) : (
             // Not a link and not a blank cell: an instance with no prepared revision
             // belongs to no Agent, which is a fact about the record rather than a
@@ -126,6 +125,42 @@ export function AgentDetailsPage() {
             <ValueOrNotReported value={undefined} />
           ),
         },
+        ...(agentSpec && agentNamespace
+          ? [
+              {
+                key: "template",
+                label: "Agent template",
+                span: 2,
+                children: agentSpec.template.ref ? (
+                  <ResourceLink
+                    mono
+                    to={buildPath(paths.agentTemplateDetail, { namespace: agentNamespace, name: agentSpec.template.ref.name })}
+                    state={back}
+                    data-testid="instance-template-link"
+                  >
+                    {agentSpec.template.ref.name}
+                  </ResourceLink>
+                ) : (
+                  <Text>Inline</Text>
+                ),
+              },
+              {
+                key: "harness",
+                label: "Harness",
+                span: 2,
+                children: (
+                  <ResourceLink
+                    mono
+                    to={buildPath(paths.harness, { namespace: agentNamespace, name: agentSpec.harnessRef.name })}
+                    state={back}
+                    data-testid="instance-harness-link"
+                  >
+                    {agentSpec.harnessRef.name}
+                  </ResourceLink>
+                ),
+              },
+            ]
+          : []),
         ...(data.agent
           ? [
               {
@@ -141,13 +176,14 @@ export function AgentDetailsPage() {
                 ) : (
                   <Space size={[12, 4]} wrap data-testid="instance-egress-policies">
                     {egressRefs.map((ref) => (
-                      <Link
+                      <ResourceLink
                         key={ref.name}
+                        mono
                         to={buildPath(paths.egressPolicyDetail, { namespace: agentNamespace ?? "", name: ref.name })}
-                        css={{ fontFamily: theme.font.mono, ...linkInk(theme) }}
+                        state={back}
                       >
                         {ref.name}
-                      </Link>
+                      </ResourceLink>
                     ))}
                   </Space>
                 ),

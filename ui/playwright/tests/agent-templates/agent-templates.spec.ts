@@ -33,7 +33,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
 
     await expect(row).toContainText("default-model-config");
     // Two named tools on one server: the column counts tools, not bindings.
-    await expect(row.getByRole("cell").nth(3)).toHaveText("2");
+    await expect(row.getByTestId("template-tool-count-k8s-agent-7f3a91c")).toHaveText("2");
+    // The server each tool comes from is a link to its details page.
+    await expect(row.getByTestId("template-tool-server-k8s-agent-7f3a91c-kagent-tool-server")).toHaveAttribute(
+      "href",
+      "/mcp/kagent/kagent-tool-server",
+    );
 
     // `note-taker` carries no labels at all. It is a complete, valid template that can
     // never become an agent, and only this column says so.
@@ -66,6 +71,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
   await test.step("3. columns sort", async () => {
     // The search is cleared first: sorting one row proves nothing.
     await page.getByTestId("templates-filters-search").fill("");
+    await expect(dataRows(page)).not.toHaveCount(1);
     const first = async () => (await dataRows(page).first().textContent()) ?? "";
     const before = await first();
     await page.getByRole("columnheader", { name: /Template/ }).click();

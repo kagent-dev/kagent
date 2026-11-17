@@ -2,10 +2,12 @@ import { referenceLabel } from "@/api/domain/agentTemplates";
 import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Info } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
-import { useAgent, useAgentTemplate, bareName, type AgentInstance } from "@/api";
+import { useLocation } from "react-router-dom";
+import { useAgent, useAgentTemplate, bareName, type AgentInstance, type ObjectReference } from "@/api";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import { buildPath, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
+import { toolAnchor } from "@/components/mcp/toolAnchor";
 
 const { Text, Paragraph } = Typography;
 
@@ -63,6 +65,11 @@ export function AgentContextPanel({
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
   const tools = spec?.tools ?? [];
+  // Every link here leads back to this panel's page, so its target can return.
+  const back = backLinkState(location, instance ? "Back to conversation" : "Back to agent");
+  const linkCss = { justifySelf: "start", fontSize: 12 } as const;
+  const refPath = (path: string, ref: ObjectReference) =>
+    buildPath(path, { namespace: ref.namespace || templateNamespace, name: ref.name });
 
   return (
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
@@ -75,19 +82,19 @@ export function AgentContextPanel({
         }
       >
         {templateRef && templateNamespace && templateName ? (
-          <RefLink
+          <ResourceLink
+            mono
+            css={linkCss}
             to={buildPath(paths.agentTemplateDetail, {
               namespace: templateNamespace,
               name: templateName,
             })}
-            // So the template page can lead back here rather than only to the
-            // template list. Without a conversation open, "here" is the agent's page.
-            state={backLinkState(location, instance ? "Back to conversation" : "Back to agent")}
+            state={back}
             tooltip="Open the AgentTemplate this agent is built from"
-            testId="chat-agent-context-template"
+            data-testid="chat-agent-context-template"
           >
             {`${templateNamespace}/${templateRef}`}
-          </RefLink>
+          </ResourceLink>
         ) : (
           <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
             {definition.data?.resource.spec.template.inline
@@ -101,9 +108,22 @@ export function AgentContextPanel({
         label="Harness"
         hint="The runtime that executes this agent, such as the built-in kagent engine, Codex or Claude."
       >
-        <Text data-testid="chat-agent-context-harness" css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-          {harnessRef ? `${namespace}/${harnessRef}` : "Not reported"}
-        </Text>
+        {harnessRef && namespace ? (
+          <ResourceLink
+            mono
+            css={linkCss}
+            to={buildPath(paths.harness, { namespace, name: harnessRef })}
+            state={back}
+            tooltip="Open the Harness this agent runs on"
+            data-testid="chat-agent-context-harness"
+          >
+            {`${namespace}/${harnessRef}`}
+          </ResourceLink>
+        ) : (
+          <Text data-testid="chat-agent-context-harness" css={{ color: theme.color.textMuted, fontSize: 12 }}>
+            Not reported
+          </Text>
+        )}
       </Field>
 
       <div
@@ -127,9 +147,19 @@ export function AgentContextPanel({
       ) : spec ? (
         <>
           <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
-            <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-              {referenceLabel(spec.modelConfig, templateNamespace) || "—"}
-            </Text>
+            {spec.modelConfig?.name ? (
+              <ResourceLink
+                mono
+                css={linkCss}
+                to={refPath(paths.modelEdit, spec.modelConfig)}
+                state={back}
+                data-testid="chat-agent-context-model"
+              >
+                {referenceLabel(spec.modelConfig, templateNamespace)}
+              </ResourceLink>
+            ) : (
+              <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>—</Text>
+            )}
           </Field>
 
           <Field label="Tools" hint="The MCP tools and sub-agents the agent can call.">
@@ -148,16 +178,25 @@ export function AgentContextPanel({
               >
                 {tools.flatMap((binding, index) => {
                   const mcp = binding.mcp;
+                  const server = mcp ? refPath(paths.mcpServer, mcp.server) : "";
                   return mcp
                     ? mcp.tools?.length
                       ? mcp.tools.map((tool) => (
                           <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)}: {tool}
+                            <ResourceLink
+                              to={{ pathname: server, hash: toolAnchor(tool) }}
+                              state={back}
+                              data-testid="chat-agent-context-tool"
+                            >
+                              {referenceLabel(mcp.server, templateNamespace)}: {tool}
+                            </ResourceLink>
                           </Tag>
                         ))
                       : [
                           <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)} (all tools)
+                            <ResourceLink to={server} state={back} data-testid="chat-agent-context-tool">
+                              {referenceLabel(mcp.server, templateNamespace)} (all tools)
+                            </ResourceLink>
                           </Tag>,
                         ]
                     : binding.subAgent
@@ -263,41 +302,5 @@ function Field({
       </span>
       {children}
     </div>
-  );
-}
-
-/** A reference to another resource, styled as a link, with a tooltip saying where it goes. */
-function RefLink({
-  to,
-  state,
-  tooltip,
-  testId,
-  children,
-}: {
-  to: string;
-  state?: unknown;
-  tooltip: string;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  const theme = useTheme();
-  return (
-    <Tooltip title={tooltip} trigger={["hover", "focus"]}>
-      <Link
-        to={to}
-        state={state}
-        data-testid={testId}
-        css={{
-          justifySelf: "start",
-          fontFamily: theme.font.mono,
-          fontSize: 12,
-          color: theme.color.primaryText,
-          wordBreak: "break-word",
-          "&:hover, &:focus-visible": { textDecoration: "underline" },
-        }}
-      >
-        {children}
-      </Link>
-    </Tooltip>
   );
 }

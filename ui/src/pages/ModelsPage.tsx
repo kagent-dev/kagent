@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import { apiClient, parseRef, useModels, type ModelConfig } from "@/api";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { RefreshButton } from "@/components/table/RefreshButton";
@@ -119,7 +120,14 @@ export function ModelsPage() {
         key: "name",
         sorter: byText<ModelConfig>((row) => parseRef(row.ref).name),
         sortOrder: sortOrderFor(view, "name"),
-        render: (_, row) => parseRef(row.ref).name,
+        render: (_, row) => (
+          <ResourceLink
+            to={buildPath(paths.modelEdit, parseRef(row.ref))}
+            data-testid={`model-link-${parseRef(row.ref).name}`}
+          >
+            {parseRef(row.ref).name}
+          </ResourceLink>
+        ),
       },
       {
         title: "Namespace",

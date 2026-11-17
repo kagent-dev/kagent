@@ -17,7 +17,12 @@ vi.mock("@/api", () => ({
 
 function LocationState() {
   const location = useLocation();
-  return <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>;
+  return (
+    <>
+      <pre data-testid="location-path">{location.pathname + location.hash}</pre>
+      <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>
+    </>
+  );
 }
 
 function renderPanel(
@@ -54,6 +59,9 @@ function renderPanel(
             }
           />
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
+          <Route path="/harnesses/:namespace/:name" element={<LocationState />} />
+          <Route path="/models/:namespace/:name/edit" element={<LocationState />} />
+          <Route path="/mcp/:namespace/:name" element={<LocationState />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -107,6 +115,23 @@ describe("AgentContextPanel", () => {
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
       fromLabel: "Back to agent",
+    });
+  });
+
+  it.each([
+    ["chat-agent-context-harness", "/harnesses/kagent/runner"],
+    ["chat-agent-context-model", "/models/shared/gpt/edit"],
+    ["chat-agent-context-tool", "/mcp/kagent/tools#tool-list_pods"],
+  ])("opens %s at %s with a way back to this conversation", async (testId, path) => {
+    renderPanel(
+      [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],
+      "shared",
+      { agent: "kagent/assistant" } as AgentInstance,
+    );
+    await userEvent.click(screen.getByTestId(testId));
+    expect(screen.getByTestId("location-path").textContent).toBe(path);
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
+      fromLabel: "Back to conversation",
     });
   });
 

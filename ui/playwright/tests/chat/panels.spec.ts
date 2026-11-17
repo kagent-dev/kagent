@@ -153,3 +153,48 @@ test("chat: the template opened from a conversation leads back to it", async ({ 
     expect(await page.evaluate(() => window.history.length)).toBe(historyLength);
   });
 });
+
+/**
+ * The harness and the MCP server named in the panel each have a details page, and each
+ * leads back to the conversation the same way the template page does.
+ */
+test("chat: the harness and an MCP server open from a conversation and lead back to it", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(AGENT_CHAT);
+  const harness = page.getByTestId("chat-agent-context-harness");
+  await expect(harness).toBeVisible({ timeout: 30_000 });
+  const chatUrl = page.url();
+
+  await test.step("1. the harness link opens the harness details", async () => {
+    await expect(harness).toHaveText("kagent/k8s-agent");
+    await harness.click();
+    await expect(page).toHaveURL(/\/harnesses\/kagent\/k8s-agent$/);
+    await expect(page.getByTestId("harness-runtime")).toHaveText("kagent", { timeout: 30_000 });
+    await expect(page.getByTestId("harness-user-k8s-agent-7f3a91c")).toBeVisible();
+  });
+
+  await test.step("2. and its back button returns to the conversation", async () => {
+    const back = page.getByTestId("harness-back");
+    await expect(back).toHaveText("Back to conversation");
+    await back.click();
+    await expect(page).toHaveURL(chatUrl);
+    await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
+  });
+
+  await test.step("3. a tool link opens its MCP server, with that tool marked", async () => {
+    await page.getByTestId("chat-agent-context-tool").filter({ hasText: "k8s_get_events" }).click();
+    await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server#tool-k8s_get_events$/);
+    const tools = page.getByTestId("mcp-server-tools");
+    await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
+    await expect(tools.locator("[data-current]")).toContainText("k8s_get_events");
+    await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
+  });
+
+  await test.step("4. and its back button returns to the conversation", async () => {
+    const back = page.getByTestId("mcp-server-back");
+    await expect(back).toHaveText("Back to conversation");
+    await back.click();
+    await expect(page).toHaveURL(chatUrl);
+    await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
+  });
+});
