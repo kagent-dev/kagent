@@ -1,18 +1,21 @@
 # Agent manifests
 
-Read this file when you choose values for an Agent, or write, check, fix, or recover a manifest.
-
 ## Choosing values
 
-Pick one value for each line of the card. Do not list alternatives: the user can change any line.
+Pick one value for each field. Do not list alternatives: the user can change any value.
 
 | Value | Default | Note |
 | --- | --- | --- |
-| Harness | Runtime `kagent`. It supports all model providers. | `claude`: Anthropic, Bedrock, AnthropicVertexAI only, and it binds whole MCP servers (see [Agent manifest](#agent-manifest)). `codex`: OpenAI with `openAI.apiFormat: responses`, or Bedrock. |
+| Harness | Runtime `kagent`. It supports all model providers. | Check the [Compatibility](#compatibility) with the model. |
 | Model | `default-model-config`, else the first in `model list` | |
-| Template | A new inline template | Reuse a template from `agent template list` that fits the goal. See [templates.md](templates.md). |
-| Name | Lowercase letters, digits, and hyphens from the goal | Not in `agent list`, or `agent template list` for a template. `apply` replaces a resource with the same name. |
-| Tools | Only the tools that the goal needs, by exact name | Mark a tool that changes state "(needs approval)", and a helper "(helper)". |
+| Template | A new inline template | Reuse a template from `agent template list` that fits the request. See [templates.md](templates.md). |
+| Name | Lowercase letters, digits, and hyphens from the request | Not in `agent list`, or `agent template list` for a template. `apply` replaces a resource with the same name. |
+| Tools | Only the tools that the request needs, by exact name | |
+
+## Compatibility
+
+No command lists the providers that a runtime other than `kagent` supports. For those runtimes, the `Compatible`
+message of the Readiness check after Apply names what does not fit. Find the fix in [Failures](#failures).
 
 ## Find tools
 
@@ -34,14 +37,12 @@ Show each entry of `warnings` to the user, also when the Agent is ready.
 | Result (the first row that matches) | Meaning and next step |
 | --- | --- |
 | `ResolvedRefs` or `Compatible` is `False` | Failure. Stop. Find the `message` in [Failures](#failures). |
-| `observed` is less than `generation`, or there is no `Ready` condition | The controller did not report yet. Run the check again. |
-| `Ready` is `False` with reason `ActorTemplatePending` | The runtime is in preparation. Run the check again. |
-| `Ready` is `False` with reason `ActorTemplateRetrying` | The runtime failed to build, and kagent retries with a backoff. Run the check again. After 5 minutes, report the `message`. |
+| `observed` is less than `generation`, or `Ready` is not `True` | Not ready yet. Run the check again. After 5 minutes, stop and report the `reason` and `message`. For `ActorTemplatePending`, an admin checks the WorkerPool. |
 | `observed` equals `generation`, and `Ready` is `True` | The Agent is ready. |
 
 ## Agent manifest
 
-Replace each upper-case word. Remove a line that you do not need.
+Remove a line that you do not need.
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -61,6 +62,7 @@ spec:
       tools:
         - mcp:
             server:
+              kind: RemoteMCPServer  # kagent 1.0.x requires it
               name: SERVER         # kagent tool list, the part after NS/
             tools: [TOOL, TOOL]
             requireApproval: true  # only on a binding with tools that change state
@@ -68,20 +70,20 @@ spec:
 
 - Do not set `metadata.namespace`. The CLI uses `-n`, and a different value fails.
 - Put one resource in each file. `apply` reads only the first YAML document.
-- Each `tools` item binds one server. Use two items on one server to split read tools from tools that need approval.
-  If you omit the inner `tools` list, the agent gets every tool of the server, also the tools that write.
+- Each `tools` item binds one server. To split read tools from tools that need approval, use two items on one server.
+  Some runtimes reject that: see [Failures](#failures). If you omit the inner `tools` list, the agent gets every tool
+  of the server, also the tools that write.
 - A tool changes state when its name or description says that it creates, changes, deletes, or runs something,
   for example `k8s_check_service_connectivity`, which starts a temporary pod.
-- `requireApproval: true` pauses each call until the user approves it in the kagent dashboard.
-- On the `claude` harness, a `tools` list binds the whole MCP server, and the Agent reports a warning.
-  So the split above does not work there. Set `requireApproval: true` on each binding to a server that has
-  tools that change state, and show `SERVER (all tools)` on the card.
-- Some read tools can show Secret data, for example `k8s_get_resource_yaml`. Bind them only when the goal needs them.
+- If the Readiness check shows a warning with `exposing the whole server`, the runtime ignored the `tools` list.
+  If that server has tools that change state, set `requireApproval: true` on its binding. Tell the user that the agent
+  gets all tools of that server.
+- Some read tools can show Secret data, for example `k8s_get_resource_yaml`. Bind them only when the request needs them.
 
 ## Add a model
 
 Use this when `model list` is empty or no model fits the harness. `kagent apply` does not take a ModelConfig,
-so the user applies it with `kubectl`. This example is for Anthropic, which the `kagent` and `claude` harnesses support.
+so the user applies it with `kubectl`. This example is for Anthropic.
 
 ```yaml
 apiVersion: api.kagent.dev/v1alpha3
@@ -101,7 +103,7 @@ read -rs KEY && kubectl create secret generic SECRET -n NAMESPACE --from-literal
 kubectl apply -n NAMESPACE -f MODEL.yaml
 ```
 
-Then run `kagent model list` and continue with Confirm.
+Then run `kagent model list` and continue with Step 2 of Create.
 
 ## Write the prompt
 
@@ -124,14 +126,12 @@ again, or delete the Agent. Match the `apply` error, or the `message` of the fai
 
 | Text | Fix |
 | --- | --- |
-| `unknown field "FIELD"` | Correct the field name with the shapes in this file. |
 | `internal server error` | Remove all `metadata` fields except `name`. |
-| `resolve Harness "NS/NAME": not found` | Use a NAME from `kagent harness list`. If the list is empty, see "Troubleshooting" in SKILL.md. |
 | `resolve ModelConfig "NS/NAME": secret NAME not found` | An admin must create the API key Secret of the ModelConfig. Or use another model. |
-| `resolve ModelConfig "NS/NAME": not found` | Use a NAME from `kagent model list`. |
-| `resolve RemoteMCPServer "NAME": not found` | Use a SERVER from `kagent tool list`. |
-| `resolve AgentTemplate "NS/NAME": not found` (a `ref`), or `"NAME"` (a `subAgent`) | Apply the AgentTemplate first, or use a NAME from `kagent agent template list`. |
-| `ModelConfig is required` | Add `modelConfig.name` to the template. |
+| `resolve KIND "...": not found` | Use a name from the list for that kind: `kagent harness list`, `model list`, `tool list`, or `agent template list`. Apply a missing AgentTemplate first. If `harness list` is empty, see "Troubleshooting" in SKILL.md. |
+| `map to the same native name` | Merge the bindings of that server into one `tools` item. If one of its tools changes state, set `requireApproval: true` on it. |
+| `must use the root` ... `provider and authentication configuration` | Give the helper template the same `modelConfig` as the agent. |
+| `cannot contain` (a helper) | Remove the listed items, such as `tools`, from the helper template. |
 | `does not support ModelConfig provider` | Use the harness with runtime `kagent`, or a model that the harness supports. |
 | `Codex OpenAI requires openAI.apiFormat responses` | Use the harness with runtime `kagent`, or a ModelConfig with `openAI.apiFormat: responses`. |
 | `denied by allowedNamespaces` | Use a model or tool server from `-n`. Or an admin adds this namespace to its `allowedNamespaces`. For the built-in tool server, the Helm value is `kagent-tools.remoteMCPServer.allowedNamespaces`. |
@@ -150,5 +150,5 @@ If you do not have the file of an Agent, write it again from the server:
 kagent agent get NAME -o json | jq '{apiVersion, kind, metadata: {name: .metadata.name}, spec}' > NAME.yaml
 ```
 
-JSON is valid YAML, so Update can apply this file. Server fields such as `resourceVersion` make `apply` fail. Labels are fine.
+JSON is valid YAML, so `apply` takes this file.
 `kagent agent template get NAME -o json` works the same way.

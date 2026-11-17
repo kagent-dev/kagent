@@ -1,7 +1,5 @@
 # Templates and helpers
 
-Read this file when Agents share a behavior, an agent hands work to a helper, or before you delete an AgentTemplate.
-
 ## Reuse a template
 
 An AgentTemplate `spec` is the `inline` block of the [Agent manifest](agent-reference.md#agent-manifest),
@@ -17,10 +15,13 @@ spec:
   template: {ref: {name: TEMPLATE}}  # kagent agent template list
 ```
 
+An AgentTemplate change keeps the `generation` of its Agents. Record each Agent's `status.desiredRevision`
+before the apply. After it, wait for a new revision and `Ready` `True`.
+
 ## Helper agents
 
 A `subAgent` binding lets an agent hand work to an AgentTemplate in the same namespace. The helper runs in the
-agent's own runtime, on its Harness. On `codex` and `claude`, the helper must use the same model provider and key. On `codex`, it cannot have tools.
+agent's own runtime, on its Harness. Some runtimes limit the helper's model and tools. See [Failures](agent-reference.md#failures).
 Put the helper AgentTemplate in its own file, and apply it first:
 
 ```yaml
