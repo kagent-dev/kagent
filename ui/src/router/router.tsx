@@ -20,6 +20,7 @@ import {
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AgentsLandingPage } from "@/pages/agents/AgentsLandingPage";
 import { HarnessEditPage, HarnessNewPage } from "@/pages/agents/HarnessNewPage";
+import { HarnessDetailsPage } from "@/pages/agents/HarnessDetailsPage";
 import { AgentNewChatPage } from "@/pages/AgentNewChatPage";
 import { UnmappedConversationsPage } from "@/pages/UnmappedConversationsPage";
 import { AgentPage } from "@/pages/AgentPage";
@@ -34,6 +35,7 @@ import { ModelNewPage } from "@/pages/ModelNewPage";
 import { ModelEditPage } from "@/pages/ModelEditPage";
 import { McpServersPage } from "@/pages/McpServersPage";
 import { McpServerNewPage } from "@/pages/McpServerNewPage";
+import { McpServerDetailsPage } from "@/pages/McpServerDetailsPage";
 import { PromptsPage } from "@/pages/PromptsPage";
 import { PoliciesPage } from "@/pages/policies/PoliciesPage";
 import { EgressPolicyDetailsPage } from "@/pages/policies/EgressPolicyDetailsPage";
@@ -73,6 +75,7 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "agentChat", path: paths.agentChat, element: <AgentChatPage /> },
   { key: "harnessNew", path: paths.harnessNew, element: <HarnessNewPage /> },
   { key: "harnessEdit", path: paths.harnessEdit, element: <HarnessEditPage /> },
+  { key: "harness", path: paths.harness, element: <HarnessDetailsPage /> },
   { key: "agentTemplates", path: paths.agentTemplates, element: <Navigate to={`${paths.agents}?tab=templates`} replace /> },
   {
     key: "agentTemplateNew",
@@ -90,6 +93,7 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "modelEdit", path: paths.modelEdit, element: <ModelEditPage /> },
   { key: "mcpServers", path: paths.mcpServers, element: <McpServersPage /> },
   { key: "mcpServerNew", path: paths.mcpServerNew, element: <McpServerNewPage /> },
+  { key: "mcpServer", path: paths.mcpServer, element: <McpServerDetailsPage /> },
   { key: "policies", path: paths.policies, element: <PoliciesPage /> },
   { key: "egressPolicyNew", path: paths.egressPolicyNew, element: <EgressPolicyNewPage /> },
   { key: "egressPolicyDetail", path: paths.egressPolicyDetail, element: <EgressPolicyDetailsPage /> },

@@ -8,7 +8,8 @@ import { Link } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { Highlighted, ToolServerTools } from "@/components/mcp/ToolServerTools";
-import { paths } from "@/router/routes";
+import { buildPath, paths } from "@/router/routes";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   apiClient,
   parseRef,
@@ -159,9 +160,13 @@ export function McpServersPage() {
         sorter: byText<FilteredServer>((row) => parseRef(row.server.ref).name),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
-          <span css={{ fontFamily: theme.font.mono }}>
+          <ResourceLink
+            mono
+            to={buildPath(paths.mcpServer, parseRef(row.server.ref))}
+            data-testid={`mcp-server-link-${parseRef(row.server.ref).name}`}
+          >
             <Highlighted text={parseRef(row.server.ref).name} term={view.query} />
-          </span>
+          </ResourceLink>
         ),
       },
       {
@@ -325,6 +330,7 @@ export function McpServersPage() {
                 key={view.query}
                 tools={row.tools}
                 highlight={view.query}
+                server={parseRef(row.server.ref)}
               />
             ),
             // Controlled rather than `expandRowByClick`, so `clickableRow` can keep a

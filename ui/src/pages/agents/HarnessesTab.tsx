@@ -18,6 +18,7 @@ import { matchesQuery } from "@/components/table/listTable";
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
+import { ResourceLink } from "@/components/common/ResourceLink";
 
 /** The filters this tab offers, which `useListView` keeps in the URL. */
 const FILTER_IDS = ["ns"] as const;
@@ -75,7 +76,13 @@ export function HarnessesTab() {
       key: "name",
       render: (_: unknown, row: Harness) => (
         <Space orientation="vertical" size={0}>
-          <Text css={{ fontFamily: theme.font.mono }}>{row.name}</Text>
+          <ResourceLink
+            mono
+            to={buildPath(paths.harness, { namespace: row.namespace, name: row.name })}
+            data-testid={`harness-link-${row.name}`}
+          >
+            {row.name}
+          </ResourceLink>
           <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{row.namespace}</Text>
         </Space>
       ),
