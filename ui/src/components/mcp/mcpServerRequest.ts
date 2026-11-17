@@ -27,8 +27,9 @@ export const schemeFor = (tlsEnabled: boolean): string =>
 export const stripScheme = (raw: string): string =>
   raw.trim().replace(/^https?:\/\//i, "");
 
-/** A host name, IPv4 or [IPv6] address, optional port, then an optional path; no whitespace. */
-const HOST_AND_PATH = /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*\.?|\[[0-9a-f:.]+\])(?::\d{1,5})?(?:[/?#]\S*)?$/i;
+/** Optional userinfo, a (possibly unicode) host name, IPv4 or [IPv6] address, optional port and path; no whitespace. */
+const HOST_AND_PATH =
+  /^(?:[^\s/?#@]+@)?(?:[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.?|\[[0-9a-f:.]+\])(?::\d{1,5})?(?:[/?#]\S*)?$/iu;
 
 /** Whether a scheme-less host and path is usable. Chrome's URL parser accepts a host with spaces. */
 function isValidHostAndPath(host: string): boolean {

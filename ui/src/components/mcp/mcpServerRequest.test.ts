@@ -47,14 +47,14 @@ describe("validateMcpServerForm — scheme-less URL", () => {
     expect(issues.find((i) => i.field === "url")).toBeUndefined();
   });
 
-  it.each(["api.example.com/mcp", "host:8080/sse", "https://x.test/mcp", "10.0.0.5:3000", "[::1]:8080/mcp"])(
+  it.each(["api.example.com/mcp", "host:8080/sse", "https://x.test/mcp", "10.0.0.5:3000", "[::1]:8080/mcp", "[2001:db8::1]/mcp", "user:pw@api.example.com/mcp", "münchen.de/mcp", "host_name/mcp"])(
     "accepts %s",
     (url) => {
       expect(validateMcpServerForm(urlForm({ url })).find((i) => i.field === "url")).toBeUndefined();
     },
   );
 
-  it.each(["not a url", "api.example.com/m cp", "/mcp", ":8080/mcp", "https://bad host/mcp", "host_name/mcp", "host:port/mcp"])(
+  it.each(["not a url", "api.example.com/m cp", "/mcp", ":8080/mcp", "https://bad host/mcp", "host:port/mcp", "user name@api.example.com/mcp", "münchen .de/mcp"])(
     "rejects %s",
     (url) => {
       expect(validateMcpServerForm(urlForm({ url })).find((i) => i.field === "url")?.message).toBe(
@@ -74,6 +74,16 @@ describe("suggestName", () => {
     expect(suggestName(urlForm({ name: "", url: "mcp.example.com/sse" }))).toBe(
       "mcp-example-com",
     );
+  });
+
+  it("leaves userinfo out of the name", () => {
+    expect(suggestName(urlForm({ name: "", url: "user:pw@api.example.com/mcp" }))).toBe(
+      "api-example-com",
+    );
+  });
+
+  it("derives a valid name from an internationalised host", () => {
+    expect(suggestName(urlForm({ name: "", url: "münchen.de/mcp" }))).toMatch(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/);
   });
 
   it("suggests nothing for a host that is not valid", () => {
