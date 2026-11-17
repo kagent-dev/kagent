@@ -11,7 +11,7 @@ export function HarnessIntro() {
   return (
     <Typography.Paragraph
       data-testid="harness-intro"
-      css={{ color: theme.color.textMuted, fontSize: 13, marginBottom: theme.space(4) }}
+      css={{ color: theme.color.textMuted, marginBottom: theme.space(4) }}
     >
       A harness is the runtime an agent runs on: which adapter compiles its template, which
       image runs it, and where Substrate schedules it. Agents reference a harness by name, so

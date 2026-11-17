@@ -1,4 +1,4 @@
-import { Alert, Card, Skeleton } from "antd";
+import { Alert, Skeleton } from "antd";
 import { ReadError } from "@/components/common/ReadError";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -28,7 +28,7 @@ export function HarnessNewPage() {
         title="New harness"
         description="A harness is the runtime an agent runs on. Agents reference it by name."
       >
-        <Card size="small" css={{ maxWidth: 720 }}>
+        <div css={{ maxWidth: 720 }}>
           <HarnessIntro />
           {/* A source that cannot be had still leaves a form to fill in: the alert says why it is blank. */}
           {from && <CopyNotice kind="harness" from={from} error={source.error?.message} notFound={Boolean(source.data) && !copyOf} loaded={Boolean(copyOf)} mountedBlank={mountedBlank} testId="harness-copy" />}
@@ -43,7 +43,7 @@ export function HarnessNewPage() {
               cancel={{ to: harnessesTab }}
             />
           )}
-        </Card>
+        </div>
       </PageFrame>
     </>
   );
@@ -82,7 +82,7 @@ export function HarnessEditPage() {
             data-testid="harness-edit-not-found"
           />
         ) : harness ? (
-          <Card size="small" css={{ maxWidth: 720 }}>
+          <div css={{ maxWidth: 720 }}>
             <HarnessForm
               // Remounts on a reloaded resource, so the draft never edits a stale copy.
               key={harness.resource.metadata.resourceVersion ?? ""}
@@ -90,11 +90,11 @@ export function HarnessEditPage() {
               onSaved={() => void navigate(harnessesTab)}
               cancel={{ to: harnessesTab }}
             />
-          </Card>
+          </div>
         ) : (
-          <Card css={{ maxWidth: 720 }}>
+          <div css={{ maxWidth: 720 }}>
             <Skeleton active paragraph={{ rows: 8 }} />
-          </Card>
+          </div>
         )}
       </PageFrame>
     </>

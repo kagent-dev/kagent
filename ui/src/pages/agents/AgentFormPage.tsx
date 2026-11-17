@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ReadError } from "@/components/common/ReadError";
 import { flushSync } from "react-dom";
-import { Alert, Button, Card, Form, Input, Modal, Radio, Select, Skeleton, Space, Typography } from "antd";
+import { Alert, Button, Form, Input, Modal, Radio, Select, Skeleton, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -22,6 +22,7 @@ import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
+import { SectionHeader } from "@/components/form/SectionHeader";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { issueFor, useSubmitValidation, type FieldIssue } from "@/components/form/useSubmitValidation";
@@ -105,9 +106,9 @@ export function AgentFormPage() {
         ) : editing && existing.data ? (
           <AgentForm agent={existing.data} />
         ) : (
-          <Card css={{ maxWidth: 860 }}>
+          <div css={{ maxWidth: 860 }}>
             <Skeleton active paragraph={{ rows: 8 }} />
-          </Card>
+          </div>
         )}
       </PageFrame>
     </>
@@ -230,87 +231,81 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const templateError = validation.errorFor("template");
 
   return (
-    <Space
-      orientation="vertical"
-      size="large"
+    <div
       css={{
         display: "flex",
+        flexDirection: "column",
+        gap: theme.space(10),
         maxWidth: 860,
-        // A card's last field drops antd's 24px item margin, so every card ends on its own padding.
-        "& .ant-card-body .ant-form:last-child > .ant-form-item:last-child": { marginBottom: 0 },
+        // A section's last field drops antd's item margin, so the gap alone spaces sections.
+        "& > section .ant-form:last-child > .ant-form-item:last-child": { marginBottom: 0 },
       }}
     >
-      <Card size="small">
-        <Form
-          layout="vertical"
-          component="div"
-          css={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: `${theme.space(6)} ${theme.space(4)}`,
-            "& > .ant-form-item": { marginBottom: 0 },
-          }}
-        >
-          <FormField
-            label="Name"
-            required
-            htmlFor="agent-form-name"
-            error={validation.errorFor("name")}
-            extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}
-          >
-            <Input
-              id="agent-form-name"
-              data-testid="agent-form-name"
-              value={name}
-              disabled={Boolean(agent)}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="my-agent"
-            />
-          </FormField>
-          <FormField
-            label="Namespace"
-            required
-            htmlFor="agent-form-namespace"
-            error={validation.errorFor("namespace")}
-            extra={agent ? "Fixed once the agent exists." : undefined}
-          >
-            <NamespaceSelect
-              id="agent-form-namespace"
-              data-testid="agent-form-namespace"
-              value={namespace}
-              disabled={Boolean(agent)}
-              onChange={(value) => {
-                // Refs resolve in the agent's namespace, so a new one clears them, sub-agents included.
-                setNamespace(value);
-                setTemplateRef(undefined);
-                setHarnessRef(undefined);
-                setEgressRefs([]);
-                setTemplateDraft({ ...templateDraft, modelConfig: undefined, subAgentTools: [] });
-              }}
-            />
-          </FormField>
-        </Form>
-      </Card>
-
-      <Card
-        size="small"
-        data-testid="agent-form-harness"
-        title={
-          <SectionTitle
-            title="Harness"
-            summary="Where the agent runs: the runtime adapter, its image and the Substrate worker pool."
-          />
-        }
-        extra={
-          <Button
-            data-testid="agent-form-harness-create"
-            disabled={!namespace}
-            onClick={() => setCreatingHarness(true)}
-          >
-            New harness
-          </Button>
-        }
+      <Form
+        layout="vertical"
+        component="div"
+        css={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+          gap: `${theme.space(6)} ${theme.space(4)}`,
+          "& > .ant-form-item": { marginBottom: 0 },
+        }}
       >
+        <FormField
+          label="Name"
+          required
+          htmlFor="agent-form-name"
+          error={validation.errorFor("name")}
+          extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}
+        >
+          <Input
+            id="agent-form-name"
+            data-testid="agent-form-name"
+            value={name}
+            disabled={Boolean(agent)}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="my-agent"
+          />
+        </FormField>
+        <FormField
+          label="Namespace"
+          required
+          htmlFor="agent-form-namespace"
+          error={validation.errorFor("namespace")}
+          extra={agent ? "Fixed once the agent exists." : undefined}
+        >
+          <NamespaceSelect
+            id="agent-form-namespace"
+            data-testid="agent-form-namespace"
+            value={namespace}
+            disabled={Boolean(agent)}
+            onChange={(value) => {
+              // Refs resolve in the agent's namespace, so a new one clears them, sub-agents included.
+              setNamespace(value);
+              setTemplateRef(undefined);
+              setHarnessRef(undefined);
+              setEgressRefs([]);
+              setTemplateDraft({ ...templateDraft, modelConfig: undefined, subAgentTools: [] });
+            }}
+          />
+        </FormField>
+      </Form>
+
+      <section data-testid="agent-form-harness" aria-labelledby="agent-form-harness-title">
+        <SectionHeader
+          id="agent-form-harness-title"
+          title="Harness"
+          hint="Where the agent runs: the runtime adapter, its image and the Substrate worker pool."
+          actions={
+            <Button
+              data-testid="agent-form-harness-create"
+              disabled={!namespace}
+              onClick={() => setCreatingHarness(true)}
+            >
+              New harness
+            </Button>
+          }
+        />
         <RefSelect
           kind="harness"
           label="Harness"
@@ -339,7 +334,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
             description={conflict}
           />
         ) : null}
-      </Card>
+      </section>
 
       {/*
         A controlled modal rather than `Modal.confirm`: antd 6's static methods cannot
@@ -366,24 +361,25 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         />
       </Modal>
 
-      <Card
-        size="small"
-        data-testid="agent-form-template"
-        title={<SectionTitle title="Agent template" summary="What the agent does: its model, prompt and tools." />}
-        extra={
-          <Radio.Group
-            optionType="button"
-            aria-label="Agent template source"
-            data-testid="agent-form-template-source"
-            value={templateSource}
-            onChange={(event) => setTemplateSource(event.target.value)}
-            options={[
-              { value: "reference", label: "Use existing" },
-              { value: "inline", label: "Define here" },
-            ]}
-          />
-        }
-      >
+      <section data-testid="agent-form-template" aria-labelledby="agent-form-template-title">
+        <SectionHeader
+          id="agent-form-template-title"
+          title="Agent template"
+          hint="What the agent does: its model, prompt and tools."
+          actions={
+            <Radio.Group
+              optionType="button"
+              aria-label="Agent template source"
+              data-testid="agent-form-template-source"
+              value={templateSource}
+              onChange={(event) => setTemplateSource(event.target.value)}
+              options={[
+                { value: "reference", label: "Use existing" },
+                { value: "inline", label: "Define here" },
+              ]}
+            />
+          }
+        />
         {templateSource === "reference" ? (
           <RefSelect
             kind="template"
@@ -421,13 +417,10 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
             ) : null}
           </>
         )}
-      </Card>
+      </section>
 
-      <Card
-        size="small"
-        data-testid="agent-form-egress"
-        title={<SectionTitle title={egressCopy.agent.field} summary={egressCopy.agent.help} />}
-      >
+      <section data-testid="agent-form-egress" aria-labelledby="agent-form-egress-title">
+        <SectionHeader id="agent-form-egress-title" title={egressCopy.agent.field} hint={egressCopy.agent.help} />
         <Form layout="vertical" component="div">
           <FormField
             label={egressCopy.agent.field}
@@ -450,7 +443,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
             />
           </FormField>
         </Form>
-      </Card>
+      </section>
 
       <FormActions
         submitLabel={agent ? "Save" : "Create"}
@@ -474,7 +467,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
       <UnsavedChangesModal blocker={blocker} testIdPrefix="agent-form">
         Leaving now discards your edits. Nothing changes on the cluster.
       </UnsavedChangesModal>
-    </Space>
+    </div>
   );
 }
 
@@ -482,18 +475,6 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
 function splitRef(ref: string | undefined): { namespace: string; name: string } | undefined {
   const [namespace, name] = ref?.split("/") ?? [];
   return namespace && name ? { namespace, name } : undefined;
-}
-
-function SectionTitle({ title, summary }: { title: string; summary: string }) {
-  const theme = useTheme();
-  return (
-    <div css={{ padding: `${theme.space(2)} 0` }}>
-      <div>{title}</div>
-      <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
-        {summary}
-      </Text>
-    </div>
-  );
 }
 
 function RefSelect({
