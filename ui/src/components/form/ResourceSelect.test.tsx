@@ -33,6 +33,16 @@ describe("ResourceSelect", () => {
     expect(onChange).toHaveBeenCalledWith("gpu", expect.anything());
   });
 
+  it("puts the right article before the kind in the placeholder", () => {
+    const { unmount } = render(
+      <ResourceSelect kind="agent template" names={[]} loading={false} onChange={() => {}} />,
+    );
+    expect(screen.getByText("Choose an agent template")).toBeInTheDocument();
+    unmount();
+    render(<ResourceSelect kind="harness" names={[]} loading={false} onChange={() => {}} />);
+    expect(screen.getByText("Choose a harness")).toBeInTheDocument();
+  });
+
   it("offers type-to-search only once the list is long", () => {
     const names = (count: number) => Array.from({ length: count }, (_, at) => `ns-${at}`);
     const { unmount } = render(

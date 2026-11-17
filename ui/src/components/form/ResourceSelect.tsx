@@ -23,6 +23,9 @@ export interface ResourceSelectProps {
   "data-testid"?: string;
 }
 
+/** "a harness", "an agent template": the article by the noun's first letter. */
+const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+
 /** Picks one resource by name from a list the caller has read. */
 export function ResourceSelect({
   kind,
@@ -33,7 +36,7 @@ export function ResourceSelect({
   value,
   onChange,
   empty,
-  placeholder = `Choose a ${kind}`,
+  placeholder = `Choose ${withArticle(kind)}`,
   disabled,
   id,
   "data-testid": testId,
