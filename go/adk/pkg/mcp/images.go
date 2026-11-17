@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 
@@ -188,6 +189,14 @@ type imageToolset struct {
 	tool.Toolset
 }
 
+// Close releases the wrapped toolset's MCP session.
+func (s imageToolset) Close() error {
+	if c, ok := s.Toolset.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
+
 func (s imageToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error) {
 	tools, err := s.Toolset.Tools(ctx)
 	if err != nil {
@@ -220,9 +229,12 @@ func (t imageTool) ProcessRequest(ctx adkagent.Context, req *model.LLMRequest) e
 }
 
 func (t imageTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
-	call := ToolCallKey{InvocationID: ctx.InvocationID(), CallID: ctx.FunctionCallID()}
 	store := toolImagesFrom(ctx)
-	if store == nil || call.InvocationID == "" || call.CallID == "" {
+	if store == nil {
+		return t.functionTool.Run(ctx, args)
+	}
+	call := ToolCallKey{InvocationID: ctx.InvocationID(), CallID: ctx.FunctionCallID()}
+	if call.InvocationID == "" || call.CallID == "" {
 		return t.functionTool.Run(ctx, args)
 	}
 	sink := &imageSink{store: store}
