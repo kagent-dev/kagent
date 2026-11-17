@@ -9,7 +9,7 @@
 
 import type { CreatePromptTemplateRequest, PromptTemplateDetail } from "@/api";
 import type { FieldIssue } from "@/components/form/useSubmitValidation";
-import { DEFAULT_NAMESPACE, RFC1123_SUBDOMAIN } from "@/components/common/resourceName";
+import { DEFAULT_NAMESPACE, isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import {
   type FragmentRow,
   fragmentIssues,
@@ -65,16 +65,11 @@ export function promptDraftIssues(
 
   if (!identityLocked) {
     if (!draft.namespace.trim()) add("namespace", "A namespace is required.");
-    else if (!RFC1123_SUBDOMAIN.test(draft.namespace.trim())) {
+    else if (!isValidNamespace(draft.namespace)) {
       add("namespace", "The namespace must be a valid Kubernetes name.");
     }
     if (!draft.name.trim()) add("name", "A library name is required.");
-    else if (!RFC1123_SUBDOMAIN.test(draft.name.trim())) {
-      add(
-        "name",
-        "The name must use lowercase letters, numbers and hyphens, starting and ending with a letter or number.",
-      );
-    }
+    else if (!isValidObjectName(draft.name)) add("name", OBJECT_NAME_HINT);
   }
 
   issues.push(...fragmentIssues(draft.rows));

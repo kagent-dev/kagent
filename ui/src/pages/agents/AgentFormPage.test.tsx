@@ -133,6 +133,20 @@ describe("agent create form", () => {
     expect(mocks.success).toHaveBeenCalledWith("Created agent helper");
   });
 
+  it("accepts a dotted name, as the API does, and refuses capitals", async () => {
+    mocks.create.mockImplementation(async (input: { name: string }) => ({ name: input.name }));
+    renderAt("/agents/new");
+    choose("agent-form-template-ref", "shared-brain");
+    type("agent-form-name", "Team.Helper");
+    fireEvent.click(screen.getByTestId("agent-form-submit"));
+    expect(screen.getByText(/lowercase letters, numbers, hyphens and dots/)).toBeInTheDocument();
+
+    type("agent-form-name", "team.helper");
+    fireEvent.click(screen.getByTestId("agent-form-submit"));
+    expect(await screen.findByText("Agent list")).toBeInTheDocument();
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ name: "team.helper" }));
+  });
+
   it("explains a failed create above the buttons and keeps the form", async () => {
     mocks.create.mockRejectedValue(new Error("boom"));
     renderAt("/agents/new");

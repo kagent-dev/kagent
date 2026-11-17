@@ -121,6 +121,16 @@ describe("harness create form", () => {
     expect(mocks.success).toHaveBeenCalledWith("Created harness made-here");
   });
 
+  it("accepts a dotted name, as the API does", async () => {
+    mocks.create.mockImplementation(async (input: { name: string }) => ({ name: input.name }));
+    renderAt("/harnesses/new");
+    type("harness-name", "team.reviewer");
+    fireEvent.click(screen.getByTestId("harness-submit"));
+
+    expect(await screen.findByText("Harness list")).toBeInTheDocument();
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ name: "team.reviewer" }));
+  });
+
   it("explains a failed create above the buttons and keeps the form", async () => {
     mocks.create.mockRejectedValue(new Error("boom"));
     renderAt("/harnesses/new");

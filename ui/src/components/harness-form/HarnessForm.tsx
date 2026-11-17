@@ -5,7 +5,7 @@ import { apiClient, useInvalidateHarnesses, useNamespaces, useWorkerPools, type 
 import { DEFAULT_HARNESS_WORKER_POOL } from "@/api/domain/harnesses";
 import { SubmitError } from "@/components/common/SubmitError";
 import { ValidationNotice } from "@/components/form/ValidationNotice";
-import { RFC1123_SUBDOMAIN } from "@/components/common/resourceName";
+import { isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
@@ -91,8 +91,8 @@ export function HarnessForm({
     const trimmed = name.trim();
     if (!harness) {
       if (trimmed === "") list.push({ field: "name", message: "A name is required." });
-      else if (!RFC1123_SUBDOMAIN.test(trimmed)) {
-        list.push({ field: "name", message: "Use lowercase letters, numbers and hyphens only." });
+      else if (!isValidObjectName(trimmed)) {
+        list.push({ field: "name", message: OBJECT_NAME_HINT });
       }
       if (!namespace) list.push({ field: "namespace", message: "A namespace is required." });
     }

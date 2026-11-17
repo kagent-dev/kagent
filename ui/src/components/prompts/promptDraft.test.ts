@@ -46,7 +46,12 @@ describe("promptDraftIssues", () => {
       "A library name is required.",
     );
     expect(issueMessages(draft({ name: "Team Prompts" }))).toEqual([
-      "The name must use lowercase letters, numbers and hyphens, starting and ending with a letter or number.",
+      "Use lowercase letters, numbers, hyphens and dots, starting and ending with a letter or number.",
+    ]);
+    // Names follow ResourceReference.name (a subdomain); namespaces stay a label.
+    expect(issueMessages(draft({ name: "team.prompts" }))).toEqual([]);
+    expect(issueMessages(draft({ namespace: "team.a" }))).toEqual([
+      "The namespace must be a valid Kubernetes name.",
     ]);
   });
 

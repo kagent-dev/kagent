@@ -16,7 +16,7 @@ import {
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
 import { SubmitError } from "@/components/common/SubmitError";
 import { ValidationNotice } from "@/components/form/ValidationNotice";
-import { RFC1123_SUBDOMAIN } from "@/components/common/resourceName";
+import { isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
@@ -169,8 +169,8 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
     ...(namespace ? [] : [{ field: "namespace" as const, message: "A namespace is required." }]),
     ...(!name.trim()
       ? [{ field: "name" as const, message: "A name is required." }]
-      : !agent && !RFC1123_SUBDOMAIN.test(name.trim())
-        ? [{ field: "name" as const, message: "Use lowercase letters, numbers and hyphens only." }]
+      : !agent && !isValidObjectName(name)
+        ? [{ field: "name" as const, message: OBJECT_NAME_HINT }]
         : []),
     ...(!harnessRef ? [{ field: "harness" as const, message: "Choose a harness." }] : []),
     ...(templateSource === "reference" && !templateRef
