@@ -222,23 +222,18 @@ func TestSkillGitGuard(t *testing.T) {
 	})
 }
 
-func TestEmbeddedSkillMatchesRepository(t *testing.T) {
-	t.Run("Given the kagent skill in .agents/skills, when the binary embeds it, assert that the embedded copy is identical", func(t *testing.T) {
-		repo, err := filepath.Abs(filepath.Join("..", "..", "..", "..", ".."))
-		require.NoError(t, err)
-		source, err := readSkill(os.DirFS(filepath.Join(repo, ".agents", "skills", "kagent")))
-		require.NoError(t, err)
-		embedded, err := embeddedSkill()
-		require.NoError(t, err)
-		require.Equal(t, skillStrings(source), skillStrings(embedded),
-			"the embedded skill is stale; run go generate ./core/cli/internal/commands")
+func TestRepositorySkillLinksToEmbeddedSkill(t *testing.T) {
+	t.Run("Given the kagent repository, when .agents/skills/kagent is resolved, assert that it links to the embedded skill", func(t *testing.T) {
+		link := filepath.Join("..", "..", "..", "..", "..", ".agents", "skills", "kagent")
+		target, err := os.Readlink(link)
+		require.NoError(t, err, "%s must be a symlink", link)
+		require.Equal(t, filepath.Join("..", "..", "go", "core", "cli", "internal", "commands", "skilldata", "kagent"), target,
+			"edit the skill in skilldata/kagent, and keep .agents/skills/kagent as a link to it")
 	})
 }
 
 func TestSkillManifestExamplesMatchTypes(t *testing.T) {
-	repo, err := filepath.Abs(filepath.Join("..", "..", "..", "..", ".."))
-	require.NoError(t, err)
-	skill := os.DirFS(filepath.Join(repo, ".agents", "skills", "kagent"))
+	skill := os.DirFS(filepath.Join("skilldata", "kagent"))
 	references, err := fs.Glob(skill, "references/*.md")
 	require.NoError(t, err)
 	var blocks []skillYAMLBlock

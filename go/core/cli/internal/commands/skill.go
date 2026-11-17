@@ -32,10 +32,8 @@ const (
 	claudeDir = ".claude"
 )
 
-// Embedding cannot read outside the go/ module, so the skill is copied in from the repo root.
-//go:generate sh -c "rm -rf skilldata && mkdir skilldata && cp -R ../../../../../.agents/skills/kagent skilldata/kagent"
-
-// skillData is a generated copy of .agents/skills/kagent. Edit the source, then run go generate.
+// skillData is the kagent skill. go:embed cannot read outside the go/ module,
+// so the files live here and .agents/skills/kagent links to them.
 //
 //go:embed all:skilldata/kagent
 var skillData embed.FS
@@ -353,7 +351,7 @@ func claimSkill(path string, force bool) error {
 	return nil
 }
 
-// hasUncommittedChanges guards a git-tracked copy, such as the kagent repo's own skill source, so unsaved edits survive.
+// hasUncommittedChanges guards a git-tracked copy, so unsaved edits survive.
 func hasUncommittedChanges(path string) bool {
 	out, err := exec.Command("git", "-C", filepath.Dir(path), "status", "--porcelain", "--", filepath.Base(path)).Output()
 	return err == nil && len(bytes.TrimSpace(out)) > 0

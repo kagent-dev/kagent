@@ -26,8 +26,8 @@ The release-blocking harnesses are kagent, Codex, and Claude. Prefer clean-insta
 - Development workflows and current architecture notes are in [.agents/skills/kagent-dev/SKILL.md](.agents/skills/kagent-dev/SKILL.md).
 - `.agents/skills/` is the source of truth for repository skills. Keep one
   relative per-skill symlink under `.claude/skills/` for Claude Code; do not
-  symlink the whole directory. The CLI embeds `.agents/skills/kagent`; after
-  editing it, run `go generate ./core/cli/internal/commands` from `go/`.
+  symlink the whole directory. `.agents/skills/kagent` links to
+  `go/core/cli/internal/commands/skilldata/kagent`, which the CLI embeds.
 - General and language-specific conventions are in [STYLE.md](STYLE.md).
 - Generated code is never the source of truth. Change the API, protobuf, SQL, or schema source and regenerate its outputs.
 
