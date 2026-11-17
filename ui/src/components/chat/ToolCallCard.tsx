@@ -54,31 +54,34 @@ export function ToolCallCard({ part }: { part: ChatDataPart }) {
           {failed ? "failed" : isCall ? "called" : wasNotRun ? "not run" : "result"}
         </Tag>
       </div>
-      <pre
-        data-testid="chat-tool-payload"
-        css={{
-          margin: 0,
-          padding: theme.space(2),
-          border: `1px solid ${theme.color.border}`,
-          borderRadius: theme.radius.sm,
-          background: theme.color.bg,
-          fontFamily: theme.font.mono,
-          fontSize: 12,
-          color: theme.color.text,
-          /*
-           * Not wrapped. A tool's payload is JSON, and wrapping it breaks lines wherever
-           * the column happens to end — so indentation stops meaning depth, keys and
-           * values split across lines, and an identifier or URL is cut mid-token. It
-           * scrolls sideways instead, which keeps every line the line the tool actually
-           * returned.
-           */
-          whiteSpace: "pre",
-          overflowX: "auto",
-          maxWidth: "100%",
-        }}
-      >
-        {body}
-      </pre>
+      {/* An image-only result has no text to show. */}
+      {(sources.length === 0 || (body !== "" && body !== "{}")) && (
+        <pre
+          data-testid="chat-tool-payload"
+          css={{
+            margin: 0,
+            padding: theme.space(2),
+            border: `1px solid ${theme.color.border}`,
+            borderRadius: theme.radius.sm,
+            background: theme.color.bg,
+            fontFamily: theme.font.mono,
+            fontSize: 12,
+            color: theme.color.text,
+            /*
+             * Not wrapped. A tool's payload is JSON, and wrapping it breaks lines wherever
+             * the column happens to end — so indentation stops meaning depth, keys and
+             * values split across lines, and an identifier or URL is cut mid-token. It
+             * scrolls sideways instead, which keeps every line the line the tool actually
+             * returned.
+             */
+            whiteSpace: "pre",
+            overflowX: "auto",
+            maxWidth: "100%",
+          }}
+        >
+          {body}
+        </pre>
+      )}
       {/* Not through markdown: react-markdown strips `data:` URIs. */}
       {sources.map((src, index) => (
         <img
