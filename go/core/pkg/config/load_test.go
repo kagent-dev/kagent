@@ -152,6 +152,24 @@ func TestExplicitEmptyStringFailsSchemaValidation(t *testing.T) {
 	require.Error(t, config.Validate(cfg))
 }
 
+func TestInlineChartValues(t *testing.T) {
+	for _, component := range []string{"kagent", "substrate", "podCertificate", "atelet"} {
+		t.Run(component, func(t *testing.T) {
+			for _, values := range []string{"{}", "{enabled: false, replicas: 0, args: [], nested: {key: value}}", "[]", "'replicas: 2'"} {
+				cfg := &configv1.CLIConfig{}
+				err := config.Decode([]byte("install: {"+component+": {inlineValues: "+values+"}}"), cfg)
+				if values == "[]" || values == "'replicas: 2'" {
+					require.Error(t, err)
+					continue
+				}
+				require.NoError(t, err)
+				config.DefaultCLI(cfg)
+				require.NoError(t, config.Validate(cfg))
+			}
+		})
+	}
+}
+
 func setLogins(cfg *configv1.ControllerConfig) {
 	cfg.Database.Owner = &configv1.DatabaseLoginConfig{UrlFile: "owner-url", Role: "kagent_owner"}
 	cfg.Database.ReadWrite = &configv1.DatabaseLoginConfig{UrlFile: "readwrite-url", Role: "kagent_readwrite"}

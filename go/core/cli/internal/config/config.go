@@ -16,6 +16,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	shared "github.com/kagent-dev/kagent/go/core/pkg/config"
@@ -147,6 +148,15 @@ func newCommand() *cobra.Command {
 			if action == "validate" {
 				_, err := fmt.Fprintln(cmd.OutOrStdout(), "Configuration is valid")
 				return err
+			}
+			if component == "cli" {
+				cfg := proto.Clone(message).(*configv1.CLIConfig)
+				for _, chart := range []*configv1.ChartConfig{cfg.GetInstall().GetKagent(), cfg.GetInstall().GetSubstrate(), cfg.GetInstall().GetPodCertificate(), cfg.GetInstall().GetAtelet()} {
+					if chart.GetInlineValues() != nil {
+						chart.InlineValues = &structpb.Struct{Fields: map[string]*structpb.Value{"[redacted]": structpb.NewBoolValue(true)}}
+					}
+				}
+				message = cfg
 			}
 			return writeJSON(cmd, message)
 		}})

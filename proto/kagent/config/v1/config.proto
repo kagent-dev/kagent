@@ -4,6 +4,7 @@ package kagent.config.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;configv1";
 
@@ -97,6 +98,9 @@ message ChartConfig {
   optional string repository = 1 [(buf.validate.field).string.min_len = 1];
   optional string version = 2 [(buf.validate.field).string.min_len = 1];
   repeated string values_files = 3 [(buf.validate.field).repeated.items.string.min_len = 1];
+  // Inline chart values override values_files, but not installer-generated --set
+  // values.
+  google.protobuf.Struct inline_values = 4;
 }
 
 // ControllerConfig configures one controller process. Runtime defaults are

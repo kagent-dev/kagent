@@ -95,6 +95,36 @@ func TestConfigIndependentCommands(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
+func TestConfigViewRedactsInlineChartValues(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`install:
+  kagent:
+    valuesFiles: [overrides.yaml]
+    inlineValues: {password: kagent-secret}
+  substrate:
+    inlineValues: {password: substrate-secret}
+  podCertificate:
+    inlineValues: {password: podcert-secret}
+  atelet:
+    inlineValues: {password: atelet-secret}
+`), 0o600))
+	output, err := executeConfig(t, "--config", path, "config", "view")
+	require.NoError(t, err)
+	require.NotContains(t, output, "kagent-secret")
+	require.NotContains(t, output, "substrate-secret")
+	require.NotContains(t, output, "podcert-secret")
+	require.NotContains(t, output, "atelet-secret")
+	cfg := &configv1.CLIConfig{}
+	require.NoError(t, protojson.Unmarshal([]byte(output), cfg))
+	for _, chart := range []*configv1.ChartConfig{cfg.Install.Kagent, cfg.Install.Substrate, cfg.Install.PodCertificate, cfg.Install.Atelet} {
+		require.True(t, chart.InlineValues.Fields["[redacted]"].GetBoolValue())
+	}
+	require.Equal(t, []string{filepath.Join(dir, "overrides.yaml")}, cfg.Install.Kagent.ValuesFiles)
+	_, err = executeConfig(t, "--config", path, "config", "validate")
+	require.NoError(t, err)
+}
+
 func TestDefaultConfigIsOptionalAndCommandTreesAreIndependent(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	first, err := executeConfig(t, "config", "view", "--namespace", "first")
