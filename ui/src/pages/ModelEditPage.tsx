@@ -43,7 +43,6 @@ export function ModelEditPage() {
     await models.refresh().catch(() => {});
     await model.refresh().catch(() => {});
     toastSaved("saved", "model configuration", name);
-    await navigate(paths.models);
   }
 
   return (
@@ -75,6 +74,7 @@ export function ModelEditPage() {
             // cannot move a configuration.
             identityLocked
             onSubmit={saveModel}
+            onSaved={() => void navigate(paths.models)}
           />
         ) : null}
       </Space>

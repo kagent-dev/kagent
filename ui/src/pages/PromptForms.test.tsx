@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@emotion/react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -95,6 +95,25 @@ describe("prompt library create form", () => {
       data: { tone: "Be concise." },
     });
     expect(mocks.success).toHaveBeenCalledWith("Created prompt library team-prompts");
+  });
+
+  it("guards the form while the create is pending, then lands on the list", async () => {
+    let finish!: (value?: unknown) => void;
+    mocks.create.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const router = renderAt("/prompts/new");
+    type("prompt-name", "team-prompts");
+    type("fragment-key", "tone");
+    type("fragment-value", "Be concise.");
+    fireEvent.click(screen.getByTestId("prompt-submit"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("form-back-link"));
+    expect(await screen.findByTestId("prompt-discard-body")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/prompts/new");
+
+    finish();
+    expect(await screen.findByText("Library list")).toBeInTheDocument();
   });
 
   it("leaves a clean form without asking", async () => {

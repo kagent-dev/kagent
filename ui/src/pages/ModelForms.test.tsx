@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@emotion/react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -136,6 +136,25 @@ describe("model create form", () => {
       expect.objectContaining({ ref: "kagent/gpt-4o", apiKey: "sk-test" }),
     );
     expect(mocks.success).toHaveBeenCalledWith("Created model configuration gpt-4o");
+  });
+
+  it("guards the form while the create is pending, then lands on the list", async () => {
+    let finish!: (value?: unknown) => void;
+    mocks.create.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const router = renderAt("/models/new");
+    chooseProvider();
+    type("model-model", "gpt-4o");
+    type("model-api-key", "sk-test");
+    fireEvent.click(screen.getByTestId("model-submit"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("form-back-link"));
+    expect(await screen.findByTestId("model-discard-body")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/models/new");
+
+    finish();
+    expect(await screen.findByText("Model list")).toBeInTheDocument();
   });
 
   it("leaves a clean form without asking", async () => {

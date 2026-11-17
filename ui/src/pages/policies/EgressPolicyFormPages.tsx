@@ -23,14 +23,19 @@ export function EgressPolicyNewPage() {
     const created = await apiClient.egressPolicies.create({ namespace, name, resource });
     await invalidate().catch(() => {});
     toastSaved("created", egressCopy.kind, created.name);
-    await navigate(buildPath(paths.egressPolicyDetail, { namespace: created.namespace, name: created.name }));
+    return created;
   }
 
   return (
     <>
       <BackLink to={egressPoliciesTab} resource={egressCopy.page.title} />
       <PageFrame title={egressCopy.form.newTitle} description={egressCopy.form.newDescription}>
-        <EgressPolicyForm initial={emptyPolicyDraft(DEFAULT_NAMESPACE)} onSubmit={create} cancelTo={egressPoliciesTab} />
+        <EgressPolicyForm
+          initial={emptyPolicyDraft(DEFAULT_NAMESPACE)}
+          onSubmit={create}
+          onSaved={(created) => void navigate(buildPath(paths.egressPolicyDetail, { namespace: created.namespace, name: created.name }))}
+          cancelTo={egressPoliciesTab}
+        />
       </PageFrame>
     </>
   );
@@ -48,10 +53,10 @@ export function EgressPolicyEditPage() {
 
   async function save(resource: EgressPolicyResource) {
     if (!namespace || !name) throw new Error("An egress policy needs a namespace and a name.");
-    await apiClient.egressPolicies.update({ namespace, name, resource });
+    const updated = await apiClient.egressPolicies.update({ namespace, name, resource });
     await invalidate().catch(() => {});
     toastSaved("saved", egressCopy.kind, name);
-    await navigate(detail);
+    return updated;
   }
 
   async function reload() {
@@ -88,6 +93,7 @@ export function EgressPolicyEditPage() {
           initial={draftFromPolicy(policy.data)}
           existing={policy.data.resource}
           onSubmit={save}
+          onSaved={() => void navigate(detail)}
           cancelTo={detail}
           onReload={() => void reload()}
         />

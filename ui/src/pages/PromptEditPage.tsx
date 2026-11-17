@@ -49,8 +49,8 @@ export function PromptEditPage() {
     /*
      * Thrown rather than returned. The route cannot match without both, so this is
      * unreachable — but returning would hand the form a save that wrote nothing and
-     * said nothing: no toast, no navigation, no error, and a draft it has already
-     * stopped guarding. A throw reaches the form's own failure path.
+     * said nothing: no toast, no error, and a navigation away from an unsaved draft.
+     * A throw reaches the form's own failure path.
      */
     if (!namespace || !name) {
       throw new Error("A prompt library is addressed by both a namespace and a name.");
@@ -61,7 +61,6 @@ export function PromptEditPage() {
     // count and tags too, on whichever surfaces are still mounted.
     await invalidatePrompts().catch(() => {});
     toastSaved("saved", "prompt library", name);
-    await navigate(detail);
   }
 
   return (
@@ -119,6 +118,7 @@ export function PromptEditPage() {
             // rename one or move it to another namespace.
             identityLocked
             onSubmit={saveLibrary}
+            onSaved={() => void navigate(detail)}
             // Handed a callback rather than left to the form's own link back to the
             // list, so Cancel returns to the library being edited — and so the form
             // can ask first when there is a draft to lose.

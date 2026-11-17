@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Checkbox,
   Form,
@@ -110,15 +111,15 @@ export function McpServerNewPage() {
 
     setSaving(true);
     try {
-      setSaved(true);
       await apiClient.mcpServers.create(toCreateRequest(values));
       // Refreshes any list still on screen; SWR does not fetch a key with no mounted
       // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
       await invalidateServers().catch(() => {});
       toastSaved("created", "MCP server", values.name.trim());
+      // Committed before navigating, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
       await navigate(paths.mcpServers);
     } catch (error) {
-      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);

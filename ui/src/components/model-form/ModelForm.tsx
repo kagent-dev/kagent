@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Alert,
   AutoComplete,
@@ -81,6 +82,8 @@ const ENUM_PARAMS: Record<string, { values: string[]; help: string }> = {
 
 interface ModelFormProps {
   onSubmit: (payload: CreateModelConfigRequest) => Promise<void>;
+  /** Called after a successful save, once the guard has stood down; usually navigates. */
+  onSaved: () => void;
   initial?: ModelDraft;
   outcome?: "created" | "saved";
   submitLabel?: string;
@@ -135,6 +138,7 @@ function DocsLink({ href, title }: { href?: string; title: string }) {
  */
 export function ModelForm({
   onSubmit,
+  onSaved,
   initial,
   outcome = "created",
   submitLabel = "Create",
@@ -363,10 +367,11 @@ export function ModelForm({
 
     setSaving(true);
     try {
-      setSaved(true);
       await onSubmit(buildModelPayload(effective));
+      // Committed before navigating, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
+      onSaved();
     } catch (error) {
-      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);

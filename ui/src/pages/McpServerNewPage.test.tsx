@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@emotion/react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -97,6 +97,24 @@ describe("MCP server create form", () => {
       }),
     );
     expect(mocks.success).toHaveBeenCalledWith("Created MCP server tools");
+  });
+
+  it("guards the form while the create is pending, then lands on the list", async () => {
+    let finish!: (value?: unknown) => void;
+    mocks.create.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const router = renderPage();
+    type("mcp-name", "tools");
+    type("mcp-url", "mcp.example.com/mcp");
+    fireEvent.click(screen.getByTestId("mcp-submit"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("form-back-link"));
+    expect(await screen.findByTestId("mcp-discard-body")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/mcp/new");
+
+    finish();
+    expect(await screen.findByText("Server list")).toBeInTheDocument();
   });
 
   it("leaves a clean form without asking", async () => {

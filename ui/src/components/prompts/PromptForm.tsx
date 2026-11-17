@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { Form, Input, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import type { CreatePromptTemplateRequest } from "@/api";
@@ -21,6 +22,8 @@ import {
 
 interface PromptFormProps {
   onSubmit: (payload: CreatePromptTemplateRequest) => Promise<void>;
+  /** Called after a successful save, once the guard has stood down; usually navigates. */
+  onSaved: () => void;
   initial?: PromptDraft;
   outcome?: "created" | "saved";
   submitLabel?: string;
@@ -54,6 +57,7 @@ interface PromptFormProps {
  */
 export function PromptForm({
   onSubmit,
+  onSaved,
   initial,
   outcome = "created",
   submitLabel = "Create",
@@ -106,15 +110,11 @@ export function PromptForm({
 
     setSaving(true);
     try {
-      // Marked before the call, because the caller navigates as part of a successful
-      // save: a draft still counted as unsaved at that moment would have the guard
-      // above stop the save's own navigation and ask whether to discard it.
-      setSaved(true);
       await onSubmit(promptPayloadFrom(draft));
+      // Committed before navigating, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
+      onSaved();
     } catch (error) {
-      // Nothing was written, so the work on screen is unsaved again and worth
-      // guarding — the reader is still on the form with it.
-      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);

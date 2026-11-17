@@ -24,7 +24,6 @@ export function PromptNewPage() {
     // Straight to the list, where the new library can actually be seen — a success
     // message on a form the user is still looking at proves less than the row itself.
     toastSaved("created", "prompt library", payload.name);
-    await navigate(paths.prompts);
   }
 
   return (
@@ -34,7 +33,7 @@ export function PromptNewPage() {
         title="New prompt library"
         description="A library is a named bag of prompt fragments agents can include by key."
       >
-        <PromptForm onSubmit={createLibrary} />
+        <PromptForm onSubmit={createLibrary} onSaved={() => void navigate(paths.prompts)} />
       </PageFrame>
     </>
   );

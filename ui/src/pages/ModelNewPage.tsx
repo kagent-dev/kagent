@@ -24,7 +24,6 @@ export function ModelNewPage() {
     // Straight to the list, where the new configuration can be seen — the row is
     // better evidence than a message on the form the user is still looking at.
     toastSaved("created", "model configuration", payload.ref.slice(payload.ref.indexOf("/") + 1));
-    await navigate(paths.models);
   }
 
   return (
@@ -34,7 +33,7 @@ export function ModelNewPage() {
         title="New model"
         description="A model configuration names a provider, a model, and where its credential lives."
       >
-        <ModelForm onSubmit={createModel} />
+        <ModelForm onSubmit={createModel} onSaved={() => void navigate(paths.models)} />
       </PageFrame>
     </>
   );

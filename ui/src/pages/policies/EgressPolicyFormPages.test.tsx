@@ -122,6 +122,24 @@ describe("new egress policy page", () => {
     expect(mocks.toastSaved).toHaveBeenCalledWith("created", "egress policy", "github");
   });
 
+  it("guards the form while the create is pending, then lands on the detail page", async () => {
+    let finish!: (value?: unknown) => void;
+    mocks.create.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const router = renderAt("/policies/egress/new");
+    type("egress-form-name", "github");
+    type("egress-destination-0-origin", "https://api.github.com");
+    fireEvent.click(screen.getByTestId("egress-form-submit"));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("form-back-link"));
+    expect(await screen.findByTestId("egress-form-discard-body")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/policies/egress/new");
+
+    finish({ namespace: "kagent", name: "github" });
+    expect(await screen.findByText("Policy detail")).toBeInTheDocument();
+  });
+
   it("keeps the form and explains a failed create", async () => {
     mocks.create.mockRejectedValue(new Error("boom"));
     renderAt("/policies/egress/new");

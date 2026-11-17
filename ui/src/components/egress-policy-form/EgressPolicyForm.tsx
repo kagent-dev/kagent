@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Alert, Button, Form, Input, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
-import { EGRESS_LIMITS, isApiError, type EgressPolicyResource } from "@/api";
+import { EGRESS_LIMITS, isApiError, type EgressPolicy, type EgressPolicyResource } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
 import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { FormActions } from "@/components/form/FormActions";
@@ -35,13 +36,16 @@ export function EgressPolicyForm({
   initial,
   existing,
   onSubmit,
+  onSaved,
   cancelTo,
   onReload,
 }: {
   initial: EgressPolicyDraft;
   /** The loaded resource on an edit; its metadata goes back with the save. */
   existing?: EgressPolicyResource;
-  onSubmit: (resource: EgressPolicyResource) => Promise<void>;
+  onSubmit: (resource: EgressPolicyResource) => Promise<EgressPolicy>;
+  /** Called with the saved policy once the guard has stood down; usually navigates. */
+  onSaved: (policy: EgressPolicy) => void;
   /** Where Cancel goes. */
   cancelTo: string;
   /** Re-reads the policy after a stale save. */
@@ -72,11 +76,11 @@ export function EgressPolicyForm({
     if (!validation.attempt()) return;
     setSaving(true);
     try {
-      // Marked before the call: a successful save navigates away, and the guard must let it.
-      setSaved(true);
-      await onSubmit(resourceFromDraft(draft, existing));
+      const policy = await onSubmit(resourceFromDraft(draft, existing));
+      // Committed before navigating, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
+      onSaved(policy);
     } catch (error) {
-      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);
