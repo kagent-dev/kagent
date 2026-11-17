@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,6 +10,7 @@ from kagent.runtime.v1 import memory_pb2
 
 from kagent.adk._memory_service import KagentMemoryService
 from kagent.adk._request_identity import request_user_id
+from kagent.adk.models._gemini import KAgentGeminiLlm, KAgentGeminiVertexAILlm
 
 
 @pytest.fixture
@@ -103,6 +105,34 @@ async def test_session_memory_batches_generated_inputs(service, client, caller):
     ]
     assert all(item.ttl_days == 7 for item in request.items)
     client.call_options.assert_awaited_once_with(caller)
+
+
+@pytest.mark.parametrize("model_cls", [KAgentGeminiLlm, KAgentGeminiVertexAILlm])
+async def test_session_summary_sends_the_agent_model_name(service, model_cls):
+    # google-adk's Gemini models take the model name from the request and
+    # reject a request without one, so the summary must name the agent's model.
+    requested_models = []
+
+    async def generate_content(*, model, contents, config):
+        requested_models.append(model)
+        return types.GenerateContentResponse(
+            candidates=[
+                types.Candidate(
+                    content=types.Content(role="model", parts=[types.Part(text='["User prefers dark mode"]')])
+                )
+            ]
+        )
+
+    model = model_cls(model="gemini-2.5-flash")
+    model.__dict__["api_client"] = SimpleNamespace(
+        vertexai=model_cls is KAgentGeminiVertexAILlm,
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content)),
+    )
+
+    facts = await service._summarize_session_content_async("user: I like dark mode", model=model)
+
+    assert facts == ["User prefers dark mode"]
+    assert requested_models == ["gemini-2.5-flash"]
 
 
 async def test_memory_uses_request_user_instead_of_private_native_key(service, client):
