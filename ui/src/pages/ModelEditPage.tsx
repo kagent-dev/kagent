@@ -1,6 +1,8 @@
-import { Alert, Button, Skeleton, Space } from "antd";
+import { Alert, Skeleton, Space } from "antd";
 import toast from "react-hot-toast";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { BackButton } from "@/components/common/BackButton";
+import { useGoBack } from "@/router/backLink";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { modelDraftFrom } from "@/components/model-form/modelDraft";
@@ -25,7 +27,7 @@ import {
  * indistinguishable from an unset one.
  */
 export function ModelEditPage() {
-  const navigate = useNavigate();
+  const back = useGoBack({ to: paths.models, label: "Back to models" });
   const { namespace, name } = useParams();
 
   const model = useModel(namespace, name);
@@ -42,18 +44,14 @@ export function ModelEditPage() {
     await models.refresh().catch(() => {});
     await model.refresh().catch(() => {});
     toast.success(`Model configuration ${name} updated`);
-    await navigate(paths.models);
+    back.goBack();
   }
 
   return (
     <PageFrame
       title={name ? `Edit ${name}` : "Edit model"}
       description="Replaces the configuration's provider, model and credential reference."
-      actions={
-        <Link to={paths.models}>
-          <Button>Back to models</Button>
-        </Link>
-      }
+      actions={<BackButton back={back} testId="model-back" />}
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {model.error ? (

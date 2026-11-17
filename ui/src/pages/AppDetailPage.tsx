@@ -1,10 +1,12 @@
 import { Alert, Button, Card, Descriptions, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { ArrowLeft } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
-import { paths } from "@/router/routes";
+import { BackButton } from "@/components/common/BackButton";
+import { useGoBack } from "@/router/backLink";
+import { buildPath, paths } from "@/router/routes";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import { parseRef, useMcpServers, type DiscoveredTool, type ToolServerResponse } from "@/api";
 
 const { Text } = Typography;
@@ -66,6 +68,7 @@ export function AppDetailPage() {
   const serverName = searchParams.get("server") ?? "";
 
   const servers = useMcpServers();
+  const back = useGoBack({ to: paths.mcpServers, label: "Back to MCP servers" });
   const matches = servers.error
     ? []
     : findApp(servers.data ?? [], appName, namespace, serverName);
@@ -76,24 +79,15 @@ export function AppDetailPage() {
       title={appName || "App"}
       description={match ? `Tool on ${match.server.ref}` : "MCP app detail."}
       actions={
-        <Button onClick={() => void servers.refresh()} loading={servers.isValidating}>
-          Refresh
-        </Button>
+        <Space size={8}>
+          <BackButton back={back} testId="app-back" />
+          <Button onClick={() => void servers.refresh()} loading={servers.isValidating}>
+            Refresh
+          </Button>
+        </Space>
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-        <Link
-          to={paths.mcpServers}
-          css={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: theme.space(2),
-            color: theme.color.textMuted,
-          }}
-        >
-          <ArrowLeft size={16} aria-hidden />
-          Back to MCP servers
-        </Link>
 
         {servers.error ? (
           <Alert
@@ -178,7 +172,15 @@ export function AppDetailPage() {
                     label: "Description",
                     children: match.tool.description || "—",
                   },
-                  { key: "server", label: "Server", children: match.server.ref },
+                  {
+                    key: "server",
+                    label: "Server",
+                    children: (
+                      <ResourceLink mono to={buildPath(paths.mcpServer, parseRef(match.server.ref))} data-testid="app-server-link">
+                        {match.server.ref}
+                      </ResourceLink>
+                    ),
+                  },
                   {
                     key: "kind",
                     label: "Server kind",
@@ -204,6 +206,7 @@ export function AppDetailPage() {
                 tools={match.server.discoveredTools.filter(
                   (tool) => tool.name !== match.tool.name,
                 )}
+                server={parseRef(match.server.ref)}
               />
             </Card>
           </>
