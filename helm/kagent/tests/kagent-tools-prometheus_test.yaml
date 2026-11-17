@@ -1,0 +1,21 @@
+suite: test kagent-tools Prometheus URL
+templates:
+  - charts/kagent-tools/templates/deployment.yaml
+tests:
+  - it: leaves PROMETHEUS_URL empty by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROMETHEUS_URL
+            value: ""
+
+  - it: points the tool server at the configured Prometheus URL
+    set:
+      kagent-tools.tools.prometheus.url: http://prometheus-server.monitoring:9090
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PROMETHEUS_URL
+            value: http://prometheus-server.monitoring:9090

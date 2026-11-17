@@ -7,7 +7,7 @@ annotations:
   "org.opencontainers.image.source": "https://github.com/kagent-dev/kagent"
 dependencies:
   - name: kagent-tools
-    version: 0.3.0
+    version: 0.3.1
     repository: oci://ghcr.io/kagent-dev/tools/helm
     condition: kagent-tools.enabled
   - name: oauth2-proxy
