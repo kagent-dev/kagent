@@ -10,11 +10,13 @@ interface DataPillProps {
   /** Accessible name for the x button. Defaults to "Remove <children>". */
   removeLabel?: string;
   disabled?: boolean;
+  /** Wraps long text onto more lines instead of cutting it off. */
+  wrap?: boolean;
   "data-testid"?: string;
 }
 
 /** A value the user entered or picked: a key, a host, an audience. */
-export function DataPill({ children, onRemove, removeLabel, disabled, "data-testid": testId }: DataPillProps) {
+export function DataPill({ children, onRemove, removeLabel, disabled, wrap, "data-testid": testId }: DataPillProps) {
   const theme = useTheme();
   const label = removeLabel ?? `Remove ${typeof children === "string" ? children : "item"}`;
 
@@ -31,7 +33,15 @@ export function DataPill({ children, onRemove, removeLabel, disabled, "data-test
         lineHeight: "20px",
       }}
     >
-      <span css={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
+      <span
+        css={
+          wrap
+            ? { overflowWrap: "anywhere" }
+            : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
+        }
+      >
+        {children}
+      </span>
       {onRemove ? (
         <button
           type="button"

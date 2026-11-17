@@ -35,6 +35,7 @@ import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { agentTemplatesTab } from "@/router/routes";
+import { useBackLink } from "@/router/backLink";
 import {
   apiClient,
   useAgentConversations,
@@ -57,6 +58,9 @@ export function AgentTemplateDetailsPage() {
   const theme = useTheme();
   const { namespace, name } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
+  // Back to wherever the reader came from — a conversation's context panel, say — and
+  // to the list when they opened this page directly.
+  const back = useBackLink({ to: agentTemplatesTab, label: "Templates" });
 
   const template = useAgentTemplate(namespace, name);
   const invalidateTemplates = useInvalidateAgentTemplates();
@@ -122,7 +126,8 @@ export function AgentTemplateDetailsPage() {
     const next = new URLSearchParams(searchParams);
     if (tab === "details") next.delete(TAB_PARAM);
     else next.set(TAB_PARAM, tab);
-    setSearchParams(next, { replace: true });
+    // Carry the router state across, or switching tabs drops the way back.
+    setSearchParams(next, { replace: true, state: location.state });
   };
 
   const missing = template.error !== undefined && isNotFound(template.error);
@@ -164,8 +169,8 @@ export function AgentTemplateDetailsPage() {
             namespace: template.data.namespace,
             labels: labelsFromDraft(draft),
           },
-          // Merged onto the spec that was read, so skills, plugins and prompt data
-          // sources survive an edit that never mentioned them.
+          // Merged onto the spec that was read, so plugins and prompt data sources
+          // survive an edit that never mentioned them.
           spec: specFromDraft(draft, template.data.resource.spec),
         },
       });
@@ -311,7 +316,17 @@ export function AgentTemplateDetailsPage() {
 
   return (
     <>
-    <BackLink to={agentTemplatesTab} resource="Templates" />
+    <BackLink
+      to={back.to}
+      resource={back.label}
+      // A return steps back through history rather than pushing the origin again, so the
+      // browser's Back button has no duplicate entry to land on. The unsaved-changes guard still applies.
+      onClick={(event) => {
+        if (!back.isReturn) return;
+        event.preventDefault();
+        navigate(-1);
+      }}
+    />
     <PageFrame
       title={name ? `Agent template ${name}` : "Agent template"}
       description={

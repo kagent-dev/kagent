@@ -60,8 +60,7 @@ export interface ToolBinding {
 /**
  * One immutable artifact, as `skills` and `plugins` reference content.
  *
- * Exactly one of `oci`, `git` or `bucket`. Left as-is by this build's form, which
- * does not author skills or plugins — see `AgentTemplateSpec.skills`.
+ * Exactly one of `oci`, `git` or `bucket`, plus an optional relative `path` inside it.
  */
 export interface ArtifactSource {
   oci?: string;

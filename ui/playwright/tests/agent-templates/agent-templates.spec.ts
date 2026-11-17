@@ -11,6 +11,8 @@ import {
 
 /** A reusable template can be authored without choosing an Agent or Harness. */
 const CREATED = "browser-made";
+const GIT_URL = "https://github.com/example/runbooks.git";
+const GIT_COMMIT = "0123456789abcdef0123456789abcdef01234567";
 
 /*
  * A lifecycle is longer than a journey, so it gets its own budget — see
@@ -91,6 +93,34 @@ test("agent templates: a template is created, read, edited and deleted", async (
       await page.getByRole("button", { name: "Remove MCP server 1" }).click();
     });
 
+    await test.step("a kagent skill and the reader's own Git skill can be added", async () => {
+      const builtin = page.getByTestId("template-form-add-builtin-skill");
+      await builtin.click();
+      await pressOnce(optionNamed(page, "k8s-troubleshooting"));
+      const added = page.getByTestId("template-form-skill-0");
+      await expect(added).toContainText("k8s-troubleshooting");
+      await expect(added).toContainText("Diagnose unhealthy Kubernetes workloads");
+
+      // Offered once: a second copy would be a duplicate name the CRD refuses.
+      await builtin.click();
+      await expect(optionNamed(page, "k8s-troubleshooting")).toHaveClass(
+        /ant-select-item-option-disabled/,
+      );
+      await page.keyboard.press("Escape");
+
+      await page.getByTestId("template-form-add-skill").click();
+      // Each skill is its own card, with a visible label on every field and a named remove.
+      const own = page.getByTestId("template-form-skill-1");
+      await own.getByLabel("Skill name").fill("incident-review");
+      await expect(own.getByRole("button", { name: "Remove skill incident-review" })).toBeVisible();
+      await selectOption(page, "template-form-skill-kind-1", "Git");
+      await own.getByLabel("Repository").fill(GIT_URL);
+      // A branch name, which the CRD refuses; flagged on submit below.
+      await own.getByLabel("Commit").fill("main");
+      await own.getByLabel("Path").fill("skills/incident-review");
+      await expect(page.getByTestId("template-form-skill-error-1")).toHaveCount(0);
+    });
+
     await test.step("a namespace can select a visible model from another namespace", async () => {
       await selectOption(page, "template-form-namespace", "default");
       await selectOption(page, "template-form-model", "kagent/default-model-config");
@@ -104,7 +134,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // The model is optional: a BYO harness runs a template with no model.
     await expectRequired(page, {
       marked: ["Name", "Namespace", "Output format"],
-      unmarked: ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Labels"],
+      unmarked: ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Skills", "Labels"],
     });
 
     // Submit stays enabled; an invalid one marks the field and says nothing was created.
@@ -112,6 +142,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByText("A name is required.")).toBeVisible();
     await expect(page.getByTestId("template-create-error")).toContainText("Fix the highlighted fields");
     await expect(page).toHaveURL(/\/agent-templates\/new/);
+    // The skill's own card says what is wrong with it, and clears once fixed.
+    await expect(page.getByTestId("template-form-skill-error-1")).toContainText(
+      'The skill "incident-review" needs a full Git commit ID',
+    );
+    await page.getByTestId("template-form-skill-git-commit-1").fill(GIT_COMMIT);
+    await expect(page.getByTestId("template-form-skill-error-1")).toHaveCount(0);
   });
 
   await test.step("5. the template saves without creating an Agent", async () => {
@@ -161,6 +197,29 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-form-name")).toHaveCount(0);
     // And nothing that authors: the add buttons only exist when something can be added.
     await expect(page.getByTestId("template-form-labels-add")).toHaveCount(0);
+    await expect(page.getByTestId("template-form-add-skill")).toHaveCount(0);
+
+    // The skills as the backend stored them: the kagent skill is still recognized as
+    // one, so it was saved as the kagent-tools image and its directory.
+    await expect(page.getByTestId("template-form-skill-0")).toContainText("kagent");
+    await expect(page.getByTestId("template-form-skill-0")).toContainText("k8s-troubleshooting");
+    await expect(page.getByTestId("template-form-skill-name-1")).toHaveText("incident-review");
+    await expect(page.getByTestId("template-form-skill-kind-1")).toContainText("Git");
+    // The repository opens in a new tab.
+    const repo = page.getByTestId("template-form-skill-git-url-1");
+    await expect(repo).toHaveText(GIT_URL);
+    await expect(repo).toHaveAttribute("href", GIT_URL);
+    await expect(repo).toHaveAttribute("target", "_blank");
+    await expect(page.getByTestId("template-form-skill-git-commit-1")).toHaveText(GIT_COMMIT);
+    await expect(page.getByTestId("template-form-skill-path-1")).toHaveText("skills/incident-review");
+    // Each read-only source value shows in full, not cut off, even in a narrow window.
+    const viewport = page.viewportSize()!;
+    await page.setViewportSize({ width: 480, height: viewport.height });
+    for (const testId of ["git-url", "git-commit", "path"]) {
+      const cell = page.getByTestId(`template-form-skill-${testId}-1`).locator("xpath=ancestor::dd");
+      await expect.poll(() => cell.evaluate((el) => el.scrollWidth <= el.clientWidth), { message: testId }).toBe(true);
+    }
+    await page.setViewportSize(viewport);
 
     // Nor does it mark anything required. Read-only is not a form, so it asks for
     // nothing — an asterisk here would be demanding a reader supply something they are
@@ -226,6 +285,17 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-form-description")).toHaveValue(
       "Edited by the suite.",
     );
+
+    // The way back off the page asks the same question rather than dropping the draft.
+    const templateUrl = page.url();
+    await page.getByTestId("form-back-link").click();
+    await expect(page.getByTestId("template-discard-body")).toBeVisible();
+    await pressOnce(page.getByRole("button", { name: "Keep editing" }));
+    await expect(page.getByTestId("template-discard-body")).toBeHidden();
+    await expect(page).toHaveURL(templateUrl);
+    await expect(page.getByTestId("template-form-description")).toHaveValue(
+      "Edited by the suite.",
+    );
   });
 
   await test.step("10. saving returns to reading, showing what was saved", async () => {
@@ -235,6 +305,26 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // not reach the backend would leave the old value here.
     await expect(page.getByTestId("template-form-description")).toHaveValue(
       "Edited by the suite.",
+    );
+    await expect(page.getByTestId("template-form-skill-0")).toContainText("k8s-troubleshooting");
+    await expect(page.getByTestId("template-form-skill-name-1")).toHaveText("incident-review");
+  });
+
+  await test.step("10b. discarding a draft from the back button also leaves the page", async () => {
+    await page.getByTestId("template-edit").click();
+    await page.getByTestId("template-form-description").fill("Thrown away by the suite.");
+    await page.getByTestId("form-back-link").click();
+    await pressOnce(page.getByRole("button", { name: "Discard" }));
+    await expect(page).toHaveURL(/\/agents\?tab=templates/);
+    // The list rendering means the template page, and its unsaved-changes guard, are gone.
+    await expect(page.getByTestId("templates-filters-search")).toBeVisible({ timeout: 30_000 });
+
+    // Back on the template for the steps below, which read the saved value, not the
+    // draft. Through history rather than a reload, which would reset the mock backend.
+    await page.goBack();
+    await expect(page.getByTestId("template-form-description")).toHaveValue(
+      "Edited by the suite.",
+      { timeout: 30_000 },
     );
   });
 
@@ -294,9 +384,30 @@ test("agent templates: a template is created, read, edited and deleted", async (
       "Answers questions about workloads in the cluster.",
     );
 
-    // `k8s-agent-7f3a91c` carries a `skills` entry, which this form does not author. A
-    // save built from the fields it shows would remove it, and the API would accept that
-    // without a word — so the notice standing here is what tells a reader it survives.
+    await expect(page.getByTestId("template-form-skill-0")).toContainText("k8s-troubleshooting");
+    await expect(page.getByTestId("template-form-skill-git-url-1")).toHaveAttribute(
+      "href",
+      "https://github.com/example/runbooks.git",
+    );
+
+    // Saved under an earlier kagent-tools image digest, as after a chart upgrade: still a
+    // kagent skill, marked as older. Reading offers no Update; editing does, and the
+    // saved row then pins the current image.
+    const older = page.getByTestId("template-form-skill-2");
+    await expect(older).toContainText("helm-release-management");
+    await expect(page.getByTestId("template-form-skill-outdated-2")).toBeVisible();
+    await expect(page.getByTestId("template-form-skill-update-2")).toHaveCount(0);
+    await page.getByTestId("template-edit").click();
+    await page.getByTestId("template-form-skill-update-2").click();
+    await expect(page.getByTestId("template-form-skill-outdated-2")).toHaveCount(0);
+    await page.getByTestId("template-submit").click();
+    await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: 30_000 });
+    await expect(older).toContainText("helm-release-management");
+    await expect(page.getByTestId("template-form-skill-outdated-2")).toHaveCount(0);
+
+    // `k8s-agent-7f3a91c` carries prompt data sources, which this form does not author. A
+    // save built from the fields it shows would remove them, and the API would accept that
+    // without a word — so the notice standing here is what tells a reader they survive.
     // Asserted on this template rather than on the one the journey made, because the
     // form cannot create a template that has anything to lose.
     await expect(page.getByTestId("template-form-unshown")).toContainText(
