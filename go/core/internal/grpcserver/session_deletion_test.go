@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -42,7 +43,7 @@ func TestSessionDeletionForceThroughGeneratedClient(t *testing.T) {
 		ActorTemplate: &ateapipb.ObjectRef{Atespace: "team-a", Name: "assistant-kagent-revision"},
 		Status:        &ateapipb.ActorStatus{State: ateapipb.ActorState_ACTOR_STATE_RUNNING},
 	}}
-	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := sessionsvc.NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 	connection := newConfigurationConnection(t, nil, func(config *Config) {
 		config.SessionService = sessionsvc.NewService(store, sessionAuthorizationPolicy{}, workflow)
 	})

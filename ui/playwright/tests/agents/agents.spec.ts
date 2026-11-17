@@ -10,16 +10,37 @@ import {
   routes,
   withScenario,
 } from "../../helpers/app";
-import { clickRefresh, optionNamed, pressOnce } from "../../helpers/resource";
+import { anyDialog, clickRefresh, dialog, optionNamed, pressOnce } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 import { background, settledPaint } from "../../helpers/style";
 
-test("agents: an empty Harness selector links to Harness creation", async ({ page }) => {
+test("agents: an empty Harness selector offers Harness creation in place", async ({ page }) => {
   await loadPage(page, routes.agentNew, { scenario: "empty", title: "New agent" });
   await page.getByTestId("agent-form-harness-ref").click();
 
-  const createHarness = page.getByRole("link", { name: "Create a harness" });
-  await expect(createHarness).toHaveAttribute("href", routes.harnessNew);
+  await page.getByRole("button", { name: "Create a harness" }).click();
+  await expect(dialog(page)).toBeVisible();
+  await expect(dialog(page).getByTestId("harness-intro")).toBeVisible();
+  await expect(dialog(page).getByTestId("harness-create")).toBeDisabled();
+});
+
+test("agents: a harness made from the agent form is selected for the agent", async ({ page }) => {
+  await loadPage(page, routes.agentNew, { title: "New agent" });
+  // The namespace's default harness is preselected, so a fresh agent needs no choice.
+  await expect(page.getByTestId("agent-form-harness-ref")).toContainText("kagent-default");
+
+  await page.getByTestId("agent-form-harness-create").click();
+  const form = dialog(page);
+  await expect(form).toBeVisible();
+  await expect(form.getByTestId("harness-namespace")).toContainText("kagent");
+  await form.getByTestId("harness-name").fill("made-inline");
+  await expect(form.getByTestId("harness-worker-pool").locator("input")).toHaveValue("kagent-default");
+  await form.getByTestId("harness-create").click();
+
+  await expect(anyDialog(page)).toBeHidden();
+  await expect(page.getByTestId("agent-form-harness-ref")).toContainText("made-inline");
+  // A dialog rather than a trip to the harnesses page, so the agent form is still here.
+  await expect(page).toHaveURL(/\/agents\/new(\?|$)/);
 });
 
 /** Agents -- each row is one explicit Agent with behavior and a referenced Harness. */
@@ -60,13 +81,17 @@ test("agents: the list is Agent resources with explicit template and harness sou
     await expect(rowNamed(page, "note-taker")).toHaveCount(0);
   });
 
-  await test.step("5. status is ready, preparing or not reported", async () => {
+  await test.step("5. status is ready, preparing, update failed or not reported", async () => {
     await expect(
       page.getByTestId(`agent-revision-kagent/${agents.k8s.name}`),
     ).toHaveAttribute("data-revision-state", "ready");
     const preparing = page.getByTestId(`agent-revision-kagent/${agents.preparing.name}`);
     await expect(preparing).toHaveAttribute("data-revision-state", "preparing");
     await expect(preparing).toHaveText("Preparing");
+    // The list keeps the tag; the controller's message is on the agent's own page.
+    const updateFailed = page.getByTestId(`agent-revision-kagent/${agents.updateFailed.name}`);
+    await expect(updateFailed).toHaveAttribute("data-revision-state", "updateFailed");
+    await expect(page.getByTestId("agent-update-failed")).toHaveCount(0);
   });
 
   await test.step("6. conversation counts are per Agent, not per template", async () => {
@@ -205,9 +230,16 @@ test("agents: the landing page is three tabs, and the tab is in the address", as
 
   await test.step("4. the header creates each of the three resources", async () => {
     await page.getByRole("tab", { name: "Agents" }).click();
+    await page.getByTestId("agents-create").click();
     await expect(page.getByTestId("agents-new")).toBeVisible();
     await expect(page.getByTestId("agents-new-template")).toBeVisible();
     await expect(page.getByTestId("agents-new-harness")).toBeVisible();
+    // Closed again: the modal's mask would make the diagram's "+" inert.
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("agents-new")).toBeHidden();
+    for (const k of ["Agent", "AgentTemplate", "Harness"]) {
+      await expect(page.getByTestId(`concept-create-${k}`)).toBeVisible();
+    }
   });
 });
 
@@ -266,8 +298,7 @@ test("agents: the list is ordered by name", async ({ page }) => {
  * and that it does not quietly report "there are no agents" when the truth is that
  * it could not find out.
  *
- * AgentService lists one namespace at a time. A failed namespace discovery must
- * report its error because the Agent read cannot run without those namespaces.
+ * A transient namespace discovery failure is surfaced so the reader can retry it.
  */
 
 test("agents: a failed load is reported, not disguised as an empty list", async ({

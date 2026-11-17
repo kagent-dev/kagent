@@ -12,10 +12,12 @@ import {
   extensionRoutes,
   extensionShell,
   extensionSlotComponents,
+  extensionRowActions,
   extensionTableColumns,
   extensionAgentRailItems,
   extensionAgentRailOverrides,
 } from "./selectors";
+import type { ExtensionRowAction, ExtensionRowMenuId } from "./rowActions";
 import type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
 import type { ExtensionFormFieldContribution, ExtensionFormId } from "./formFields";
 import type { ExtensionNavOverrides } from "./navOverrides";
@@ -106,6 +108,12 @@ export function useExtensionTableColumns<TRow>(
     () => extensionTableColumns<TRow>(extensions, tableId),
     [extensions, tableId],
   );
+}
+
+/** Items contributed to one list row menu. */
+export function useExtensionRowActions(menuId: ExtensionRowMenuId): ExtensionRowAction[] {
+  const extensions = useAppExtensions();
+  return useMemo(() => extensionRowActions(extensions, menuId), [extensions, menuId]);
 }
 
 /** Each extension's API overrides, for the fetch layer to resolve calls against. */

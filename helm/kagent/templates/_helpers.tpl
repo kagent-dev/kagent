@@ -14,6 +14,33 @@
 {{- end -}}
 
 {{/*
+The built-in skills catalog from the kagent-tools image, as JSON. Empty unless
+examples.enabled and kagent-tools.enabled are both true.
+*/}}
+{{- define "kagent.builtinSkillsCatalog" -}}
+{{- if and (dig "examples" "enabled" false .Values.AsMap) (dig "kagent-tools" "enabled" false .Values.AsMap) -}}
+  {{- $catalog := .Files.Get "files/builtin-skills.json" | mustFromJson -}}
+  {{- range .Chart.Dependencies -}}
+    {{- if and (eq .Name "kagent-tools") (ne .Version $catalog.version) -}}
+      {{- fail (printf "files/builtin-skills.json is for kagent-tools %s, but the chart depends on %s: run make builtin-skills-catalog" $catalog.version .Version) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $_ := unset $catalog "version" -}}
+  {{/* The Prometheus skill needs a tool server URL it accepts (http:// or https://). */}}
+  {{- $prometheusURL := dig "kagent-tools" "tools" "prometheus" "url" "" .Values.AsMap -}}
+  {{- if not (regexMatch "^https?://" $prometheusURL) -}}
+    {{- $skills := list -}}
+    {{- range $catalog.skills -}}
+      {{- if ne .name "prometheus-observability" -}}{{- $skills = append $skills . -}}{{- end -}}
+    {{- end -}}
+    {{- $_ := set $catalog "skills" $skills -}}
+  {{- end -}}
+  {{- $_ := set $catalog "image" (include "kagent.mirroredImage" (dict "root" $ "image" $catalog.image)) -}}
+  {{- $catalog | mustToJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create a default fully qualified app name.
 */}}
 {{- define "kagent.fullname" -}}

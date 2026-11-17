@@ -122,10 +122,14 @@ Common commands:
 
 ## 8. Contribution Requirements
 
-- Every commit must include the DCO sign-off required by
-  [CONTRIBUTING.md](CONTRIBUTING.md).
+Follow [CONTRIBUTING.md](CONTRIBUTING.md). In particular:
+
+- Every commit must include the DCO sign-off.
 - Use Conventional Commit prefixes in pull request titles so repository
   automation can classify changes.
+- Target fixes at `main` first, and follow the
+  [release branch and backport policy](CONTRIBUTING.md#release-branches-and-backports)
+  before opening or backporting a fix.
 
 ## 9. References
 

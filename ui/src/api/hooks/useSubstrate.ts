@@ -1,9 +1,9 @@
-import { ApiError } from "../ApiError";
 import { apiClient } from "../client";
 import type {
   SubstrateActorPage,
   SubstrateSummary,
   SubstrateWorkerPage,
+  SubstrateWorkerPoolEntry,
 } from "../domain/substrate";
 import type {
   SubstrateActorPageInput,
@@ -22,12 +22,22 @@ export function useSubstrateSummary(scope: SubstrateScopeInput = {}): ApiResourc
   );
 }
 
+/**
+ * The worker pools a harness in `namespace` may name. A form that offers them still
+ * accepts a typed name, so a caller who may not list pools is not blocked.
+ */
+export function useWorkerPools(namespace?: string): ApiResource<SubstrateWorkerPoolEntry[]> {
+  return useApiResource(namespace ? ["substrate.workerPools", namespace] : null, () =>
+    apiClient.substrate.workerPools(namespace),
+  );
+}
+
 /** One page in Substrate's native order. */
 export function useSubstrateActors(input: SubstrateActorPageInput): ApiResource<SubstrateActorPage> {
   const { atespace = "", limit = 0, pageToken = "" } = input;
   return useApiResource(
     ["substrate.actors", atespace, limit, pageToken],
-    () => visibleInventoryPage(apiClient.substrate.actors({ atespace, limit, pageToken }), { actors: [] }),
+    () => apiClient.substrate.actors({ atespace, limit, pageToken }),
   );
 }
 
@@ -36,20 +46,6 @@ export function useSubstrateWorkers(input: SubstrateWorkerPageInput): ApiResourc
   const { namespace = "", limit = 0, pageToken = "" } = input;
   return useApiResource(
     ["substrate.workers", namespace, limit, pageToken],
-    () => visibleInventoryPage(apiClient.substrate.workers({ namespace, limit, pageToken }), { workers: [] }),
+    () => apiClient.substrate.workers({ namespace, limit, pageToken }),
   );
-}
-
-/**
- * Denied collections show no visible rows, like unauthorized families in the summary.
- * Normalize the fetch result so refresh also clears previously visible rows and pagination.
- * Other failures still reach the page's error banners.
- */
-async function visibleInventoryPage<T>(request: Promise<T>, emptyPage: T): Promise<T> {
-  try {
-    return await request;
-  } catch (error) {
-    if (error instanceof ApiError && error.status === 403) return emptyPage;
-    throw error;
-  }
 }

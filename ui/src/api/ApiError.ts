@@ -79,9 +79,39 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
 
+export function isPermissionDenied(error: unknown): boolean {
+  return isApiError(error) && error.status === 403;
+}
+
 /** True when `error` is a 404 — worth distinguishing from a real failure. */
 export function isNotFound(error: unknown): boolean {
   return isApiError(error) && error.status === 404;
+}
+
+/**
+ * `ApiError.reason` of a send the gateway kept refusing as not accepted until chat's
+ * retry window ran out. The runtime may have crashed.
+ */
+export const SEND_NOT_ACCEPTED = "KAGENT_SEND_NOT_ACCEPTED";
+
+/**
+ * `ApiError.reason` of a send refused because an earlier turn is still open. A
+ * runtime that crashed mid-turn leaves its turn open, so unless the controller
+ * recovers on send, this refusal is the only sign of the crash.
+ */
+export const TURN_ACTIVE = "KAGENT_TURN_ACTIVE";
+
+/** Whether `error` is a send the gateway never accepted, after every retry. */
+export function isSendNotAccepted(error: unknown): boolean {
+  return isApiError(error) && error.reason === SEND_NOT_ACCEPTED;
+}
+
+/**
+ * Whether chat should offer a revert after `error`. `RevertSession` returns a
+ * healthy runtime unchanged, so a refusal that only might mean a crash is enough.
+ */
+export function mayNeedRecovery(error: unknown): boolean {
+  return isApiError(error) && (error.reason === SEND_NOT_ACCEPTED || error.reason === TURN_ACTIVE);
 }
 
 /**

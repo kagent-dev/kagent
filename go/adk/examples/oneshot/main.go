@@ -2,12 +2,11 @@
 //
 // Usage:
 //
-//	# From a config.json file (same format as the controller produces in K8s secrets):
+//	# From an ADK config.json file:
 //	go run ./examples/oneshot -config config.json -task "What pods are running?"
 //
-//	# Pipe from kubectl:
-//	kubectl get secret -n kagent k8s-agent -ojson | jq -r '.data."config.json"' | base64 -d > /tmp/config.json
-//	go run ./examples/oneshot -config /tmp/config.json -task "List namespaces"
+//	# From a sample provider config:
+//	go run ./examples/oneshot -config examples/oneshot/testdata/openai.json -task "List namespaces"
 //
 //	# Stream mode:
 //	go run ./examples/oneshot -config config.json -task "Tell me a joke" -stream

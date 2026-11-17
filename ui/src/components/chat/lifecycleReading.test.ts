@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentInstance } from "@/api";
-import { isLifecycleBusy, lifecycleReading } from "./lifecycleReading";
+import { isLifecycleBusy, isRuntimeLost, lifecycleReading } from "./lifecycleReading";
 
 /**
  * What the chat page is allowed to say the agent is doing.
@@ -40,6 +40,17 @@ describe("lifecycleReading", () => {
     const reading = lifecycleReading(instance({ operation: "suspend" }), "idle");
     expect(reading.active).toBe("suspending");
     expect(reading.source).toMatch(/claimed a suspend operation/);
+  });
+
+  it("reads a pending crash recovery from the stored revert operation", () => {
+    // The Session is FAILED while the recovery is pending; the operation is what says
+    // the controller is acting on it, so this is a stage rather than a verdict.
+    const reading = lifecycleReading(
+      instance({ state: "failed", operation: "revert", failure: { reason: "RuntimeCrashed" } }),
+      "idle",
+    );
+    expect(reading.active).toBe("resuming");
+    expect(reading.summary).toBe("Recovering this conversation after a crash");
   });
 
   it("lets a claimed operation outrank the turn, because the controller is acting on the instance right now", () => {
@@ -144,6 +155,9 @@ describe("isLifecycleBusy", () => {
     // Two decisions taken separately would drift: a page polling on one rule while
     // the indicator changes on another either misses a stage or reads for nothing.
     expect(isLifecycleBusy(instance({ operation: "resume" }), "idle")).toBe(true);
+    expect(isLifecycleBusy(instance({ state: "failed", operation: "revert" }), "idle")).toBe(true);
+    // A lost runtime never changes on its own, so it is not polled.
+    expect(isLifecycleBusy(instance({ state: "failed", failure: { reason: "RuntimeLost" } }), "idle")).toBe(false);
     expect(isLifecycleBusy(instance(), "streaming")).toBe(true);
     expect(isLifecycleBusy(instance(), "idle")).toBe(false);
     expect(isLifecycleBusy(instance({ state: "suspended" }), "idle")).toBe(false);
@@ -151,5 +165,16 @@ describe("isLifecycleBusy", () => {
     // A conversation waiting on its reader is not the instance doing something:
     // polling it would be a read per second for a state only the reader can change.
     expect(isLifecycleBusy(instance(), "idle", true)).toBe(false);
+  });
+});
+
+describe("isRuntimeLost", () => {
+  it("is true only for a failed Session with no operation and reason RuntimeLost", () => {
+    const lost = { state: "failed", operation: "unspecified", failure: { reason: "RuntimeLost" } } as const;
+    expect(isRuntimeLost(instance(lost))).toBe(true);
+    expect(isRuntimeLost(instance({ ...lost, operation: "revert" }))).toBe(false);
+    expect(isRuntimeLost(instance({ ...lost, failure: { reason: "RuntimeCrashed" } }))).toBe(false);
+    expect(isRuntimeLost(instance({ ...lost, state: "ready" }))).toBe(false);
+    expect(isRuntimeLost(undefined)).toBe(false);
   });
 });

@@ -24,7 +24,7 @@ type Object interface {
 }
 
 type Service[T Object, L client.ObjectList] struct {
-	client     client.Client
+	client     client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	object     T
 	list       L
 	authorizer auth.CollectionAuthorizer
@@ -32,7 +32,7 @@ type Service[T Object, L client.ObjectList] struct {
 }
 
 func NewService[T Object, L client.ObjectList](
-	client client.Client,
+	client client.Client, //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	authorizer auth.CollectionAuthorizer,
 	object T,
 	list L,

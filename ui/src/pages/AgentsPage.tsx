@@ -1,11 +1,13 @@
+import { isPermissionDenied } from "@/api/ApiError";
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { RowActionsMenu } from "@/components/table/RowActionsMenu";
+import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
 import {
   agentDescription,
@@ -45,18 +47,15 @@ export function AgentsTab() {
   const view = useListView(FILTER_IDS);
   const selectedNamespaces = view.selected("ns");
   const namespaces = useNamespaces();
+  const namespaceDenied = isPermissionDenied(namespaces.error);
 
   const namespaceNames = useMemo(
     () => (namespaces.data ?? []).map((entry) => entry.name),
     [namespaces.data],
   );
 
-  // AgentService lists one namespace per call, so "all namespaces" is a fan-out.
-  const readNamespaces = useMemo(
-    () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
-    [selectedNamespaces, namespaceNames],
-  );
-
+  // The collection RPC can still list visible resources if namespace discovery is denied.
+  const readNamespaces = namespaceDenied ? null : selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames;
   const definitions = useAgentsAcrossNamespaces(readNamespaces);
   const invalidateAgents = useInvalidateAgents();
   // Referenced templates carry the description a shared-template Agent shows.
@@ -71,7 +70,8 @@ export function AgentsTab() {
     () => new Map((definitions.data?.agents ?? []).map((agent) => [agent.ref, agentDescription(agent, templates.data?.templates)])),
     [definitions.data, templates.data],
   );
-  const loadFailure = namespaces.error ?? definitions.error;
+  const namespaceFailure = namespaceDenied ? undefined : namespaces.error;
+  const loadFailure = namespaceFailure ?? definitions.error;
   const conversations = useAgentInstances(true);
 
   const conversationCounts = useMemo(() => {
@@ -88,9 +88,14 @@ export function AgentsTab() {
     await Promise.all([definitions.refresh(), templates.refresh(), conversations.refresh()]);
   };
 
+  const visibleNamespaces = useMemo(
+    () => [...new Set(agents.map((agent) => agent.namespace))],
+    [agents],
+  );
+
   // A namespace we could not read says nothing about its conversations, so those are not counted.
   const orphanedConversations = useMemo(() => {
-    if (!definitions.data || !conversations.data) return 0;
+    if (!readNamespaces || !definitions.data || !conversations.data) return 0;
     const known = new Set(agents.map((agent) => agent.ref));
     const unreadable = new Set(definitions.data.refused.map((entry) => entry.namespace));
     return conversations.data.filter((instance) => {
@@ -101,12 +106,13 @@ export function AgentsTab() {
   }, [agents, conversations.data, definitions.data, readNamespaces]);
 
   const namespaceOptions = useMemo(
-    () => (namespaces.data ?? []).map((entry) => ({ value: entry.name })),
-    [namespaces.data],
+    () => (namespaceDenied ? visibleNamespaces : namespaceNames).map((value) => ({ value })),
+    [namespaceDenied, namespaceNames, visibleNamespaces],
   );
 
   const filtered = useMemo(() => {
     const matching = agents.filter((agent) =>
+      (!namespaceDenied || selectedNamespaces.length === 0 || selectedNamespaces.includes(agent.namespace)) &&
       matchesQuery(view.query, [
         agent.name,
         agent.namespace,
@@ -117,7 +123,7 @@ export function AgentsTab() {
     );
     if (!view.sort) matching.sort((left, right) => left.name.localeCompare(right.name));
     return matching;
-  }, [agents, descriptions, view]);
+  }, [agents, descriptions, namespaceDenied, selectedNamespaces, view]);
 
   const columns = useMemo<ColumnsType<Agent>>(
     () => [
@@ -203,25 +209,20 @@ export function AgentsTab() {
       {
         title: "",
         key: "actions",
-        width: 96,
+        width: 56,
         render: (_, row) => (
-          <Space size={4}>
-            <Link to={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}>
-              <Button
-                type="text"
-                icon={<Pencil size={16} />}
-                data-testid={`edit-${row.name}`}
-                aria-label={`Edit agent ${row.name}`}
-              />
-            </Link>
-            <DeleteResourceButton
-              kind="agent"
-              name={row.name}
-              description="New conversations stop. Existing ones keep running. Shared templates and harnesses stay."
-              onDelete={() => apiClient.agentBuildingBlocks.removeAgent(row.namespace, row.name)}
-              onDeleted={invalidateAgents}
-            />
-          </Space>
+          <RowActionsMenu
+            kind="agent"
+            namespace={row.namespace}
+            name={row.name}
+            editTo={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}
+            copyTo={copyPath(paths.agentNew, row)}
+            remove={{
+              description: "New conversations stop. Existing ones keep running. Shared templates and harnesses stay.",
+              onDelete: () => apiClient.agentBuildingBlocks.removeAgent(row.namespace, row.name),
+              onDeleted: invalidateAgents,
+            }}
+          />
         ),
       },
     ],
@@ -230,50 +231,43 @@ export function AgentsTab() {
 
   return (
     <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-      {/* The namespace list feeds the agent read, so its failure is this page's failure. */}
+      {/* A transient namespace lookup failure still blocks the default list. */}
       {loadFailure ? (
-        <Alert
-          type="error"
-          showIcon
-          title="Could not load agents"
-          description={loadFailure.message}
-          data-testid="agents-error"
-          action={
-            <Button
-              size="small"
-              onClick={() => {
-                void namespaces.refresh();
-                void definitions.refresh();
-              }}
-            >
-              Try again
-            </Button>
-          }
+        <ReadError
+          resource="agents"
+          error={loadFailure}
+          testId="agents-error"
+          onRetry={namespaceFailure ? namespaces.refresh : definitions.refresh}
         />
       ) : null}
 
-      {templates.error || templates.data?.refused.length ? (
+      {templates.error ? (
+        <ReadError
+          resource="agent descriptions"
+          error={templates.error}
+          testId="agent-descriptions-error"
+          title="Some agent descriptions could not be loaded"
+          type="warning"
+        />
+      ) : templates.data?.refused.length ? (
         <Alert
           type="warning"
           showIcon
           title="Some agent descriptions could not be loaded"
-          description={templates.error?.message ?? templates.data?.refused.map((entry) => `${entry.namespace}: ${entry.reason}`).join("; ")}
+          description={templates.data.refused.map((entry) => `${entry.namespace}: ${entry.reason}`).join("; ")}
           data-testid="agent-descriptions-error"
         />
       ) : null}
 
       {conversations.error && !loadFailure ? (
-        <Alert
-          type="warning"
-          showIcon
+        <ReadError
+          resource="conversation counts"
+          error={conversations.error}
+          testId="agents-counts-error"
+          onRetry={conversations.refresh}
           title="Could not count conversations"
           description={`${conversations.error.message} The agents below are from a separate read and are complete.`}
-          data-testid="agents-counts-error"
-          action={
-            <Button size="small" onClick={() => void conversations.refresh()}>
-              Try again
-            </Button>
-          }
+          type="warning"
         />
       ) : null}
 

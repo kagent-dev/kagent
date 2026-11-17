@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -191,11 +192,12 @@ func testPushWorkerConfig(recoveryInterval time.Duration) PushWorkerConfig {
 // below exercise concurrent scheduling and shutdown.
 func pollPushWorker(t *testing.T, worker *PushWorker) (bool, error) {
 	t.Helper()
-	return worker.poll(t.Context(), 100, func(delivery database.PushDelivery) {
+	claimed, _, err := worker.poll(t.Context(), pushClaimBatchSize, func(delivery database.PushDelivery) {
 		if err := worker.send(t.Context(), delivery); err != nil {
 			t.Logf("push attempt: %v", err)
 		}
 	})
+	return claimed == pushClaimBatchSize && err == nil, err
 }
 
 func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
@@ -210,7 +212,7 @@ func TestPushWorkerFullBatchDoesNotWaitForIdlePoll(t *testing.T) {
 		store.deliveries[i].Payload = payload
 	}
 	sender := &pushTestSender{}
-	worker := NewPushWorker(store, sender, testPushSigner(t), nil, testPushWorkerConfig(time.Minute))
+	worker := NewPushWorker(store, sender, testPushSigner(t), nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider())
 	full, err := pollPushWorker(t, worker)
 	require.NoError(t, err)
 	require.True(t, full)
@@ -237,7 +239,7 @@ func TestPushWorkerChecksClaimBeforeSending(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := &pushTestStore{stale: test.stale, currentErr: test.err}
 			sender := &pushTestSender{}
-			err := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute)).send(t.Context(), database.PushDelivery{Payload: payload})
+			err := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider()).send(t.Context(), database.PushDelivery{Payload: payload})
 			if test.err != nil {
 				require.ErrorIs(t, err, test.err)
 				require.Equal(t, []bool{false}, store.outcomes(), "failed preparation enters the normal retry schedule")
@@ -252,7 +254,7 @@ func TestPushWorkerChecksClaimBeforeSending(t *testing.T) {
 
 func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	store, session := lifecycleFixture(t)
-	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+	session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
 	require.NoError(t, err)
 	entered := make(chan *a2a.TaskStatusUpdateEvent, 2)
 	release := make(chan struct{})
@@ -285,7 +287,7 @@ func TestPushWorkerInflightResponseCannotAcknowledgeNewState(t *testing.T) {
 	version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 	require.NoError(t, err)
 	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, testPushWorkerConfig(time.Minute))
+	worker := NewPushWorker(store, NewHTTPPushSender(5*time.Second, true, true), nil, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider())
 	done := make(chan error, 1)
 	go func() {
 		_, err := pollPushWorker(t, worker)
@@ -327,7 +329,7 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 				signer = testPushSigner(t)
 			}
 			store, session := lifecycleFixture(t)
-			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
 			require.NoError(t, err)
 			events := make(chan json.RawMessage, 4)
 			receiver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -352,18 +354,18 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 			version, err := store.CreateRuntimeTask(t.Context(), session.Id, digest[:], task, "")
 			require.NoError(t, err)
 			sender := NewHTTPPushSender(time.Second, true, true)
-			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider()))
 			require.NoError(t, err)
 			require.Empty(t, events)
 			task.Status.State = a2a.TaskStateCompleted
 			digest = sha256.Sum256([]byte("complete"))
 			version, err = store.UpdateSessionTask(t.Context(), session.Id, version, digest[:], task, task, "")
 			require.NoError(t, err)
-			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider()))
 			require.NoError(t, err)
 			require.Empty(t, events, "staged completion must not be notified")
 			require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
-			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider()))
 			require.NoError(t, err)
 			require.Len(t, events, 1)
 			var envelope struct {
@@ -373,7 +375,7 @@ func TestPushWorkerDurableHTTPDelivery(t *testing.T) {
 			require.NotNil(t, envelope.StatusUpdate)
 			require.Equal(t, a2a.TaskStateCompleted, envelope.StatusUpdate.Status.State)
 			require.Empty(t, envelope.StatusUpdate.Metadata)
-			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute)))
+			_, err = pollPushWorker(t, NewPushWorker(store, sender, signer, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider()))
 			require.NoError(t, err)
 			require.Empty(t, events, "failed attempt must wait for retry delay")
 		})
@@ -426,7 +428,7 @@ func TestPushWorkerWakeAndRecovery(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		store := &pushWakeStore{}
 		wake := make(chan struct{}, 1)
-		worker := NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Minute))
+		worker := NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Minute), noop.NewMeterProvider())
 		require.False(t, worker.NeedLeaderElection())
 		startPushWorker(t, worker)
 		synctest.Wait()
@@ -459,7 +461,7 @@ func TestPushWorkerShortRetriesReturnToIdle(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				store := &pushWakeStore{pending: test.pending, pendingErr: test.pendingErr}
 				store.claimErr = test.claimErr
-				startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Minute)))
+				startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider()))
 				synctest.Wait()
 				require.Equal(t, 1, int(store.scans.Load()))
 				store.mu.Lock()
@@ -484,7 +486,7 @@ func TestPushWorkerRetainsHintDuringEmptyScan(t *testing.T) {
 		gate := make(chan struct{})
 		store := &pushWakeStore{claimGate: gate}
 		wake := make(chan struct{}, 1)
-		startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Hour)))
+		startPushWorker(t, NewPushWorker(store, &pushTestSender{}, nil, wake, testPushWorkerConfig(time.Hour), noop.NewMeterProvider()))
 		synctest.Wait()
 		require.Equal(t, 1, int(store.scans.Load()))
 		// Settlement races with the last empty claim. The hint must survive
@@ -570,7 +572,7 @@ func TestPushWorkerConcurrentDelivery(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 		done := make(chan error, 1)
-		worker := NewPushWorker(store, sender, nil, wake, testPushWorkerConfig(time.Hour))
+		worker := NewPushWorker(store, sender, nil, wake, testPushWorkerConfig(time.Hour), noop.NewMeterProvider())
 		go func() { done <- worker.Start(ctx) }()
 		synctest.Wait()
 		require.Len(t, started, 2, "enforce the configured in-flight limit")
@@ -606,7 +608,7 @@ func TestPushWorkerSendTimeout(t *testing.T) {
 		})
 		worker := NewPushWorker(store, sender, nil, nil, PushWorkerConfig{
 			RecoveryInterval: time.Hour, MaxConcurrency: 1, SendTimeout: 2 * time.Second,
-		})
+		}, noop.NewMeterProvider())
 		startPushWorker(t, worker)
 		synctest.Wait()
 		require.Len(t, store.deliveries, 1, "concurrency one preserves serial delivery")
@@ -656,7 +658,7 @@ func TestPushWorkerRefillsAfterQueuedCompletions(t *testing.T) {
 		})
 		config := testPushWorkerConfig(time.Hour)
 		config.MaxConcurrency = 4
-		startPushWorker(t, NewPushWorker(store, sender, nil, nil, config))
+		startPushWorker(t, NewPushWorker(store, sender, nil, nil, config, noop.NewMeterProvider()))
 		synctest.Wait()
 		require.EqualValues(t, 1, store.pendingChecks.Load())
 		// Both completions queue while the worker is blocked in the pending query.
@@ -683,7 +685,7 @@ func TestPushWorkerSaturationKeepsOnlyPeriodicCleanup(t *testing.T) {
 		wake := make(chan struct{}, 1)
 		startPushWorker(t, NewPushWorker(store, sender, nil, wake, PushWorkerConfig{
 			RecoveryInterval: time.Minute, MaxConcurrency: 1, SendTimeout: time.Hour,
-		}))
+		}, noop.NewMeterProvider()))
 		synctest.Wait()
 		wake <- struct{}{}
 		synctest.Wait()
@@ -712,7 +714,7 @@ func TestPushWorkerCheckTimeoutRecordsFailure(t *testing.T) {
 		sender := &pushTestSender{}
 		config := testPushWorkerConfig(time.Minute)
 		config.SendTimeout = 2 * time.Second
-		worker := NewPushWorker(store, sender, nil, nil, config)
+		worker := NewPushWorker(store, sender, nil, nil, config, noop.NewMeterProvider())
 		started := time.Now()
 		err := worker.send(t.Context(), pushTestDelivery(t, "task"))
 		require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -740,7 +742,7 @@ func TestPushWorkerFinalizationIsBounded(t *testing.T) {
 			cancel() // Shutdown races with a successful response.
 			return nil
 		})
-		worker := NewPushWorker(&pushFinishTimeoutStore{}, sender, nil, nil, testPushWorkerConfig(time.Minute))
+		worker := NewPushWorker(&pushFinishTimeoutStore{}, sender, nil, nil, testPushWorkerConfig(time.Minute), noop.NewMeterProvider())
 		started := time.Now()
 		err := worker.send(ctx, pushTestDelivery(t, "task"))
 		require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -756,7 +758,7 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			store, session := lifecycleFixture(t)
-			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second).Create(t.Context(), session)
+			session, err := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Create(t.Context(), session)
 			require.NoError(t, err)
 			request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
 			require.NoError(t, store.SaveTaskPushConfig(t.Context(), session.Id, request.TaskId, &a2a.PushConfig{ID: "callback", URL: "http://receiver"}))
@@ -778,7 +780,7 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 				ctx, cancel := context.WithCancel(t.Context())
 				done := make(chan error, 1)
 				// Recover transient empty claims well before the assertion deadline.
-				worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(10*time.Millisecond))
+				worker := NewPushWorker(store, sender, nil, nil, testPushWorkerConfig(10*time.Millisecond), noop.NewMeterProvider())
 				go func() { done <- worker.Start(ctx) }()
 				select {
 				case <-started:
@@ -811,7 +813,7 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 
 func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 	store, session := lifecycleFixture(t)
-	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second)
+	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 	session, err := creator.Create(t.Context(), session)
 	require.NoError(t, err)
 	request := stageQuiescenceTask(t, store.Client, session, a2a.TaskStateCompleted)
@@ -840,7 +842,7 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	wake := make(chan struct{}, 1)
-	worker := NewPushWorker(store, NewHTTPPushSender(time.Minute, true, true), nil, wake, testPushWorkerConfig(time.Minute))
+	worker := NewPushWorker(store, NewHTTPPushSender(time.Minute, true, true), nil, wake, testPushWorkerConfig(time.Minute), noop.NewMeterProvider())
 	go func() { done <- worker.Start(ctx) }()
 	defer func() {
 		cancel()
@@ -873,7 +875,7 @@ func TestPushWorkerConcurrentHTTPDelivery(t *testing.T) {
 // burst during HTTP sends must remain durable and drain without recovery scans.
 func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	store, first := lifecycleFixture(t)
-	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Hour)
+	creator := NewActorWorkflow(store, &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, make(chan struct{}, 1), time.Hour, noop.NewMeterProvider())
 	var sessions []*apiv1.Session
 	var requests []*runtimev1.TaskStoreServiceSettleTaskRequest
 	for i := range 12 {
@@ -900,7 +902,7 @@ func TestPushWorkersDrainAcrossReplicas(t *testing.T) {
 	var services []*taskstore.Service
 	for range 2 {
 		wake := make(chan struct{}, 1)
-		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, testPushWorkerConfig(time.Hour)))
+		startPushWorker(t, NewPushWorker(writes, &gatedPushSender{entered: entered, release: release}, nil, wake, testPushWorkerConfig(time.Hour), noop.NewMeterProvider()))
 		services = append(services, taskstore.NewService(store, nil, wake))
 	}
 	require.Eventually(t, func() bool { return writes.idle.Load() >= 2 }, 5*time.Second, time.Millisecond)

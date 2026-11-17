@@ -121,8 +121,10 @@ func (s *agentTemplateServer) agentTemplate(template *v1alpha3.AgentTemplate) (*
 	}
 	var modelConfigRef *apiv1.ResourceReference
 	if template.Spec.ModelConfig != nil {
-		key := template.Spec.ModelConfig.NamespacedName(template.Namespace)
-		modelConfigRef = &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}
+		// The response field carries no kind, so it only names ModelConfigs.
+		if kind, key := template.Spec.ModelConfig.Target(template.Namespace); kind == v1alpha3.ModelConfigGroupKind {
+			modelConfigRef = &apiv1.ResourceReference{Namespace: key.Namespace, Name: key.Name}
+		}
 	}
 	return &apiv1.AgentTemplate{
 		Ref:            &apiv1.ResourceReference{Namespace: template.Namespace, Name: template.Name},

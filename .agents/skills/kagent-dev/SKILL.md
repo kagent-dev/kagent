@@ -68,6 +68,9 @@ For SQL and store changes, follow [database guidance](../../../go/core/internal/
 - Follow [Kubernetes API conventions](../../../docs/kubernetes-api.md) for field presence, validation markers, and unions.
 - Modify only the intended v1alpha3 type and its validation.
 - Use explicit typed fields; avoid extension maps and speculative options.
+- Prefer a typed field over a label or annotation for user-facing behavior. When a
+  user-facing label or annotation key is unavoidable, define it in `go/api` beside
+  the types it configures; keep keys that only kagent writes next to their owner.
 - Regenerate deepcopy code, Helm-packaged CRDs, and RBAC when affected.
 - Verify generated schemas contain the intended fields and omit forbidden runtime infrastructure fields.
 
@@ -109,6 +112,19 @@ Add generated contracts before registering implementations when the roadmap sepa
 ## Authorization changes
 
 For resource or collection authorization work, read the [scoped authorization guide](references/scoped-authorization.md) before changing services or list queries.
+
+## Diagram changes
+
+Architecture diagrams are Excalidraw scenes. Each scene, `NAME.excalidraw`, is
+the source; the `NAME.svg` beside it is generated, and docs embed the SVG.
+
+- Edit the scene, never the SVG. Use [Excalidraw](https://excalidraw.com), the VS Code Excalidraw extension, or the scene JSON directly.
+- Do not export the SVG from Excalidraw; it will not match the pinned render.
+- Run `make diagrams-render` to regenerate the SVGs. It starts the [Kroki](https://kroki.io) Excalidraw renderer image pinned in the Makefile as a local container on port 8004, posts each scene to it, and stops it afterward. If a renderer already answers on that port, it uses that one instead.
+- Commit the scene and its SVG together.
+- Keep numbers and labels in the diagram in sync with the doc text that refers to them.
+- CI runs `make diagrams-check` against the same image as a service container, which fails when an SVG is missing or differs from a fresh render of its scene. When upgrading the image, change `KROKI_EXCALIDRAW_IMAGE` in the Makefile and the `Diagram Render Check` service in `.github/workflows/ci.yaml` together; the job fails when they differ.
+- If the renderer image cannot be pulled, push the scene and download the `rendered-diagrams` artifact from the failed `Diagram Render Check` job.
 
 ## Testing and CI
 

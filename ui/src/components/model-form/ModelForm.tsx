@@ -36,6 +36,7 @@ import {
   useProviders,
   type CreateModelConfigRequest,
 } from "@/api";
+import type { OpenAIAPIFormat, OpenAIReasoningEffort } from "@/api/domain/models";
 import {
   authTypeForProvider,
   supportsActorJWT,
@@ -58,6 +59,23 @@ import {
 import { ProviderIconWithLabel } from "./ProviderIcon";
 
 const { Text } = Typography;
+
+/**
+ * Provider params whose values are a fixed CRD enum (`OpenAIAPIFormat`,
+ * `OpenAIReasoningEffort`), rendered as a select with help rather than free text.
+ * `ListSupportedModelProviders` reports param names only, not their allowed values,
+ * so the values are kept here, typed against `@/api/domain/models`.
+ */
+const ENUM_PARAMS: Record<string, { values: string[]; help: string }> = {
+  apiFormat: {
+    values: ["chatCompletions", "responses"] satisfies OpenAIAPIFormat[],
+    help: "chatCompletions (default) posts to /v1/chat/completions; responses posts to /v1/responses. Codex requires responses.",
+  },
+  reasoningEffort: {
+    values: ["none", "minimal", "low", "medium", "high", "xhigh"] satisfies OpenAIReasoningEffort[],
+    help: "How many reasoning tokens the model spends before answering; none disables reasoning. Supported values vary by model.",
+  },
+};
 
 interface ModelFormProps {
   onSubmit: (payload: CreateModelConfigRequest) => Promise<void>;
@@ -356,15 +374,26 @@ export function ModelForm({
             ? `${key} is required.`
             : badNumber
               ? `${key} must be a number.`
-              : undefined
+              : ENUM_PARAMS[key]?.help
         }
       >
-        <Input
-          data-testid={`model-param-${key}`}
-          placeholder={required ? `Enter ${key}` : `(optional) ${key}`}
-          value={value}
-          onChange={(event) => setParam(key, event.target.value)}
-        />
+        {ENUM_PARAMS[key] ? (
+          <Select
+            data-testid={`model-param-${key}`}
+            placeholder={required ? `Choose ${key}` : `(optional) ${key}`}
+            allowClear={!required}
+            value={value || undefined}
+            options={ENUM_PARAMS[key].values.map((option) => ({ label: option, value: option }))}
+            onChange={(next?: string) => setParam(key, next ?? "")}
+          />
+        ) : (
+          <Input
+            data-testid={`model-param-${key}`}
+            placeholder={required ? `Enter ${key}` : `(optional) ${key}`}
+            value={value}
+            onChange={(event) => setParam(key, event.target.value)}
+          />
+        )}
       </Form.Item>
     );
   };

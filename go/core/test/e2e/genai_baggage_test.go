@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/baggage"
 	"google.golang.org/grpc/metadata"
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -171,11 +170,11 @@ func createGenAIBaggageTemplate(t *testing.T, kube ctrlclient.Client, harnessNam
 			Labels: map[string]string{"kagent.dev/harness": harnessName},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: modelName},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: modelName},
 			Description:  "GenAI baggage E2E fixture",
 			SystemPrompt: "Use the configured MCP tool. Do not calculate the answer yourself.",
 			Tools: []v1alpha3.ToolBinding{{MCP: &v1alpha3.MCPToolBinding{
-				Server: corev1.TypedObjectReference{Kind: "RemoteMCPServer", Name: server.Name},
+				Server: v1alpha3.MCPServerReference{Kind: new("RemoteMCPServer"), Name: server.Name},
 			}}},
 		},
 	}

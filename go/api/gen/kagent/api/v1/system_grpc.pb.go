@@ -25,6 +25,7 @@ const (
 	SystemService_GetSubstrateSummary_FullMethodName  = "/kagent.api.v1.SystemService/GetSubstrateSummary"
 	SystemService_ListSubstrateActors_FullMethodName  = "/kagent.api.v1.SystemService/ListSubstrateActors"
 	SystemService_ListSubstrateWorkers_FullMethodName = "/kagent.api.v1.SystemService/ListSubstrateWorkers"
+	SystemService_ListWorkerPools_FullMethodName      = "/kagent.api.v1.SystemService/ListWorkerPools"
 )
 
 // SystemServiceClient is the client API for SystemService service.
@@ -37,6 +38,10 @@ type SystemServiceClient interface {
 	GetSubstrateSummary(ctx context.Context, in *GetSubstrateSummaryRequest, opts ...grpc.CallOption) (*GetSubstrateSummaryResponse, error)
 	ListSubstrateActors(ctx context.Context, in *ListSubstrateActorsRequest, opts ...grpc.CallOption) (*ListSubstrateActorsResponse, error)
 	ListSubstrateWorkers(ctx context.Context, in *ListSubstrateWorkersRequest, opts ...grpc.CallOption) (*ListSubstrateWorkersResponse, error)
+	// ListWorkerPools reads WorkerPool resources from Kubernetes only. A Harness
+	// names a pool in its own namespace, so forms use this rather than the summary,
+	// which walks every ate-api actor and worker.
+	ListWorkerPools(ctx context.Context, in *ListWorkerPoolsRequest, opts ...grpc.CallOption) (*ListWorkerPoolsResponse, error)
 }
 
 type systemServiceClient struct {
@@ -107,6 +112,16 @@ func (c *systemServiceClient) ListSubstrateWorkers(ctx context.Context, in *List
 	return out, nil
 }
 
+func (c *systemServiceClient) ListWorkerPools(ctx context.Context, in *ListWorkerPoolsRequest, opts ...grpc.CallOption) (*ListWorkerPoolsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListWorkerPoolsResponse)
+	err := c.cc.Invoke(ctx, SystemService_ListWorkerPools_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SystemServiceServer is the server API for SystemService service.
 // All implementations must embed UnimplementedSystemServiceServer
 // for forward compatibility.
@@ -117,6 +132,10 @@ type SystemServiceServer interface {
 	GetSubstrateSummary(context.Context, *GetSubstrateSummaryRequest) (*GetSubstrateSummaryResponse, error)
 	ListSubstrateActors(context.Context, *ListSubstrateActorsRequest) (*ListSubstrateActorsResponse, error)
 	ListSubstrateWorkers(context.Context, *ListSubstrateWorkersRequest) (*ListSubstrateWorkersResponse, error)
+	// ListWorkerPools reads WorkerPool resources from Kubernetes only. A Harness
+	// names a pool in its own namespace, so forms use this rather than the summary,
+	// which walks every ate-api actor and worker.
+	ListWorkerPools(context.Context, *ListWorkerPoolsRequest) (*ListWorkerPoolsResponse, error)
 	mustEmbedUnimplementedSystemServiceServer()
 }
 
@@ -144,6 +163,9 @@ func (UnimplementedSystemServiceServer) ListSubstrateActors(context.Context, *Li
 }
 func (UnimplementedSystemServiceServer) ListSubstrateWorkers(context.Context, *ListSubstrateWorkersRequest) (*ListSubstrateWorkersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListSubstrateWorkers not implemented")
+}
+func (UnimplementedSystemServiceServer) ListWorkerPools(context.Context, *ListWorkerPoolsRequest) (*ListWorkerPoolsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListWorkerPools not implemented")
 }
 func (UnimplementedSystemServiceServer) mustEmbedUnimplementedSystemServiceServer() {}
 func (UnimplementedSystemServiceServer) testEmbeddedByValue()                       {}
@@ -274,6 +296,24 @@ func _SystemService_ListSubstrateWorkers_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_ListWorkerPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListWorkerPoolsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).ListWorkerPools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_ListWorkerPools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).ListWorkerPools(ctx, req.(*ListWorkerPoolsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SystemService_ServiceDesc is the grpc.ServiceDesc for SystemService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -304,6 +344,10 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListSubstrateWorkers",
 			Handler:    _SystemService_ListSubstrateWorkers_Handler,
+		},
+		{
+			MethodName: "ListWorkerPools",
+			Handler:    _SystemService_ListWorkerPools_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

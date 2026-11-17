@@ -1,5 +1,6 @@
 import { isExtensionPointId } from "./extensionPoints";
 import { isExtensionFormId } from "./formFields";
+import { isExtensionRowMenuId } from "./rowActions";
 import { isExtensionTableId } from "./tableColumns";
 import { coreRouteKeys } from "@/router/router";
 import type { AppExtensionConfig } from "./types";
@@ -122,6 +123,25 @@ function problemsIn(
     seenColumnIds.add(scoped);
   }
 
+  const seenRowActionIds = new Set<string>();
+  for (const [index, action] of (config.rowActions ?? []).entries()) {
+    // Named by position until it has an id, so the message can be traced to the entry.
+    const name = action.id ? `row action "${action.id}"` : `row action #${index + 1}`;
+    if (!action.id || !action.label || (typeof action.onClick === "function") === (typeof action.link === "function")) {
+      problems.push(`${name} needs an id, a label and exactly one of link or onClick`);
+    }
+    if (!isExtensionRowMenuId(action.menuId)) {
+      problems.push(`${name} targets unknown menu "${action.menuId}"`);
+    }
+    // Checked even when the entry has other problems, so one pass reports them all.
+    if (!action.id) continue;
+    const scoped = `${action.menuId}:${action.id}`;
+    if (seenRowActionIds.has(scoped)) {
+      problems.push(`${name} is declared twice`);
+    }
+    seenRowActionIds.add(scoped);
+  }
+
   for (const item of config.navItems ?? []) {
     if (seenNavKeys.has(item.key)) {
       problems.push(`nav item key "${item.key}" is declared twice`);
@@ -189,6 +209,21 @@ function collisionsAcross(extensions: readonly AppExtensionConfig[]): string[] {
     ).map(
       ([key, owners]) =>
         `nav item key "${key}" is contributed by more than one extension (${owners.join(", ")})`,
+    ),
+  );
+
+  problems.push(
+    ...duplicates(
+      extensions.flatMap((extension) =>
+        // Once per extension: a repeat inside one is the per-config check's to report.
+        [...new Set((extension.rowActions ?? []).filter((action) => action.id).map((action) => `${action.menuId}:${action.id}`))].map((value) => ({
+          owner: extension.id,
+          value,
+        })),
+      ),
+    ).map(
+      ([key, owners]) =>
+        `row action "${key}" is contributed by more than one extension (${owners.join(", ")})`,
     ),
   );
 

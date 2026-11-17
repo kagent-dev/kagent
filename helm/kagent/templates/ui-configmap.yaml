@@ -19,3 +19,6 @@ data:
   {{- if .Values.ui.streamTimeoutSeconds }}
   KAGENT_UI_STREAM_TIMEOUT_MS: {{ mul (int .Values.ui.streamTimeoutSeconds) 1000 | quote }}
   {{- end }}
+  {{- with include "kagent.builtinSkillsCatalog" . }}
+  KAGENT_UI_BUILTIN_SKILLS: {{ . | quote }}
+  {{- end }}

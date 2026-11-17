@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -21,7 +22,7 @@ import (
 func TestDeleteSessionWithInterruptedResume(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	actors := &deletionTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
-	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 	session, err := workflow.Create(t.Context(), session)
 	require.NoError(t, err)
 	actors.actors[actorKey("team-a", substrate.ActorName(session.Id))].Status.State = ateapipb.ActorState_ACTOR_STATE_RESUMING
@@ -49,7 +50,7 @@ func TestForceDeletionRetriesWithoutForceAfterInterruption(t *testing.T) {
 		t.Run("Given "+scenario.name+", when a normal retry follows force deletion, assert that deletion completes", func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			actors := &deletionTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			input := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("keep working"))
@@ -68,7 +69,7 @@ func TestForceDeletionRetriesWithoutForceAfterInterruption(t *testing.T) {
 				workflow = NewActorWorkflow(&completionTestStore{
 					lifecycleTestStore: store,
 					finishErr:          status.Error(codes.Unavailable, "database completion unavailable"),
-				}, actors, make(chan struct{}, 1), time.Second)
+				}, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			}
 			_, err = workflow.Delete(t.Context(), session, true)
 			require.Error(t, err)
@@ -78,7 +79,7 @@ func TestForceDeletionRetriesWithoutForceAfterInterruption(t *testing.T) {
 			working, err := store.GetSessionTask(t.Context(), session.Id, string(task.ID), nil)
 			require.NoError(t, err)
 			require.Equal(t, a2a.TaskStateWorking, working.Status.State)
-			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			deleted, err := restarted.Delete(t.Context(), pending, false)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETED, deleted.State)
@@ -100,7 +101,7 @@ func TestDeletionPreservesActorReplacedAfterPreparation(t *testing.T) {
 		t.Run("Given a replacement after preparation, when "+scenario.name+" deletion runs, assert that the replacement survives", func(t *testing.T) {
 			store, session := lifecycleFixture(t)
 			actors := &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}
-			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second)
+			workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
 			session, err := workflow.Create(t.Context(), session)
 			require.NoError(t, err)
 			name := substrate.ActorName(session.Id)
@@ -110,7 +111,7 @@ func TestDeletionPreservesActorReplacedAfterPreparation(t *testing.T) {
 				actors.actors[actorKey("team-a", name)].Metadata.Uid = "replacement-uid"
 			}}
 
-			_, err = NewActorWorkflow(replacingStore, actors, make(chan struct{}, 1), time.Second).Delete(t.Context(), session, scenario.force)
+			_, err = NewActorWorkflow(replacingStore, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider()).Delete(t.Context(), session, scenario.force)
 			require.Equal(t, codes.FailedPrecondition, status.Code(err))
 			replacement, err := actors.GetActor(t.Context(), "team-a", name)
 			require.NoError(t, err)

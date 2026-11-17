@@ -56,10 +56,16 @@ it("reuses a manual run request ID after a lost response, then gives the next fi
   const run = await screen.findByRole("button", { name: "Run" });
   fireEvent.click(run);
   await screen.findByText(/Response lost/);
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitFor(() => {
+    expect(run).toBeEnabled();
+    expect(run).not.toHaveClass("ant-btn-loading");
+  });
   fireEvent.click(run);
   await screen.findByText(/Execution queued/);
-  await waitFor(() => expect(run).toBeEnabled());
+  await waitFor(() => {
+    expect(run).toBeEnabled();
+    expect(run).not.toHaveClass("ant-btn-loading");
+  });
   fireEvent.click(run);
   await waitFor(() => expect(requestIds).toHaveLength(3));
   expect(requestIds[0]).toBeTruthy();

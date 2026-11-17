@@ -95,6 +95,9 @@ linters:
           msg: Use log/slog with the shared logging package
         - pattern: ^os\.(Getenv|LookupEnv)$
           msg: Use a registered accessor from core/pkg/env for configurable settings
+        - pattern: ^client\.Client$
+          pkg: ^sigs\.k8s\.io/controller-runtime/pkg/client$
+          msg: Use apiclient.Client (KRT/kclient reads, typed clientset writes); controller-runtime's client starts a second informer per type
     importas:
       alias:
         - pkg: k8s.io/api/core/v1
@@ -168,6 +171,11 @@ linters:
         text: Use a registered accessor from core/pkg/env
         # Unit tests may inspect process state; core/test E2E settings use the registry.
         path: '(^|/)(api|adk|harness|pkg|sandbox|core/(cli|internal|pkg))/.*_test\.go$'
+      # Tests may use controller-runtime's client against envtest or fakes.
+      - linters:
+          - forbidigo
+        text: Use apiclient.Client
+        path: '(_test\.go$|(^|/)core/test/)'
       # Only apply Kubernetes API conventions to the API types.
       - linters:
           - kubeapilinter

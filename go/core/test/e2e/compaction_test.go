@@ -186,7 +186,7 @@ func createCompactionHarness(t *testing.T, kube ctrlclient.Client, summarizerMod
 	}
 	harness.Spec.Kagent.Compaction = policy
 	harness.Spec.Kagent.Compaction.Summarizer = &v1alpha3.KagentHarnessSummarizer{
-		ModelConfigRef: &v1alpha3.ObjectReference{Name: summarizerModel},
+		ModelConfigRef: &v1alpha3.ModelConfigReference{Name: summarizerModel},
 		PromptTemplate: compactionSummaryPrompt + "\n\n{conversation_history}",
 	}
 	if err := kube.Create(t.Context(), harness); err != nil {
@@ -210,7 +210,7 @@ func createCompactionInteractionTemplate(t *testing.T, kube ctrlclient.Client, h
 			Labels: map[string]string{compactionRuntimeLabel: compactionRuntime, "kagent.dev/harness": harnessName},
 		},
 		Spec: v1alpha3.AgentTemplateSpec{
-			ModelConfig:  &v1alpha3.ObjectReference{Name: agentModel},
+			ModelConfig:  &v1alpha3.ModelConfigReference{Name: agentModel},
 			Description:  "Context compaction E2E fixture",
 			SystemPrompt: "Reply briefly.",
 		},

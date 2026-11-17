@@ -19,7 +19,7 @@ import {
 } from "@/appExtensions";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { AgentsLandingPage } from "@/pages/agents/AgentsLandingPage";
-import { HarnessNewPage } from "@/pages/agents/HarnessNewPage";
+import { HarnessEditPage, HarnessNewPage } from "@/pages/agents/HarnessNewPage";
 import { AgentNewChatPage } from "@/pages/AgentNewChatPage";
 import { UnmappedConversationsPage } from "@/pages/UnmappedConversationsPage";
 import { AgentPage } from "@/pages/AgentPage";
@@ -72,6 +72,7 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "agentDetail", path: paths.agentDetail, element: <AgentDetailsPage /> },
   { key: "agentChat", path: paths.agentChat, element: <AgentChatPage /> },
   { key: "harnessNew", path: paths.harnessNew, element: <HarnessNewPage /> },
+  { key: "harnessEdit", path: paths.harnessEdit, element: <HarnessEditPage /> },
   { key: "agentTemplates", path: paths.agentTemplates, element: <Navigate to={`${paths.agents}?tab=templates`} replace /> },
   {
     key: "agentTemplateNew",

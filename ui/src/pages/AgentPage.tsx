@@ -18,6 +18,7 @@ import {
 } from "@/appExtensions";
 import {
   apiClient,
+  agentUpdateFailedReason,
   isNotFound,
   newConversationBlockedReason,
   useAgentConversations,
@@ -123,6 +124,7 @@ export function AgentPage() {
   };
 
   const blockedReason = agent ? newConversationBlockedReason(agent) : undefined;
+  const updateFailedReason = agent ? agentUpdateFailedReason(agent) : undefined;
 
   /*
    * Goes to the new-conversation page rather than creating one here.
@@ -413,6 +415,20 @@ export function AgentPage() {
           />
         ) : null}
 
+        {updateFailedReason ? (
+          <Alert
+            type="warning"
+            showIcon
+            data-testid="agent-update-failed"
+            data-update-failed-reason={updateFailedReason}
+            title="The latest change to this agent failed. Conversations still use the last good revision."
+            // Nothing is blocked here, because conversations keep the last good revision, so
+            // the status tag's tooltip was the only place this showed up. The message is
+            // the controller's Ready condition, which is already redacted for status.
+            description={updateFailedReason}
+          />
+        ) : null}
+
         {conversations.error ? (
           <Alert
             type="error"
@@ -689,7 +705,7 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
           )}
         </IdentityField>
 
-        <IdentityField label="Runs on">
+        <IdentityField label="Harness">
           <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
             {spec.harnessRef.name}
           </Text>

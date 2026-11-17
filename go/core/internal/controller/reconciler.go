@@ -169,6 +169,8 @@ func compilationFailure(err error) *ReconciliationFailure {
 	var validation *translator.ValidationError
 	var missingPool *translator.WorkerPoolNotFoundError
 	switch {
+	case errors.Is(err, translator.ErrInvalidKind):
+		reason = "InvalidKind"
 	case errors.As(err, &validation):
 		// TODO(tim): Separate structural Agent validation from resolved
 		// compatibility failures so invalid sources do not report Accepted=True

@@ -210,7 +210,7 @@ func testAgentTemplateMessage(t *testing.T) *apiv1.AgentTemplate {
 	template := &apiv1alpha3.AgentTemplate{
 		TypeMeta:   metav1.TypeMeta{APIVersion: apiv1alpha3.GroupVersion.String(), Kind: agentTemplateKind},
 		ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "researcher"},
-		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: &apiv1alpha3.ObjectReference{Name: "default"}},
+		Spec:       apiv1alpha3.AgentTemplateSpec{ModelConfig: &apiv1alpha3.ModelConfigReference{Name: "default"}},
 	}
 	resource, err := structuredobject.FromGo(template, apiv1alpha3.GroupVersion.String(), agentTemplateKind, 0)
 	require.NoError(t, err)

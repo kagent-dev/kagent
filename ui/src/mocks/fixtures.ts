@@ -7,6 +7,7 @@
  */
 
 import type { AgentInstance } from "@/api/domain/agentInstances";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import type { ToolServerResponse, ToolsResponse } from "@/api/domain/mcpServers";
 import type {
   ModelConfig,
@@ -26,6 +27,7 @@ import type { Agent, AgentSpec, AgentStatus } from "@/api/domain/agents";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import type { EgressPolicy, EgressPolicySpec } from "@/api/domain/egressPolicies";
 import type { SandboxTemplate } from "@/api/domain/sandboxTemplates";
+import type { BuiltinSkillsCatalog } from "@/api/runtimeConfig";
 
 export const mockModels: ModelConfig[] = [
   {
@@ -121,6 +123,7 @@ export const mockProviders: Provider[] = [
       "n",
       "timeout",
       "reasoningEffort",
+      "apiFormat",
     ],
   },
   {
@@ -133,7 +136,7 @@ export const mockProviders: Provider[] = [
     name: "AzureOpenAI",
     type: "AzureOpenAI",
     requiredParams: ["azureEndpoint"],
-    optionalParams: ["apiVersion", "azureDeployment", "azureAdToken", "temperature", "maxTokens", "topP", "apiFormat"],
+    optionalParams: ["apiVersion", "azureDeployment", "temperature", "maxTokens", "topP", "apiFormat"],
   },
   {
     name: "Ollama",
@@ -606,6 +609,24 @@ export const mockAgentInstances: AgentInstance[] = [
  * exactly the class of failure this file's fixtures have caused before.
  */
 export const mockHarnesses: Harness[] = [
+  // The three the chart installs: no workload, so each runs the release's image.
+  ...(["kagent", "codex", "claude"] as const).map((runtime) => ({
+    ref: `kagent/${runtime}-default`,
+    namespace: "kagent",
+    name: `${runtime}-default`,
+    runtime,
+    workloadImage: "",
+    resource: {
+      metadata: { name: `${runtime}-default`, namespace: "kagent" },
+      spec: {
+        [runtime]: {},
+        substrate: {
+          workerPoolRef: { name: "kagent-default" },
+          snapshotPolicy: { location: "s3://ate-snapshots/kagent/" },
+        },
+      },
+    },
+  })),
   {
     ref: "kagent/k8s-agent",
     namespace: "kagent",
@@ -698,6 +719,43 @@ export const mockHarnesses: Harness[] = [
 ];
 
 
+/** Served as `BUILTIN_SKILLS`, which a deployment gets from the chart. */
+export const mockBuiltinSkills: BuiltinSkillsCatalog = {
+  image: "ghcr.io/kagent-dev/kagent/tools@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  skills: [
+    {
+      name: "argo-rollouts-progressive-delivery",
+      path: "opt/kagent-tools-skills/skills/argo-rollouts-progressive-delivery",
+      description: "Operate Argo Rollouts canary and blue-green releases.",
+    },
+    {
+      name: "helm-release-management",
+      path: "opt/kagent-tools-skills/skills/helm-release-management",
+      description: "Inspect, upgrade and uninstall Helm releases.",
+    },
+    {
+      name: "istio-traffic-debugging",
+      path: "opt/kagent-tools-skills/skills/istio-traffic-debugging",
+      description: "Debug Istio service mesh traffic: 503s, mTLS failures, routing not applied.",
+    },
+    {
+      name: "k8s-troubleshooting",
+      path: "opt/kagent-tools-skills/skills/k8s-troubleshooting",
+      description: "Diagnose unhealthy Kubernetes workloads: CrashLoopBackOff, Pending, ImagePullBackOff.",
+    },
+    {
+      name: "kubescape-security-posture",
+      path: "opt/kagent-tools-skills/skills/kubescape-security-posture",
+      description: "Review cluster security posture with Kubescape scan results.",
+    },
+    {
+      name: "prometheus-observability",
+      path: "opt/kagent-tools-skills/skills/prometheus-observability",
+      description: "Answer questions about cluster and application metrics with Prometheus queries.",
+    },
+  ],
+};
+
 export const mockAgentTemplates: AgentTemplate[] = [
   {
     ref: "kagent/k8s-agent-7f3a91c",
@@ -723,16 +781,33 @@ export const mockAgentTemplates: AgentTemplate[] = [
             },
           },
         ],
-        // Not authored by the form, and here on purpose: an edit that dropped it
-        // would be invisible on screen, so this is what the round-trip test guards.
         skills: [
+          {
+            name: "k8s-troubleshooting",
+            source: { oci: mockBuiltinSkills.image, path: "opt/kagent-tools-skills/skills/k8s-troubleshooting" },
+          },
           {
             name: "incident-review",
             source: {
-              oci: "ghcr.io/kagent-dev/skills@sha256:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
+              git: {
+                url: "https://github.com/example/runbooks.git",
+                commit: "3f1c9d2e5b7a48e0a1c6d9f2b4e8a7c30d5f6e9b",
+              },
+              path: "skills/incident-review",
+            },
+          },
+          // Saved before an upgrade changed the kagent-tools image's digest.
+          {
+            name: "helm-release-management",
+            source: {
+              oci: "ghcr.io/kagent-dev/kagent/tools@sha256:1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809",
+              path: "opt/kagent-tools-skills/skills/helm-release-management",
             },
           },
         ],
+        // Not authored by the form, and here on purpose: an edit that dropped it
+        // would be invisible on screen.
+        promptTemplate: { dataSources: [{ name: "kagent-builtin-prompts", alias: "builtin" }] },
       },
     },
   },
@@ -866,7 +941,22 @@ export const mockAgents: Agent[] = [
     harnessRef: { name: "k8s-agent" },
     egressPolicyRefs: [{ name: "github-api" }],
   }, withEgressApplied(readyStatus("rev-release-notes"))),
-  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }),
+  // Ran once, then an edit pointed it at a Harness image nobody can pull. The message is
+  // what `controller/golden_retry.go` writes while it waits to rebuild the golden snapshot.
+  agent("kagent", "triage-on-claude", { template: { ref: { name: "support-triage-2b91d0e" } }, harnessRef: { name: "support-triage" } }, {
+    observedGeneration: 2,
+    desiredRevision: "rev-triage-on-claude-2",
+    latestSuccessfulRevision: "rev-triage-on-claude",
+    conditions: [
+      { type: "Accepted", status: "True", reason: "Accepted", message: "Agent explicitly selects its template and harness" },
+      { type: "ResolvedRefs", status: "True", reason: "Resolved", message: "All runtime references resolved" },
+      { type: "Compatible", status: "True", reason: "Compatible", message: "Resolved configuration is compatible with the Harness" },
+      {
+        type: "Ready", status: "False", reason: "ActorTemplateRetrying",
+        message: "golden build failed (GoldenActorCrashed): could not pull image ghcr.io/kagent-dev/kagent/claude-harnes:0.9.0, retry 2 at 2026-11-07T10:01:12Z",
+      },
+    ],
+  }),
   agent("kagent", "scratchpad", {
     template: { inline: {
       modelConfig: { name: "default-model-config" },
@@ -901,7 +991,7 @@ function egressPolicy(namespace: string, name: string, spec: EgressPolicySpec): 
     namespace,
     name,
     resource: {
-      apiVersion: "api.kagent.dev/v1alpha3",
+      apiVersion: KAGENT_API_VERSION,
       kind: "EgressPolicy",
       metadata: { name, namespace, resourceVersion: "1", generation: 1, creationTimestamp: "2026-10-01T09:00:00Z" },
       spec,

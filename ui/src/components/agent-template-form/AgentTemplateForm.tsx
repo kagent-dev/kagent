@@ -22,8 +22,10 @@ import {
   type AgentTemplateDraft,
   type OutputSource,
 } from "./agentTemplateDraft";
+import { SkillsField } from "./SkillsField";
 
 import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 
 const { Text, Paragraph } = Typography;
 
@@ -67,9 +69,7 @@ function referenceFromPicker(value: string): ObjectReference {
  *
  * ## What it does not author, and why that is safe
  *
- * `skills`, `plugins` and `promptTemplate` are not on this form. Each is a rich
- * shape of its own — three artifact-source variants with strict CEL patterns — and
- * authoring them properly is its own piece of work. What matters is that an edit
+ * `plugins` and `promptTemplate` are not on this form. What matters is that an edit
  * does not *lose* them: `specFromDraft` merges onto the spec it was given rather
  * than building a fresh one, and `agentTemplateDraft.test.ts` pins that.
  *
@@ -600,6 +600,8 @@ export function AgentTemplateForm({
           </Space>
         </Form.Item>
 
+        <SkillsField skills={draft.skills} onChange={(next) => set("skills", next)} readOnly={readOnly} />
+
         {embedded ? null : (
           <Form.Item label="Labels" extra="Optional metadata. An Agent explicitly pairs this template with a Harness.">
             <Space orientation="vertical" size={8} css={{ display: "flex" }}>
@@ -661,14 +663,14 @@ export function AgentTemplateForm({
         )}
 
         {/* Said rather than left to be assumed. A reader who knows their template has
-            skills and cannot see them here would reasonably conclude a save will
+            plugins and cannot see them here would reasonably conclude a save will
             drop them. */}
         {hasUnshownFields ? (
           <Alert
             type="info"
             showIcon
             data-testid="template-form-unshown"
-            title="This template has skills, plugins or prompt data sources"
+            title="This template has plugins or prompt data sources"
             description="This form does not author those yet, and saving does not remove them — they are carried through untouched. Edit them with kubectl."
             css={{ marginBottom: theme.space(4) }}
           />
@@ -694,7 +696,7 @@ export function AgentTemplateForm({
 
       {embedded ? null : (
         <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-          <Tag>AgentTemplate</Tag> is a <code>api.kagent.dev/v1alpha3</code> custom resource.
+          <Tag>AgentTemplate</Tag> is a <code>{KAGENT_API_VERSION}</code> custom resource.
           Everything on this form writes one field of its <code>spec</code>, except the
           labels, which are <code>metadata</code>.
         </Paragraph>

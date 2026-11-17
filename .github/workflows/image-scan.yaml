@@ -58,7 +58,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        uses: useblacksmith/setup-docker-builder@06dd9c83a5d541274d2e3ac67625560979275267 # v2.3.0
       - name: Set version
         id: vars
         run: echo "version=v0.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT

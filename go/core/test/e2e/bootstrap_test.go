@@ -33,7 +33,7 @@ func TestLargeConfigurationBootstrap(t *testing.T) {
 		model := harness.createModel(t, kube, reachableModelURL(t, recorder.URL), nil)
 		const marker = "bootstrap-large-prompt-end"
 		prompt := strings.Repeat("Helpful context. ", 8000) + marker
-		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "bootstrap-large-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: prompt, Description: strings.Repeat("description ", 4000)}}
+		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "bootstrap-large-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name}, SystemPrompt: prompt, Description: strings.Repeat("description ", 4000)}}
 		createAndWaitInteractionTemplate(t, harness, kube, template)
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template.Name)
 		_, _, task := fixture.send(t, "What is 2+2?")
@@ -133,9 +133,9 @@ func largeSharedADKTemplate(t *testing.T, kube ctrlclient.Client, harness testHa
 	t.Helper()
 	rootModel := harness.createModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Agent": "root"})
 	childModel := harness.createModel(t, kube, modelURL, map[string]string{"X-Kagent-E2E-Agent": "child"})
-	root := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "bootstrap-large-shared-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: rootModel.Name}, SystemPrompt: "Delegate every request to the specialist.", Description: strings.Repeat("d", 40<<10)}}
+	root := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "bootstrap-large-shared-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: rootModel.Name}, SystemPrompt: "Delegate every request to the specialist.", Description: strings.Repeat("d", 40<<10)}}
 	for i := range children {
-		child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "bootstrap-large-child-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: childModel.Name}, Description: "Shared specialist", SystemPrompt: strings.Repeat("c", 56<<10) + "large-shared-child-instruction-end"}}
+		child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{GenerateName: "bootstrap-large-child-", Namespace: "kagent", Labels: harness.labels()}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: childModel.Name}, Description: "Shared specialist", SystemPrompt: strings.Repeat("c", 56<<10) + "large-shared-child-instruction-end"}}
 		createSharedTemplate(t, kube, child)
 		name := "specialist"
 		if i > 0 {

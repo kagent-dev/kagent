@@ -35,6 +35,9 @@ Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the test
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
 
+`TestSessionSendRecoversCrashedRuntime` requires `config.sessions.automaticRecovery: true`
+in the test install. CI enables it to exercise recovery through ordinary sends.
+
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets

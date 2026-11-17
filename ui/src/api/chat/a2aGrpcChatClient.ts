@@ -59,7 +59,8 @@ import {
   type Task as A2ATask,
   type TaskStatus,
 } from "@/generated/a2a_pb";
-import { ApiError, fromConnectError, rethrowIfAborted } from "../ApiError";
+import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
+import { ApiError, fromConnectError, rethrowIfAborted, SEND_NOT_ACCEPTED, TURN_ACTIVE } from "../ApiError";
 import { A2A_METADATA, metadataString } from "./a2aMetadata";
 import {
   HITL_EXTENSION_HEADER,
@@ -115,22 +116,93 @@ const REATTACH_HEALTHY_MS = 10_000;
 /** The wait before the first re-attach after a failure, doubled for each one after. */
 const REATTACH_BACKOFF_MS = 500;
 
-/** Resolves after `ms`, or rejects with the abort as soon as `signal` fires. */
-function pause(ms: number, signal: AbortSignal | undefined): Promise<void> {
+/**
+ * How long a send keeps re-sending a message the gateway proved it did not accept.
+ * The window bounds the retries, not how long an accepted turn may run.
+ */
+const UNACCEPTED_SEND_WINDOW_MS = 30_000;
+
+/** The wait before re-sending when the gateway does not name one. */
+const UNACCEPTED_SEND_RETRY_MS = 100;
+
+/**
+ * The longest wait between re-sends. Each wait doubles from the gateway's, so a
+ * runtime that stays down costs a handful of sends per window rather than hundreds.
+ */
+const UNACCEPTED_SEND_MAX_RETRY_MS = 2_000;
+
+/** `ErrorInfo.domain` of every error the A2A server writes (`a2a.ProtocolDomain`). */
+const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
+
+/**
+ * A2A's UNSUPPORTED_OPERATION refusal (gRPC FAILED_PRECONDITION), or undefined.
+ * The gateway answers an input it cannot take this way, before running anything.
+ */
+function a2aRefusal(error: unknown) {
+  if (!(error instanceof ConnectError) || error.code !== Code.FailedPrecondition) return undefined;
+  return error.findDetails(ErrorInfoSchema).find((detail) =>
+    detail.domain === A2A_PROTOCOL_DOMAIN && detail.reason === "UNSUPPORTED_OPERATION");
+}
+
+/**
+ * The wait before re-sending, when `error` is the gateway's proof that it did not
+ * accept the message; otherwise undefined.
+ *
+ * The gateway answers a send that reached a crashed runtime, or a recovery still in
+ * progress, with A2A's UNSUPPORTED_OPERATION (gRPC FAILED_PRECONDITION) and a
+ * `google.rpc.ErrorInfo` whose metadata says `reason: KAGENT_SEND_NOT_ACCEPTED`.
+ * Only that combination is proof: any other refusal, or a broken connection, may
+ * have accepted the input, and sending it again could start a second turn.
+ */
+function unacceptedSendRetryMs(error: unknown): number | undefined {
+  const info = a2aRefusal(error);
+  if (info?.metadata.reason !== SEND_NOT_ACCEPTED) return undefined;
+  const wait = Number.parseInt(info.metadata.retryAfterMs ?? "", 10);
+  return Number.isFinite(wait) && wait >= 0 ? wait : UNACCEPTED_SEND_RETRY_MS;
+}
+
+/** A refused send, tagged with `reason` for the page to offer a revert. */
+function refusedSendError(error: unknown, reason: string, message?: string): ApiError {
+  const failure = fromConnectError(error, "A2AService/SendStreamingMessage");
+  return new ApiError(message ?? failure.message, {
+    kind: failure.kind, status: failure.status, code: failure.code,
+    reason, url: failure.url, cause: error,
+  });
+}
+
+/**
+ * Resolves after `ms`, or early once `wake` fires; rejects with the abort as soon as
+ * `signal` fires.
+ */
+function pause(ms: number, signal: AbortSignal | undefined, wake?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
       return;
     }
-    const onAbort = () => {
+    if (wake?.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      wake?.removeEventListener("abort", onWake);
+    };
+    const onAbort = () => {
+      done();
       reject(signal?.reason);
     };
+    const onWake = () => {
+      done();
+      resolve();
+    };
     const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
+      done();
       resolve();
     }, ms);
     signal?.addEventListener("abort", onAbort, { once: true });
+    wake?.addEventListener("abort", onWake, { once: true });
   });
 }
 
@@ -498,7 +570,7 @@ export class A2AGrpcChatClient implements ChatClient {
   }
 
   async *send(input: SendMessageInput): AsyncIterable<ChatEvent> {
-    const { conversation, text, signal } = input;
+    const { conversation, text, signal, stopResending } = input;
     const client = serviceClient(A2AService);
     const fileParts = await Promise.all(
       (input.files ?? []).map(async (file) => ({
@@ -600,16 +672,26 @@ export class A2AGrpcChatClient implements ChatClient {
      * not taken as a sign the path works: a path that breaks right after it would
      * otherwise never run out of attempts. What resets the count is a frame after
      * it, or a stream that stayed open long enough to have been cut for being quiet.
+     *
+     * Before any frame, a send the gateway proves it did not accept is sent again,
+     * identically, after a wait that doubles up to `UNACCEPTED_SEND_MAX_RETRY_MS`.
+     * With automatic recovery enabled, that is how a crashed runtime recovers: the
+     * send that finds it reverts it, and the same message ID can never be accepted
+     * twice. Once a frame has arrived, the message was accepted and is never re-sent.
      */
     let taskId = "";
     let settled = false;
     const follow = async function* (): AsyncGenerator<StreamFrame> {
+      const resendUntil = Date.now() + UNACCEPTED_SEND_WINDOW_MS;
+      let resendWait = 0;
+      let received = false;
       let source = stream;
       for (let failures = 0; ; ) {
         const opened = Date.now();
         let progressed = false;
         try {
           for await (const frame of source) {
+            received = true;
             if (frame.payload.case !== "task") progressed = true;
             const event = frame.payload.value as
               | { id?: string; taskId?: string; status?: TaskStatus }
@@ -623,6 +705,25 @@ export class A2AGrpcChatClient implements ChatClient {
           }
           return;
         } catch (error) {
+          const resendAfter = received ? undefined : unacceptedSendRetryMs(error);
+          // A stopped message is never sent again: each refusal proved the last
+          // attempt was not accepted, so ending here leaves nothing running.
+          if (resendAfter !== undefined && !signal?.aborted && !stopResending?.aborted) {
+            resendWait = Math.max(resendAfter, Math.min(resendWait * 2, UNACCEPTED_SEND_MAX_RETRY_MS));
+            if (Date.now() + resendWait > resendUntil) {
+              const recovering = a2aRefusal(error)?.metadata.state === "RECOVERING";
+              throw refusedSendError(error, SEND_NOT_ACCEPTED, recovering
+                ? "The agent's runtime is still recovering from a crash."
+                : "The agent's runtime did not accept the message. It may have crashed.");
+            }
+            await pause(resendWait, signal, stopResending);
+            if (stopResending?.aborted) throw error;
+            source = client.sendStreamingMessage(request, options);
+            continue;
+          }
+          if (!received && !signal?.aborted && a2aRefusal(error)?.metadata.reason === TURN_ACTIVE) {
+            throw refusedSendError(error, TURN_ACTIVE);
+          }
           if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
           failures += 1;
           const reattach = !signal?.aborted && taskId !== "" && !settled

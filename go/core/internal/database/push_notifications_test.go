@@ -137,7 +137,7 @@ func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
 	require.NoError(t, execSQL(ctx, client.db, `UPDATE session_push_registration SET created_at = clock_timestamp() - interval '11 minutes' WHERE initial_message_id = $1`, "unaccepted"))
 	require.NoError(t, client.ExpireUnboundPushRegistrations(ctx))
 	var closed bool
-	require.NoError(t, client.db.QueryRow(ctx, `SELECT closed_at IS NOT NULL FROM session_push_registration WHERE initial_message_id = $1`, "unaccepted").Scan(&closed))
+	require.NoError(t, sharedDB.QueryRow(ctx, `SELECT closed_at IS NOT NULL FROM session_push_registration WHERE initial_message_id = $1`, "unaccepted").Scan(&closed))
 	require.True(t, closed)
 	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", config))
 	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", &a2a.PushConfig{ID: "default", URL: "http://changed"}), ErrIdempotencyConflict)
@@ -152,7 +152,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "pending", "", config))
 	require.NoError(t, execSQL(ctx, client.db, `UPDATE session_push_registration SET created_at = clock_timestamp() - interval '11 minutes' WHERE initial_message_id = $1`, "pending"))
 
-	tx, err := client.db.Begin(ctx)
+	tx, err := sharedDB.Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `UPDATE session_push_registration SET task_id = $2 WHERE initial_message_id = $1`, "pending", task.ID)
@@ -162,7 +162,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 	go func() { expired <- client.ExpireUnboundPushRegistrations(ctx) }()
 	require.Eventually(t, func() bool {
 		var waiting bool
-		err := client.db.QueryRow(ctx, `
+		err := sharedDB.QueryRow(ctx, `
 			SELECT EXISTS (SELECT 1 FROM pg_stat_activity
 				WHERE datname = current_database()
 					AND query LIKE '%UPDATE session_push_registration SET closed_at%'
@@ -173,7 +173,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 	require.NoError(t, tx.Commit(ctx))
 	require.NoError(t, <-expired)
 	var bound, closed bool
-	require.NoError(t, client.db.QueryRow(ctx, `
+	require.NoError(t, sharedDB.QueryRow(ctx, `
 		SELECT task_id IS NOT NULL, closed_at IS NOT NULL FROM session_push_registration
 		WHERE initial_message_id = $1
 	`, "pending").Scan(&bound, &closed))
@@ -430,7 +430,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 
 		var count int
 		var delaySeconds float64
-		require.NoError(t, client.db.QueryRow(ctx, `
+		require.NoError(t, sharedDB.QueryRow(ctx, `
             SELECT attempt_count,
                 EXTRACT(EPOCH FROM (next_attempt_at - clock_timestamp()))::double precision
             FROM session_push_registration WHERE id = $1
@@ -465,7 +465,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, current, "an exhausted generation cannot clear newer work")
 	var count int
-	require.NoError(t, client.db.QueryRow(ctx, `SELECT attempt_count FROM session_push_registration WHERE id = $1`, next.ID).Scan(&count))
+	require.NoError(t, sharedDB.QueryRow(ctx, `SELECT attempt_count FROM session_push_registration WHERE id = $1`, next.ID).Scan(&count))
 	require.Equal(t, 1, count)
 }
 
@@ -858,7 +858,7 @@ func TestPushDeliveryClaimSkipsUncommittedPublication(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete"), task, task, "")
 	require.NoError(t, err)
-	tx, err := client.db.Begin(ctx)
+	tx, err := sharedDB.Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `SELECT id FROM session_push_registration FOR UPDATE`)
@@ -867,7 +867,7 @@ func TestPushDeliveryClaimSkipsUncommittedPublication(t *testing.T) {
 	go func() { settled <- client.SettleSessionTask(ctx, session.Id, string(task.ID), version) }()
 	require.Eventually(t, func() bool {
 		var blocked bool
-		err := client.db.QueryRow(ctx, `
+		err := sharedDB.QueryRow(ctx, `
             SELECT EXISTS (SELECT 1 FROM pg_stat_activity
                 WHERE datname = current_database()
                   AND query LIKE '%UPDATE session_push_registration SET pending_event_sequence%'
@@ -966,7 +966,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			stored, err := readSessionTask(ctx, client.db, session.HistoryID, string(badTask.ID))
 			require.NoError(t, err)
 			var registrationID uuid.UUID
-			require.NoError(t, client.db.QueryRow(ctx, `
+			require.NoError(t, sharedDB.QueryRow(ctx, `
                 SELECT id FROM session_push_registration WHERE history_id = $1 AND config_id = 'bad'
             `, session.HistoryID).Scan(&registrationID))
 			invalidData := []byte{0xff}
@@ -986,7 +986,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			require.Nil(t, delivery)
 			var attempts int
 			var scheduled, unleased bool
-			require.NoError(t, client.db.QueryRow(ctx, `
+			require.NoError(t, sharedDB.QueryRow(ctx, `
                 SELECT attempt_count, next_attempt_at > clock_timestamp(),
                     claim_token IS NULL AND lease_until IS NULL
                 FROM session_push_registration WHERE config_id = 'bad'
@@ -1039,7 +1039,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 func assertPushDeliveryRetired(t *testing.T, client *Client, registrationID uuid.UUID) {
 	t.Helper()
 	var retired bool
-	require.NoError(t, client.db.QueryRow(t.Context(), `
+	require.NoError(t, sharedDB.QueryRow(t.Context(), `
         SELECT pending_event_sequence IS NULL AND attempt_count = 0 AND next_attempt_at IS NULL
             AND claim_token IS NULL AND lease_until IS NULL AND closed_at IS NULL
         FROM session_push_registration WHERE id = $1

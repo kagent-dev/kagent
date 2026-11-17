@@ -865,6 +865,96 @@ func (x *ListSubstrateWorkersResponse) GetComputedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type ListWorkerPoolsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Kubernetes namespace of the pools. Empty uses watched namespaces.
+	Namespace     string `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkerPoolsRequest) Reset() {
+	*x = ListWorkerPoolsRequest{}
+	mi := &file_kagent_api_v1_system_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkerPoolsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkerPoolsRequest) ProtoMessage() {}
+
+func (x *ListWorkerPoolsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_system_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkerPoolsRequest.ProtoReflect.Descriptor instead.
+func (*ListWorkerPoolsRequest) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_system_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ListWorkerPoolsRequest) GetNamespace() string {
+	if x != nil {
+		return x.Namespace
+	}
+	return ""
+}
+
+type ListWorkerPoolsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Pools the caller may read, in namespace/name order.
+	WorkerPools   []*SubstrateWorkerPool `protobuf:"bytes,1,rep,name=worker_pools,json=workerPools,proto3" json:"worker_pools,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListWorkerPoolsResponse) Reset() {
+	*x = ListWorkerPoolsResponse{}
+	mi := &file_kagent_api_v1_system_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListWorkerPoolsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListWorkerPoolsResponse) ProtoMessage() {}
+
+func (x *ListWorkerPoolsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_kagent_api_v1_system_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListWorkerPoolsResponse.ProtoReflect.Descriptor instead.
+func (*ListWorkerPoolsResponse) Descriptor() ([]byte, []int) {
+	return file_kagent_api_v1_system_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListWorkerPoolsResponse) GetWorkerPools() []*SubstrateWorkerPool {
+	if x != nil {
+		return x.WorkerPools
+	}
+	return nil
+}
+
 var File_kagent_api_v1_system_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_system_proto_rawDesc = "" +
@@ -927,7 +1017,11 @@ const file_kagent_api_v1_system_proto_rawDesc = "" +
 	"\aworkers\x18\x03 \x03(\v2\x1b.substrate.ateapi.v1.WorkerR\aworkers\x12/\n" +
 	"\x04page\x18\x04 \x01(\v2\x1b.kagent.api.v1.PageResponseR\x04page\x12;\n" +
 	"\vcomputed_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
-	"computedAt2\xed\x04\n" +
+	"computedAt\"c\n" +
+	"\x16ListWorkerPoolsRequest\x12I\n" +
+	"\tnamespace\x18\x01 \x01(\tB+\xbaH(r&\x18?2\"^([a-z0-9]([-a-z0-9]*[a-z0-9])?)?$R\tnamespace\"`\n" +
+	"\x17ListWorkerPoolsResponse\x12E\n" +
+	"\fworker_pools\x18\x01 \x03(\v2\".kagent.api.v1.SubstrateWorkerPoolR\vworkerPools2\xcf\x05\n" +
 	"\rSystemService\x12Q\n" +
 	"\n" +
 	"GetVersion\x12 .kagent.api.v1.GetVersionRequest\x1a!.kagent.api.v1.GetVersionResponse\x12]\n" +
@@ -935,7 +1029,8 @@ const file_kagent_api_v1_system_proto_rawDesc = "" +
 	"\x0eListNamespaces\x12$.kagent.api.v1.ListNamespacesRequest\x1a%.kagent.api.v1.ListNamespacesResponse\x12l\n" +
 	"\x13GetSubstrateSummary\x12).kagent.api.v1.GetSubstrateSummaryRequest\x1a*.kagent.api.v1.GetSubstrateSummaryResponse\x12l\n" +
 	"\x13ListSubstrateActors\x12).kagent.api.v1.ListSubstrateActorsRequest\x1a*.kagent.api.v1.ListSubstrateActorsResponse\x12o\n" +
-	"\x14ListSubstrateWorkers\x12*.kagent.api.v1.ListSubstrateWorkersRequest\x1a+.kagent.api.v1.ListSubstrateWorkersResponseB=Z;github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1b\x06proto3"
+	"\x14ListSubstrateWorkers\x12*.kagent.api.v1.ListSubstrateWorkersRequest\x1a+.kagent.api.v1.ListSubstrateWorkersResponse\x12`\n" +
+	"\x0fListWorkerPools\x12%.kagent.api.v1.ListWorkerPoolsRequest\x1a&.kagent.api.v1.ListWorkerPoolsResponseB=Z;github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1b\x06proto3"
 
 var (
 	file_kagent_api_v1_system_proto_rawDescOnce sync.Once
@@ -949,7 +1044,7 @@ func file_kagent_api_v1_system_proto_rawDescGZIP() []byte {
 	return file_kagent_api_v1_system_proto_rawDescData
 }
 
-var file_kagent_api_v1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_kagent_api_v1_system_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_kagent_api_v1_system_proto_goTypes = []any{
 	(*GetVersionRequest)(nil),            // 0: kagent.api.v1.GetVersionRequest
 	(*GetVersionResponse)(nil),           // 1: kagent.api.v1.GetVersionResponse
@@ -966,52 +1061,57 @@ var file_kagent_api_v1_system_proto_goTypes = []any{
 	(*ListSubstrateActorsResponse)(nil),  // 12: kagent.api.v1.ListSubstrateActorsResponse
 	(*ListSubstrateWorkersRequest)(nil),  // 13: kagent.api.v1.ListSubstrateWorkersRequest
 	(*ListSubstrateWorkersResponse)(nil), // 14: kagent.api.v1.ListSubstrateWorkersResponse
-	(*structpb.Struct)(nil),              // 15: google.protobuf.Struct
-	(*ResourceReference)(nil),            // 16: kagent.api.v1.ResourceReference
-	(*StructuredObject)(nil),             // 17: kagent.api.v1.StructuredObject
-	(v1.ActorState)(0),                   // 18: substrate.ateapi.v1.ActorState
-	(*timestamppb.Timestamp)(nil),        // 19: google.protobuf.Timestamp
-	(*v1.ActorTemplate)(nil),             // 20: substrate.ateapi.v1.ActorTemplate
-	(*PageRequest)(nil),                  // 21: kagent.api.v1.PageRequest
-	(*v1.Actor)(nil),                     // 22: substrate.ateapi.v1.Actor
-	(*PageResponse)(nil),                 // 23: kagent.api.v1.PageResponse
-	(*v1.Worker)(nil),                    // 24: substrate.ateapi.v1.Worker
+	(*ListWorkerPoolsRequest)(nil),       // 15: kagent.api.v1.ListWorkerPoolsRequest
+	(*ListWorkerPoolsResponse)(nil),      // 16: kagent.api.v1.ListWorkerPoolsResponse
+	(*structpb.Struct)(nil),              // 17: google.protobuf.Struct
+	(*ResourceReference)(nil),            // 18: kagent.api.v1.ResourceReference
+	(*StructuredObject)(nil),             // 19: kagent.api.v1.StructuredObject
+	(v1.ActorState)(0),                   // 20: substrate.ateapi.v1.ActorState
+	(*timestamppb.Timestamp)(nil),        // 21: google.protobuf.Timestamp
+	(*v1.ActorTemplate)(nil),             // 22: substrate.ateapi.v1.ActorTemplate
+	(*PageRequest)(nil),                  // 23: kagent.api.v1.PageRequest
+	(*v1.Actor)(nil),                     // 24: substrate.ateapi.v1.Actor
+	(*PageResponse)(nil),                 // 25: kagent.api.v1.PageResponse
+	(*v1.Worker)(nil),                    // 26: substrate.ateapi.v1.Worker
 }
 var file_kagent_api_v1_system_proto_depIdxs = []int32{
-	15, // 0: kagent.api.v1.GetCurrentUserResponse.claims:type_name -> google.protobuf.Struct
+	17, // 0: kagent.api.v1.GetCurrentUserResponse.claims:type_name -> google.protobuf.Struct
 	5,  // 1: kagent.api.v1.ListNamespacesResponse.namespaces:type_name -> kagent.api.v1.Namespace
-	16, // 2: kagent.api.v1.SubstrateWorkerPool.ref:type_name -> kagent.api.v1.ResourceReference
-	17, // 3: kagent.api.v1.SubstrateWorkerPool.resource:type_name -> kagent.api.v1.StructuredObject
-	18, // 4: kagent.api.v1.SubstrateActorStatusCount.state:type_name -> substrate.ateapi.v1.ActorState
+	18, // 2: kagent.api.v1.SubstrateWorkerPool.ref:type_name -> kagent.api.v1.ResourceReference
+	19, // 3: kagent.api.v1.SubstrateWorkerPool.resource:type_name -> kagent.api.v1.StructuredObject
+	20, // 4: kagent.api.v1.SubstrateActorStatusCount.state:type_name -> substrate.ateapi.v1.ActorState
 	7,  // 5: kagent.api.v1.GetSubstrateSummaryResponse.worker_pools:type_name -> kagent.api.v1.SubstrateWorkerPool
 	9,  // 6: kagent.api.v1.GetSubstrateSummaryResponse.actor_status_counts:type_name -> kagent.api.v1.SubstrateActorStatusCount
-	19, // 7: kagent.api.v1.GetSubstrateSummaryResponse.computed_at:type_name -> google.protobuf.Timestamp
-	20, // 8: kagent.api.v1.GetSubstrateSummaryResponse.actor_templates:type_name -> substrate.ateapi.v1.ActorTemplate
-	21, // 9: kagent.api.v1.ListSubstrateActorsRequest.page:type_name -> kagent.api.v1.PageRequest
-	22, // 10: kagent.api.v1.ListSubstrateActorsResponse.actors:type_name -> substrate.ateapi.v1.Actor
-	23, // 11: kagent.api.v1.ListSubstrateActorsResponse.page:type_name -> kagent.api.v1.PageResponse
-	19, // 12: kagent.api.v1.ListSubstrateActorsResponse.computed_at:type_name -> google.protobuf.Timestamp
-	21, // 13: kagent.api.v1.ListSubstrateWorkersRequest.page:type_name -> kagent.api.v1.PageRequest
-	24, // 14: kagent.api.v1.ListSubstrateWorkersResponse.workers:type_name -> substrate.ateapi.v1.Worker
-	23, // 15: kagent.api.v1.ListSubstrateWorkersResponse.page:type_name -> kagent.api.v1.PageResponse
-	19, // 16: kagent.api.v1.ListSubstrateWorkersResponse.computed_at:type_name -> google.protobuf.Timestamp
-	0,  // 17: kagent.api.v1.SystemService.GetVersion:input_type -> kagent.api.v1.GetVersionRequest
-	2,  // 18: kagent.api.v1.SystemService.GetCurrentUser:input_type -> kagent.api.v1.GetCurrentUserRequest
-	4,  // 19: kagent.api.v1.SystemService.ListNamespaces:input_type -> kagent.api.v1.ListNamespacesRequest
-	8,  // 20: kagent.api.v1.SystemService.GetSubstrateSummary:input_type -> kagent.api.v1.GetSubstrateSummaryRequest
-	11, // 21: kagent.api.v1.SystemService.ListSubstrateActors:input_type -> kagent.api.v1.ListSubstrateActorsRequest
-	13, // 22: kagent.api.v1.SystemService.ListSubstrateWorkers:input_type -> kagent.api.v1.ListSubstrateWorkersRequest
-	1,  // 23: kagent.api.v1.SystemService.GetVersion:output_type -> kagent.api.v1.GetVersionResponse
-	3,  // 24: kagent.api.v1.SystemService.GetCurrentUser:output_type -> kagent.api.v1.GetCurrentUserResponse
-	6,  // 25: kagent.api.v1.SystemService.ListNamespaces:output_type -> kagent.api.v1.ListNamespacesResponse
-	10, // 26: kagent.api.v1.SystemService.GetSubstrateSummary:output_type -> kagent.api.v1.GetSubstrateSummaryResponse
-	12, // 27: kagent.api.v1.SystemService.ListSubstrateActors:output_type -> kagent.api.v1.ListSubstrateActorsResponse
-	14, // 28: kagent.api.v1.SystemService.ListSubstrateWorkers:output_type -> kagent.api.v1.ListSubstrateWorkersResponse
-	23, // [23:29] is the sub-list for method output_type
-	17, // [17:23] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	21, // 7: kagent.api.v1.GetSubstrateSummaryResponse.computed_at:type_name -> google.protobuf.Timestamp
+	22, // 8: kagent.api.v1.GetSubstrateSummaryResponse.actor_templates:type_name -> substrate.ateapi.v1.ActorTemplate
+	23, // 9: kagent.api.v1.ListSubstrateActorsRequest.page:type_name -> kagent.api.v1.PageRequest
+	24, // 10: kagent.api.v1.ListSubstrateActorsResponse.actors:type_name -> substrate.ateapi.v1.Actor
+	25, // 11: kagent.api.v1.ListSubstrateActorsResponse.page:type_name -> kagent.api.v1.PageResponse
+	21, // 12: kagent.api.v1.ListSubstrateActorsResponse.computed_at:type_name -> google.protobuf.Timestamp
+	23, // 13: kagent.api.v1.ListSubstrateWorkersRequest.page:type_name -> kagent.api.v1.PageRequest
+	26, // 14: kagent.api.v1.ListSubstrateWorkersResponse.workers:type_name -> substrate.ateapi.v1.Worker
+	25, // 15: kagent.api.v1.ListSubstrateWorkersResponse.page:type_name -> kagent.api.v1.PageResponse
+	21, // 16: kagent.api.v1.ListSubstrateWorkersResponse.computed_at:type_name -> google.protobuf.Timestamp
+	7,  // 17: kagent.api.v1.ListWorkerPoolsResponse.worker_pools:type_name -> kagent.api.v1.SubstrateWorkerPool
+	0,  // 18: kagent.api.v1.SystemService.GetVersion:input_type -> kagent.api.v1.GetVersionRequest
+	2,  // 19: kagent.api.v1.SystemService.GetCurrentUser:input_type -> kagent.api.v1.GetCurrentUserRequest
+	4,  // 20: kagent.api.v1.SystemService.ListNamespaces:input_type -> kagent.api.v1.ListNamespacesRequest
+	8,  // 21: kagent.api.v1.SystemService.GetSubstrateSummary:input_type -> kagent.api.v1.GetSubstrateSummaryRequest
+	11, // 22: kagent.api.v1.SystemService.ListSubstrateActors:input_type -> kagent.api.v1.ListSubstrateActorsRequest
+	13, // 23: kagent.api.v1.SystemService.ListSubstrateWorkers:input_type -> kagent.api.v1.ListSubstrateWorkersRequest
+	15, // 24: kagent.api.v1.SystemService.ListWorkerPools:input_type -> kagent.api.v1.ListWorkerPoolsRequest
+	1,  // 25: kagent.api.v1.SystemService.GetVersion:output_type -> kagent.api.v1.GetVersionResponse
+	3,  // 26: kagent.api.v1.SystemService.GetCurrentUser:output_type -> kagent.api.v1.GetCurrentUserResponse
+	6,  // 27: kagent.api.v1.SystemService.ListNamespaces:output_type -> kagent.api.v1.ListNamespacesResponse
+	10, // 28: kagent.api.v1.SystemService.GetSubstrateSummary:output_type -> kagent.api.v1.GetSubstrateSummaryResponse
+	12, // 29: kagent.api.v1.SystemService.ListSubstrateActors:output_type -> kagent.api.v1.ListSubstrateActorsResponse
+	14, // 30: kagent.api.v1.SystemService.ListSubstrateWorkers:output_type -> kagent.api.v1.ListSubstrateWorkersResponse
+	16, // 31: kagent.api.v1.SystemService.ListWorkerPools:output_type -> kagent.api.v1.ListWorkerPoolsResponse
+	25, // [25:32] is the sub-list for method output_type
+	18, // [18:25] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_kagent_api_v1_system_proto_init() }
@@ -1026,7 +1126,7 @@ func file_kagent_api_v1_system_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_kagent_api_v1_system_proto_rawDesc), len(file_kagent_api_v1_system_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

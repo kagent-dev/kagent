@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -97,26 +98,59 @@ func (g goldenRetries) retry(ctx context.Context, templates actorTemplateClient,
 	failed *ateapipb.ActorTemplate, retry database.GoldenRetry, now time.Time) (goldenProgress, error) {
 	ref := failed.GetMetadata()
 	failure := failed.GetStatus().GetGoldenSnapshotStatus().GetErrorMessage()
-	// Substrate's message can quote configuration, so status names only its reason.
-	reason := goldenFailureReason(failure)
+	// Substrate's message can quote configuration, so status carries only the
+	// allowlisted summary. The full text goes to the log once per failed
+	// template; every retry replaces the template, so every attempt logs once.
+	summary := goldenFailureSummary(failure, actorTemplateImages(failed))
 	if retry.New {
-		logging.FromContext(ctx).WarnContext(ctx, "golden build failed", "revision", revision,
+		logging.FromContext(ctx).WarnContext(ctx, "golden build failed", "revision", revision, "retry", retry.Retries,
 			"atespace", ref.GetAtespace(), "actor_template", ref.GetName(), "uid", ref.GetUid(), "error", failure)
 	}
 	retryAt := g.retryAt(retry, ref.GetUid())
 	progress := goldenProgress{phase: goldenRetrying, retries: retry.Retries}
 	if retryAt.After(now) {
-		progress.message = fmt.Sprintf("golden build failed (%s), retry %d at %s", reason, retry.Retries, retryAt.UTC().Format(time.RFC3339))
+		progress.message = fmt.Sprintf("%s, retry %d at %s", summary, retry.Retries, retryAt.UTC().Format(time.RFC3339))
 		progress.nextCheck = retryAt
 		return progress, nil
 	}
 	if err := templates.DeleteActorTemplate(ctx, ref.GetAtespace(), ref.GetName(), ref.GetUid()); err != nil {
-		progress.message = fmt.Sprintf("golden build failed (%s), retry %d waits to delete the failed template (%s)", reason, retry.Retries, status.Code(err))
+		progress.message = fmt.Sprintf("%s, retry %d waits to delete the failed template (%s)", summary, retry.Retries, status.Code(err))
 		return progress, fmt.Errorf("delete failed ActorTemplate %s/%s: %w", ref.GetAtespace(), ref.GetName(), err)
 	}
-	progress.message = fmt.Sprintf("golden build failed (%s), retry %d started", reason, retry.Retries)
+	progress.message = fmt.Sprintf("%s, retry %d started", summary, retry.Retries)
 	progress.nextCheck = now
 	return progress, nil
+}
+
+// goldenFailureSummary describes a Substrate golden failure without quoting it.
+// Substrate's "<Reason>: <message>" text can carry configuration such as
+// environment values, so the summary names the reason and adds detail only
+// from an allowlist: atelet failing to obtain one of the template's own images.
+// The image reference is taken from images, never from the message, so text
+// that merely mimics the pattern cannot put anything new into status.
+func goldenFailureSummary(message string, images []string) string {
+	summary := fmt.Sprintf("golden build failed (%s)", goldenFailureReason(message))
+	for _, image := range images {
+		// atelet wraps every failure to resolve or pull a container or volume
+		// image as `in imageCache.EnsureImage("<ref>")`.
+		if image != "" && strings.Contains(message, "in imageCache.EnsureImage("+strconv.Quote(image)+")") {
+			return summary + ": could not pull image " + image
+		}
+	}
+	return summary
+}
+
+// actorTemplateImages lists the image references the template asks atelet to
+// pull: each container's image and each image volume's reference.
+func actorTemplateImages(template *ateapipb.ActorTemplate) []string {
+	var images []string
+	for _, container := range template.GetContainers() {
+		images = append(images, container.GetImage())
+	}
+	for _, volume := range template.GetVolumes() {
+		images = append(images, volume.GetImage().GetReference())
+	}
+	return images
 }
 
 // goldenFailureReason returns the reason that prefixes Substrate's

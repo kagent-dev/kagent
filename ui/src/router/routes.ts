@@ -58,6 +58,8 @@ export const paths = {
   agentTemplates: "/agent-templates",
   agentTemplateNew: "/agent-templates/new",
   harnessNew: "/harnesses/new",
+  /** After `new`, whose single static segment must win over this pattern. */
+  harnessEdit: "/harnesses/:namespace/:name/edit",
   /*
    * One template, read first.
    *

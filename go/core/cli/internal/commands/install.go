@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -37,6 +40,8 @@ type InstallCfg struct {
 	SkipDatabaseSetup bool
 	DryRun            bool
 	OutputDir         string
+	// Provider overrides install.defaultModelProvider when set.
+	Provider string
 }
 
 func newInstallClient() (*installer.Client, error) {
@@ -65,7 +70,10 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		return errors.New("installation requires a released version of kagent")
 	}
 	settings := cliconfig.FromContext(cmd.Context()).GetInstall()
-	modelProvider := v1alpha3.ModelProvider(settings.GetDefaultModelProvider())
+	modelProvider, err := installModelProvider(settings.GetDefaultModelProvider(), cfg.Provider)
+	if err != nil {
+		return err
+	}
 	apiKeyValue := ""
 	apiKeyEnvironment := ""
 	if apiKey, ok := providerAPIKey(modelProvider); ok {
@@ -74,7 +82,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		} else {
 			apiKeyValue = apiKey.Get()
 			if apiKeyValue == "" {
-				return fmt.Errorf("%s is not set; set it, or choose another provider with install.defaultModelProvider in the CLI config", apiKey.Name())
+				return fmt.Errorf("%s is not set; set it, or choose another provider with --provider or install.defaultModelProvider in the CLI config", apiKey.Name())
 			}
 		}
 	}
@@ -149,7 +157,38 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 		return fmt.Errorf("start port-forward: %w", err)
 	}
 	pf.Stop()
-	return nil
+	return printInstallNextSteps(cmd.OutOrStdout(), options.Namespace)
+}
+
+// printInstallNextSteps tells a new user how to reach kagent after install.
+func printInstallNextSteps(out io.Writer, namespace string) error {
+	_, err := fmt.Fprintf(out, `
+Next steps:
+  Open the UI:       kagent dashboard
+  Create an agent:   in the UI, or with kagent apply -f agent.yaml
+  The kagent-default, codex-default and claude-default Harnesses are ready
+  to use in the %s namespace.
+`, namespace)
+	return err
+}
+
+// installModelProviders lists the providers install.defaultModelProvider
+// accepts, read from its protobuf validation rule so the two cannot diverge.
+func installModelProviders() []string {
+	field := (&configv1.InstallConfig{}).ProtoReflect().Descriptor().Fields().ByName("default_model_provider")
+	rules, _ := proto.GetExtension(field.Options(), validate.E_Field).(*validate.FieldRules)
+	return rules.GetString().GetIn()
+}
+
+// installModelProvider selects the --provider flag over the configured default.
+func installModelProvider(configured, flag string) (v1alpha3.ModelProvider, error) {
+	if flag == "" {
+		return v1alpha3.ModelProvider(configured), nil
+	}
+	if allowed := installModelProviders(); !slices.Contains(allowed, flag) {
+		return "", fmt.Errorf("invalid --provider %q: must be one of %s", flag, strings.Join(allowed, ", "))
+	}
+	return v1alpha3.ModelProvider(flag), nil
 }
 
 func runUninstall(cmd *cobra.Command, namespace, postgresImage string, deleteWorkerPools bool) error {
@@ -218,7 +257,9 @@ func NewInstallCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install kagent",
-		Long:  `Install kagent. With --dry-run, write Helm commands and merged values to a directory without changing the cluster. Complete the documented prerequisites before running the exported commands.`,
+		Long: `Install kagent. --provider selects the default model provider, overriding install.defaultModelProvider in the CLI config; its API key is read from the provider's environment variable.
+
+With --dry-run, write Helm commands and merged values to a directory without changing the cluster. Complete the documented prerequisites before running the exported commands.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cmd.Flags().Changed("output-dir") && !cfg.DryRun {
 				return fmt.Errorf("--output-dir requires --dry-run")
@@ -234,6 +275,10 @@ func NewInstallCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&cfg.SkipDatabaseSetup, "skip-database-setup", false, "Skip bundled PostgreSQL deployment and initialization")
 	cmd.Flags().BoolVar(&cfg.DryRun, "dry-run", false, "Export Helm commands and values without changing the cluster")
 	cmd.Flags().StringVar(&cfg.OutputDir, "output-dir", "kagent-install", "Directory for --dry-run output (must not exist)")
+	cmd.Flags().StringVar(&cfg.Provider, "provider", "", "Default model provider, overriding install.defaultModelProvider ("+strings.Join(installModelProviders(), ", ")+")")
+	_ = cmd.RegisterFlagCompletionFunc("provider", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+		return installModelProviders(), cobra.ShellCompDirectiveNoFileComp
+	})
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return profiles.Profiles, cobra.ShellCompDirectiveNoFileComp
 	})

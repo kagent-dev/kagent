@@ -113,6 +113,16 @@ config:
   substrate:
     apiEndpoint: dns:///api.ate-system.svc:443
     routerUrl: https://atenet-router.ate-system.svc:443
+  # Getting-started installs answer grpcurl without local proto files.
+  # Reflection still requires whatever authentication the operator configures.
+  server:
+    grpcReflection: true
+# Ready-to-reference Harnesses on the WorkerPool created below.
+harnesses:
+  enabled: true
+# The example Agent and skills, which run on those Harnesses.
+examples:
+  enabled: true
 ` + fmt.Sprintf("\nsubstrateWorkerPool:\n  create: true\n  workerImage: %s\n", strconv.Quote(cfg.WorkerImage))
 	if !cfg.SkipDatabaseSetup {
 		kagent.Values = append(kagent.Values, "database.postgres.clientCertificate.enabled=true")

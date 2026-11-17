@@ -9,7 +9,6 @@ import (
 
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
@@ -275,18 +274,17 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 				}
 				continue
 			}
-			if tool.MCP.Server.Kind != "RemoteMCPServer" {
-				return nil, NewValidationError("unsupported MCP server kind %q", tool.MCP.Server.Kind)
+			key, server, err := fetchMCPServer(c.ctx, c.collections, template.Namespace, tool.MCP.Server)
+			if err != nil {
+				return nil, err
 			}
-			key := (v1alpha3.ObjectReference{Name: tool.MCP.Server.Name, Namespace: ptr.Deref(tool.MCP.Server.Namespace, "")}).NamespacedName(template.Namespace)
-			server := krt.FetchOne(c.ctx, c.collections.RemoteMCPServers, krt.FilterObjectName(key))
 			if server == nil {
-				return nil, fmt.Errorf("resolve %s %q: not found", tool.MCP.Server.Kind, tool.MCP.Server.Name)
+				return nil, fmt.Errorf("resolve %s %q: not found", tool.MCP.Server.GroupKind().Kind, tool.MCP.Server.Name)
 			}
-			if err := authorizeReference(c.ctx, c.collections, template.Namespace, key, (*server).Spec.AllowedNamespaces); err != nil {
+			if err := authorizeReference(c.ctx, c.collections, template.Namespace, key, server.Spec.AllowedNamespaces); err != nil {
 				return nil, fmt.Errorf("resolve RemoteMCPServer %q: %w", key, err)
 			}
-			input.MCPTools = append(input.MCPTools, ResolvedMCPTool{Binding: *tool.MCP.DeepCopy(), Server: *server})
+			input.MCPTools = append(input.MCPTools, ResolvedMCPTool{Binding: *tool.MCP.DeepCopy(), Server: server})
 			toolNames = append(toolNames, tool.MCP.Tools...)
 		}
 		instruction, err := c.resolveAgentTemplatePrompt(ctx, template)

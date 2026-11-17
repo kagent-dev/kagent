@@ -118,7 +118,10 @@ export function fileNameFromUrl(url: string): string {
 
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Number((bytes / 1024).toFixed(1))} KB`;
+  // Pick the unit after rounding: 1,048,525 bytes is 1023.95 KB, which
+  // rounds to "1024 KB" and should read as 1 MB.
+  const kb = Number((bytes / 1024).toFixed(1));
+  if (kb < 1024) return `${kb} KB`;
   return `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`;
 }
 

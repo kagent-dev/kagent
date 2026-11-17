@@ -27,6 +27,13 @@ export function GlobalStyles() {
           text-decoration: none;
         }
         /*
+         * antd's 1.57 line-height seats a label's glyphs below the icon's centre.
+         * A button is a fixed-height flex row, so a one-em line box centres both.
+         */
+        .ant-btn {
+          line-height: 1;
+        }
+        /*
          * The surfaces, given a very shallow gradient.
          *
          * Here rather than on each component because these are the component

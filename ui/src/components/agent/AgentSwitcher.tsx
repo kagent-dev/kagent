@@ -9,6 +9,7 @@ import {
   harnessRefName,
   type Agent,
 } from "@/api";
+import { isPermissionDenied } from "@/api/ApiError";
 import { agentNewChatUrl } from "./agentUrl";
 import { rowStyles, searchInputStyles } from "./controlStyles";
 
@@ -49,9 +50,9 @@ export function AgentSwitcher({
     [namespaces.data],
   );
 
-  const definitions = useAgentsAcrossNamespaces(namespaceNames);
-  /** Either read failing means the list is unknown, not empty. */
-  const readError = namespaces.error ?? definitions.error;
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const definitions = useAgentsAcrossNamespaces(namespaceDenied ? null : namespaceNames);
+  const readError = (namespaceDenied ? undefined : namespaces.error) ?? definitions.error;
   /** One loading state while the namespaces or the agents are on their way. */
   const isReading = namespaces.isLoading || definitions.isLoading;
   const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);

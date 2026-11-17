@@ -1,20 +1,25 @@
+import { isPermissionDenied } from "@/api/ApiError";
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Alert, Button, Space, Table, Typography } from "antd";
+import { Alert, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
-import { ChevronRight } from "lucide-react";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
-import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
+import { RowActionsMenu } from "@/components/table/RowActionsMenu";
+import { copyPath } from "@/components/table/copyFrom";
 import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, paths } from "@/router/routes";
 import {
   apiClient,
   useAgentTemplatesAcrossNamespaces,
+  countTemplateTools,
+  indexToolServers,
   useInvalidateAgentTemplates,
+  useMcpServers,
   useNamespaces,
   type AgentTemplate,
 } from "@/api";
@@ -41,6 +46,7 @@ export function AgentTemplatesTab() {
   const theme = useTheme();
   const navigate = useNavigate();
   const namespaces = useNamespaces();
+  const namespaceDenied = isPermissionDenied(namespaces.error);
 
   const view = useListView(FILTER_IDS);
   const selectedNamespaces = view.selected("ns");
@@ -50,24 +56,16 @@ export function AgentTemplatesTab() {
     [namespaces.data],
   );
 
-  /*
-   * Every namespace by default, the reader's choice when they have made one.
-   *
-   * This page used to pick a single namespace — `kagent` if it existed, otherwise the
-   * first — and offer a dropdown to change it. That made it the only landing page a
-   * reader could not simply look at: a template in a namespace they had not selected
-   * was not "filtered out", it had never been read, and nothing on screen said so.
-   *
-   * `ListAgentTemplates` takes one namespace and **refuses an empty one** rather than
-   * treating it as a wildcard, so "all namespaces" is a request per namespace, merged,
-   * with any refusal named rather than silently shortening the list.
-   */
-  const readNamespaces = useMemo(
-    () => (selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames),
-    [selectedNamespaces, namespaceNames],
-  );
+  // The collection RPC can still list visible resources if namespace discovery is denied.
+  const readNamespaces = namespaceDenied ? null : selectedNamespaces.length > 0 ? selectedNamespaces : namespaceNames;
   const invalidateTemplates = useInvalidateAgentTemplates();
   const templates = useAgentTemplatesAcrossNamespaces(readNamespaces);
+
+  const mcpServers = useMcpServers();
+  const serversByRef = useMemo(
+    () => indexToolServers(mcpServers.data ?? []),
+    [mcpServers.data],
+  );
 
   const rows = useMemo(() => templates.data?.templates ?? [], [templates.data]);
 
@@ -83,6 +81,7 @@ export function AgentTemplatesTab() {
   const filtered = useMemo(
     () =>
       rows.filter((row) =>
+        (!namespaceDenied || selectedNamespaces.length === 0 || selectedNamespaces.includes(row.namespace)) &&
         matchesQuery(view.query, [
           row.name,
           row.namespace,
@@ -90,10 +89,11 @@ export function AgentTemplatesTab() {
           row.modelConfigRef,
         ]),
       ),
-    [rows, view.query],
+    [namespaceDenied, rows, selectedNamespaces, view.query],
   );
 
-  const loadFailure = namespaces.error ?? templates.error;
+  const namespaceFailure = namespaceDenied ? undefined : namespaces.error;
+  const loadFailure = namespaceFailure ?? templates.error;
 
   const columns = useMemo<ColumnsType<AgentTemplate>>(
     () => [
@@ -135,79 +135,63 @@ export function AgentTemplatesTab() {
         title: "Tools",
         key: "tools",
         width: 90,
-        render: (_, row) => (row.resource.spec.tools ?? []).length,
+        render: (_, row) => {
+          const bindings = row.resource.spec.tools ?? [];
+          if (bindings.length === 0) return 0;
+          const { total, unknownServers } = countTemplateTools(bindings, serversByRef, row.namespace);
+          // Until the servers load, or when one has no discovered tools on record, a total would be a guess.
+          if (unknownServers.length > 0 && mcpServers.isLoading) {
+            return <Text css={{ color: theme.color.textMuted }}>…</Text>;
+          }
+          return unknownServers.length === 0 ? (
+            total
+          ) : (
+            <Tooltip title={`Plus all tools of ${unknownServers.join(", ")}, which could not be counted.`}>
+              <span>{total}+</span>
+            </Tooltip>
+          );
+        },
       },
       {
         title: "",
         key: "actions",
-        width: 96,
+        width: 56,
         render: (_, row) => (
-          <Space size={4}>
-            {/*
-              Opens the details page, where editing is a mode rather than the
-              landing state. Labelled for what it does now: a pencil that lands on
-              a read-only page would be promising an input that is not there.
-            */}
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: row.namespace,
-                name: row.name,
-              })}
-            >
-              <Button
-                type="text"
-                icon={<ChevronRight size={16} />}
-                data-testid={`open-${row.name}`}
-                aria-label={`Open agent template ${row.name}`}
-              />
-            </Link>
-            <DeleteResourceButton
-              kind="agent template"
-              name={row.name}
-              onDelete={() =>
-                apiClient.agentBuildingBlocks.removeAgentTemplate(
-                  row.namespace,
-                  row.name,
-                )
-              }
+          <RowActionsMenu
+            kind="agent template"
+            namespace={row.namespace}
+            name={row.name}
+            editLabel="Open"
+            editTo={buildPath(paths.agentTemplateDetail, { namespace: row.namespace, name: row.name })}
+            copyTo={copyPath(paths.agentTemplateNew, row)}
+            remove={{
+              onDelete: () => apiClient.agentBuildingBlocks.removeAgentTemplate(row.namespace, row.name),
               /* The agents list reads templates under a key of its own, so refreshing
                  this list alone leaves an agent there that nothing runs. */
-              onDeleted={invalidateTemplates}
-            />
-          </Space>
+              onDeleted: invalidateTemplates,
+            }}
+          />
         ),
       },
     ],
-    [invalidateTemplates, theme.color.textMuted, theme.font.mono],
+    [invalidateTemplates, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono],
   );
 
-  const refreshThisTab = templates.refresh;
+  // The tool counts come from the server list, so refreshing the tab reloads it too.
+  const refreshThisTab = async () => {
+    const results = await Promise.allSettled([templates.refresh(), mcpServers.refresh()]);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed) throw failed.reason;
+  };
 
   return (
     <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
-
-        {/* The namespace read is an input to the template read — templates are fetched
-            one namespace at a time — so its failure is a failure of this page rather
-            than a detail beside it. Without this the page would sit at "no templates"
-            when the namespaces could not be listed at all. */}
         {loadFailure ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load agent templates"
-            description={loadFailure.message}
-            data-testid="templates-error"
-            action={
-              <Button
-                size="small"
-                onClick={() => {
-                  void namespaces.refresh();
-                  void templates.refresh();
-                }}
-              >
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="agent templates"
+            error={loadFailure}
+            testId="templates-error"
+            onRetry={namespaceFailure ? namespaces.refresh : templates.refresh}
           />
         ) : null}
 
@@ -223,7 +207,7 @@ export function AgentTemplatesTab() {
               id: "ns",
               label: "Namespace",
               allLabel: "All namespaces",
-              options: namespaceNames.map((name) => ({ value: name })),
+              options: (namespaceDenied ? [...new Set(rows.map((row) => row.namespace))] : namespaceNames).map((value) => ({ value })),
             },
           ]}
           trailing={

@@ -1,5 +1,6 @@
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Alert, Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Plus } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -256,17 +257,11 @@ export function McpServersPage() {
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load MCP servers"
-            description={error.message}
-            data-testid="mcp-servers-error"
-            action={
-              <Button size="small" onClick={() => void refresh()}>
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="MCP servers"
+            error={error}
+            testId="mcp-servers-error"
+            onRetry={refresh}
           />
         ) : null}
 
