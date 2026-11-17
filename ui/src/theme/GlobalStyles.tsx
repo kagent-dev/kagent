@@ -1,7 +1,12 @@
 import { Global, css, useTheme } from "@emotion/react";
+import { dataPillLook } from "@/components/form/dataPillLook";
+
+// antd's own "down" icon, as a mask so it takes the theme colour.
+const CHEVRON_MASK = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='64 64 896 896'%3E%3Cpath d='M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z'/%3E%3C/svg%3E") center / contain no-repeat`;
 
 export function GlobalStyles() {
   const theme = useTheme();
+  const pill = dataPillLook(theme);
   return (
     <Global
       styles={css`
@@ -32,6 +37,42 @@ export function GlobalStyles() {
          */
         .ant-btn {
           line-height: 1;
+        }
+        /* AutoComplete ships with no suffix, so it gets the same chevron as Select. */
+        .ant-select-auto-complete::after {
+          content: "";
+          flex: none;
+          align-self: center;
+          width: 12px;
+          height: 12px;
+          margin-inline-start: 4px;
+          background-color: ${theme.color.textMuted};
+          mask: ${CHEVRON_MASK};
+          -webkit-mask: ${CHEVRON_MASK};
+          pointer-events: none;
+        }
+        /* A closed searchable select still reads as a dropdown; the text cursor appears once it opens. */
+        .ant-select-single.ant-select-show-search:not(.ant-select-auto-complete):not(.ant-select-open):not(.ant-select-disabled),
+        .ant-select-single.ant-select-show-search:not(.ant-select-auto-complete):not(.ant-select-open):not(.ant-select-disabled) input {
+          cursor: pointer;
+        }
+        /* Tag and multiple-mode values render as data pills. */
+        .ant-select-multiple .ant-select-selection-item {
+          border-radius: ${pill.borderRadius}px;
+          font-family: ${pill.fontFamily};
+          font-size: ${pill.fontSize}px;
+        }
+        .ant-select-multiple .ant-select-selection-item-remove {
+          border-radius: 2px;
+          color: ${theme.color.textMuted};
+        }
+        .ant-select-multiple .ant-select-selection-item-remove:hover {
+          background: ${theme.color.text}29;
+          color: ${theme.color.text};
+        }
+        .ant-select-multiple .ant-select-selection-item-remove:active {
+          background: ${theme.color.text}3d;
+          color: ${theme.color.text};
         }
         /*
          * The surfaces, given a very shallow gradient.
