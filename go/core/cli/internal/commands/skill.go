@@ -30,12 +30,17 @@ const (
 	// agentsDir holds the skills that most skills-compatible AI agents read. Claude Code reads only claudeDir.
 	agentsDir = ".agents"
 	claudeDir = ".claude"
+
+	statusCurrent   = "current"
+	statusOutdated  = "outdated"
+	statusMissing   = "missing"
+	statusUnchanged = "unchanged"
 )
 
 // skillData is the kagent skill. go:embed cannot read outside the go/ module,
 // so the files live here and .agents/skills/kagent links to them.
 //
-//go:embed all:skilldata/kagent
+//go:embed skilldata/kagent
 var skillData embed.FS
 
 type skillResult struct {
@@ -47,10 +52,8 @@ type skillResult struct {
 func NewSkillCmd() *cobra.Command {
 	var project, force, yes bool
 	cmd := &cobra.Command{
-		Use:     "skill",
-		Aliases: []string{"skills"},
-		Short:   "Install or check the kagent Agent Skill",
-		Long:    "Detect installed skills-compatible AI agents and install the kagent Agent Skill for them.",
+		Use:   "skill",
+		Short: "Install, check, or remove the kagent Agent Skill",
 	}
 	cmd.PersistentFlags().BoolVar(&project, "project", false, "Use the git top level instead of the home directory")
 
@@ -59,11 +62,7 @@ func NewSkillCmd() *cobra.Command {
 		Short: "Install or update the kagent skill",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := skillOutputFormat(cmd)
-			if err != nil {
-				return err
-			}
-			paths, err := skillPaths(cmd.Context(), project)
+			format, paths, err := skillTargets(cmd, project)
 			if err != nil {
 				return err
 			}
@@ -92,11 +91,7 @@ func NewSkillCmd() *cobra.Command {
 		Long:  "Compare each installed copy with the skill in this binary. Exit 1 when one is missing or outdated.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := skillOutputFormat(cmd)
-			if err != nil {
-				return err
-			}
-			paths, err := skillPaths(cmd.Context(), project)
+			format, paths, err := skillTargets(cmd, project)
 			if err != nil {
 				return err
 			}
@@ -112,7 +107,7 @@ func NewSkillCmd() *cobra.Command {
 					return err
 				}
 				results = append(results, skillResult{Path: path, Status: status})
-				stale = stale || status != "current"
+				stale = stale || status != statusCurrent
 			}
 			if err := writeSkillResults(cmd.OutOrStdout(), format, results); err != nil {
 				return err
@@ -129,11 +124,7 @@ func NewSkillCmd() *cobra.Command {
 		Short: "Remove the kagent skill and its Claude Code link",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := skillOutputFormat(cmd)
-			if err != nil {
-				return err
-			}
-			paths, err := skillPaths(cmd.Context(), project)
+			format, paths, err := skillTargets(cmd, project)
 			if err != nil {
 				return err
 			}
@@ -159,12 +150,18 @@ func NewSkillCmd() *cobra.Command {
 	return cmd
 }
 
-func skillOutputFormat(cmd *cobra.Command) (clioutput.Format, error) {
+// skillTargets returns the output format and the skill paths that every skill command needs.
+func skillTargets(cmd *cobra.Command, project bool) (clioutput.Format, []string, error) {
 	value, err := clioutput.FromCommand(cmd)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return clioutput.Parse(value)
+	format, err := clioutput.Parse(value)
+	if err != nil {
+		return "", nil, err
+	}
+	paths, err := skillPaths(cmd.Context(), project)
+	return format, paths, err
 }
 
 func projectFlag(project bool) string {
@@ -211,7 +208,7 @@ func skillPaths(ctx context.Context, project bool) ([]string, error) {
 	if project {
 		out, err := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel").Output()
 		if err != nil {
-			return nil, errors.New("--project must run inside a git repository")
+			return nil, fmt.Errorf("--project needs a git repository: %w", err)
 		}
 		root = strings.TrimSpace(string(out))
 		claude = filepath.Join(root, claudeDir)
@@ -253,25 +250,37 @@ func installSkill(paths []string, files map[string][]byte, force bool) ([]skillR
 	return results, nil
 }
 
-// writeSkill replaces dir with files. The next install repairs a failed write.
-func writeSkill(dir string, files map[string][]byte, force bool) (string, error) {
+// writeSkill replaces dir with files. It writes a temporary copy beside dir and
+// renames it into place, so a failed write leaves dir as it was.
+func writeSkill(dir string, files map[string][]byte, force bool) (_ string, err error) {
 	status, err := skillStatus(dir, files)
 	if err != nil {
 		return "", err
 	}
-	if status == "current" {
-		return "unchanged", nil
+	if status == statusCurrent {
+		return statusUnchanged, nil
 	}
-	if status == "outdated" {
+	if status == statusOutdated {
+		if info, err := os.Lstat(dir); err == nil && info.Mode()&fs.ModeSymlink != 0 && !force {
+			return "", fmt.Errorf("%s is a symlink; pass --force to replace it", dir)
+		}
 		if err := claimSkill(dir, force); err != nil {
 			return "", err
 		}
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.MkdirTemp(filepath.Dir(dir), "."+skillName+"-")
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(tmp)) }()
+	if err := os.Chmod(tmp, 0o755); err != nil {
 		return "", err
 	}
 	for name, data := range files {
-		path := filepath.Join(dir, filepath.FromSlash(name))
+		path := filepath.Join(tmp, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return "", err
 		}
@@ -279,7 +288,13 @@ func writeSkill(dir string, files map[string][]byte, force bool) (string, error)
 			return "", err
 		}
 	}
-	if status == "missing" {
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		return "", err
+	}
+	if status == statusMissing {
 		return "added", nil
 	}
 	return "updated", nil
@@ -287,20 +302,30 @@ func writeSkill(dir string, files map[string][]byte, force bool) (string, error)
 
 // linkSkill symlinks link to dir, or copies the files where symlinks fail (Windows).
 func linkSkill(link, dir string, files map[string][]byte, force bool) (string, error) {
-	target, err := filepath.Rel(filepath.Dir(link), dir)
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return "", err
+	}
+	// Resolve both parents, such as a symlinked ~/.claude, so the relative link does not dangle.
+	from, err := filepath.EvalSymlinks(filepath.Dir(link))
+	if err != nil {
+		return "", err
+	}
+	to, err := filepath.EvalSymlinks(filepath.Dir(dir))
+	if err != nil {
+		return "", err
+	}
+	target, err := filepath.Rel(from, filepath.Join(to, filepath.Base(dir)))
 	if err != nil {
 		return "", err
 	}
 	if current, err := os.Readlink(link); err == nil && current == target {
-		return "unchanged", nil
+		return statusUnchanged, nil
 	}
-	if _, err := os.Lstat(link); err == nil {
+	// A symlink holds no data, so only a real directory is claimed.
+	if info, err := os.Lstat(link); err == nil && info.Mode()&fs.ModeSymlink == 0 {
 		if err := claimSkill(link, force); err != nil {
 			return "", err
 		}
-	}
-	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
-		return "", err
 	}
 	if err := os.RemoveAll(link); err != nil {
 		return "", err
@@ -316,13 +341,13 @@ func skillStatus(path string, files map[string][]byte) (string, error) {
 	local, err := readSkill(os.DirFS(path))
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return "missing", nil
+		return statusMissing, nil
 	case err != nil:
 		return "", err
 	case maps.EqualFunc(local, files, bytes.Equal):
-		return "current", nil
+		return statusCurrent, nil
 	default:
-		return "outdated", nil
+		return statusOutdated, nil
 	}
 }
 
@@ -351,9 +376,10 @@ func claimSkill(path string, force bool) error {
 	return nil
 }
 
-// hasUncommittedChanges guards a git-tracked copy, so unsaved edits survive.
+// hasUncommittedChanges guards edits to git-tracked files, so they survive.
+// Untracked files do not count, so an install that was never committed stays replaceable.
 func hasUncommittedChanges(path string) bool {
-	out, err := exec.Command("git", "-C", filepath.Dir(path), "status", "--porcelain", "--", filepath.Base(path)).Output()
+	out, err := exec.Command("git", "-C", filepath.Dir(path), "status", "--porcelain", "--untracked-files=no", "--", filepath.Base(path)).Output()
 	return err == nil && len(bytes.TrimSpace(out)) > 0
 }
 
@@ -380,8 +406,10 @@ func removeSkill(path string) (string, error) {
 }
 
 // checkRemovable runs before any removal, so uninstall never stops halfway.
+// A symlink holds no data, so it is always removable, even when it dangles.
 func checkRemovable(path string) error {
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) || (err == nil && info.Mode()&fs.ModeSymlink != 0) {
 		return nil
 	}
 	if !ownsSkill(path) {

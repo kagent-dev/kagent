@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -75,6 +76,50 @@ func TestSkillInstall(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, []skillResult{{Path: f.dir(), Status: "added"}}, results)
 		require.NoDirExists(t, filepath.Join(f.home, ".claude"))
+	})
+
+	t.Run("Given ~/.claude is a symlink to another directory, when the skill is installed, assert that the Claude Code link reaches the skill", func(t *testing.T) {
+		f := newSkillFixture(t)
+		require.NoError(t, os.MkdirAll(filepath.Join(f.home, "dotfiles", "claude"), 0o755))
+		require.NoError(t, os.Symlink(filepath.Join("dotfiles", "claude"), filepath.Join(f.home, ".claude")))
+		results, err := f.results("skill", "install")
+		require.NoError(t, err)
+		require.Equal(t, []skillResult{{Path: f.dir(), Status: "added"}, {Path: f.link(), Status: "linked"}}, results)
+		require.Equal(t, f.skill, f.read(f.link()))
+	})
+
+	t.Run("Given a directory holding a different skill at the Claude Code path, when install runs without --force, assert that it refuses and keeps the directory", func(t *testing.T) {
+		f := newSkillFixture(t).withClaude()
+		f.write(f.link(), "SKILL.md", "---\nname: other\n---\n")
+		_, err := f.results("skill", "install")
+		require.ErrorContains(t, err, "pass --force")
+		require.Equal(t, map[string]string{"SKILL.md": "---\nname: other\n---\n"}, f.read(f.link()))
+	})
+
+	t.Run("Given the skill directory is a symlink to an older kagent skill, when install runs without --force, assert that it refuses and keeps the symlink", func(t *testing.T) {
+		f := newSkillFixture(t)
+		target := filepath.Join("..", "..", "src", "kagent")
+		f.write(filepath.Join(f.home, "src", "kagent"), "SKILL.md", "---\nname: kagent\n---\nolder\n")
+		require.NoError(t, os.MkdirAll(filepath.Dir(f.dir()), 0o755))
+		require.NoError(t, os.Symlink(target, f.dir()))
+		_, err := f.results("skill", "install")
+		require.ErrorContains(t, err, "is a symlink")
+		current, err := os.Readlink(f.dir())
+		require.NoError(t, err)
+		require.Equal(t, target, current)
+	})
+
+	t.Run("Given an installed skill, when a write fails partway, assert that the installed files are unchanged and no temporary directory remains", func(t *testing.T) {
+		f := newSkillFixture(t)
+		_, err := f.results("skill", "install")
+		require.NoError(t, err)
+		// "a" cannot be both a file and a directory, so the write fails after some files land.
+		_, err = writeSkill(f.dir(), map[string][]byte{"SKILL.md": []byte("---\nname: kagent\n---\n"), "a": nil, "a/b": nil}, false)
+		require.Error(t, err)
+		require.Equal(t, f.skill, f.read(f.dir()))
+		entries, err := os.ReadDir(filepath.Dir(f.dir()))
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
 	})
 
 	t.Run("Given CLAUDE_CONFIG_DIR outside the home, when the skill is installed, assert that a relative link in its skills directory reaches the skill", func(t *testing.T) {
@@ -169,6 +214,18 @@ func TestSkillUninstall(t *testing.T) {
 		require.Equal(t, []skillResult{{Path: f.link(), Status: "absent"}, {Path: f.dir(), Status: "absent"}}, results)
 	})
 
+	t.Run("Given an installed skill whose directory was deleted by hand, when uninstall runs, assert that it removes the dangling Claude Code link", func(t *testing.T) {
+		f := newSkillFixture(t).withClaude()
+		_, err := f.results("skill", "install")
+		require.NoError(t, err)
+		require.NoError(t, os.RemoveAll(f.dir()))
+		results, err := f.results("skill", "uninstall")
+		require.NoError(t, err)
+		require.Equal(t, []skillResult{{Path: f.link(), Status: "removed"}, {Path: f.dir(), Status: "absent"}}, results)
+		_, err = os.Lstat(f.link())
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+
 	t.Run("Given a directory holding a different skill, when uninstall runs, assert that it refuses and keeps the directory", func(t *testing.T) {
 		f := newSkillFixture(t)
 		f.write(f.dir(), "SKILL.md", "---\nname: other\n---\n")
@@ -179,6 +236,22 @@ func TestSkillUninstall(t *testing.T) {
 }
 
 func TestSkillGitGuard(t *testing.T) {
+	t.Run("Given a skill installed with --project and not committed, when uninstall --project runs, assert that it removes the skill and the link", func(t *testing.T) {
+		f := newSkillFixture(t).withClaude()
+		repo, err := filepath.EvalSymlinks(t.TempDir())
+		require.NoError(t, err)
+		require.NoError(t, exec.Command("git", "init", "--quiet", repo).Run())
+		t.Chdir(repo)
+		_, err = f.results("skill", "install", "--project")
+		require.NoError(t, err)
+		results, err := f.results("skill", "uninstall", "--project")
+		require.NoError(t, err)
+		require.Equal(t, []skillResult{
+			{Path: filepath.Join(repo, ".claude", "skills", "kagent"), Status: "removed"},
+			{Path: filepath.Join(repo, ".agents", "skills", "kagent"), Status: "removed"},
+		}, results)
+	})
+
 	t.Run("Given a committed project skill that differs from the binary, when install --project runs, assert that it updates the copy", func(t *testing.T) {
 		f := newSkillFixture(t)
 		dir := f.committedProjectSkill("older")
@@ -272,28 +345,12 @@ type skillYAMLBlock struct {
 	text  string
 }
 
-// skillYAMLBlocks returns each ```yaml block in a Markdown file, named by its line and heading.
+// skillYAMLBlocks returns each ```yaml block in a Markdown file.
 func skillYAMLBlocks(name, markdown string) []skillYAMLBlock {
 	var blocks []skillYAMLBlock
-	var heading, indent string
-	var current *strings.Builder
-	start, otherFence := 0, false
-	for i, line := range strings.Split(markdown, "\n") {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case current != nil && trimmed == "```":
-			blocks = append(blocks, skillYAMLBlock{where: fmt.Sprintf("%s:%d (%s)", name, start, heading), text: current.String()})
-			current = nil
-		case current != nil:
-			current.WriteString(strings.TrimPrefix(line, indent) + "\n")
-		case !otherFence && trimmed == "```yaml":
-			current, start = &strings.Builder{}, i+1
-			indent = line[:len(line)-len(strings.TrimLeft(line, " "))]
-		case strings.HasPrefix(trimmed, "```"):
-			otherFence = !otherFence
-		case !otherFence && strings.HasPrefix(line, "#"):
-			heading = trimmed
-		}
+	for i, chunk := range strings.Split(markdown, "```yaml\n")[1:] {
+		text, _, _ := strings.Cut(chunk, "```")
+		blocks = append(blocks, skillYAMLBlock{where: fmt.Sprintf("%s yaml block %d", name, i+1), text: text})
 	}
 	return blocks
 }
@@ -337,24 +394,19 @@ func (f *skillFixture) committedProjectSkill(body string) string {
 func (f *skillFixture) dir() string  { return filepath.Join(f.home, ".agents", "skills", "kagent") }
 func (f *skillFixture) link() string { return filepath.Join(f.home, ".claude", "skills", "kagent") }
 
-func (f *skillFixture) run(args ...string) (string, string, error) {
+// results runs a kagent skill command with JSON output and decodes its result rows.
+func (f *skillFixture) results(args ...string) ([]skillResult, error) {
 	root := &cobra.Command{Use: "kagent", SilenceErrors: true, SilenceUsage: true}
 	root.PersistentFlags().StringP(clioutput.FlagName, "o", string(clioutput.FormatTable), "Output format")
 	root.AddCommand(NewSkillCmd())
-	var stdout, stderr bytes.Buffer
+	var stdout bytes.Buffer
 	root.SetOut(&stdout)
-	root.SetErr(&stderr)
-	root.SetArgs(args)
+	root.SetErr(io.Discard) // not a terminal, so install does not prompt
+	root.SetArgs(append([]string{"-o", "json"}, args...))
 	err := root.ExecuteContext(f.t.Context())
-	return stdout.String(), stderr.String(), err
-}
-
-// results runs a command with JSON output and decodes its result rows.
-func (f *skillFixture) results(args ...string) ([]skillResult, error) {
-	stdout, _, err := f.run(append([]string{"-o", "json"}, args...)...)
 	var results []skillResult
-	if stdout != "" {
-		require.NoError(f.t, json.Unmarshal([]byte(stdout), &results))
+	if stdout.Len() > 0 {
+		require.NoError(f.t, json.Unmarshal(stdout.Bytes(), &results))
 	}
 	return results, err
 }
