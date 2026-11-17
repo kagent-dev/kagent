@@ -66,8 +66,7 @@ export function TaskPushNotificationsModal({
   }
 
   async function save() {
-    if (!editable) return;
-    if (!validation.attempt()) return;
+    if (!editable || saving || !validation.attempt()) return;
     setSaving(true);
     setError(undefined);
     try {

@@ -48,7 +48,7 @@ export function SnapshotRenameDialog({
   const validation = useSubmitValidation(problem ? [{ field: "name", message: problem }] : []);
 
   async function save() {
-    if (!validation.attempt()) return;
+    if (isSaving || !validation.attempt()) return;
     setSaving(true);
     setFailure(undefined);
     try {
@@ -80,31 +80,17 @@ export function SnapshotRenameDialog({
         A fork taken from this snapshot is given its name. Leave this empty to go back
         to the generated one.
       </Paragraph>
-      {/* The id is on a wrapper this app owns: antd spreads unknown props onto its
-          inner `<input>`, which is not somewhere a test can reason about. */}
-      <FormField
-        label="Snapshot name"
-        htmlFor="snapshot-rename-field"
-        required={false}
-        validateStatus={validation.errorFor("name") ? "error" : undefined}
-        help={
-          validation.errorFor("name") ? (
-            <span data-testid="snapshot-rename-problem">{validation.errorFor("name")}</span>
-          ) : undefined
-        }
-      >
-        <div data-testid="snapshot-rename-input">
-          <Input
-            value={draft}
-            id="snapshot-rename-field"
-            autoFocus
-            maxLength={MAX_CONVERSATION_NAME_LENGTH}
-            showCount
-            status={validation.errorFor("name") ? "error" : undefined}
-            onChange={(event) => setDraft(event.target.value)}
-            onPressEnter={() => void save()}
-          />
-        </div>
+      <FormField label="Snapshot name" required={false} error={validation.errorFor("name")}>
+        <Input
+          value={draft}
+          id="snapshot-rename-field"
+          data-testid="snapshot-rename-input"
+          autoFocus
+          maxLength={MAX_CONVERSATION_NAME_LENGTH}
+          showCount
+          onChange={(event) => setDraft(event.target.value)}
+          onPressEnter={() => void save()}
+        />
       </FormField>
       {failure !== undefined ? (
         <SubmitError

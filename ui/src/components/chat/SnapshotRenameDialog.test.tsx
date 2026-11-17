@@ -49,11 +49,13 @@ describe("SnapshotRenameDialog", () => {
   it("shows an inline error on an invalid submit and sends nothing", async () => {
     renderDialog();
     await userEvent.type(screen.getByLabelText(/^Snapshot name/), " padded");
-    expect(screen.queryByTestId("snapshot-rename-problem")).toBeNull();
+    expect(screen.getByLabelText(/^Snapshot name/)).not.toHaveAccessibleDescription();
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(screen.getByTestId("snapshot-rename-problem")).toHaveTextContent("cannot start or end with a space");
+    const field = screen.getByLabelText(/^Snapshot name/);
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field).toHaveAccessibleDescription(/cannot start or end with a space/);
     expect(rename).not.toHaveBeenCalled();
   });
 
@@ -84,5 +86,15 @@ describe("SnapshotRenameDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalled();
     expect(rename).not.toHaveBeenCalled();
+  });
+
+  it("sends one request when Enter follows Save", async () => {
+    rename.mockReturnValue(new Promise(() => {}));
+    renderDialog();
+    const field = screen.getByLabelText(/^Snapshot name/);
+    await userEvent.type(field, "Rollback");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.keyDown(field, { key: "Enter", code: "Enter", keyCode: 13 });
+    expect(rename).toHaveBeenCalledTimes(1);
   });
 });

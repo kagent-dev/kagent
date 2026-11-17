@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Input, Modal, Typography } from "antd";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormField } from "@/components/form/FormField";
-import { toastSaved } from "@/components/form/saveToast";
+import { toastSaved, toastSuccess } from "@/components/form/saveToast";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useTheme } from "@emotion/react";
 import {
@@ -86,7 +86,7 @@ export function RenameConversationDialog({
   const validation = useSubmitValidation(problem ? [{ field: "name", message: problem }] : []);
 
   async function save() {
-    if (!validation.attempt()) return;
+    if (isSaving || !validation.attempt()) return;
     setSaving(true);
     setFailure(undefined);
     try {
@@ -96,7 +96,8 @@ export function RenameConversationDialog({
       await invalidateConversations();
       await onRenamed?.();
       onClose();
-      toastSaved("saved", "conversation name", draft === "" ? shortInstanceId(instance.id) : draft);
+      if (draft === "") toastSuccess(`Cleared the name of conversation ${shortInstanceId(instance.id)}`);
+      else toastSaved("saved", "conversation name", draft);
     } catch (cause: unknown) {
       setFailure(cause);
     } finally {
@@ -123,32 +124,18 @@ export function RenameConversationDialog({
         A conversation is named by you. Leave this empty to clear the name and go
         back to being identified by its id, {shortInstanceId(instance.id)}.
       </Paragraph>
-      {/* The id is on a wrapper this app owns rather than on the `Input`: antd
-          spreads unknown props onto its inner `<input>`. */}
-      <FormField
-        label="Conversation name"
-        htmlFor="conversation-rename-field"
-        required={false}
-        validateStatus={validation.errorFor("name") ? "error" : undefined}
-        help={
-          validation.errorFor("name") ? (
-            <span data-testid="conversation-rename-problem">{validation.errorFor("name")}</span>
-          ) : undefined
-        }
-      >
-        <div data-testid="conversation-rename-input">
-          <Input
-            value={draft}
-            id="conversation-rename-field"
-            autoFocus
-            maxLength={MAX_CONVERSATION_NAME_LENGTH}
-            showCount
-            placeholder={`Untitled · ${shortInstanceId(instance.id)}`}
-            status={validation.errorFor("name") ? "error" : undefined}
-            onChange={(event) => setDraft(event.target.value)}
-            onPressEnter={() => void save()}
-          />
-        </div>
+      <FormField label="Conversation name" required={false} error={validation.errorFor("name")}>
+        <Input
+          value={draft}
+          id="conversation-rename-field"
+          data-testid="conversation-rename-input"
+          autoFocus
+          maxLength={MAX_CONVERSATION_NAME_LENGTH}
+          showCount
+          placeholder={`Untitled · ${shortInstanceId(instance.id)}`}
+          onChange={(event) => setDraft(event.target.value)}
+          onPressEnter={() => void save()}
+        />
       </FormField>
       {failure !== undefined ? (
         <SubmitError

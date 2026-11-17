@@ -2,7 +2,7 @@ import { ThemeProvider } from "@emotion/react";
 import type { ReactElement } from "react";
 import { themeFor } from "@/theme/theme";
 import { render as rtlRender, screen } from "@testing-library/react";
-import { Form, Input, InputNumber, Select } from "antd";
+import { Checkbox, Form, Input, InputNumber, Radio, Select } from "antd";
 import { describe, expect, it } from "vitest";
 import { FieldLabel, FormField } from "./FormField";
 import { ResourceSelect } from "./ResourceSelect";
@@ -157,5 +157,43 @@ describe("FormField", () => {
     const ids = [...container.querySelectorAll("[id]")].map((node) => node.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(screen.getAllByLabelText(/Key/)).toHaveLength(2);
+  });
+
+  it("names a radio or checkbox group by its label instead of htmlFor", () => {
+    const { container } = render(
+      <Form layout="vertical">
+        <FormField label="Authentication" required>
+          <Radio.Group data-testid="auth" options={["apiKey", "none"]} />
+        </FormField>
+        <FormField label="On days" required>
+          <Checkbox.Group data-testid="days" options={["Mon", "Tue"]} />
+        </FormField>
+      </Form>,
+    );
+    expect(screen.getByTestId("auth")).toHaveAccessibleName(/^Authentication/);
+    expect(screen.getByTestId("days")).toHaveAccessibleName(/^On days/);
+    expect(container.querySelector("label[for]")).toBeNull();
+  });
+
+  it("shows both a hint and the caller's extra", () => {
+    render(
+      <Form layout="vertical">
+        <FormField label="Time" required help="Local time." extra={<span>Runs daily.</span>}>
+          <Input />
+        </FormField>
+      </Form>,
+    );
+    expect(screen.getByText("Local time.")).toBeInTheDocument();
+    expect(screen.getByText("Runs daily.")).toBeInTheDocument();
+  });
+
+  it("lays out vertically with no colon outside an antd Form", () => {
+    const { container } = render(
+      <FormField label="Name" required>
+        <Input />
+      </FormField>,
+    );
+    expect(container.querySelector(".ant-form-item-vertical, .ant-form-vertical")).not.toBeNull();
+    expect(container.querySelector(".ant-form-item-no-colon")).not.toBeNull();
   });
 });

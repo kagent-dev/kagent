@@ -633,10 +633,9 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     // Drawn on every row, not revealed on hover: these actions are most of the reason to
     // open the rail on a conversation you are not in.
     await expect(menu).toBeVisible();
-    const rename = page.getByTestId("conversation-rename-input");
-    await chooseFromRowMenu(page, menu, "Rename chat", rename);
+    const field = page.getByTestId("conversation-rename-input");
+    await chooseFromRowMenu(page, menu, "Rename chat", field);
 
-    const field = rename.locator("input");
     await field.fill("Named from the rail");
     /*
      * Pressed once the modal has stopped arriving, rather than clicked.
@@ -675,11 +674,10 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     const fields = page.getByTestId("conversation-details-fields");
     await pressUntil(page.getByTestId("chat-details"), () => expect(fields).toBeVisible());
 
-    const rename = page.getByTestId("conversation-rename-input");
+    const field = page.getByTestId("conversation-rename-input");
     await pressUntil(page.getByTestId("conversation-details-rename"), () =>
-      expect(rename).toBeVisible(),
+      expect(field).toBeVisible(),
     );
-    const field = rename.locator("input");
     // Pre-filled here, because this conversation *has* a name: the box opens on the
     // stored one so an edit is an edit rather than a retype. The rail's box opens empty
     // for the unnamed sibling in step 1, which is the other half of the same rule.

@@ -83,4 +83,14 @@ describe("TaskPushNotificationsModal", () => {
     expect(screen.getByLabelText(/^Callback URL/)).toHaveValue("");
     expect(saveTaskPushConfig).not.toHaveBeenCalled();
   });
+
+  it("sends one request when Enter follows Add callback", async () => {
+    saveTaskPushConfig.mockReturnValue(new Promise(() => {}));
+    renderModal();
+    const field = await screen.findByLabelText(/^Callback URL/);
+    await userEvent.type(field, "https://example.com/new");
+    fireEvent.click(screen.getByRole("button", { name: "Add callback" }));
+    fireEvent.keyDown(field, { key: "Enter", code: "Enter", keyCode: 13 });
+    expect(saveTaskPushConfig).toHaveBeenCalledTimes(1);
+  });
 });
