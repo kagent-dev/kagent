@@ -11,7 +11,7 @@ import {
   rowNamed,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
+import { confirmation, expectRequired, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * An agent's own page — the surface between the agents list and a chat.
@@ -141,7 +141,11 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   await test.step("4. a name the controller would refuse is refused before the round trip", async () => {
     await page.getByTestId(`conversation-rename-${instances.idle}`).click();
     const field = page.getByTestId("conversation-rename-input").locator("input");
+    // An empty name is valid: it puts the conversation back to untitled.
+    await expectRequired(page, { marked: [], unmarked: ["Conversation name"] });
     await field.fill(" leading space");
+    // Validation runs on submit, like every form; the dialog stays open on the refusal.
+    await pressOnce(page.getByRole("button", { name: "Save" }));
 
     // Refused rather than trimmed, which is what the controller does — and the
     // reason matters: silently rewriting what somebody typed reads on screen as a
@@ -149,7 +153,7 @@ test("agents: a conversation is named by the reader, and never renders as a bare
     await expect(page.getByTestId("conversation-rename-problem")).toContainText(
       "cannot start or end with a space",
     );
-    await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+    await expect(field).toHaveValue(" leading space");
     // Same arriving-box case as the Save below: the rename modal animates in.
     await pressOnce(page.getByRole("button", { name: "Cancel" }));
   });

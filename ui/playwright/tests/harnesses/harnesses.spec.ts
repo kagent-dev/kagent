@@ -3,9 +3,10 @@ import { loadPage, rowNamed, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
   confirmDelete,
+  anyDialog,
   dialog,
   expectRequired,
-  selectOption,
+  pressOnce,
   rowAction,
 } from "../../helpers/resource";
 
@@ -72,42 +73,53 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await page.getByTestId("agents-new-harness").click();
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 
+    await expect(page.getByTestId("form-back-link")).toHaveText("Harnesses");
     await expect(page.getByTestId("harness-intro")).toContainText("worker pool");
     await expectRequired(page, {
       marked: ["Namespace", "Name", "Runtime adapter", "Worker pool", "Snapshot location"],
       // The release ships an image for every built-in adapter; only bring-your-own needs one.
-      unmarked: ["Workload image"],
+      unmarked: ["Workload image", "Command", "Arguments"],
     });
   });
 
-  await test.step("4. the namespace's default pool and a snapshot path are filled in", async () => {
-    await selectOption(page, "harness-namespace", "kagent");
+  await test.step("4. the namespace, its default pool and a snapshot path are filled in", async () => {
+    await expect(page.getByTestId("harness-namespace")).toContainText("kagent");
     await page.getByTestId("harness-name").fill(CREATED);
 
-    await expect(page.getByTestId("harness-worker-pool").locator("input")).toHaveValue("kagent-default");
+    await expect(page.getByTestId("harness-worker-pool")).toContainText("kagent-default");
     await expect(page.getByTestId("harness-snapshot")).toHaveValue("s3://ate-snapshots/kagent/");
   });
 
-  await test.step("5. an image that is not pinned cannot be submitted", async () => {
+  await test.step("5. an image that is not pinned is flagged on submit", async () => {
     await page.getByTestId("harness-image").fill("ghcr.io/example/runtime:latest");
-    await expect(
-      page.getByTestId("harness-create"),
-      "a tag can move under a running agent, and the CRD refuses one",
-    ).toBeDisabled();
+    await page.getByTestId("harness-submit").click();
+    // A tag can move under a running agent, and the CRD refuses one.
+    await expect(page.getByText("The workload image must be pinned by sha256 digest.")).toBeVisible();
+    await expect(page.getByTestId("harness-error")).toContainText("Nothing was sent yet");
+    await expect(page.getByTestId("harness-error").getByRole("button", { name: "Try again" })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/harnesses\/new(\?|$)/);
     await page.getByTestId("harness-image").fill("");
   });
 
-  await test.step("6. nor can one with no snapshot location", async () => {
+  await test.step("6. so is a missing snapshot location", async () => {
     // The CRD requires it, and the controller's answer to a missing one is "Invalid
     // Harness" — naming neither the field nor what was wrong with it.
     await page.getByTestId("harness-snapshot").fill("");
-    await expect(page.getByTestId("harness-create")).toBeDisabled();
+    await expect(page.getByText("A snapshot location is required.")).toBeVisible();
+  });
+
+  await test.step("6b. leaving with edits asks first", async () => {
+    await page.getByTestId("form-back-link").click();
+    await expect(dialog(page)).toContainText("Discard your changes?");
+    await pressOnce(dialog(page).getByRole("button", { name: "Keep editing" }));
+    await expect(anyDialog(page)).toBeHidden();
+    await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
   });
 
   await test.step("7. with the release image and the defaults, it is created", async () => {
     await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent/");
-    await expect(page.getByTestId("harness-create")).toBeEnabled();
-    await page.getByTestId("harness-create").click();
+    await expect(page.getByTestId("harness-error")).toHaveCount(0);
+    await page.getByTestId("harness-submit").click();
 
     // Back to the tab it came from, with the new harness in the list. Read back off the
     // table rather than from a toast or a closed form: "the create returned" and "the
@@ -124,7 +136,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
     await expect(page.getByTestId("harness-name")).toBeDisabled();
     await page.getByTestId("harness-image").fill(PINNED);
-    await page.getByTestId("harness-save").click();
+    await page.getByTestId("harness-submit").click();
 
     await page.waitForURL(/tab=harnesses/);
     await expect(rowNamed(page, CREATED)).toContainText(PINNED.slice(0, 20), { timeout: 30_000 });
@@ -137,7 +149,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
 
     await expect(page.getByTestId("harness-name")).toHaveValue(`${CREATED}-copy`);
     await expect(page.getByTestId("harness-image")).toHaveValue(PINNED);
-    await page.getByTestId("harness-create").click();
+    await page.getByTestId("harness-submit").click();
 
     await page.waitForURL(/tab=harnesses/);
     await expect(rowNamed(page, `${CREATED}-copy`)).toContainText(PINNED.slice(0, 20), { timeout: 30_000 });

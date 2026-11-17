@@ -13,6 +13,8 @@ import {
   confirmDelete,
   confirmation,
   expectRequired,
+  pressUntil,
+  selectOption,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 
@@ -149,18 +151,31 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await page.waitForURL(/\/mcp\/new(\?|$)/);
     await expectSettled(page);
 
-    // Unlike every other form in this app: `validateMcpServerForm` accepts a blank
-    // namespace and the controller defaults it, so a mark there would be a lie.
+    // The namespace is a dropdown that always holds a value, and is required.
     await expectRequired(page, {
-      marked: ["Name", "Server URL"],
-      unmarked: ["Namespace", "TLS", "Headers"],
+      marked: ["Name", "Namespace", "Server URL"],
+      unmarked: ["TLS", "Headers sent to the server", "Connection timeout"],
     });
+    await expect(page.getByTestId("mcp-namespace")).toHaveClass(/ant-select/);
+    await expect(page.getByTestId("form-back-link")).toContainText("MCP servers");
+
+    // Empty required fields are flagged inline on submit.
+    await page.getByTestId("mcp-submit").click();
+    await expect(page.getByText("A server name is required.")).toBeVisible();
+    await expect(page.getByText("A server URL is required.")).toBeVisible();
   });
 
   await test.step("8. a registered server appears on the list, counted as zero tools", async () => {
     await page.getByTestId("mcp-name").fill(CREATED);
-    await page.getByTestId("mcp-namespace").fill("kagent");
+    await selectOption(page, "mcp-namespace", "kagent");
     await page.getByTestId("mcp-url").fill("mcp.example.com/sse");
+
+    // A dirty form asks before it is left.
+    await page.getByTestId("mcp-cancel").click();
+    await expect(page.getByTestId("mcp-discard-body")).toBeVisible();
+    await pressUntil(page.getByRole("button", { name: "Keep editing" }), async () => {
+      await expect(page.getByTestId("mcp-discard-body")).toBeHidden();
+    });
 
     await page.getByTestId("mcp-submit").click();
     await page.waitForURL(/\/mcp(\?|$)/, { timeout: 30_000 });

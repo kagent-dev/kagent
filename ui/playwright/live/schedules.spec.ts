@@ -35,7 +35,7 @@ test("live: schedule configuration persists through the browser and controller",
     await page.getByLabel("Time zone", { exact: true }).fill("America/New_York");
     await page.getByLabel("Execution timeout (seconds)", { exact: true }).fill("90.001");
     await page.getByLabel("Enable Schedule", { exact: true }).uncheck();
-    await page.getByRole("button", { name: "Create schedule", exact: true }).click();
+    await page.getByRole("button", { name: "Create", exact: true }).click();
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
     detailURL = page.url();
     await page.reload();
@@ -52,7 +52,7 @@ test("live: schedule configuration persists through the browser and controller",
     await expect(page.getByRole("status")).toHaveText("Weekdays at 09:00 (UTC)");
     await page.getByLabel("Time zone", { exact: true }).fill("America/New_York");
     await page.getByLabel("Prompt", { exact: true }).fill("Report unhealthy workloads only.");
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
     // The form is its own page, so a save leaves it rather than closing it.
     await expect(page).toHaveURL(detailURL);
     await page.reload();

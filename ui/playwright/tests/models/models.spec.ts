@@ -160,10 +160,14 @@ test("models: a configuration is created, read, changed and deleted", async ({
      * would pass on a form that marked every field.
      */
     await expectRequired(page, {
-      marked: ["Provider", "Model", "Name", "Namespace", "API key"],
-      // A radio group that arrives with a choice already made cannot be missing one.
-      unmarked: ["Authentication"],
+      marked: ["Provider", "Provider model", "Name", "Namespace", "Authentication", "API key"],
+      unmarked: [],
     });
+    await expect(page.getByTestId("model-namespace")).toHaveClass(/ant-select/);
+
+    // Empty required fields are flagged inline on submit.
+    await page.getByTestId("model-submit").click();
+    await expect(page.getByText("Choose a model.")).toBeVisible();
   });
 
   await test.step("6. a filled-in configuration is created and appears on the list", async () => {
@@ -211,6 +215,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
      * it would write a resource nothing else in the cluster is pointing at.
      */
     await expect(page.getByTestId("model-name")).toBeDisabled();
+    await expect(page.getByTestId("model-namespace")).toHaveClass(/ant-select-disabled/);
     await expect(page.getByTestId("model-model").locator("input")).toBeDisabled();
 
     /*
@@ -229,7 +234,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
       .click();
     await expectRequired(page, {
       marked: ["Name", "Namespace"],
-      unmarked: ["API key (leave blank to keep existing)"],
+      unmarked: [],
     });
   });
 

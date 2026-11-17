@@ -21,7 +21,10 @@ test("agents: an empty Harness selector offers Harness creation in place", async
   await page.getByRole("button", { name: "Create a harness" }).click();
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page).getByTestId("harness-intro")).toBeVisible();
-  await expect(dialog(page).getByTestId("harness-create")).toBeDisabled();
+  // Submit stays enabled; pressing it marks what is missing instead.
+  await pressOnce(dialog(page).getByTestId("harness-submit"));
+  await expect(dialog(page).getByText("A name is required.")).toBeVisible();
+  await expect(dialog(page).getByTestId("harness-error")).toBeVisible();
 });
 
 test("agents: a harness made from the agent form is selected for the agent", async ({ page }) => {
@@ -34,8 +37,8 @@ test("agents: a harness made from the agent form is selected for the agent", asy
   await expect(form).toBeVisible();
   await expect(form.getByTestId("harness-namespace")).toContainText("kagent");
   await form.getByTestId("harness-name").fill("made-inline");
-  await expect(form.getByTestId("harness-worker-pool").locator("input")).toHaveValue("kagent-default");
-  await form.getByTestId("harness-create").click();
+  await expect(form.getByTestId("harness-worker-pool")).toContainText("kagent-default");
+  await form.getByTestId("harness-submit").click();
 
   await expect(anyDialog(page)).toBeHidden();
   await expect(page.getByTestId("agent-form-harness-ref")).toContainText("made-inline");
@@ -146,7 +149,10 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
   });
 
   await test.step("3. the pill removes exactly that filter", async () => {
-    await page.getByTestId("agents-filters-pill-ns-analytics").click();
+    await page
+      .getByTestId("agents-filters-pill-ns-analytics")
+      .getByRole("button", { name: /^Remove filter/ })
+      .click();
     await expect(dataRows(page)).toHaveCount(9);
     await expect(page).not.toHaveURL(/ns=analytics/);
   });

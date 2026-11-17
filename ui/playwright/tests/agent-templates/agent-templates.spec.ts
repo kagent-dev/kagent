@@ -4,6 +4,7 @@ import {
   LIFECYCLE_TIMEOUT,
   confirmation,
   expectRequired,
+  optionNamed,
   pressOnce,
   selectOption,
 } from "../../helpers/resource";
@@ -81,13 +82,13 @@ test("agent templates: a template is created, read, edited and deleted", async (
     );
 
     await test.step("an MCP binding can require approval before a tool runs", async () => {
-      await page.getByTestId("template-form-add-mcp").click();
+      await page.getByTestId("template-form-mcp-add").click();
       const approval = page.getByRole("checkbox", { name: "Require approval" });
       await expect(approval).toBeVisible();
       await approval.check();
       await expect(approval).toBeChecked();
       // Drop the unfinished row so the rest of the create is unchanged.
-      await page.getByTestId("template-form-mcp-remove-0").click();
+      await page.getByRole("button", { name: "Remove MCP server 1" }).click();
     });
 
     await test.step("a namespace can select a visible model from another namespace", async () => {
@@ -100,13 +101,17 @@ test("agent templates: a template is created, read, edited and deleted", async (
     });
 
 
-    // Only the name is required: a BYO harness runs a template with no model.
-    await expect(page.getByTestId("template-submit")).toBeDisabled();
-    await expect(page.getByTestId("template-form-problems")).toContainText("A name is required");
+    // The model is optional: a BYO harness runs a template with no model.
     await expectRequired(page, {
-      marked: ["Name"],
-      unmarked: ["Model configuration", "Description", "System prompt"],
+      marked: ["Name", "Namespace", "Output format"],
+      unmarked: ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Labels"],
     });
+
+    // Submit stays enabled; an invalid one marks the field and says nothing was created.
+    await page.getByTestId("template-submit").click();
+    await expect(page.getByText("A name is required.")).toBeVisible();
+    await expect(page.getByTestId("template-create-error")).toContainText("Fix the highlighted fields");
+    await expect(page).toHaveURL(/\/agent-templates\/new/);
   });
 
   await test.step("5. the template saves without creating an Agent", async () => {
@@ -155,15 +160,14 @@ test("agent templates: a template is created, read, edited and deleted", async (
     );
     await expect(page.getByTestId("template-form-name")).toHaveCount(0);
     // And nothing that authors: the add buttons only exist when something can be added.
-    await expect(page.getByTestId("template-form-add-label")).toHaveCount(0);
+    await expect(page.getByTestId("template-form-labels-add")).toHaveCount(0);
 
     // Nor does it mark anything required. Read-only is not a form, so it asks for
     // nothing — an asterisk here would be demanding a reader supply something they are
     // only looking at, on a template that already has it.
     await expect(page.locator(".ant-form-item-label label").first()).toBeVisible();
-    await expect(
-      page.locator(".ant-form-item-label label.ant-form-item-required"),
-    ).toHaveCount(0);
+    await expect(page.getByTestId("field-required")).toHaveCount(0);
+    await expect(page.getByTestId("field-optional")).toHaveCount(0);
 
     // The single most important fact about a template, and the one nothing about the
     // template itself reveals. A reader who has to press Edit to find it will not.
@@ -185,7 +189,18 @@ test("agent templates: a template is created, read, edited and deleted", async (
     );
     // The authoring controls are back, which is what "the same component in two modes"
     // means in practice.
-    await expect(page.getByTestId("template-form-add-label")).toBeVisible();
+    await expect(page.getByTestId("template-form-labels-add")).toBeVisible();
+  });
+
+  await test.step("8b. a sub-agent is another template in the namespace, picked from a list", async () => {
+    await page.getByTestId("template-form-sub-agents-add").click();
+    await page.getByTestId("template-form-sub-agent-template-0").click();
+    await expect(optionNamed(page, "note-taker")).toBeVisible();
+    // A template cannot call itself.
+    await expect(optionNamed(page, CREATED)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Remove agent template tool 1" }).click();
+    await expect(page.getByTestId("template-form-sub-agent-0")).toHaveCount(0);
   });
 
   await test.step("9. leaving edit mode with a draft asks before throwing it away", async () => {
@@ -194,7 +209,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // wandered off should still be able to see there is one.
     await expect(page.getByTestId("template-unsaved")).toBeVisible();
 
-    await page.getByTestId("template-stop-editing").click();
+    await page.getByTestId("template-cancel").click();
     await expect(page.getByTestId("template-discard-body")).toContainText(
       "have not been saved",
     );
@@ -330,7 +345,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
 
     // The form is longer than the viewport, so an alert at its top goes unseen.
     const alert = page.getByTestId("template-create-error");
-    await expect(alert).toContainText("Could not create the agent template");
+    await expect(alert).toContainText("The agent template was not created");
     await expect(alert).toBeInViewport({ ratio: 0.99 });
     await expect(submit).toBeInViewport();
     await expect(page).toHaveURL(/\/agent-templates\/new/);

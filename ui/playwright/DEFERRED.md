@@ -35,14 +35,9 @@ assertion.
 Each resource's lifecycle spec asserts its own form's gate in the create step — the
 submit refused while a required field is empty, the refusal naming the field, the
 address staying on the form — and checks the required *marks* against that gate with
-`expectRequired`. antd draws the mark from `required` on a `Form.Item` while these
-forms gate their submit in code, so the two are separate statements about the same
-field and only a test keeps them agreeing.
-
-**What is still missing is the agent form, because there is no agent form.** An agent
-is an `AgentTemplate` paired with a `Harness` and is not created, so the old
-"declarative agent create blocks submit" assertion has no page to run against. If a
-create-an-agent surface lands, its validation belongs in that change.
+`expectRequired`. `FormField` draws the mark from `required` while these forms gate
+their submit in code, so the two are separate statements about the same field and
+only a test keeps them agreeing.
 
 ## Not started by request
 
