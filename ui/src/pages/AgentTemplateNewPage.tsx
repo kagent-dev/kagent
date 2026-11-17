@@ -144,8 +144,8 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
                 <div data-testid="template-form-namespace">
                   <NamespaceSelect
                     value={effective}
-                    // Local references resolve in the new namespace, so the model is cleared.
-                    onChange={(value) => update({ ...draft, namespace: value, modelConfig: undefined })}
+                    // Local references resolve in the new namespace, so the model and sub-agents are cleared.
+                    onChange={(value) => update({ ...draft, namespace: value, modelConfig: undefined, subAgentTools: [] })}
                   />
                 </div>
               </FormField>

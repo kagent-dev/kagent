@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Select } from "antd";
 
 /** Lists longer than this (antd's open list shows about eight rows) offer type-to-search. */
@@ -18,6 +18,8 @@ export interface ResourceSelectProps {
   /** Shown in the open list when the read succeeded with nothing in it. */
   empty?: ReactNode;
   placeholder?: string;
+  /** Also offers a typed name that is not in the list, for one created after the list was read. */
+  allowTyped?: boolean;
   disabled?: boolean;
   id?: string;
   "aria-invalid"?: boolean;
@@ -39,12 +41,18 @@ export function ResourceSelect({
   onChange,
   empty,
   placeholder = `Choose ${withArticle(kind)}`,
+  allowTyped = false,
   disabled,
   id,
   "aria-invalid": ariaInvalid,
   "aria-describedby": ariaDescribedBy,
   "data-testid": testId,
 }: ResourceSelectProps) {
+  const [search, setSearch] = useState("");
+  const typed = search.trim();
+  const options = names.map((name) => ({ value: name, label: name }));
+  if (allowTyped && typed !== "" && !names.includes(typed)) options.push({ value: typed, label: `Use "${typed}"` });
+
   return (
     <Select
       id={id}
@@ -57,8 +65,8 @@ export function ResourceSelect({
       status={error ? "error" : undefined}
       aria-invalid={error ? true : ariaInvalid}
       aria-describedby={ariaDescribedBy}
-      showSearch={names.length > SEARCH_MIN_OPTIONS}
-      options={names.map((name) => ({ value: name, label: name }))}
+      showSearch={allowTyped ? { onSearch: setSearch } : names.length > SEARCH_MIN_OPTIONS}
+      options={options}
       notFoundContent={
         loading ? `Loading ${plural}…` : error ? `Could not load ${plural}: ${error}` : (empty ?? `No ${plural} found`)
       }

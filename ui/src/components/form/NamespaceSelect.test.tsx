@@ -26,15 +26,19 @@ describe("NamespaceSelect", () => {
     expect(screen.getByTitle("kagent")).toBeInTheDocument();
   });
 
-  it("says why when namespaces could not be read", () => {
+  it("takes a typed namespace and says why when the list could not be read", () => {
     vi.mocked(useNamespaces).mockReturnValue({
       data: undefined,
       isLoading: false,
       error: new Error("denied"),
     } as unknown as ReturnType<typeof useNamespaces>);
-    render(<NamespaceSelect onChange={() => {}} />);
-    fireEvent.mouseDown(screen.getByRole("combobox"));
-    expect(screen.getByText("Could not load namespaces: denied")).toBeInTheDocument();
+    const onChange = vi.fn();
+    render(<NamespaceSelect id="ns" aria-describedby="ns-error" onChange={onChange} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "team-b" } });
+    expect(onChange).toHaveBeenCalledWith("team-b");
+    expect(input).toHaveAttribute("id", "ns");
+    expect(input).toHaveAccessibleDescription(/Could not list namespaces \(denied\)/);
   });
 
   it("passes its id and error wiring to the focusable input", () => {

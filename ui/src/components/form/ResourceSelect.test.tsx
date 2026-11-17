@@ -55,4 +55,18 @@ describe("ResourceSelect", () => {
     );
     expect(screen.getByTestId("long")).toHaveClass("ant-select-show-search");
   });
+
+  it("offers a typed name that is not in the list when allowed", () => {
+    const onChange = vi.fn();
+    open({ names: ["default"], allowTyped: true, onChange });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "new-pool" } });
+    fireEvent.click(screen.getByText('Use "new-pool"'));
+    expect(onChange).toHaveBeenCalledWith("new-pool", expect.anything());
+  });
+
+  it("offers no typed name unless allowed", () => {
+    open({ names: Array.from({ length: SEARCH_MIN_OPTIONS + 1 }, (_, at) => `ns-${at}`) });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "other" } });
+    expect(screen.queryByText('Use "other"')).toBeNull();
+  });
 });

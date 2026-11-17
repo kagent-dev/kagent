@@ -111,6 +111,22 @@ describe("model create form", () => {
     expect(screen.getByText("Enter the name of the secret.")).toBeInTheDocument();
   });
 
+  it("opens the optional parameters on the first submit when one is invalid", () => {
+    renderAt("/models/new");
+    chooseProvider();
+    type("model-model", "gpt-4o");
+    type("model-api-key", "sk-test");
+    const optional = screen.getByTestId("model-optional-params");
+    fireEvent.click(within(optional).getByText(/Optional parameters/));
+    type("model-param-maxTokens", "lots");
+    fireEvent.click(within(optional).getByText(/Optional parameters/));
+    expect(within(optional).getByRole("button", { expanded: false })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("model-submit"));
+    expect(within(optional).getByRole("button", { expanded: true })).toBeInTheDocument();
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
   it("explains a failed create above the buttons", async () => {
     mocks.create.mockRejectedValue(new Error("boom"));
     renderAt("/models/new");

@@ -503,13 +503,21 @@ export function AgentTemplateForm({
                   <Field readOnly={readOnly} label="Agent template" required error={errorFor(`subAgent:${index}:template`)} css={rowField}>
                     {readOnly ? (
                       <Input value={tool.refName} data-testid={`template-form-sub-agent-template-${index}`} {...readOnlyInput} />
+                    ) : templates.error ? (
+                      // The list could not be read, so the name is typed instead.
+                      <Input
+                        css={{ width: 200 }}
+                        data-testid={`template-form-sub-agent-template-${index}`}
+                        value={tool.refName}
+                        placeholder="Type a template name"
+                        onChange={(event) => updateSubAgent(index, { refName: event.target.value })}
+                      />
                     ) : (
                       <div css={{ minWidth: 200 }}>
                         <ResourceSelect
                           kind="agent template"
                           names={templateNames}
                           loading={templates.isLoading}
-                          error={templates.error?.message}
                           value={tool.refName || undefined}
                           onChange={(refName) => updateSubAgent(index, { refName })}
                           empty="This namespace has no other agent templates."

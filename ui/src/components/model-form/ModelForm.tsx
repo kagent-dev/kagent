@@ -25,7 +25,7 @@ import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
-import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { issueFor, useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import {
   RESOURCE_NAME_HINT,
@@ -44,7 +44,6 @@ import {
   supportsActorJWT,
   buildModelPayload,
   emptyModelDraft,
-  isBadNumber,
   modelDraftIssues,
   newHeaderRow,
   paramLabel,
@@ -283,18 +282,17 @@ export function ModelForm({
     [draft, effectiveName],
   );
 
-  const validation = useSubmitValidation(
-    useMemo(
-      () =>
-        modelDraftIssues(effective, {
-          isValidName: isValidResourceName,
-          nameHint: RESOURCE_NAME_HINT,
-          requiredParamKeys: requiredKeys,
-          isEdit,
-        }),
-      [effective, requiredKeys, isEdit],
-    ),
+  const issues = useMemo(
+    () =>
+      modelDraftIssues(effective, {
+        isValidName: isValidResourceName,
+        nameHint: RESOURCE_NAME_HINT,
+        requiredParamKeys: requiredKeys,
+        isEdit,
+      }),
+    [effective, requiredKeys, isEdit],
   );
+  const validation = useSubmitValidation(issues);
   const { errorFor } = validation;
 
   // Saving counts as clean, so the navigation after it is not blocked.
@@ -359,7 +357,8 @@ export function ModelForm({
     setFailure(undefined);
     if (!validation.attempt()) {
       // An error inside the collapsed optional parameters would otherwise stay out of sight.
-      if (optionalKeys.some((key) => errorFor(`param:${key}`) !== undefined || isBadNumber(key, draft.params[key] ?? ""))) {
+      // Read from `issues`: `errorFor` shows nothing until the render after attempt().
+      if (optionalKeys.some((key) => issueFor(issues, `param:${key}`) !== undefined)) {
         setOptionalOpen(true);
       }
       return;

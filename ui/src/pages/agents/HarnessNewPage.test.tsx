@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@emotion/react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -129,6 +129,21 @@ describe("harness create form", () => {
 
     expect(await screen.findByText("Harness list")).toBeInTheDocument();
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ name: "team.reviewer" }));
+  });
+
+  it("takes a worker pool that is not in the list yet", async () => {
+    mocks.create.mockImplementation(async (input: { name: string }) => ({ name: input.name }));
+    renderAt("/harnesses/new");
+    type("harness-name", "made-here");
+    const pool = within(screen.getByTestId("harness-worker-pool")).getByRole("combobox");
+    fireEvent.mouseDown(pool);
+    fireEvent.change(pool, { target: { value: "new-pool" } });
+    fireEvent.click(screen.getByText('Use "new-pool"'));
+    fireEvent.click(screen.getByTestId("harness-submit"));
+
+    expect(await screen.findByText("Harness list")).toBeInTheDocument();
+    const sent = mocks.create.mock.calls[0][0] as { resource: { spec: { substrate: { workerPoolRef: { name: string } } } } };
+    expect(sent.resource.spec.substrate.workerPoolRef).toEqual({ name: "new-pool" });
   });
 
   it("explains a failed create above the buttons and keeps the form", async () => {

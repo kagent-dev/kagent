@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   updateAgentTemplate: vi.fn(),
   toastSaved: vi.fn(),
   listedNamespace: [] as (string | undefined)[],
+  templatesError: undefined as Error | undefined,
 }));
 
 function template(name: string, extra: Partial<AgentTemplate["resource"]["spec"]> = {}): AgentTemplate {
@@ -48,7 +49,7 @@ vi.mock("@/api", async (importOriginal) => ({
   useTools: () => resource([]),
   useAgentTemplates: (namespace?: string) => {
     api.listedNamespace.push(namespace);
-    return resource(TEMPLATES);
+    return api.templatesError ? { ...resource(undefined), error: api.templatesError } : resource(TEMPLATES);
   },
   useAgentTemplate: (namespace?: string, name?: string) =>
     resource(namespace && name === EDITED.name ? EDITED : undefined),
@@ -63,6 +64,7 @@ beforeEach(() => {
   api.updateAgentTemplate.mockReset();
   api.toastSaved.mockReset();
   api.listedNamespace = [];
+  api.templatesError = undefined;
 });
 
 function renderAt(entry: string) {
@@ -173,6 +175,33 @@ describe("new agent template page", () => {
     });
     expect(api.toastSaved).toHaveBeenCalledWith("created", "agent template", "helper");
     expect(router.state.location.search).toBe("?tab=templates&ns=kagent");
+  });
+
+  it("clears sub-agents when the namespace changes, since they name templates in the old one", () => {
+    renderAt("/agent-templates/new");
+    addSubAgent("reviewer");
+    choose("template-form-namespace", "default");
+    expect(screen.queryByTestId("template-form-sub-agent-0")).not.toBeInTheDocument();
+  });
+
+  it("lets a sub-agent template be typed when the list cannot be read", async () => {
+    api.templatesError = new Error("forbidden");
+    api.createAgentTemplate.mockResolvedValue({ name: "helper" });
+    const router = renderAt("/agent-templates/new");
+
+    fill("template-form-name", "helper");
+    fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
+    fill("template-form-sub-agent-template-0", "reviewer");
+    fill("template-form-sub-agent-name-0", "review");
+    fill("template-form-sub-agent-description-0", "Review a change.");
+    fireEvent.click(screen.getByTestId("template-submit"));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/agents"));
+    expect(api.createAgentTemplate).toHaveBeenCalledWith(expect.objectContaining({
+      resource: expect.objectContaining({
+        spec: { tools: [{ subAgent: { name: "review", description: "Review a change.", templateRef: { name: "reviewer" } } }] },
+      }),
+    }));
   });
 
   it("guards the form while the create is pending, then lands on the list", async () => {

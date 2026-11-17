@@ -1,3 +1,5 @@
+import { useId } from "react";
+import { Input, Typography } from "antd";
 import { useNamespaces } from "@/api";
 import { ResourceSelect } from "./ResourceSelect";
 
@@ -11,15 +13,34 @@ interface NamespaceSelectProps {
   "data-testid"?: string;
 }
 
-/** Picks a namespace kagent can place resources in. */
+/** Picks a namespace kagent can place resources in, or takes a typed one when the list fails. */
 export function NamespaceSelect({ value, onChange, disabled, id, "data-testid": testId, ...aria }: NamespaceSelectProps) {
   const namespaces = useNamespaces();
+  const noteId = useId();
+  if (namespaces.error) {
+    return (
+      <>
+        <Input
+          id={id}
+          data-testid={testId}
+          value={value ?? ""}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled}
+          placeholder="Type a namespace"
+          aria-invalid={aria["aria-invalid"]}
+          aria-describedby={[aria["aria-describedby"], noteId].filter(Boolean).join(" ")}
+        />
+        <Typography.Text id={noteId} type="secondary" css={{ display: "block", fontSize: 12 }}>
+          Could not list namespaces ({namespaces.error.message}). Type the name of one.
+        </Typography.Text>
+      </>
+    );
+  }
   return (
     <ResourceSelect
       kind="namespace"
       names={(namespaces.data ?? []).map((row) => row.name)}
       loading={namespaces.isLoading}
-      error={namespaces.error?.message}
       value={value || undefined}
       onChange={onChange}
       disabled={disabled}

@@ -155,6 +155,7 @@ export function HarnessFields({
             data-testid="harness-worker-pool"
             names={pools.names}
             loading={pools.loading}
+            allowTyped
             value={draft.workerPool || undefined}
             onChange={(value) => set("workerPool", value)}
             empty="No worker pools in this namespace"
