@@ -175,6 +175,24 @@ describe("new agent template page", () => {
     expect(router.state.location.search).toBe("?tab=templates&ns=kagent");
   });
 
+  it("guards the form while the create is pending, then lands on the list", async () => {
+    let finish!: () => void;
+    api.createAgentTemplate.mockReturnValue(new Promise((resolve) => { finish = () => resolve({ name: "helper" }); }));
+    const router = renderAt("/agent-templates/new");
+    fill("template-form-name", "helper");
+    fireEvent.click(screen.getByTestId("template-submit"));
+    await waitFor(() => expect(api.createAgentTemplate).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("form-back-link"));
+    expect(await screen.findByTestId("template-discard-body")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/agent-templates/new");
+
+    finish();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/agents"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("cancels and goes back to the list when nothing was entered", async () => {
     const router = renderAt("/agent-templates/new");
     expect(screen.getByTestId("form-back-link")).toHaveAttribute("href", "/agents?tab=templates");

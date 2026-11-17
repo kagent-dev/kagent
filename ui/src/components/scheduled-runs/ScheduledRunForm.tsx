@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import { Alert, AutoComplete, Checkbox, Form, Input, InputNumber, Select, Switch } from "antd";
 import { useTheme } from "@emotion/react";
 import { fromJson } from "@bufbuild/protobuf";
@@ -77,8 +78,6 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
     if (!validation.attempt()) return;
     setSaving(true);
     try {
-      // Marked before the call: a successful save navigates away, and the guard must let it.
-      setSaved(true);
       const cron = scheduleCron(timing);
       const nextConfig = {
         ...config,
@@ -110,9 +109,10 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
       // no mounted subscriber, so what the caller navigates to re-reads on mount.
       await invalidateSchedules().catch(() => {});
       toastSaved(schedule ? "saved" : "created", "schedule", result.config?.name || result.id);
+      // Committed before navigating, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
       onSaved(result);
     } catch (cause) {
-      setSaved(false);
       setFailure(cause);
     } finally {
       setSaving(false);

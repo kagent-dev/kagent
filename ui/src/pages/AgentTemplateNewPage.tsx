@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { Skeleton, Space } from "antd";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -95,7 +96,6 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
     setFailure(undefined);
     if (!validation.attempt()) return;
     setSubmitting(true);
-    setSaved(true);
     try {
       const created = await apiClient.agentBuildingBlocks.createAgentTemplate({
         namespace: effective,
@@ -114,9 +114,10 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
       await invalidateTemplates().catch(() => {});
       toastSaved("created", "agent template", created.name);
       // The list narrows on `ns`; `paths.agentTemplates` is a redirect that drops the query.
+      // Committed before navigating, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
       navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(effective)}`);
     } catch (cause: unknown) {
-      setSaved(false);
       setFailure(cause);
     } finally {
       setSubmitting(false);

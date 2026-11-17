@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { SWRConfig } from "swr";
@@ -131,6 +131,27 @@ describe("new schedule page", () => {
     fireEvent.click(screen.getByTestId("schedule-submit"));
     await screen.findByText("Schedule detail");
     expect(mocks.toastSaved).toHaveBeenCalledWith("created", "schedule", "Nightly");
+  });
+
+  it("guards the form while the create is pending, then lands on the schedule", async () => {
+    let finish!: () => void;
+    mocks.invoke.mockImplementation((_: string, input: { config?: unknown }) => new Promise((resolve) => {
+      finish = () => resolve({ scheduledRun: create(ScheduledRunSchema, { id: "new-id", etag: "e", config: input.config as never }) });
+    }));
+    const router = renderAt("/schedules/new");
+    chooseAgent();
+    type("schedule-prompt", "Check it.");
+    fireEvent.click(screen.getByTestId("schedule-submit"));
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith("scheduledRuns.create", expect.anything()));
+
+    fireEvent.click(screen.getByTestId("form-back-link"));
+    expect(await screen.findByTestId("schedule-discard-body")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/schedules/new");
+
+    finish();
+    expect(await screen.findByText("Schedule detail")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("keeps the form and explains a failed create", async () => {
