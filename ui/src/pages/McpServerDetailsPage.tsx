@@ -8,7 +8,7 @@ import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
-import { toolAnchor } from "@/components/mcp/toolAnchor";
+import { safeDecode, toolAnchor } from "@/components/mcp/toolAnchor";
 import { useAgentTemplatesAcrossNamespaces, useMcpServers } from "@/api";
 import { buildPath, paths } from "@/router/routes";
 
@@ -34,7 +34,7 @@ export function McpServerDetailsPage() {
     ),
   );
 
-  const anchor = decodeURIComponent(hash.replace(/^#/, ""));
+  const anchor = safeDecode(hash.replace(/^#/, ""));
   const currentTool = anchor.startsWith(toolAnchor("")) ? anchor.slice(toolAnchor("").length) : undefined;
   useEffect(() => {
     if (server && currentTool) document.getElementById(toolAnchor(currentTool))?.scrollIntoView({ block: "center" });
