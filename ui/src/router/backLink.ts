@@ -1,4 +1,4 @@
-import { useLocation, type Location } from "react-router-dom";
+import { useLocation, useNavigate, type Location } from "react-router-dom";
 
 /**
  * Where a page was opened from, carried in router `state` rather than the URL.
@@ -50,4 +50,17 @@ export function useBackLink(fallback: { to: string; label: string }): {
   return isBackLinkState(state)
     ? { to: state.from, label: state.fromLabel, isReturn: true }
     : { ...fallback, isReturn: false };
+}
+
+/**
+ * The way back from a detail page: to the page that opened it, else to `fallback`.
+ * A return steps back through history, so it leaves no duplicate entry behind.
+ */
+export function useGoBack(fallback: { to: string; label: string }) {
+  const back = useBackLink(fallback);
+  const navigate = useNavigate();
+  return {
+    ...back,
+    goBack: () => void (back.isReturn ? navigate(-1) : navigate(back.to)),
+  };
 }
