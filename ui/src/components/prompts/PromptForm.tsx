@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { flushSync } from "react-dom";
 import { Form, Input, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import type { CreatePromptTemplateRequest } from "@/api";
@@ -85,18 +84,11 @@ export function PromptForm({
    */
   const contents = (of: PromptDraft) =>
     JSON.stringify([of.namespace, of.name, of.rows.map((row) => [row.key, row.value])]);
-  /*
-   * Both are state rather than refs, and not only because reading a ref during render
-   * is against the rules of React — which `react-hooks/refs` says out loud. A ref
-   * cannot re-render, so the guard below would re-arm on whatever render happened
-   * next: as refs, `saved` worked only because the `setSaving` beside it forced one.
-   */
   const [baseline] = useState(() => contents(draft));
-  const [saved, setSaved] = useState(false);
-  const isDirty = !saved && contents(draft) !== baseline;
+  const isDirty = contents(draft) !== baseline;
 
   // Every way out asks first, Cancel included, so Cancel has no question of its own.
-  const blocker = useUnsavedChangesGuard(isDirty);
+  const { blocker, release } = useUnsavedChangesGuard(isDirty);
 
   const update = (patch: Partial<PromptDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -111,8 +103,7 @@ export function PromptForm({
     setSaving(true);
     try {
       await onSubmit(promptPayloadFrom(draft));
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       onSaved();
     } catch (error) {
       setFailure(error);

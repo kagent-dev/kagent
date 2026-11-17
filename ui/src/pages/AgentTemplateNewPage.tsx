@@ -1,5 +1,4 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { flushSync } from "react-dom";
 import { Skeleton, Space } from "antd";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -82,10 +81,9 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
   const current = { ...draft, namespace: effective };
   const validation = useSubmitValidation(templateDraftIssues(current, { isCreate: true }));
 
-  // Compared by value against the draft the form opened with; `saved` lets the post-create navigation through.
+  // Compared by value against the draft the form opened with.
   const [baseline] = useState(() => JSON.stringify(draft));
-  const [saved, setSaved] = useState(false);
-  const blocker = useUnsavedChangesGuard(!saved && JSON.stringify(draft) !== baseline);
+  const { blocker, release } = useUnsavedChangesGuard(JSON.stringify(draft) !== baseline);
 
   const update = (next: AgentTemplateDraft) => {
     setDraft(next);
@@ -114,8 +112,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
       await invalidateTemplates().catch(() => {});
       toastSaved("created", "agent template", created.name);
       // The list narrows on `ns`; `paths.agentTemplates` is a redirect that drops the query.
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(effective)}`);
     } catch (cause: unknown) {
       setFailure(cause);

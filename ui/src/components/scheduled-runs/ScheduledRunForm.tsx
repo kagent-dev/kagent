@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import { flushSync } from "react-dom";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { Alert, AutoComplete, Checkbox, Form, Input, InputNumber, Select, Switch } from "antd";
 import { useTheme } from "@emotion/react";
 import { fromJson } from "@bufbuild/protobuf";
@@ -47,7 +46,6 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
   const theme = useTheme();
   const invalidateSchedules = useInvalidateScheduledRuns();
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   // Retain the key after a failed response: retrying must not create another schedule.
   const [requestId] = useState(() => randomId());
@@ -63,7 +61,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
   const loadError = (namespaceDenied ? undefined : namespaces.error) ?? definitions.error;
   const issues = useMemo(() => scheduleIssues(draft, { needsAgent: !schedule }), [draft, schedule]);
   const validation = useSubmitValidation(issues);
-  const blocker = useUnsavedChangesGuard(!saved && JSON.stringify(draft) !== JSON.stringify(initial));
+  const { blocker, release } = useUnsavedChangesGuard(JSON.stringify(draft) !== JSON.stringify(initial));
   const error = validation.errorFor;
   const status = (field: string) => (error(field) ? "error" : undefined);
   const timing = timingOf(draft);
@@ -109,14 +107,22 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
       // no mounted subscriber, so what the caller navigates to re-reads on mount.
       await invalidateSchedules().catch(() => {});
       toastSaved(schedule ? "saved" : "created", "schedule", result.config?.name || result.id);
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       onSaved(result);
     } catch (cause) {
       setFailure(cause);
     } finally {
       setSaving(false);
     }
+  }
+
+  // Enter in a single-line field submits; text areas and lists keep their own Enter.
+  function submitOnEnter(event: KeyboardEvent) {
+    const target = event.target as HTMLInputElement;
+    if (event.key !== "Enter" || event.nativeEvent.isComposing || saving || target.tagName !== "INPUT") return;
+    if (target.getAttribute("role") === "combobox" || ["checkbox", "radio"].includes(target.type)) return;
+    event.preventDefault();
+    void submit();
   }
 
   const invalid = validation.submitted && issues.length > 0;
@@ -129,7 +135,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
   </span> : undefined;
 
   return <div css={{ display: "flex", flexDirection: "column", gap: theme.space(4), maxWidth: 720 }}>
-    <Form layout="vertical" component="div" disabled={saving}>
+    <Form layout="vertical" component="div" disabled={saving} onKeyDown={submitOnEnter}>
       {!schedule && <>
         {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
         {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon

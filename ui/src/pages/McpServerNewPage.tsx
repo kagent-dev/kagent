@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { flushSync } from "react-dom";
 import {
   Checkbox,
   Form,
@@ -44,7 +43,6 @@ export function McpServerNewPage() {
   // it — a name that keeps changing under the cursor is worse than no help.
   const [nameTouched, setNameTouched] = useState(false);
   const [baseline] = useState(() => JSON.stringify(values));
-  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   const navigate = useNavigate();
@@ -101,9 +99,8 @@ export function McpServerNewPage() {
 
   const validation = useSubmitValidation(useMemo(() => validateMcpServerForm(values), [values]));
 
-  // Saving counts as clean, so the navigation after it is not blocked.
-  const isDirty = !saved && JSON.stringify(values) !== baseline;
-  const blocker = useUnsavedChangesGuard(isDirty);
+  const isDirty = JSON.stringify(values) !== baseline;
+  const { blocker, release } = useUnsavedChangesGuard(isDirty);
 
   const submit = async () => {
     setFailure(undefined);
@@ -116,8 +113,7 @@ export function McpServerNewPage() {
       // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
       await invalidateServers().catch(() => {});
       toastSaved("created", "MCP server", values.name.trim());
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       await navigate(paths.mcpServers);
     } catch (error) {
       setFailure(error);

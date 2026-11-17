@@ -1,12 +1,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ConfigProvider } from "antd";
-import { Link, RouterProvider, createMemoryRouter } from "react-router-dom";
+import { Link, RouterProvider, createMemoryRouter, useNavigate } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { UnsavedChangesModal } from "./UnsavedChangesModal";
 import { useUnsavedChangesGuard } from "./useUnsavedChangesGuard";
 
 function Form({ dirty }: { dirty: boolean }) {
-  const blocker = useUnsavedChangesGuard(dirty);
+  const { blocker } = useUnsavedChangesGuard(dirty);
   return (
     <>
       <Link to="/list">Leave</Link>
@@ -15,10 +15,22 @@ function Form({ dirty }: { dirty: boolean }) {
   );
 }
 
-function renderAt(dirty: boolean) {
+/** Saves by releasing the guard and navigating in the same handler, with no render between. */
+function SavingForm() {
+  const { blocker, release } = useUnsavedChangesGuard(true);
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => { release(); void navigate("/list"); }}>Save</button>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="test">Edits are lost.</UnsavedChangesModal>
+    </>
+  );
+}
+
+function renderAt(dirty: boolean, element = <Form dirty={dirty} />) {
   const router = createMemoryRouter(
     [
-      { path: "/form", element: <Form dirty={dirty} /> },
+      { path: "/form", element },
       { path: "/list", element: <p>List page</p> },
     ],
     { initialEntries: ["/form"] },
@@ -54,6 +66,13 @@ describe("useUnsavedChangesGuard", () => {
     fireEvent.click(screen.getByText("Leave"));
     fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
     expect(await screen.findByText("List page")).toBeInTheDocument();
+  });
+
+  it("lets a released form leave at once, without a render in between", async () => {
+    renderAt(true, <SavingForm />);
+    fireEvent.click(screen.getByText("Save"));
+    expect(await screen.findByText("List page")).toBeInTheDocument();
+    expect(screen.queryByTestId("test-discard-body")).not.toBeInTheDocument();
   });
 
   it("asks the browser before unloading only when dirty", () => {

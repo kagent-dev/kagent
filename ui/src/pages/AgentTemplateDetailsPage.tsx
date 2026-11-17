@@ -117,7 +117,7 @@ export function AgentTemplateDetailsPage() {
   );
 
   // One modal for both exits: a blocked route change, or Cancel standing in as one.
-  const routeBlocker = useUnsavedChangesGuard(isDirty);
+  const { blocker: routeBlocker } = useUnsavedChangesGuard(isDirty);
   const discardBlocker: Blocker = isConfirmingDiscard
     ? { state: "blocked", location, proceed: discardEdit, reset: () => setConfirmingDiscard(false) }
     : routeBlocker;

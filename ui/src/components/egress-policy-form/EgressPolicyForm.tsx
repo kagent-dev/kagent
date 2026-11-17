@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
 import { Alert, Button, Form, Input, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
 import { EGRESS_LIMITS, isApiError, type EgressPolicy, type EgressPolicyResource } from "@/api";
@@ -44,7 +43,7 @@ export function EgressPolicyForm({
   /** The loaded resource on an edit; its metadata goes back with the save. */
   existing?: EgressPolicyResource;
   onSubmit: (resource: EgressPolicyResource) => Promise<EgressPolicy>;
-  /** Called with the saved policy once the guard has stood down; usually navigates. */
+  /** Called with the saved policy once the guard is released; usually navigates. */
   onSaved: (policy: EgressPolicy) => void;
   /** Where Cancel goes. */
   cancelTo: string;
@@ -55,12 +54,11 @@ export function EgressPolicyForm({
   const editing = Boolean(existing);
   const [draft, setDraft] = useState(initial);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   const [baseline] = useState(() => contents(initial));
   const issues = useMemo(() => draftFieldIssues(draft), [draft]);
   const validation = useSubmitValidation(issues);
-  const blocker = useUnsavedChangesGuard(!saved && contents(draft) !== baseline);
+  const { blocker, release } = useUnsavedChangesGuard(contents(draft) !== baseline);
   const container = useRef<HTMLDivElement>(null);
   const pendingOrigin = useRef<number>(undefined);
   const focusAdd = useRef(false);
@@ -77,8 +75,7 @@ export function EgressPolicyForm({
     setSaving(true);
     try {
       const policy = await onSubmit(resourceFromDraft(draft, existing));
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       onSaved(policy);
     } catch (error) {
       setFailure(error);

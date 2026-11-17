@@ -123,6 +123,19 @@ describe("new schedule page", () => {
     });
   });
 
+  it("submits on Enter in a single-line field, but not in the prompt or a list", async () => {
+    renderAt("/schedules/new");
+    chooseAgent();
+    type("schedule-prompt", "Check it.");
+    fireEvent.keyDown(screen.getByTestId("schedule-prompt"), { key: "Enter" });
+    fireEvent.keyDown(within(screen.getByTestId("schedule-timezone")).getByRole("combobox"), { key: "Enter" });
+    expect(mocks.invoke).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByTestId("schedule-name"), { key: "Enter" });
+    expect(await screen.findByText("Schedule detail")).toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith("scheduledRuns.create", expect.anything());
+  });
+
   it("shows the save toast after a create", async () => {
     renderAt("/schedules/new");
     chooseAgent();

@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { flushSync } from "react-dom";
 import {
   Alert,
   AutoComplete,
@@ -157,7 +156,6 @@ export function ModelForm({
   // its own and must not be rewritten by the model picker.
   const [nameTouched, setNameTouched] = useState(isEdit);
   const [baseline] = useState(() => draftContents(draft));
-  const [saved, setSaved] = useState(false);
   const [optionalOpen, setOptionalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
@@ -295,9 +293,8 @@ export function ModelForm({
   const validation = useSubmitValidation(issues);
   const { errorFor } = validation;
 
-  // Saving counts as clean, so the navigation after it is not blocked.
-  const isDirty = !saved && draftContents(effective) !== baseline;
-  const blocker = useUnsavedChangesGuard(isDirty);
+  const isDirty = draftContents(effective) !== baseline;
+  const { blocker, release } = useUnsavedChangesGuard(isDirty);
 
   // The Secret name/key fields, shared by every provider that offers "Existing secret".
   const secretFields = (
@@ -367,8 +364,7 @@ export function ModelForm({
     setSaving(true);
     try {
       await onSubmit(buildModelPayload(effective));
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       onSaved();
     } catch (error) {
       setFailure(error);

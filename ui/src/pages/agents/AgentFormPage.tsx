@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ReadError } from "@/components/common/ReadError";
-import { flushSync } from "react-dom";
 import { Alert, Button, Form, Input, Modal, Radio, Select, Skeleton, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -190,8 +189,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const contents = () =>
     JSON.stringify([chosenNamespace, name, templateSource, templateRef, { ...templateDraft, namespace: "" }, chosenHarness, egressRefs]);
   const [baseline] = useState(contents);
-  const [saved, setSaved] = useState(false);
-  const blocker = useUnsavedChangesGuard(!saved && contents() !== baseline);
+  const { blocker, release } = useUnsavedChangesGuard(contents() !== baseline);
 
   async function save() {
     setFailure(undefined);
@@ -218,8 +216,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         : await apiClient.agentBuildingBlocks.createAgent(input);
       await invalidateAgents().catch(() => {});
       toastSaved(agent ? "saved" : "created", "agent", result.name);
-      // Committed before navigating, so the guard lets the save's own navigation through.
-      flushSync(() => setSaved(true));
+      release();
       void navigate(agentsTab);
     } catch (cause: unknown) {
       setFailure(cause);
