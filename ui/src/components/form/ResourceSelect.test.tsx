@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ResourceSelect, SEARCH_MIN_OPTIONS, type ResourceSelectProps } from "./ResourceSelect";
@@ -30,7 +31,7 @@ describe("ResourceSelect", () => {
     const onChange = vi.fn();
     open({ names: ["default", "gpu"], onChange });
     fireEvent.click(screen.getByTitle("gpu"));
-    expect(onChange).toHaveBeenCalledWith("gpu", expect.anything());
+    expect(onChange).toHaveBeenCalledWith("gpu");
   });
 
   it("puts the right article before the kind in the placeholder", () => {
@@ -56,12 +57,18 @@ describe("ResourceSelect", () => {
     expect(screen.getByTestId("long")).toHaveClass("ant-select-show-search");
   });
 
-  it("offers a typed name that is not in the list when allowed", () => {
-    const onChange = vi.fn();
-    open({ names: ["default"], allowTyped: true, onChange });
+  it("offers a typed name that is not in the list when allowed, and shows it once chosen", () => {
+    function Picker() {
+      const [value, setValue] = useState<string>();
+      return (
+        <ResourceSelect kind="harness" names={["default"]} loading={false} allowTyped value={value} onChange={setValue} data-testid="pick" />
+      );
+    }
+    render(<Picker />);
+    fireEvent.mouseDown(screen.getByRole("combobox"));
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "new-pool" } });
     fireEvent.click(screen.getByText('Use "new-pool"'));
-    expect(onChange).toHaveBeenCalledWith("new-pool", expect.anything());
+    expect(screen.getByTestId("pick").querySelector(".ant-select-content")).toHaveTextContent(/^new-pool$/);
   });
 
   it("offers no typed name unless allowed", () => {

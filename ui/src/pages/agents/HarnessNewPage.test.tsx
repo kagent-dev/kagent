@@ -139,6 +139,7 @@ describe("harness create form", () => {
     fireEvent.mouseDown(pool);
     fireEvent.change(pool, { target: { value: "new-pool" } });
     fireEvent.click(screen.getByText('Use "new-pool"'));
+    expect(screen.getByTestId("harness-worker-pool").querySelector(".ant-select-content")).toHaveTextContent(/^new-pool$/);
     fireEvent.click(screen.getByTestId("harness-submit"));
 
     expect(await screen.findByText("Harness list")).toBeInTheDocument();

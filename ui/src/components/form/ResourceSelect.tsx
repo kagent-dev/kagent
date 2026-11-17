@@ -51,7 +51,11 @@ export function ResourceSelect({
   const [search, setSearch] = useState("");
   const typed = search.trim();
   const options = names.map((name) => ({ value: name, label: name }));
-  if (allowTyped && typed !== "" && !names.includes(typed)) options.push({ value: typed, label: `Use "${typed}"` });
+  // A chosen name the list lacks still displays as itself.
+  if (value && !names.includes(value)) options.push({ value, label: value });
+  if (allowTyped && typed !== "" && typed !== value && !names.includes(typed)) {
+    options.push({ value: typed, label: `Use "${typed}"` });
+  }
 
   return (
     <Select
@@ -59,7 +63,14 @@ export function ResourceSelect({
       data-testid={testId}
       placeholder={placeholder}
       value={value}
-      onChange={onChange}
+      onChange={(next: string) => {
+        // antd clears its search on select without calling onSearch.
+        setSearch("");
+        onChange(next);
+      }}
+      onOpenChange={(open) => {
+        if (!open) setSearch("");
+      }}
       disabled={disabled}
       loading={loading}
       status={error ? "error" : undefined}

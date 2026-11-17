@@ -17,7 +17,7 @@ describe("NamespaceSelect", () => {
     render(<NamespaceSelect onChange={onChange} data-testid="ns" />);
     fireEvent.mouseDown(screen.getByRole("combobox"));
     fireEvent.click(screen.getByTitle("team-a"));
-    expect(onChange).toHaveBeenCalledWith("team-a", expect.anything());
+    expect(onChange).toHaveBeenCalledWith("team-a");
   });
 
   it("shows the current value", () => {
