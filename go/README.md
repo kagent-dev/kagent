@@ -1,24 +1,29 @@
 # Kagent Go
 
-This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing four top-level package trees that make up the Go components of Kagent.
+This directory is a single Go module (`github.com/kagent-dev/kagent/go`) containing the top-level package trees that make up the Go components of Kagent.
 
 ## Packages
 
 | Package | Path | Description |
 |---------|------|-------------|
-| **api** | `go/api/` | Shared types: CRD definitions, ADK model types, database models, HTTP client SDK |
-| **core** | `go/core/` | Infrastructure: Kubernetes controllers, HTTP server, CLI, database implementation |
+| **api** | `go/api/` | Public API: CRD types, generated protobuf code, gRPC and A2A clients, Kubernetes clientset |
+| **core** | `go/core/` | Control plane: Kubernetes controllers, gRPC and HTTP servers, PostgreSQL store, CLI |
 | **adk** | `go/adk/` | Go Agent Development Kit for building and running agents |
 | **harness** | `go/harness/` | Native Claude and Codex Actor runtimes plus their shared A2A execution support |
+| **pkg** | `go/pkg/` | Logging, OpenTelemetry setup, and the shared tracing contract |
+| **sandbox** | `go/sandbox/` | Sandbox guest image and entry point |
 
-### Dependency graph
+### Dependencies between trees
 
-```
-go/api  (shared types — no internal kagent deps)
-  ^       ^
-  |       |
-go/core  go/adk
-```
+`go/api` does not import any other tree in this module, so importing its packages
+does not compile the controller, ADK, or harness code. The other trees import each
+other at the package level:
+
+- `core` uses `adk` and `harness` configuration packages to compile runtime inputs.
+- `adk` and `harness` use `core` packages such as `core/pkg/env` and `core/pkg/config`.
+- `pkg` uses `core/pkg/env`; `sandbox` uses `pkg`.
+
+Run `go list -deps ./<tree>/...` to check the current graph.
 
 ## Directory Structure
 
@@ -28,21 +33,26 @@ go/
 ├── Makefile              # Unified build targets
 ├── Dockerfile            # Shared multi-stage Docker build
 │
-├── api/                  # Shared types module
+├── api/                  # Public API types and clients
 │   ├── v1alpha3/         # Current CRD types
-│   ├── adk/              # ADK config & model types
-│   ├── database/         # database model structs & Client interface
-│   ├── httpapi/          # HTTP API request/response types
-│   ├── client/           # REST HTTP client SDK
-│   ├── utils/            # Shared utility functions
-│   └── config/           # Generated CRD & RBAC manifests
+│   ├── gen/kagent/       # Generated protobuf code (api, config, runtime)
+│   ├── client/           # gRPC and A2A client SDK
+│   ├── clientset/        # Generated Kubernetes clientset
+│   ├── a2a/              # A2A metadata and runtime identity helpers
+│   ├── agentplugin/      # Skill and Agent Plugin package configuration
+│   ├── authorization/    # Authorization scope types
+│   ├── bootstrap/        # Runtime configuration bundles
+│   ├── sandbox/          # Sandbox routing metadata
+│   ├── scheduledrun/     # ScheduledRun scheduling semantics
+│   ├── structuredobject/ # StructuredObject conversion helpers
+│   └── hack/             # Code generation boilerplate
 │
-├── core/                 # Infrastructure module
+├── core/                 # Control plane
 │   ├── cmd/              # Controller binary entry point
 │   ├── cli/              # kagent CLI application
-│   ├── internal/         # Controllers, HTTP server, DB impl, A2A, MCP
-│   ├── pkg/              # Auth, env vars, translator plugins
-│   ├── hack/             # Development utilities (mock LLM, config gen)
+│   ├── internal/         # Controllers, gRPC and HTTP servers, store, A2A gateway, MCP, Substrate
+│   ├── pkg/              # App wiring, auth, config, env vars, install, migrations
+│   ├── hack/             # Development utilities (mock LLM, agent config generator)
 │   └── test/e2e/         # End-to-end tests
 │
 ├── adk/                  # Go Agent Development Kit
@@ -50,11 +60,19 @@ go/
 │   ├── pkg/              # Agent runtime, models, MCP, sessions, skills
 │   └── examples/         # Example tools (oneshot runner, BYO agent)
 │
-└── harness/              # Native Harness Actor runtimes
-    ├── claude/           # Claude Code adapter and image
-    ├── codex/            # Codex App Server adapter and image
-    ├── runtime/          # Public event, A2A executor, and continuation APIs
-    └── internal/utils/  # Private OS utilities
+├── harness/              # Native Harness Actor runtimes
+│   ├── claude/           # Claude Code adapter and image
+│   ├── codex/            # Codex App Server adapter and image
+│   ├── runtime/          # Public event, A2A executor, and continuation APIs
+│   └── internal/utils/   # Private OS utilities
+│
+├── pkg/                  # Shared observability libraries
+│   ├── logging/          # JSON logger
+│   ├── telemetry/        # OpenTelemetry SDK setup
+│   └── tracing/          # Invocation span contract shared by runtimes
+│
+└── sandbox/
+    └── guest/            # Sandbox guest image and entry point
 ```
 
 ## Building
@@ -75,6 +93,10 @@ make core/bin/kagent-local
 # Run the controller locally
 make run
 ```
+
+`make run` reads `/etc/kagent/controller.yaml`, the path the Helm chart mounts. To
+run with another file, use `go run ./core/cmd/controller --config <file>`; see
+[controller configuration](../docs/architecture/process-configuration.md#controller).
 
 ## Testing
 
@@ -158,9 +180,9 @@ The native images use `make build-claude-harness` and `make build-codex-harness`
 The `adk/examples/oneshot` tool lets you test agent configs locally:
 
 ```bash
-# Extract config from a running agent
-kubectl get secret -n kagent k8s-agent -ojson | jq -r '.data."config.json"' | base64 -d > /tmp/config.json
-
-# Run a single prompt
-cd go/adk && go run ./examples/oneshot -config /tmp/config.json -task "Hello"
+# Run a single prompt with a sample config (requires OPENAI_API_KEY)
+cd go/adk && go run ./examples/oneshot -config examples/oneshot/testdata/openai.json -task "Hello"
 ```
+
+[`adk/examples/oneshot/testdata`](adk/examples/oneshot/testdata) has a config
+for each supported model provider and lists the environment variables each needs.
