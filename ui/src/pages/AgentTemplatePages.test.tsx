@@ -214,6 +214,16 @@ describe("agent template details page, edit mode", () => {
     expect(optionTitles("template-form-sub-agent-template-0")).toEqual(["reviewer", "summarizer"]);
   });
 
+  it("keeps ids unique across repeated rows and their errors", () => {
+    startEditing();
+    fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
+    fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
+    fireEvent.click(screen.getByTestId("template-submit"));
+    // antd gives its own unnamed selects a fixed "test-id" under test, so those are skipped.
+    const ids = [...document.body.querySelectorAll("[id]")].map((node) => node.id).filter((id) => id !== "test-id");
+    expect(ids.filter((id, at) => ids.indexOf(id) !== at)).toEqual([]);
+  });
+
   it("shows inline errors on an invalid save and sends nothing", () => {
     startEditing();
     fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));

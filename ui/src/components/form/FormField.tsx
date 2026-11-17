@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Fragment, cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from "react";
 import { Form, type FormItemProps } from "antd";
 import { useTheme } from "@emotion/react";
 
@@ -46,6 +46,14 @@ type FormFieldProps = Omit<FormItemProps, "label" | "required" | "requiredMark">
   hintPlacement?: "below" | "above";
 };
 
+type ControlProps = { id?: string; "aria-describedby"?: string; "aria-invalid"?: boolean };
+
+function isControl(child: ReactElement<ControlProps>, htmlFor: string | undefined): boolean {
+  if (child.type === Fragment) return false;
+  if (typeof child.type === "string" && !["input", "select", "textarea"].includes(child.type)) return false;
+  return htmlFor === undefined || child.props.id === htmlFor;
+}
+
 /**
  * A Form.Item with the shared required/optional label.
  * `required` has no default, so every field states which it is.
@@ -62,20 +70,42 @@ export function FormField({
   ...rest
 }: FormFieldProps) {
   const theme = useTheme();
+  const autoId = useId();
   // A hint above stays visible with an error, which still shows below the control.
   const above = hintPlacement === "above" && help !== undefined;
+  const hintBelow = !above && help !== undefined && !error;
+
+  // A lone control gets the label's id and points at its error or hint. Fragments, plain wrapper
+  // elements and children whose id differs from the caller's htmlFor are left as they are.
+  const control = !above && isValidElement<ControlProps>(children) && isControl(children, rest.htmlFor)
+    ? children
+    : undefined;
+  const controlId = rest.htmlFor ?? control?.props.id ?? autoId;
+  const errorId = `${controlId}-error`;
+  const hintId = `${controlId}-hint`;
+  const describedBy = [control?.props["aria-describedby"], error ? errorId : hintBelow ? hintId : undefined]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <Form.Item
       {...rest}
+      htmlFor={control ? controlId : rest.htmlFor}
       // antd's own mark is replaced by FieldLabel's.
       required={false}
       label={<FieldLabel required={required}>{label}</FieldLabel>}
       validateStatus={error ? "error" : validateStatus}
       // A hint goes in `extra`: antd's `help` grows in from zero height and shifts the controls below.
-      help={error}
-      extra={!above && help !== undefined && !error ? help : extra}
+      help={error ? <span id={errorId}>{error}</span> : undefined}
+      extra={hintBelow ? <span id={hintId}>{help}</span> : extra}
     >
-      {above ? (
+      {control ? (
+        cloneElement(control, {
+          id: control.props.id ?? controlId,
+          "aria-invalid": error ? true : control.props["aria-invalid"],
+          "aria-describedby": describedBy || undefined,
+        })
+      ) : above ? (
         <>
           <div className="ant-form-item-extra" css={{ marginBottom: theme.space(2) }}>
             {help}

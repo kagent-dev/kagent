@@ -2,9 +2,10 @@ import { ThemeProvider } from "@emotion/react";
 import type { ReactElement } from "react";
 import { themeFor } from "@/theme/theme";
 import { render as rtlRender, screen } from "@testing-library/react";
-import { Form, Input } from "antd";
+import { Form, Input, InputNumber, Select } from "antd";
 import { describe, expect, it } from "vitest";
 import { FieldLabel, FormField } from "./FormField";
+import { ResourceSelect } from "./ResourceSelect";
 
 const render = (ui: ReactElement) =>
   rtlRender(<ThemeProvider theme={themeFor("dark")}>{ui}</ThemeProvider>);
@@ -74,5 +75,87 @@ describe("FormField", () => {
     const hint = screen.getByText("One row each.");
     expect(hint.compareDocumentPosition(screen.getByTestId("control")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText("Add a row.")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["an input", <Input key="c" />],
+    ["a text area", <Input.TextArea key="c" />],
+    ["a number input", <InputNumber key="c" />],
+    ["a select", <Select key="c" options={[]} />],
+    ["a resource select", <ResourceSelect key="c" kind="harness" names={[]} loading={false} onChange={() => {}} />],
+  ])("ties the label to %s without htmlFor", (_, control) => {
+    render(
+      <Form layout="vertical">
+        <FormField label="Name" required>{control}</FormField>
+      </Form>,
+    );
+    const field = screen.getByLabelText(/Name/);
+    expect(field.matches("input, textarea")).toBe(true);
+  });
+
+  it("marks the control invalid and points it at the error", () => {
+    render(
+      <Form layout="vertical">
+        <FormField label="Name" required error="A name is required.">
+          <Input />
+        </FormField>
+      </Form>,
+    );
+    const field = screen.getByLabelText(/Name/);
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field).toHaveAccessibleDescription("A name is required.");
+  });
+
+  it("points the control at a hint below it", () => {
+    render(
+      <Form layout="vertical">
+        <FormField label="Origin" required help="Scheme and host.">
+          <Input />
+        </FormField>
+      </Form>,
+    );
+    const field = screen.getByLabelText(/Origin/);
+    expect(field).not.toHaveAttribute("aria-invalid");
+    expect(field).toHaveAccessibleDescription("Scheme and host.");
+  });
+
+  it("keeps a control's own id and the caller's htmlFor", () => {
+    render(
+      <Form layout="vertical">
+        <FormField label="Name" required>
+          <Input id="own-id" />
+        </FormField>
+        <FormField label="Other" required htmlFor="given">
+          <Input id="given" />
+        </FormField>
+      </Form>,
+    );
+    expect(screen.getByLabelText(/Name/)).toHaveAttribute("id", "own-id");
+    expect(screen.getByLabelText(/Other/)).toHaveAttribute("id", "given");
+  });
+
+  it("leaves a wrapped control to the caller's htmlFor", () => {
+    const { container } = render(
+      <Form layout="vertical">
+        <FormField label="Name" required htmlFor="inner" error="Too long.">
+          <div data-testid="wrapper"><Input id="inner" /></div>
+        </FormField>
+      </Form>,
+    );
+    expect(screen.getByTestId("wrapper")).not.toHaveAttribute("id");
+    expect(container.querySelectorAll("#inner")).toHaveLength(1);
+    expect(screen.getByLabelText(/Name/)).toHaveAttribute("id", "inner");
+  });
+
+  it("gives repeated fields distinct ids", () => {
+    const { container } = render(
+      <Form layout="vertical">
+        <FormField label="Key" required error="Enter a key."><Input /></FormField>
+        <FormField label="Key" required error="Enter a key."><Input /></FormField>
+      </Form>,
+    );
+    const ids = [...container.querySelectorAll("[id]")].map((node) => node.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(screen.getAllByLabelText(/Key/)).toHaveLength(2);
   });
 });

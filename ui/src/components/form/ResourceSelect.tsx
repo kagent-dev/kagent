@@ -20,6 +20,8 @@ export interface ResourceSelectProps {
   placeholder?: string;
   disabled?: boolean;
   id?: string;
+  "aria-invalid"?: boolean;
+  "aria-describedby"?: string;
   "data-testid"?: string;
 }
 
@@ -39,6 +41,8 @@ export function ResourceSelect({
   placeholder = `Choose ${withArticle(kind)}`,
   disabled,
   id,
+  "aria-invalid": ariaInvalid,
+  "aria-describedby": ariaDescribedBy,
   "data-testid": testId,
 }: ResourceSelectProps) {
   return (
@@ -51,7 +55,8 @@ export function ResourceSelect({
       disabled={disabled}
       loading={loading}
       status={error ? "error" : undefined}
-      aria-invalid={error ? true : undefined}
+      aria-invalid={error ? true : ariaInvalid}
+      aria-describedby={ariaDescribedBy}
       showSearch={names.length > SEARCH_MIN_OPTIONS}
       options={names.map((name) => ({ value: name, label: name }))}
       notFoundContent={

@@ -36,4 +36,13 @@ describe("NamespaceSelect", () => {
     fireEvent.mouseDown(screen.getByRole("combobox"));
     expect(screen.getByText("Could not load namespaces: denied")).toBeInTheDocument();
   });
+
+  it("passes its id and error wiring to the focusable input", () => {
+    vi.mocked(useNamespaces).mockReturnValue(loaded(["kagent"]));
+    render(<NamespaceSelect id="ns" aria-invalid aria-describedby="ns-error" onChange={() => {}} />);
+    const input = screen.getByRole("combobox");
+    expect(input).toHaveAttribute("id", "ns");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("aria-describedby", "ns-error");
+  });
 });
