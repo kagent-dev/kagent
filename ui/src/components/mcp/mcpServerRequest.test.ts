@@ -47,6 +47,22 @@ describe("validateMcpServerForm — scheme-less URL", () => {
     expect(issues.find((i) => i.field === "url")).toBeUndefined();
   });
 
+  it.each(["api.example.com/mcp", "host:8080/sse", "https://x.test/mcp", "10.0.0.5:3000", "[::1]:8080/mcp"])(
+    "accepts %s",
+    (url) => {
+      expect(validateMcpServerForm(urlForm({ url })).find((i) => i.field === "url")).toBeUndefined();
+    },
+  );
+
+  it.each(["not a url", "api.example.com/m cp", "/mcp", ":8080/mcp", "https://bad host/mcp", "host_name/mcp", "host:port/mcp"])(
+    "rejects %s",
+    (url) => {
+      expect(validateMcpServerForm(urlForm({ url })).find((i) => i.field === "url")?.message).toBe(
+        "Enter a valid host and path, for example api.example.com/mcp.",
+      );
+    },
+  );
+
   it("still requires a host", () => {
     const issues = validateMcpServerForm(urlForm({ url: "" }));
     expect(issues.find((i) => i.field === "url")).toBeDefined();
@@ -58,6 +74,10 @@ describe("suggestName", () => {
     expect(suggestName(urlForm({ name: "", url: "mcp.example.com/sse" }))).toBe(
       "mcp-example-com",
     );
+  });
+
+  it("suggests nothing for a host that is not valid", () => {
+    expect(suggestName(urlForm({ name: "", url: "not a url" }))).toBe("");
   });
 
   it("suggests nothing when there is nothing to derive from", () => {

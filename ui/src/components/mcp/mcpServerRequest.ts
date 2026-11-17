@@ -27,10 +27,14 @@ export const schemeFor = (tlsEnabled: boolean): string =>
 export const stripScheme = (raw: string): string =>
   raw.trim().replace(/^https?:\/\//i, "");
 
-/** Whether a string parses as an absolute URL. */
-function isParsableUrl(url: string): boolean {
+/** A host name, IPv4 or [IPv6] address, optional port, then an optional path; no whitespace. */
+const HOST_AND_PATH = /^(?:[a-z0-9-]+(?:\.[a-z0-9-]+)*\.?|\[[0-9a-f:.]+\])(?::\d{1,5})?(?:[/?#]\S*)?$/i;
+
+/** Whether a scheme-less host and path is usable. Chrome's URL parser accepts a host with spaces. */
+function isValidHostAndPath(host: string): boolean {
+  if (!HOST_AND_PATH.test(host)) return false;
   try {
-    new URL(url);
+    new URL(`http://${host}`);
     return true;
   } catch {
     return false;
@@ -92,12 +96,11 @@ export function validateMcpServerForm(
     issues.push({ field: "namespace", message: "A namespace is required." });
   }
 
-  // The scheme lives on the TLS toggle, so the field holds only the host and
-  // path; validate the whole thing the toggle would produce.
+  // The scheme lives on the TLS toggle, so the field holds only the host and path.
   const host = stripScheme(values.url);
   if (!host) {
     issues.push({ field: "url", message: "A server URL is required." });
-  } else if (!isParsableUrl(schemeFor(values.tlsEnabled) + host)) {
+  } else if (!isValidHostAndPath(host)) {
     issues.push({
       field: "url",
       message: "Enter a valid host and path, for example api.example.com/mcp.",
@@ -177,7 +180,7 @@ export function suggestName(values: McpServerFormValues): string {
 
 function hostnameOf(url: string): string {
   const host = stripScheme(url);
-  if (!host) return "";
+  if (!isValidHostAndPath(host)) return "";
   try {
     // The field is scheme-less, so a scheme is added to make it parseable —
     // which one does not matter, only the hostname is read back out.

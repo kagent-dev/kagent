@@ -163,6 +163,12 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await page.getByTestId("mcp-submit").click();
     await expect(page.getByText("A server name is required.")).toBeVisible();
     await expect(page.getByText("A server URL is required.")).toBeVisible();
+
+    // A host with spaces is rejected, and no name is guessed from it.
+    await page.getByTestId("mcp-url").fill("not a url");
+    await page.getByTestId("mcp-submit").click();
+    await expect(page.getByText("Enter a valid host and path, for example api.example.com/mcp.")).toBeVisible();
+    await expect(page.getByTestId("mcp-name")).toHaveValue("");
   });
 
   await test.step("8. a registered server appears on the list, counted as zero tools", async () => {
