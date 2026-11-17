@@ -13,13 +13,13 @@ interface FormRowListProps {
   empty?: ReactNode;
   /** More add controls, such as a picker, shown beside the add button. */
   actions?: ReactNode;
-  /** Focuses the first control of an added row, and the add button after a remove. */
+  /** Focuses the first control of an added row. A remove always moves focus. */
   manageFocus?: boolean;
   "data-testid"?: string;
 }
 
-/** Tells the list a row's remove button was used, so focus can move to "Add". */
-const RowRemovedContext = createContext<(() => void) | undefined>(undefined);
+/** Tells the list a row is being removed, passing the row before it, so focus can move. */
+const RowRemovedContext = createContext<((previous: Element | null) => void) | undefined>(undefined);
 
 const FOCUSABLE = "input:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
@@ -37,25 +37,31 @@ export function FormRowList({
   const theme = useTheme();
   const count = Children.toArray(children).length;
   const isEmpty = count === 0;
+  const container = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLUListElement>(null);
   const addButton = useRef<HTMLButtonElement>(null);
-  const pending = useRef<"row" | "add" | undefined>(undefined);
+  const pending = useRef<"row" | { removedAfter: Element | null } | undefined>(undefined);
 
   useEffect(() => {
     const target = pending.current;
     pending.current = undefined;
-    if (target === "add") addButton.current?.focus();
     if (target === "row") list.current?.lastElementChild?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    else if (target) {
+      // The removed row took focus with it: go to "Add", else a neighbouring row, else the list.
+      const row = target.removedAfter?.isConnected ? target.removedAfter : list.current?.firstElementChild;
+      const next = addButton.current && !addButton.current.disabled ? addButton.current : row?.querySelector<HTMLElement>(FOCUSABLE);
+      (next ?? container.current)?.focus();
+    }
   }, [count]);
 
   const add = () => {
     if (manageFocus) pending.current = "row";
     onAdd?.();
   };
-  const rowRemoved = manageFocus ? () => { pending.current = "add"; } : undefined;
+  const rowRemoved = (previous: Element | null) => { pending.current = { removedAfter: previous }; };
 
   return (
-    <div data-testid={testId}>
+    <div ref={container} tabIndex={-1} data-testid={testId}>
       {isEmpty ? (
         empty ? <div css={{ color: theme.color.textMuted, padding: `${theme.space(2)} 0` }}>{empty}</div> : null
       ) : (
@@ -123,8 +129,8 @@ export function FormRow({ children, onRemove, removeLabel = "Remove row", remove
           danger
           aria-label={removeLabel}
           icon={<Trash2 size={14} aria-hidden />}
-          onClick={() => {
-            rowRemoved?.();
+          onClick={(event) => {
+            rowRemoved?.(event.currentTarget.closest("li")?.previousElementSibling ?? null);
             onRemove();
           }}
           disabled={removeDisabled}

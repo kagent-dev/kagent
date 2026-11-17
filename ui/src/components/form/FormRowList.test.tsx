@@ -2,22 +2,23 @@ import { ThemeProvider } from "@emotion/react";
 import { useState, type ReactElement } from "react";
 import { themeFor } from "@/theme/theme";
 import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { FormRow, FormRowList } from "./FormRowList";
 
 const render = (ui: ReactElement) =>
   rtlRender(<ThemeProvider theme={themeFor("dark")}>{ui}</ThemeProvider>);
 
-function Rows({ manageFocus }: { manageFocus?: boolean }) {
+function Rows({ manageFocus, canAdd = true }: { manageFocus?: boolean; canAdd?: boolean }) {
   const [rows, setRows] = useState(["first", "second"]);
   return (
     <FormRowList
       data-testid="rows"
       addLabel="Add header"
-      onAdd={() => setRows((current) => [...current, `row-${current.length + 1}`])}
+      onAdd={canAdd ? () => setRows((current) => [...current, `row-${current.length + 1}`]) : undefined}
       empty="No headers"
       manageFocus={manageFocus}
-      actions={<button type="button">Pick one</button>}
+      actions={canAdd ? <button type="button">Pick one</button> : undefined}
     >
       {rows.map((row) => (
         <FormRow key={row} removeLabel={`Remove ${row}`} onRemove={() => setRows((current) => current.filter((r) => r !== row))}>
@@ -70,9 +71,28 @@ describe("FormRowList", () => {
     expect(screen.getByTestId("rows-add")).toHaveFocus();
   });
 
-  it("leaves focus alone unless asked", () => {
+  it("leaves focus on the add button after an add unless asked", () => {
     render(<Rows />);
     fireEvent.click(screen.getByTestId("rows-add"));
     expect(screen.getByRole("textbox", { name: "Value row-3" })).not.toHaveFocus();
+  });
+
+  it("moves focus to the add button when a row is removed by keyboard", async () => {
+    render(<Rows />);
+    screen.getByRole("button", { name: "Remove second" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByTestId("rows-add")).toHaveFocus();
+  });
+
+  it("moves focus to the previous row without an add button, then to the list", async () => {
+    render(<Rows canAdd={false} />);
+    screen.getByRole("button", { name: "Remove second" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByRole("textbox", { name: "Value first" })).toHaveFocus();
+
+    screen.getByRole("button", { name: "Remove first" }).focus();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getByTestId("rows")).toHaveFocus();
   });
 });
