@@ -1,7 +1,8 @@
-import { Alert, Button, Skeleton, Space } from "antd";
-import toast from "react-hot-toast";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Alert, Skeleton, Space } from "antd";
+import { useNavigate, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { BackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { modelDraftFrom } from "@/components/model-form/modelDraft";
 import { paths } from "@/router/routes";
@@ -41,19 +42,16 @@ export function ModelEditPage() {
     // `refresh` rethrows, and the write has already succeeded.
     await models.refresh().catch(() => {});
     await model.refresh().catch(() => {});
-    toast.success(`Model configuration ${name} updated`);
+    toastSaved("saved", "model configuration", name);
     await navigate(paths.models);
   }
 
   return (
+    <>
+    <BackLink to={paths.models} resource="Models" />
     <PageFrame
       title={name ? `Edit ${name}` : "Edit model"}
       description="Replaces the configuration's provider, model and credential reference."
-      actions={
-        <Link to={paths.models}>
-          <Button>Back to models</Button>
-        </Link>
-      }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {model.error ? (
@@ -72,7 +70,7 @@ export function ModelEditPage() {
           <ModelForm
             initial={modelDraftFrom(model.data)}
             outcome="saved"
-            submitLabel="Save changes"
+            submitLabel="Save"
             // The ref is how the controller addresses the resource, so an edit
             // cannot move a configuration.
             identityLocked
@@ -81,5 +79,6 @@ export function ModelEditPage() {
         ) : null}
       </Space>
     </PageFrame>
+    </>
   );
 }

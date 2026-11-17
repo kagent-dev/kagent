@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Button, Form, Input, Modal, Space, Typography } from "antd";
+import { useMemo, useState } from "react";
+import { Form, Input, Space } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link, useBlocker } from "react-router-dom";
 import type { CreatePromptTemplateRequest } from "@/api";
-import { RFC1123_SUBDOMAIN } from "@/components/common/resourceName";
 import { SubmitError } from "@/components/common/SubmitError";
+import { ValidationNotice } from "@/components/form/ValidationNotice";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { paths } from "@/router/routes";
 import { FragmentEditor } from "./FragmentEditor";
 import {
@@ -13,8 +18,6 @@ import {
   promptDraftIssues,
   promptPayloadFrom,
 } from "./promptDraft";
-
-const { Text, Paragraph } = Typography;
 
 interface PromptFormProps {
   onSubmit: (payload: CreatePromptTemplateRequest) => Promise<void>;
@@ -53,19 +56,17 @@ export function PromptForm({
   onSubmit,
   initial,
   outcome = "created",
-  submitLabel = "Create library",
+  submitLabel = "Create",
   identityLocked = false,
   onCancel,
 }: PromptFormProps) {
   const theme = useTheme();
   const [draft, setDraft] = useState<PromptDraft>(initial ?? emptyPromptDraft);
-  const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
 
-  const issues = useMemo(
-    () => promptDraftIssues(draft, { identityLocked }),
-    [draft, identityLocked],
+  const validation = useSubmitValidation(
+    useMemo(() => promptDraftIssues(draft, { identityLocked }), [draft, identityLocked]),
   );
 
   /*
@@ -90,30 +91,8 @@ export function PromptForm({
   const [saved, setSaved] = useState(false);
   const isDirty = !saved && contents(draft) !== baseline;
 
-  /*
-   * Leaving with a draft asks first — every way out, not just this form's Cancel.
-   *
-   * A confirmation on one button is worse than none: it teaches a reader that the
-   * work is guarded, and then the header link, the sidebar and the back button throw
-   * it away without a word. Blocking the navigation catches all of them, Cancel
-   * included, which is why Cancel below is an ordinary link or callback with no
-   * question of its own.
-   */
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) =>
-      isDirty && currentLocation.pathname !== nextLocation.pathname,
-  );
-
-  /*
-   * And the exits the router cannot see: a reload, a closed tab, a typed address. The
-   * browser shows its own wording here — a page may ask, not choose the words.
-   */
-  useEffect(() => {
-    if (!isDirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [isDirty]);
+  // Every way out asks first, Cancel included, so Cancel has no question of its own.
+  const blocker = useUnsavedChangesGuard(isDirty);
 
   const update = (patch: Partial<PromptDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -122,9 +101,8 @@ export function PromptForm({
   };
 
   const submit = async () => {
-    setSubmitted(true);
     setFailure(undefined);
-    if (issues.length > 0) return;
+    if (!validation.attempt()) return;
 
     setSaving(true);
     try {
@@ -143,171 +121,88 @@ export function PromptForm({
     }
   };
 
-  /*
-   * Whether to mark the identity fields. Only the create caller can get them wrong —
-   * locked, they are the resource's own — so a locked form never shows an error on a
-   * field the reader cannot change.
-   */
-  const checkIdentity = submitted && !identityLocked;
-  const nameAccepted = RFC1123_SUBDOMAIN.test(draft.name.trim());
-
   return (
-    <Space
-      orientation="vertical"
-      size="middle"
-      css={{ display: "flex", maxWidth: 720 }}
-    >
-      {/* Name before namespace, as every other authoring form in the app has it. The
-          namespace arrives filled in with a default and is usually left alone; the
-          name is the empty field the reader came to fill, and leading with the
-          pre-filled one puts a box to tab past in front of it. */}
+    <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 720 }}>
+      {/* Name before namespace: the namespace arrives filled in and is usually left
+          alone, so leading with it puts a box to tab past in front of the name. */}
       <Form layout="vertical" component="div">
-        <Form.Item
+        <FormField
           label="Name"
-          required={!identityLocked}
-          validateStatus={checkIdentity && !nameAccepted ? "error" : undefined}
-          help={
-            checkIdentity && !draft.name.trim()
-              ? "A library name is required."
-              : checkIdentity && !nameAccepted
-                ? "Lowercase letters, numbers and hyphens only."
-                : undefined
-          }
+          required
+          error={validation.errorFor("name")}
+          help={identityLocked ? "You cannot change a library's name." : undefined}
         >
           <Input
             data-testid="prompt-name"
             placeholder="team-prompts"
             value={draft.name}
-            /* `readOnly` rather than `disabled`: these two are shown so the reader is
-               sure which library they are editing, and a disabled field is dimmed —
-               which makes the answer to that question the least legible thing on the
-               form. Uneditable either way. */
+            // `readOnly` keeps the name at full contrast, so it is clear which library this is.
             readOnly={identityLocked}
             onChange={(event) => update({ name: event.target.value })}
             css={{ fontFamily: theme.font.mono }}
           />
-        </Form.Item>
+        </FormField>
 
-        <Form.Item
+        <FormField
           label="Namespace"
-          required={!identityLocked}
-          validateStatus={
-            checkIdentity && !draft.namespace.trim() ? "error" : undefined
-          }
+          required
+          error={validation.errorFor("namespace")}
+          help={identityLocked ? "Libraries stay in the namespace they were created in." : undefined}
+        >
+          <NamespaceSelect
+            data-testid="prompt-namespace"
+            value={draft.namespace}
+            disabled={identityLocked}
+            onChange={(namespace) => update({ namespace })}
+          />
+        </FormField>
+
+        <FormField
+          label="Fragments"
+          required
+          error={validation.errorFor("fragments")}
+          hintPlacement="above"
           help={
-            checkIdentity && !draft.namespace.trim()
-              ? "A namespace is required."
-              : undefined
+            <span data-testid="prompt-fragments-note">
+              {identityLocked
+                ? /* `UpdatePromptTemplate` assigns the whole `data` map, so a removed row is deleted on save. */
+                  "Each key is an include target. Saving replaces this library's fragments with what is below, so a fragment removed here is deleted."
+                : "A fragment is a named piece of prompt text. Agents include it by key."}
+            </span>
           }
         >
-          <Input
-            data-testid="prompt-namespace"
-            placeholder="kagent"
-            value={draft.namespace}
-            readOnly={identityLocked}
-            onChange={(event) => update({ namespace: event.target.value })}
+          <FragmentEditor
+            rows={draft.rows}
+            onChange={(rows) => update({ rows })}
+            library={draft.name.trim() || undefined}
+            disabled={saving}
           />
-        </Form.Item>
+        </FormField>
       </Form>
 
-      <div>
-        <Text strong css={{ display: "block", marginBottom: theme.space(1) }}>
-          Fragments
-        </Text>
-        <Text
-          data-testid="prompt-fragments-note"
-          css={{
-            display: "block",
-            marginBottom: theme.space(3),
-            color: theme.color.textMuted,
-          }}
-        >
-          {identityLocked
-            ? /* The replace semantics, said where they apply. `UpdatePromptTemplate`
-                 assigns the library's whole `data` map, so a row removed here is a
-                 fragment deleted on save, and nothing else on screen says so. */
-              "Each key is an include target. Saving replaces this library's fragments with what is below, so a fragment removed here is deleted."
-            : "Each key becomes an include target. An agent pulls one in with the tag shown beside it."}
-        </Text>
-        <FragmentEditor
-          rows={draft.rows}
-          onChange={(rows) => update({ rows })}
-          library={draft.name.trim() || undefined}
-          disabled={saving}
-        />
-      </div>
+      <FormActions
+        submitLabel={submitLabel}
+        onSubmit={() => void submit()}
+        submitting={saving}
+        cancel={onCancel ? { onClick: onCancel } : { to: paths.prompts }}
+        testIdPrefix="prompt"
+        error={
+          failure !== undefined ? (
+            <SubmitError
+              error={failure}
+              what="prompt library"
+              outcome={outcome}
+              onRetry={() => void submit()}
+              data-testid="prompt-submit-error"
+            />
+          ) : validation.issues.length > 0 ? <ValidationNotice data-testid="prompt-submit-error" /> : null
+        }
+      />
 
-      {submitted && issues.length > 0 ? (
-        <Alert
-          type="error"
-          showIcon
-          title={
-            identityLocked
-              ? "These changes cannot be saved yet"
-              : "This library cannot be created yet"
-          }
-          data-testid="prompt-form-errors"
-          description={
-            <ul css={{ margin: 0, paddingLeft: theme.space(5) }}>
-              {issues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          }
-        />
-      ) : null}
-
-      {failure !== undefined ? (
-        <SubmitError
-          error={failure}
-          what="prompt library"
-          outcome={outcome}
-          onRetry={() => void submit()}
-          data-testid="prompt-submit-error"
-        />
-      ) : null}
-
-      <Space size={8}>
-        <Button
-          type="primary"
-          data-testid="prompt-submit"
-          loading={saving}
-          onClick={() => void submit()}
-        >
-          {submitLabel}
-        </Button>
-        {onCancel ? (
-          <Button onClick={onCancel} data-testid="prompt-cancel">
-            Cancel
-          </Button>
-        ) : (
-          <Link to={paths.prompts}>
-            <Button data-testid="prompt-cancel">Cancel</Button>
-          </Link>
-        )}
-      </Space>
-
-      {/*
-        A controlled modal rather than `Modal.confirm`: antd 6's static methods cannot
-        read context, and the warning they log is a failure in the browser suite.
-      */}
-      <Modal
-        open={blocker.state === "blocked"}
-        title="Discard your changes?"
-        okText="Discard"
-        okButtonProps={{ danger: true }}
-        cancelText="Keep editing"
-        // `proceed` resumes the navigation that was blocked, so Discard leaves for
-        // wherever the reader was going rather than for one place this form chose.
-        onOk={() => blocker.proceed?.()}
-        onCancel={() => blocker.reset?.()}
-        data-testid="prompt-discard-modal"
-      >
-        <Paragraph css={{ margin: 0 }} data-testid="prompt-discard-body">
-          This form has edits that have not been saved. Leaving throws them away; the
-          library on the cluster is unchanged either way.
-        </Paragraph>
-      </Modal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="prompt">
+        This form has edits that have not been saved. Leaving throws them away; the
+        library on the cluster is unchanged either way.
+      </UnsavedChangesModal>
     </Space>
   );
 }

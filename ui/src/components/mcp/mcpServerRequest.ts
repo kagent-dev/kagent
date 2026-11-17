@@ -88,11 +88,8 @@ export function validateMcpServerForm(
     issues.push({ field: "name", message: RESOURCE_NAME_HINT });
   }
 
-  if (values.namespace.trim() && !isValidResourceName(values.namespace)) {
-    issues.push({
-      field: "namespace",
-      message: "Namespaces follow the same rules as names.",
-    });
+  if (!values.namespace.trim()) {
+    issues.push({ field: "namespace", message: "A namespace is required." });
   }
 
   // The scheme lives on the TLS toggle, so the field holds only the host and

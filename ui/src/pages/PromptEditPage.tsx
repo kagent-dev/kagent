@@ -1,7 +1,8 @@
 import { Alert, Button, Skeleton, Space } from "antd";
-import toast from "react-hot-toast";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { BackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { PromptForm } from "@/components/prompts/PromptForm";
 import { promptDraftFrom } from "@/components/prompts/promptDraft";
 import { buildPath, paths } from "@/router/routes";
@@ -59,20 +60,17 @@ export function PromptEditPage() {
     // Swept rather than re-reading this library alone: an edit changes the list's key
     // count and tags too, on whichever surfaces are still mounted.
     await invalidatePrompts().catch(() => {});
-    toast.success(`Prompt library ${name} saved`);
+    toastSaved("saved", "prompt library", name);
     await navigate(detail);
   }
 
   return (
+    <>
+    <BackLink to={paths.prompts} resource="Prompts" />
     <PageFrame
       title={name ? `Edit ${name}` : "Edit prompt library"}
       description={
         missing ? undefined : "Replaces this library's fragments with what you save."
-      }
-      actions={
-        <Link to={detail}>
-          <Button>Back to library</Button>
-        </Link>
       }
     >
       <Space
@@ -116,7 +114,7 @@ export function PromptEditPage() {
           <PromptForm
             initial={promptDraftFrom(library.data)}
             outcome="saved"
-            submitLabel="Save changes"
+            submitLabel="Save"
             // The ref is how the controller addresses the library, so an edit cannot
             // rename one or move it to another namespace.
             identityLocked
@@ -129,5 +127,6 @@ export function PromptEditPage() {
         ) : null}
       </Space>
     </PageFrame>
+    </>
   );
 }

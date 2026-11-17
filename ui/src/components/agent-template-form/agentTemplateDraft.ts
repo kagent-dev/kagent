@@ -23,6 +23,7 @@ import type {
   ToolBinding,
   ObjectReference,
 } from "@/api/domain/agentTemplates";
+import type { FieldIssue } from "@/components/form/useSubmitValidation";
 
 /** One MCP tool selection, flattened for a form to hold. */
 export interface McpToolDraft {
@@ -34,7 +35,7 @@ export interface McpToolDraft {
   requireApproval?: boolean;
 }
 
-/** One sub-agent binding, flattened for a form to hold. */
+/** One agent template used as a tool, flattened for a form to hold. */
 export interface SubAgentToolDraft {
   /** What the parent calls this tool. */
   name: string;
@@ -254,63 +255,69 @@ export function labelsFromDraft(draft: AgentTemplateDraft): Record<string, strin
   return labels;
 }
 
+/** The form control an issue belongs to; repeated rows carry their index. */
+export type TemplateField =
+  | "name"
+  | "namespace"
+  | "promptConfigMap"
+  | "promptKey"
+  | "outputSchema"
+  | "outputConfigMap"
+  | "outputKey"
+  | `mcp:${number}:server`
+  | `subAgent:${number}:template`
+  | `subAgent:${number}:name`
+  | `subAgent:${number}:description`
+  | `label:${number}:key`;
+
 /**
  * What is wrong with the draft, in the order a reader would fix it.
- *
- * Only the rules the controller will actually refuse. A form that invented its own
- * would block a template the cluster would have accepted.
+ * Only rules the controller refuses, plus rows and sources left half filled in.
  */
-export function draftProblems(
+export function templateDraftIssues(
   draft: AgentTemplateDraft,
   options: { isCreate: boolean },
-): string[] {
-  const problems: string[] = [];
+): FieldIssue<TemplateField>[] {
+  const issues: FieldIssue<TemplateField>[] = [];
+  const add = (field: TemplateField, message: string) => issues.push({ field, message });
 
-  if (options.isCreate && draft.name.trim() === "") {
-    problems.push("A name is required.");
-  }
-  if (draft.namespace.trim() === "") {
-    problems.push("A namespace is required.");
-  }
+  if (options.isCreate && draft.name.trim() === "") add("name", "A name is required.");
+  if (draft.namespace.trim() === "") add("namespace", "A namespace is required.");
   if (draft.promptSource === "configMap") {
-    const name = draft.systemPromptConfigMap.trim();
-    const key = draft.systemPromptKey.trim();
-    if ((name === "") !== (key === "")) {
-      problems.push(
-        "A prompt read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-      );
-    }
+    if (draft.systemPromptConfigMap.trim() === "") add("promptConfigMap", "Enter the ConfigMap name.");
+    if (draft.systemPromptKey.trim() === "") add("promptKey", "Enter the key that holds the prompt.");
   }
   if (draft.outputSource === "configMap") {
-    const name = draft.outputSchemaConfigMap.trim();
-    const key = draft.outputSchemaKey.trim();
-    if (name === "" || key === "") {
-      problems.push(
-        "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-      );
-    }
+    if (draft.outputSchemaConfigMap.trim() === "") add("outputConfigMap", "Enter the ConfigMap name.");
+    if (draft.outputSchemaKey.trim() === "") add("outputKey", "Name the key that holds the schema.");
   }
   if (draft.outputSource === "inline") {
     const text = draft.outputSchema.trim();
     if (text === "") {
-      problems.push("An inline output schema is required.");
+      add("outputSchema", "An inline output schema is required.");
     } else {
       const schema = parseOutputSchema(text);
-      if (!schema) {
-        problems.push("The inline output schema must be a valid JSON object.");
-      } else if (schema.type !== "object") {
-        problems.push('The output schema must have "type": "object" at its root.');
-      }
+      if (!schema) add("outputSchema", "The inline output schema must be a valid JSON object.");
+      else if (schema.type !== "object") add("outputSchema", 'The output schema must have "type": "object" at its root.');
     }
   }
-  for (const tool of draft.subAgentTools) {
-    if (tool.name.trim() !== "" && tool.description.trim() === "") {
-      problems.push(
-        `The sub-agent tool "${tool.name.trim()}" needs a description — it is what tells the parent when to use it.`,
-      );
-    }
-  }
-  return problems;
+  draft.mcpTools.forEach((tool, index) => {
+    if (tool.serverRef.name.trim() === "") add(`mcp:${index}:server`, "Choose an MCP server.");
+  });
+  draft.subAgentTools.forEach((tool, index) => {
+    if (tool.refName.trim() === "") add(`subAgent:${index}:template`, "Choose an agent template.");
+    if (tool.name.trim() === "") add(`subAgent:${index}:name`, "Enter a tool name.");
+    if (tool.description.trim() === "") add(`subAgent:${index}:description`, "Say when to use this tool.");
+  });
+  draft.labels.forEach((label, index) => {
+    if (label.key.trim() === "") add(`label:${index}:key`, "Add a key or remove this label.");
+  });
+  return issues;
+}
+
+/** The same issues as plain messages, for callers that list them. */
+export function draftProblems(draft: AgentTemplateDraft, options: { isCreate: boolean }): string[] {
+  return templateDraftIssues(draft, options).map((issue) => issue.message);
 }
 
 /** Keep local manifests concise while preserving shared resource identity, group and kind. */

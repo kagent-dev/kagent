@@ -1,5 +1,6 @@
 import { referenceLabel } from "@/api/domain/agentTemplates";
-import { Alert, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Skeleton, Space, Typography } from "antd";
+import { DataPill } from "@/components/form/DataPill";
 import { useTheme } from "@emotion/react";
 import { Link } from "react-router-dom";
 import { useAgent, useAgentTemplate, bareName, type AgentInstance } from "@/api";
@@ -122,20 +123,18 @@ export function AgentContextPanel({
                   return mcp
                     ? mcp.tools?.length
                       ? mcp.tools.map((tool) => (
-                          <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)}: {tool}
-                          </Tag>
+                          <DataPill key={`${index}-${tool}`}>
+                            {`${referenceLabel(mcp.server, templateNamespace)}: ${tool}`}
+                          </DataPill>
                         ))
                       : [
-                          <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)} (all tools)
-                          </Tag>,
+                          <DataPill key={`${index}-mcp-all`}>
+                            {`${referenceLabel(mcp.server, templateNamespace)} (all tools)`}
+                          </DataPill>,
                         ]
                     : binding.subAgent
                       ? [
-                          <Tag key={`${index}-agent`} color="processing">
-                            {binding.subAgent.name}
-                          </Tag>,
+                          <DataPill key={`${index}-agent`}>{binding.subAgent.name}</DataPill>,
                         ]
                       : [];
                 })}

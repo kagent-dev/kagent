@@ -1,15 +1,30 @@
-import { useState } from "react";
-import { Alert, Button, Form, Input, Select, Space } from "antd";
-import { useTheme } from "@emotion/react";
-import { apiClient, useInvalidateHarnesses, useNamespaces, type Harness, type HarnessSpec } from "@/api";
+import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
+import { Form, Input } from "antd";
+import { apiClient, useInvalidateHarnesses, useNamespaces, useWorkerPools, type Harness, type HarnessSpec } from "@/api";
+import { DEFAULT_HARNESS_WORKER_POOL } from "@/api/domain/harnesses";
+import { SubmitError } from "@/components/common/SubmitError";
+import { ValidationNotice } from "@/components/form/ValidationNotice";
+import { RFC1123_SUBDOMAIN } from "@/components/common/resourceName";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { toastSaved } from "@/components/form/saveToast";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useSubmitValidation, type FieldIssue } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { copyName } from "@/components/table/copyFrom";
 import { HarnessFields } from "./HarnessFields";
 import {
   emptyHarnessDraft,
   harnessDraftFromSpec,
-  harnessDraftProblems,
+  harnessDraftIssues,
   harnessSpecFromDraft,
+  type HarnessDraft,
+  type HarnessDraftField,
 } from "./harnessDraft";
+
+type HarnessField = "name" | "namespace" | HarnessDraftField;
 
 /**
  * Creates a harness, or edits `harness`. The caller decides where to go afterwards, so
@@ -23,7 +38,8 @@ export function HarnessForm({
   copyOf,
   namespace: fixedNamespace,
   onSaved,
-  onCancel,
+  cancel,
+  inDialog = false,
 }: {
   harness?: Harness;
   /**
@@ -34,26 +50,60 @@ export function HarnessForm({
   copyOf?: Harness;
   namespace?: string;
   onSaved: (saved: Harness) => void;
-  onCancel: () => void;
+  cancel: { to: string } | { onClick: () => void };
+  /** In a dialog the page around it owns the unsaved-changes guard; a router allows one. */
+  inDialog?: boolean;
 } & ({ copyOf?: undefined } | { namespace?: undefined })) {
-  const theme = useTheme();
   const namespaces = useNamespaces();
   const invalidateHarnesses = useInvalidateHarnesses();
   const existing = (harness ?? copyOf)?.resource.spec as HarnessSpec | undefined;
 
-  const [chosenNamespace, setNamespace] = useState(harness?.namespace ?? fixedNamespace ?? copyOf?.namespace);
-  const namespace = harness?.namespace ?? fixedNamespace ?? chosenNamespace;
+  const fallbackNamespace = useMemo(() => {
+    const names = (namespaces.data ?? []).map((row) => row.name);
+    return names.includes("kagent") ? "kagent" : names[0];
+  }, [namespaces.data]);
+  const [chosenNamespace, setNamespace] = useState(copyOf?.namespace);
+  const namespace = harness?.namespace ?? fixedNamespace ?? chosenNamespace ?? fallbackNamespace;
   const [name, setName] = useState(harness?.name ?? (copyOf ? copyName(copyOf.name) : ""));
-  const [draft, setDraft] = useState(() => (existing ? harnessDraftFromSpec(existing) : emptyHarnessDraft()));
+  const [rawDraft, setDraft] = useState(() => (existing ? harnessDraftFromSpec(existing) : emptyHarnessDraft()));
+  const [poolTouched, setPoolTouched] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [failure, setFailure] = useState<string>();
+  const [failure, setFailure] = useState<unknown>();
 
-  const ready = Boolean(namespace) && name.trim() !== "" && harnessDraftProblems(draft).length === 0;
+  // The chart installs `kagent-default`: an untouched empty pool shows it where it exists.
+  const pools = useWorkerPools(namespace);
+  const poolNames = (pools.data ?? []).map((pool) => pool.name);
+  const defaultPool = poolNames.includes(DEFAULT_HARNESS_WORKER_POOL) ? DEFAULT_HARNESS_WORKER_POOL : "";
+  const withDefaultPool = (of: HarnessDraft) =>
+    of.workerPool === "" && !poolTouched ? { ...of, workerPool: defaultPool } : of;
+  const draft = withDefaultPool(rawDraft);
+
+  // Compared by value against the first render, with the same default pool applied to both.
+  const [baseline] = useState(() => ({ namespace: chosenNamespace, name, draft: rawDraft }));
+  const [saved, setSaved] = useState(false);
+  const isDirty =
+    !saved &&
+    JSON.stringify([chosenNamespace, name, draft]) !==
+      JSON.stringify([baseline.namespace, baseline.name, withDefaultPool(baseline.draft)]);
+
+  const issues = useMemo(() => {
+    const list: FieldIssue<HarnessField>[] = [];
+    const trimmed = name.trim();
+    if (!harness) {
+      if (trimmed === "") list.push({ field: "name", message: "A name is required." });
+      else if (!RFC1123_SUBDOMAIN.test(trimmed)) {
+        list.push({ field: "name", message: "Use lowercase letters, numbers and hyphens only." });
+      }
+      if (!namespace) list.push({ field: "namespace", message: "A namespace is required." });
+    }
+    return [...list, ...harnessDraftIssues(draft)];
+  }, [draft, harness, name, namespace]);
+  const validation = useSubmitValidation(issues);
 
   async function save() {
-    if (!namespace || !ready) return;
-    setSaving(true);
     setFailure(undefined);
+    if (!validation.attempt() || !namespace) return;
+    setSaving(true);
     const input = {
       namespace,
       name: name.trim(),
@@ -64,36 +114,48 @@ export function HarnessForm({
       },
     };
     try {
-      const saved = harness
+      const result = harness
         ? await apiClient.agentBuildingBlocks.updateHarness(input)
         : await apiClient.agentBuildingBlocks.createHarness(input);
       // Refreshes any list still on screen. Guarded, not load-bearing.
       await invalidateHarnesses().catch(() => {});
-      onSaved(saved);
+      toastSaved(harness ? "saved" : "created", "harness", result.name);
+      // Committed before the caller navigates, so the guard lets the save's own navigation through.
+      flushSync(() => setSaved(true));
+      onSaved(result);
     } catch (cause: unknown) {
-      // The controller's own words: its CEL messages name the field that was wrong,
-      // which is more use than anything this form could say about it.
-      setFailure(cause instanceof Error ? cause.message : String(cause));
+      setFailure(cause);
     } finally {
       setSaving(false);
     }
   }
 
+  const blockedByFields = validation.issues.length > 0;
+
   return (
-    <Form layout="vertical">
-      <Form.Item label="Name" required extra={harness ? "A Kubernetes name, so it cannot be changed." : undefined}>
+    <Form layout="vertical" component="div">
+      <FormField
+        label="Name"
+        required
+        htmlFor="harness-name"
+        error={validation.errorFor("name")}
+        extra={harness ? "A Kubernetes name, so it cannot be changed." : undefined}
+      >
         <Input
+          id="harness-name"
           data-testid="harness-name"
           value={name}
           disabled={Boolean(harness)}
           onChange={(event) => setName(event.target.value)}
           placeholder="my-harness"
         />
-      </Form.Item>
+      </FormField>
 
-      <Form.Item
+      <FormField
         label="Namespace"
         required
+        htmlFor="harness-namespace"
+        error={validation.errorFor("namespace")}
         extra={
           harness
             ? "Fixed once the harness exists."
@@ -102,44 +164,55 @@ export function HarnessForm({
               : undefined
         }
       >
-        <Select
+        <NamespaceSelect
+          id="harness-namespace"
           data-testid="harness-namespace"
-          placeholder="Choose a namespace"
           value={namespace}
           disabled={Boolean(harness || fixedNamespace)}
           onChange={setNamespace}
-          loading={namespaces.isLoading}
-          options={(namespaces.data ?? []).map((row) => ({ value: row.name, label: row.name }))}
         />
-      </Form.Item>
+      </FormField>
 
-      <HarnessFields draft={draft} onChange={setDraft} namespace={namespace} />
+      <HarnessFields
+        draft={draft}
+        onChange={(next) => {
+          if (next.workerPool !== draft.workerPool) setPoolTouched(true);
+          setDraft(next);
+          setFailure(undefined);
+        }}
+        pools={{ names: poolNames, loading: pools.isLoading, error: pools.error?.message }}
+        errorFor={validation.errorFor}
+      />
 
-      {failure ? (
-        <Alert
-          type="error"
-          showIcon
-          data-testid="harness-error"
-          title={harness ? "Could not save this harness" : "Could not create this harness"}
-          description={failure}
-          css={{ marginBottom: theme.space(4) }}
-        />
-      ) : null}
+      <FormActions
+        submitLabel={harness ? "Save" : "Create"}
+        onSubmit={() => void save()}
+        submitting={saving}
+        cancel={cancel}
+        testIdPrefix="harness"
+        error={
+          failure !== undefined ? (
+            <SubmitError
+              error={failure}
+              what="harness"
+              outcome={harness ? "saved" : "created"}
+              onRetry={() => void save()}
+              data-testid="harness-error"
+            />
+          ) : blockedByFields ? <ValidationNotice data-testid="harness-error" /> : null
+        }
+      />
 
-      <Space size={8}>
-        <Button
-          type="primary"
-          data-testid={harness ? "harness-save" : "harness-create"}
-          loading={saving}
-          disabled={!ready}
-          onClick={() => void save()}
-        >
-          {harness ? "Save harness" : "Create harness"}
-        </Button>
-        <Button data-testid="harness-cancel" onClick={onCancel}>
-          Cancel
-        </Button>
-      </Space>
+      {inDialog ? null : <HarnessUnsavedGuard isDirty={isDirty} />}
     </Form>
+  );
+}
+
+function HarnessUnsavedGuard({ isDirty }: { isDirty: boolean }) {
+  const blocker = useUnsavedChangesGuard(isDirty);
+  return (
+    <UnsavedChangesModal blocker={blocker} testIdPrefix="harness">
+      Leaving now discards your edits. Nothing changes on the cluster.
+    </UnsavedChangesModal>
   );
 }

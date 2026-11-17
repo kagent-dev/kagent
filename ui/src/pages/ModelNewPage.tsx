@@ -1,6 +1,7 @@
-import { Button } from "antd";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { BackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { paths } from "@/router/routes";
 import { apiClient, useInvalidateModels, type CreateModelConfigRequest } from "@/api";
@@ -22,20 +23,19 @@ export function ModelNewPage() {
     await invalidateModels().catch(() => {});
     // Straight to the list, where the new configuration can be seen — the row is
     // better evidence than a message on the form the user is still looking at.
+    toastSaved("created", "model configuration", payload.ref.slice(payload.ref.indexOf("/") + 1));
     await navigate(paths.models);
   }
 
   return (
-    <PageFrame
-      title="New model"
-      description="A model configuration names a provider, a model, and where its credential lives."
-      actions={
-        <Link to={paths.models}>
-          <Button>Back to models</Button>
-        </Link>
-      }
-    >
-      <ModelForm onSubmit={createModel} />
-    </PageFrame>
+    <>
+      <BackLink to={paths.models} resource="Models" />
+      <PageFrame
+        title="New model"
+        description="A model configuration names a provider, a model, and where its credential lives."
+      >
+        <ModelForm onSubmit={createModel} />
+      </PageFrame>
+    </>
   );
 }

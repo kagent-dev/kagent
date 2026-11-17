@@ -47,7 +47,7 @@ export interface SubAgentToolBinding {
   name: string;
   description: string;
   templateRef: AgentTemplateLocalRef;
-  // Deferred until Dedicated subagent execution is available.
+  // Deferred until dedicated execution of an agent template used as a tool is available.
   // agentRef?: AgentTemplateLocalRef;
 }
 

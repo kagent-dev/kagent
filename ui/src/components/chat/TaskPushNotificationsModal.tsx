@@ -1,6 +1,9 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { Alert, Button, Empty, Input, Modal, Popconfirm, Space, Table, Typography } from "antd";
+import { FormField } from "@/components/form/FormField";
+import { toastSaved } from "@/components/form/saveToast";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import type { ChatConversationRef } from "@/api/chat/types";
 import {
   deleteTaskPushConfig,
@@ -34,6 +37,11 @@ export function TaskPushNotificationsModal({
   const [editing, setEditing] = useState<string>();
   const [id, setId] = useState("");
   const [url, setURL] = useState("");
+  const validation = useSubmitValidation(
+    callbackURL(url.trim())
+      ? []
+      : [{ field: "url", message: "Enter an absolute HTTP or HTTPS callback URL without credentials." }],
+  );
   const { data: configs = [], error: readError, isLoading: loading, mutate } = useSWR(
     ["task-push-configs", conversation.id, taskId],
     () => listTaskPushConfigs(conversation, taskId),
@@ -54,18 +62,17 @@ export function TaskPushNotificationsModal({
     setEditing(undefined);
     setId("");
     setURL("");
+    validation.reset();
   }
 
   async function save() {
     if (!editable) return;
-    if (!callbackURL(url.trim())) {
-      setError("Enter an absolute HTTP or HTTPS callback URL without credentials.");
-      return;
-    }
+    if (!validation.attempt()) return;
     setSaving(true);
     setError(undefined);
     try {
       await saveTaskPushConfig(conversation, taskId, { id: id.trim(), url: url.trim() });
+      toastSaved("saved", "task callback", id.trim() || url.trim());
       resetForm();
       await mutate();
     } catch (cause) {
@@ -143,22 +150,26 @@ export function TaskPushNotificationsModal({
         />
         {editable ? <Typography.Text strong>{editing ? `Edit ${editing}` : "Add callback"}</Typography.Text> : null}
         {editable ? <>
-        <Input
-          aria-label="Callback ID"
-          placeholder="ID (optional; generated when blank)"
-          value={id}
-          disabled={Boolean(editing)}
-          onChange={(event) => setId(event.target.value)}
-        />
-        <Input
-          aria-label="Callback URL"
-          placeholder="https://example.com/a2a/callback"
-          value={url}
-          onChange={(event) => setURL(event.target.value)}
-          onPressEnter={() => void save()}
-        />
+        <FormField label="Callback ID" htmlFor="task-push-id" required={false} help="Generated when blank." css={{ marginBottom: 0 }}>
+          <Input id="task-push-id" value={id} disabled={Boolean(editing)} onChange={(event) => setId(event.target.value)} />
+        </FormField>
+        <FormField
+          label="Callback URL"
+          htmlFor="task-push-url"
+          required
+          error={validation.errorFor("url")}
+          css={{ marginBottom: 0 }}
+        >
+          <Input
+            id="task-push-url"
+            placeholder="https://example.com/a2a/callback"
+            value={url}
+            onChange={(event) => setURL(event.target.value)}
+            onPressEnter={() => void save()}
+          />
+        </FormField>
         <Space>
-          <Button type="primary" onClick={() => void save()} loading={saving || stateLoading} disabled={!url.trim() || !editable}>
+          <Button type="primary" onClick={() => void save()} loading={saving || stateLoading}>
             {editing ? "Save changes" : "Add callback"}
           </Button>
           {editing ? <Button onClick={resetForm}>Cancel edit</Button> : null}

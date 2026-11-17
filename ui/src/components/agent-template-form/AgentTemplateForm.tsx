@@ -1,27 +1,12 @@
 import { useMemo, type ReactNode } from "react";
-import {
-  Alert,
-  Button,
-  Checkbox,
-  Form,
-  Input,
-  Select,
-  Space,
-  Tag,
-  Typography,
-} from "antd";
+import { Alert, Checkbox, Form, Input, Select, Space, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { Plus, Trash } from "lucide-react";
-import {
-  useMcpServers,
-  useModels,
-  useTools,
-} from "@/api";
-import {
-  draftProblems,
-  type AgentTemplateDraft,
-  type OutputSource,
-} from "./agentTemplateDraft";
+import { useAgentTemplates, useMcpServers, useModels, useTools } from "@/api";
+import { DataPill, DataPillList } from "@/components/form/DataPill";
+import { FormField } from "@/components/form/FormField";
+import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { ResourceSelect } from "@/components/form/ResourceSelect";
+import type { AgentTemplateDraft, OutputSource, TemplateField } from "./agentTemplateDraft";
 
 import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
 import { KAGENT_API_VERSION } from "@/api/grpc/wire";
@@ -87,6 +72,7 @@ export function AgentTemplateForm({
   readOnly = false,
   embedded = false,
   namespaceField,
+  errorFor = () => undefined,
 }: {
   draft: AgentTemplateDraft;
   onChange: (next: AgentTemplateDraft) => void;
@@ -95,69 +81,52 @@ export function AgentTemplateForm({
   namespace: string;
   /** Whether the template being edited carries spec fields this form does not show. */
   hasUnshownFields?: boolean;
-  /**
-   * Render the same fields as text.
-   *
-   * The details page's Details tab, before its Edit button is pressed. See this
-   * component's note on why this is a mode rather than a second view.
-   */
+  /** Render the same fields as text, for the details page before Edit is pressed. */
   readOnly?: boolean;
   /** Inline in an Agent: only spec fields, since an inline template has no name or labels. */
   embedded?: boolean;
   /** Rendered right after Name, so create forms read name then namespace. */
   namespaceField?: ReactNode;
+  /** The inline message for a field, from `useSubmitValidation`. */
+  errorFor?: (field: TemplateField) => string | undefined;
 }) {
   const theme = useTheme();
   const models = useModels();
   const servers = useMcpServers();
   const tools = useTools();
+  const templates = useAgentTemplates(namespace || undefined);
 
   const set = <K extends keyof AgentTemplateDraft>(
     field: K,
     value: AgentTemplateDraft[K],
   ) => onChange({ ...draft, [field]: value });
 
-  const problems = draftProblems(draft, { isCreate });
-
-  /**
-   * An example, or the absence of a value said outright.
-   *
-   * A placeholder is a prompt to type something, and there is nothing to type here.
-   * Left in place it renders as grey text inside an empty borderless input, which is
-   * exactly what a *set* value looks like — so a template with no system prompt would
-   * read as having the example one.
-   */
+  // Read-only placeholders say "Not set": a grey example in a borderless input reads as a value.
   const placeholder = (example: string) => (readOnly ? "Not set" : example);
 
-  /** The props that turn a text input into a line of text. */
   const readOnlyInput = readOnly
     ? ({ readOnly: true, variant: "borderless" } as const)
     : {};
-
-  /** The props that turn a select into a line of text. It still shows its value. */
   const readOnlySelect = readOnly
     ? ({ open: false, variant: "borderless", suffixIcon: null } as const)
     : {};
 
-  const modelOptions = (models.data ?? [])
-    .map((model) => {
-      const name = model.ref;
-      return {
-        value: name,
-        // `title` carries the label verbatim, which is what a spec
-        // locates an option by — `getByRole("option")` matches
-        // rc-select's hidden screen-reader listbox instead.
-        title: name,
-        label: (
-          <Space size={8}>
-            <span>{name}</span>
-            <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-              {model.spec.model}
-            </Text>
-          </Space>
-        ),
-      };
-    });
+  const modelOptions = (models.data ?? []).map((model) => {
+    const name = model.ref;
+    return {
+      value: name,
+      // `title` carries the label verbatim, which is what a spec locates an option by.
+      title: name,
+      label: (
+        <Space size={8}>
+          <span>{name}</span>
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+            {model.spec.model}
+          </Text>
+        </Space>
+      ),
+    };
+  });
 
   // A load error shows only when it leaves nothing to choose from. An empty list
   // may mean none exist or access hides them, so the hint names both.
@@ -173,8 +142,8 @@ export function AgentTemplateForm({
         : "If you need one, create it."} If
       one should be listed, check your access.
     </span>
-  ) : (
-    "A local or shared ModelConfig. Shared models must allow this template’s namespace. Every harness needs one except bring-your-own (BYO)."
+  ) : readOnly ? undefined : (
+    "Pick the ModelConfig to use. Shared ones must allow this namespace. Bring-your-own (BYO) harnesses skip this."
   );
 
   /** The tools each server exposes, so the tool picker offers real names. */
@@ -188,10 +157,26 @@ export function AgentTemplateForm({
     return grouped;
   }, [tools.data]);
 
+  // A template cannot call itself, so an edit leaves its own name out of the list.
+  const self = isCreate ? undefined : draft.name;
+  const templateNames = (templates.data ?? [])
+    .map((template) => template.name)
+    .filter((name) => name !== self);
+
   /** "None", said in the place a list would have been. */
   const none = (what: string) => (
     <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>{what}</Text>
   );
+
+  const rowFields = { display: "flex", flexWrap: "wrap", gap: theme.space(2) } as const;
+  const rowField = { marginBottom: 0 } as const;
+
+  const updateMcp = (index: number, patch: Partial<AgentTemplateDraft["mcpTools"][number]>) =>
+    set("mcpTools", draft.mcpTools.map((tool, at) => (at === index ? { ...tool, ...patch } : tool)));
+  const updateSubAgent = (index: number, patch: Partial<AgentTemplateDraft["subAgentTools"][number]>) =>
+    set("subAgentTools", draft.subAgentTools.map((tool, at) => (at === index ? { ...tool, ...patch } : tool)));
+  const updateLabel = (index: number, patch: Partial<AgentTemplateDraft["labels"][number]>) =>
+    set("labels", draft.labels.map((label, at) => (at === index ? { ...label, ...patch } : label)));
 
   return (
     <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
@@ -208,13 +193,12 @@ export function AgentTemplateForm({
         />
       )}
 
-      <Form layout="vertical">
+      <Form layout="vertical" component="div">
         {isCreate ? (
-          <Form.Item
+          <Field readOnly={readOnly}
             label="Name"
-            /* Unconditional: this field only exists while creating, and the only
-               caller that creates does not render read-only. */
             required
+            error={errorFor("name")}
             extra="A Kubernetes object name, so it cannot be changed afterwards."
           >
             <Input
@@ -224,15 +208,12 @@ export function AgentTemplateForm({
               placeholder={placeholder("incident-responder")}
               {...readOnlyInput}
             />
-          </Form.Item>
+          </Field>
         ) : null}
 
         {namespaceField}
 
-        <Form.Item
-          label="Model configuration"
-          extra={modelHelp}
-        >
+        <Field readOnly={readOnly} label="Model configuration" required={false} extra={modelHelp}>
           <div data-testid="template-form-model">
             <Select
               css={{ minWidth: 320 }}
@@ -245,9 +226,9 @@ export function AgentTemplateForm({
               {...readOnlySelect}
             />
           </div>
-        </Form.Item>
+        </Field>
 
-        <Form.Item label="Description">
+        <Field readOnly={readOnly} label="Description" required={false}>
           <Input
             data-testid="template-form-description"
             value={draft.description}
@@ -255,11 +236,12 @@ export function AgentTemplateForm({
             placeholder={placeholder("What this agent is for.")}
             {...readOnlyInput}
           />
-        </Form.Item>
+        </Field>
 
-        <Form.Item
+        <Field readOnly={readOnly}
           label="System prompt"
-          extra="Inline, or read from a ConfigMap. The CRD rejects a template that has both."
+          required={false}
+          extra={readOnly ? undefined : "Inline, or read from a ConfigMap. The CRD rejects a template that has both."}
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             <div data-testid="template-form-prompt-source">
@@ -282,10 +264,10 @@ export function AgentTemplateForm({
             {draft.promptSource === "inline" ? (
               <Input.TextArea
                 data-testid="template-form-prompt"
+                aria-label="System prompt"
                 value={draft.systemPrompt}
                 onChange={(event) => set("systemPrompt", event.target.value)}
-                // Three rows is room to write in. Reading, it is three rows of blank
-                // under one line of prompt, which looks like a field that lost its value.
+                // Three rows is room to write in; reading, one row avoids a blank block.
                 autoSize={{ minRows: readOnly ? 1 : 3, maxRows: 12 }}
                 placeholder={placeholder(
                   "You are a Kubernetes operations assistant. Never guess.",
@@ -293,29 +275,34 @@ export function AgentTemplateForm({
                 {...readOnlyInput}
               />
             ) : (
-              <Space size={8}>
-                <Input
-                  data-testid="template-form-prompt-configmap"
-                  value={draft.systemPromptConfigMap}
-                  onChange={(event) => set("systemPromptConfigMap", event.target.value)}
-                  placeholder={placeholder("ConfigMap name")}
-                  {...readOnlyInput}
-                />
-                <Input
-                  data-testid="template-form-prompt-key"
-                  value={draft.systemPromptKey}
-                  onChange={(event) => set("systemPromptKey", event.target.value)}
-                  placeholder={placeholder("Key")}
-                  {...readOnlyInput}
-                />
-              </Space>
+              <div css={rowFields}>
+                <Field readOnly={readOnly} label="ConfigMap name" required error={errorFor("promptConfigMap")} css={rowField}>
+                  <Input
+                    data-testid="template-form-prompt-configmap"
+                    value={draft.systemPromptConfigMap}
+                    onChange={(event) => set("systemPromptConfigMap", event.target.value)}
+                    placeholder={placeholder("agent-prompts")}
+                    {...readOnlyInput}
+                  />
+                </Field>
+                <Field readOnly={readOnly} label="Key" required error={errorFor("promptKey")} css={rowField}>
+                  <Input
+                    data-testid="template-form-prompt-key"
+                    value={draft.systemPromptKey}
+                    onChange={(event) => set("systemPromptKey", event.target.value)}
+                    placeholder={placeholder("system.md")}
+                    {...readOnlyInput}
+                  />
+                </Field>
+              </div>
             )}
           </Space>
-        </Form.Item>
+        </Field>
 
-        <Form.Item
+        <Field readOnly={readOnly}
           label="Output format"
-          extra="Structured output constrains only the successful final answer when this template runs as a root agent. It currently requires a kagent harness."
+          required
+          extra={readOnly ? undefined : "Structured output constrains only the successful final answer when this template runs as a root agent. It currently requires a kagent harness."}
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             <div data-testid="template-form-output-source">
@@ -341,42 +328,46 @@ export function AgentTemplateForm({
             </div>
 
             {draft.outputSource === "inline" ? (
-              <Input.TextArea
-                data-testid="template-form-output-schema"
-                value={draft.outputSchema}
-                onChange={(event) => set("outputSchema", event.target.value)}
-                autoSize={{ minRows: readOnly ? 1 : 8, maxRows: 20 }}
-                placeholder={placeholder(
-                  '{\n  "type": "object",\n  "properties": {\n    "status": { "type": "string" }\n  },\n  "required": ["status"]\n}',
-                )}
-                css={{ fontFamily: theme.font.mono, fontSize: 12 }}
-                {...readOnlyInput}
-              />
+              <Field readOnly={readOnly} label="Output schema" required error={errorFor("outputSchema")} css={rowField}>
+                <Input.TextArea
+                  data-testid="template-form-output-schema"
+                  value={draft.outputSchema}
+                  onChange={(event) => set("outputSchema", event.target.value)}
+                  autoSize={{ minRows: readOnly ? 1 : 8, maxRows: 20 }}
+                  placeholder={placeholder(
+                    '{\n  "type": "object",\n  "properties": {\n    "status": { "type": "string" }\n  },\n  "required": ["status"]\n}',
+                  )}
+                  css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+                  {...readOnlyInput}
+                />
+              </Field>
             ) : draft.outputSource === "configMap" ? (
-              <Space size={8}>
-                <Input
-                  data-testid="template-form-output-configmap"
-                  value={draft.outputSchemaConfigMap}
-                  onChange={(event) =>
-                    set("outputSchemaConfigMap", event.target.value)
-                  }
-                  placeholder={placeholder("ConfigMap name")}
-                  {...readOnlyInput}
-                />
-                <Input
-                  data-testid="template-form-output-key"
-                  value={draft.outputSchemaKey}
-                  onChange={(event) => set("outputSchemaKey", event.target.value)}
-                  placeholder={placeholder("Key")}
-                  {...readOnlyInput}
-                />
-              </Space>
+              <div css={rowFields}>
+                <Field readOnly={readOnly} label="ConfigMap name" required error={errorFor("outputConfigMap")} css={rowField}>
+                  <Input
+                    data-testid="template-form-output-configmap"
+                    value={draft.outputSchemaConfigMap}
+                    onChange={(event) => set("outputSchemaConfigMap", event.target.value)}
+                    placeholder={placeholder("agent-schemas")}
+                    {...readOnlyInput}
+                  />
+                </Field>
+                <Field readOnly={readOnly} label="Key" required error={errorFor("outputKey")} css={rowField}>
+                  <Input
+                    data-testid="template-form-output-key"
+                    value={draft.outputSchemaKey}
+                    onChange={(event) => set("outputSchemaKey", event.target.value)}
+                    placeholder={placeholder("schema.json")}
+                    {...readOnlyInput}
+                  />
+                </Field>
+              </div>
             ) : readOnly ? (
               none("Successful final answers are returned as text.")
             ) : null}
 
             {draft.outputSource === "text" ? null : readOnly ? (
-              draft.outputStrict ? <Tag>Strict schema adherence</Tag> : null
+              draft.outputStrict ? <DataPill>Strict schema adherence</DataPill> : null
             ) : (
               <Space orientation="vertical" size={4}>
                 <Checkbox
@@ -397,273 +388,215 @@ export function AgentTemplateForm({
               </Space>
             )}
           </Space>
-        </Form.Item>
+        </Field>
 
-        {/* Tools — MCP servers */}
-        <Form.Item
-          label="Tools from MCP servers"
-          extra="Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server. Require approval pauses before each of those tools runs."
+        <Field readOnly={readOnly}
+          label="MCP server tools"
+          required={false}
+          hintPlacement="above"
+          help={readOnly ? undefined : "Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server. Require approval pauses before each of those tools runs."}
         >
-          <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            {readOnly && draft.mcpTools.length === 0
-              ? none("No MCP tools.")
-              : null}
-
+          <FormRowList
+            data-testid="template-form-mcp"
+            empty={readOnly ? "No MCP tools." : undefined}
+            addLabel="Add an MCP server"
+            onAdd={readOnly ? undefined : () =>
+              set("mcpTools", [...draft.mcpTools, { serverRef: { name: "" }, tools: [] }])
+            }
+          >
             {draft.mcpTools.map((tool, index) => (
-              <Space key={index} size={8} align="start" data-testid={`template-form-mcp-${index}`}>
-                <Select
-                  css={{ minWidth: 220 }}
-                  value={referenceLabel(tool.serverRef, namespace) || undefined}
-                  loading={servers.isLoading}
-                  placeholder={placeholder("MCP server")}
-                  popupMatchSelectWidth={false}
-                  onChange={(value: string) => {
-                    const next = [...draft.mcpTools];
-                    // The tools belong to the server, so changing it clears them
-                    // rather than leaving names the new server does not have.
-                    next[index] = {
-                      serverRef: referenceFromPicker(value),
-                      tools: [],
-                      requireApproval: next[index].requireApproval,
-                    };
-                    set("mcpTools", next);
-                  }}
-                  options={(servers.data ?? []).map((server) => {
-                    const bindable = server.groupKind.startsWith("RemoteMCPServer");
-                    return {
-                      value: server.ref,
-                      title: bindable
-                        ? server.ref
-                        : `${server.ref} - unsupported server kind`,
-                      label: bindable ? server.ref : `${server.ref} (unsupported)`,
-                      disabled: !bindable,
-                    };
-                  })}
-                  {...readOnlySelect}
-                />
-                <Select
-                  mode="multiple"
-                  css={{ minWidth: 320 }}
-                  /*
-                   * Each selected tool renders as a tag with a cross on it, offering a
-                   * removal that cannot happen here. Neither `removeIcon={null}` nor a
-                   * `display: none` override takes it away — antd's own rule for it is
-                   * more specific than a class on the select's root — so the tag is
-                   * rendered outright instead, which is a smaller lie to no one.
-                   */
-                  {...(readOnly
-                    ? {
-                        tagRender: ({ label }: { label: React.ReactNode }) => (
-                          <Tag>{label}</Tag>
-                        ),
+              <FormRow
+                key={index}
+                data-testid={`template-form-mcp-${index}`}
+                onRemove={readOnly ? undefined : () =>
+                  set("mcpTools", draft.mcpTools.filter((_, at) => at !== index))
+                }
+                removeLabel={`Remove MCP server ${tool.serverRef.name || index + 1}`}
+              >
+                <div css={{ ...rowFields, alignItems: "flex-start" }}>
+                  <Field readOnly={readOnly} label="MCP server" required error={errorFor(`mcp:${index}:server`)} css={rowField}>
+                    <Select
+                      css={{ minWidth: 220 }}
+                      data-testid={`template-form-mcp-server-${index}`}
+                      value={referenceLabel(tool.serverRef, namespace) || undefined}
+                      loading={servers.isLoading}
+                      placeholder={placeholder("Choose an MCP server")}
+                      popupMatchSelectWidth={false}
+                      // The tools belong to the server, so changing it clears them.
+                      onChange={(value: string) =>
+                        updateMcp(index, { serverRef: referenceFromPicker(value), tools: [] })
                       }
-                    : {})}
-                  value={tool.tools}
-                  loading={tools.isLoading}
-                  placeholder={placeholder("All tools")}
-                  popupMatchSelectWidth={false}
-                  onChange={(value: string[]) => {
-                    const next = [...draft.mcpTools];
-                    next[index] = { ...next[index], tools: value };
-                    set("mcpTools", next);
-                  }}
-                  options={(toolsByServer.get(referenceLabel(tool.serverRef, namespace)) ?? []).map((name) => ({
-                    value: name,
-                    title: name,
-                    label: name,
-                  }))}
-                  {...readOnlySelect}
-                />
-                {readOnly ? (
-                  tool.requireApproval ? <Tag>Requires approval</Tag> : null
-                ) : (
-                  <Checkbox
-                    checked={Boolean(tool.requireApproval)}
-                    data-testid={`template-form-mcp-approval-${index}`}
-                    onChange={(event) => {
-                      const next = [...draft.mcpTools];
-                      next[index] = {
-                        ...next[index],
-                        requireApproval: event.target.checked,
-                      };
-                      set("mcpTools", next);
-                    }}
-                  >
-                    Require approval
-                  </Checkbox>
-                )}
-                {readOnly ? null : (
-                  <Button
-                    type="text"
-                    aria-label={`Remove MCP tool binding ${index + 1}`}
-                    data-testid={`template-form-mcp-remove-${index}`}
-                    icon={<Trash size={14} />}
-                    onClick={() =>
-                      set(
-                        "mcpTools",
-                        draft.mcpTools.filter((_, at) => at !== index),
-                      )
-                    }
-                  />
-                )}
-              </Space>
+                      options={(servers.data ?? []).map((server) => {
+                        const bindable = server.groupKind.startsWith("RemoteMCPServer");
+                        return {
+                          value: server.ref,
+                          title: bindable ? server.ref : `${server.ref} - unsupported server kind`,
+                          label: bindable ? server.ref : `${server.ref} (unsupported)`,
+                          disabled: !bindable,
+                        };
+                      })}
+                      {...readOnlySelect}
+                    />
+                  </Field>
+                  <Field readOnly={readOnly} label="Tools" required={false} css={rowField}>
+                    <Select
+                      mode="multiple"
+                      css={{ minWidth: 320 }}
+                      // Read-only pills carry no remove button, since nothing can be removed.
+                      {...(readOnly
+                        ? { tagRender: ({ label }: { label: ReactNode }) => <DataPill>{label}</DataPill> }
+                        : {})}
+                      value={tool.tools}
+                      loading={tools.isLoading}
+                      placeholder={placeholder("All tools")}
+                      popupMatchSelectWidth={false}
+                      onChange={(value: string[]) => updateMcp(index, { tools: value })}
+                      options={(toolsByServer.get(referenceLabel(tool.serverRef, namespace)) ?? []).map((name) => ({
+                        value: name,
+                        title: name,
+                        label: name,
+                      }))}
+                      {...readOnlySelect}
+                    />
+                  </Field>
+                  {readOnly ? (
+                    tool.requireApproval ? <DataPill>Requires approval</DataPill> : null
+                  ) : (
+                    <Checkbox
+                      css={{ alignSelf: "center" }}
+                      checked={Boolean(tool.requireApproval)}
+                      data-testid={`template-form-mcp-approval-${index}`}
+                      onChange={(event) => updateMcp(index, { requireApproval: event.target.checked })}
+                    >
+                      Require approval
+                    </Checkbox>
+                  )}
+                </div>
+              </FormRow>
             ))}
-            {readOnly ? null : (
-              <Button
-                size="small"
-                icon={<Plus size={13} />}
-                data-testid="template-form-add-mcp"
-                onClick={() =>
-                  set("mcpTools", [...draft.mcpTools, { serverRef: { name: "" }, tools: [] }])
-                }
-              >
-                Add an MCP server
-              </Button>
-            )}
-          </Space>
-        </Form.Item>
+          </FormRowList>
+        </Field>
 
-        {/* Tools — sub-agents */}
-        <Form.Item
-          label="Tools from other agent templates"
-          extra="Exposes another template in this namespace as a tool this one can route work to. The description is what tells the parent when to use it, so the CRD requires it."
+        <Field readOnly={readOnly}
+          label="Agent templates as tools"
+          required={false}
+          hintPlacement="above"
+          help={readOnly ? undefined : "Each row turns an agent template in this namespace into a tool. The description says when to call it."}
         >
-          <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            {readOnly && draft.subAgentTools.length === 0
-              ? none("No sub-agents.")
-              : null}
-
+          <FormRowList
+            data-testid="template-form-sub-agents"
+            empty={readOnly ? "No agent templates used as tools." : undefined}
+            addLabel="Add an agent template"
+            onAdd={readOnly ? undefined : () =>
+              set("subAgentTools", [...draft.subAgentTools, { name: "", description: "", refName: "" }])
+            }
+          >
             {draft.subAgentTools.map((tool, index) => (
-              <Space key={index} size={8} align="start" data-testid={`template-form-agent-${index}`}>
-                <Input
-                  css={{ width: 160 }}
-                  value={tool.name}
-                  placeholder={placeholder("Tool name")}
-                  onChange={(event) => {
-                    const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], name: event.target.value };
-                    set("subAgentTools", next);
-                  }}
-                  {...readOnlyInput}
-                />
-                <Input
-                  css={{ width: 260 }}
-                  value={tool.description}
-                  placeholder={placeholder("When to use it")}
-                  onChange={(event) => {
-                    const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], description: event.target.value };
-                    set("subAgentTools", next);
-                  }}
-                  {...readOnlyInput}
-                />
-                <Input
-                  css={{ width: 180 }}
-                  value={tool.refName}
-                  placeholder={placeholder("Template name")}
-                  onChange={(event) => {
-                    const next = [...draft.subAgentTools];
-                    next[index] = { ...next[index], refName: event.target.value };
-                    set("subAgentTools", next);
-                  }}
-                  {...readOnlyInput}
-                />
-                {readOnly ? null : (
-                  <Button
-                    type="text"
-                    aria-label={`Remove sub-agent tool ${index + 1}`}
-                    icon={<Trash size={14} />}
-                    onClick={() =>
-                      set(
-                        "subAgentTools",
-                        draft.subAgentTools.filter((_, at) => at !== index),
-                      )
-                    }
-                  />
-                )}
-              </Space>
-            ))}
-            {readOnly ? null : (
-              <Button
-                size="small"
-                icon={<Plus size={13} />}
-                data-testid="template-form-add-agent-tool"
-                onClick={() =>
-                  set("subAgentTools", [
-                    ...draft.subAgentTools,
-                    { name: "", description: "", refName: "" },
-                  ])
+              <FormRow
+                key={index}
+                data-testid={`template-form-sub-agent-${index}`}
+                onRemove={readOnly ? undefined : () =>
+                  set("subAgentTools", draft.subAgentTools.filter((_, at) => at !== index))
                 }
+                removeLabel={`Remove agent template tool ${tool.name.trim() || index + 1}`}
               >
-                Add a sub-agent
-              </Button>
-            )}
-          </Space>
-        </Form.Item>
+                <div css={{ ...rowFields, alignItems: "flex-start" }}>
+                  <Field readOnly={readOnly} label="Agent template" required error={errorFor(`subAgent:${index}:template`)} css={rowField}>
+                    {readOnly ? (
+                      <Input value={tool.refName} data-testid={`template-form-sub-agent-template-${index}`} {...readOnlyInput} />
+                    ) : (
+                      <div css={{ minWidth: 200 }}>
+                        <ResourceSelect
+                          kind="agent template"
+                          names={templateNames}
+                          loading={templates.isLoading}
+                          error={templates.error?.message}
+                          value={tool.refName || undefined}
+                          onChange={(refName) => updateSubAgent(index, { refName })}
+                          empty="This namespace has no other agent templates."
+                          data-testid={`template-form-sub-agent-template-${index}`}
+                        />
+                      </div>
+                    )}
+                  </Field>
+                  <Field readOnly={readOnly} label="Tool name" required error={errorFor(`subAgent:${index}:name`)} css={rowField}>
+                    <Input
+                      css={{ width: 160 }}
+                      data-testid={`template-form-sub-agent-name-${index}`}
+                      value={tool.name}
+                      placeholder={placeholder("review")}
+                      onChange={(event) => updateSubAgent(index, { name: event.target.value })}
+                      {...readOnlyInput}
+                    />
+                  </Field>
+                  <Field readOnly={readOnly} label="When to use it" required error={errorFor(`subAgent:${index}:description`)} css={rowField}>
+                    <Input
+                      css={{ width: 260 }}
+                      data-testid={`template-form-sub-agent-description-${index}`}
+                      value={tool.description}
+                      placeholder={placeholder("Review a change before it merges.")}
+                      onChange={(event) => updateSubAgent(index, { description: event.target.value })}
+                      {...readOnlyInput}
+                    />
+                  </Field>
+                </div>
+              </FormRow>
+            ))}
+          </FormRowList>
+        </Field>
 
         {embedded ? null : (
-          <Form.Item label="Labels" extra="Optional metadata. An Agent explicitly pairs this template with a Harness.">
-            <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-              {readOnly && draft.labels.length === 0
-                ? none("No labels.")
-                : null}
-
-              {draft.labels.map((label, index) => (
-                <Space key={index} size={8} data-testid={`template-form-label-${index}`}>
-                  <Input
-                    css={{ width: 260 }}
-                    value={label.key}
-                    placeholder={placeholder("kagent.dev/runtime")}
-                    onChange={(event) => {
-                      const next = [...draft.labels];
-                      next[index] = { ...next[index], key: event.target.value };
-                      set("labels", next);
-                    }}
-                    {...readOnlyInput}
-                  />
-                  <Input
-                    css={{ width: 200 }}
-                    value={label.value}
-                    placeholder={placeholder("value")}
-                    onChange={(event) => {
-                      const next = [...draft.labels];
-                      next[index] = { ...next[index], value: event.target.value };
-                      set("labels", next);
-                    }}
-                    {...readOnlyInput}
-                  />
-                  {readOnly ? null : (
-                    <Button
-                      type="text"
-                      aria-label={`Remove label ${index + 1}`}
-                      icon={<Trash size={14} />}
-                      onClick={() =>
-                        set(
-                          "labels",
-                          draft.labels.filter((_, at) => at !== index),
-                        )
-                      }
-                    />
-                  )}
-                </Space>
-              ))}
-              {readOnly ? null : (
-                <Button
-                  size="small"
-                  icon={<Plus size={13} />}
-                  data-testid="template-form-add-label"
-                  onClick={() => set("labels", [...draft.labels, { key: "", value: "" }])}
-                >
-                  Add a label
-                </Button>
-              )}
-            </Space>
-          </Form.Item>
+          <Field readOnly={readOnly}
+            label="Labels"
+            required={false}
+            hintPlacement="above"
+            help={readOnly ? undefined : "Optional metadata. An Agent explicitly pairs this template with a Harness."}
+          >
+            {readOnly ? (
+              <DataPillList
+                data-testid="template-form-labels"
+                items={draft.labels.map(({ key, value }) => `${key}=${value}`)}
+                empty={none("No labels.")}
+              />
+            ) : (
+              <FormRowList
+                data-testid="template-form-labels"
+                addLabel="Add a label"
+                onAdd={() => set("labels", [...draft.labels, { key: "", value: "" }])}
+              >
+                {draft.labels.map((label, index) => (
+                  <FormRow
+                    key={index}
+                    data-testid={`template-form-label-${index}`}
+                    onRemove={() => set("labels", draft.labels.filter((_, at) => at !== index))}
+                    removeLabel={`Remove label ${label.key.trim() || index + 1}`}
+                  >
+                    <div css={{ ...rowFields, alignItems: "flex-start" }}>
+                      <FormField label="Key" required error={errorFor(`label:${index}:key`)} css={rowField}>
+                        <Input
+                          css={{ width: 260, fontFamily: theme.font.mono }}
+                          value={label.key}
+                          placeholder="kagent.dev/runtime"
+                          onChange={(event) => updateLabel(index, { key: event.target.value })}
+                        />
+                      </FormField>
+                      <FormField label="Value" required={false} css={rowField}>
+                        <Input
+                          css={{ width: 200, fontFamily: theme.font.mono }}
+                          value={label.value}
+                          placeholder="value"
+                          onChange={(event) => updateLabel(index, { value: event.target.value })}
+                        />
+                      </FormField>
+                    </div>
+                  </FormRow>
+                ))}
+              </FormRowList>
+            )}
+          </Field>
         )}
 
-        {/* Said rather than left to be assumed. A reader who knows their template has
-            skills and cannot see them here would reasonably conclude a save will
-            drop them. */}
+        {/* Said rather than left to be assumed: a save keeps fields this form does not show. */}
         {hasUnshownFields ? (
           <Alert
             type="info"
@@ -674,32 +607,20 @@ export function AgentTemplateForm({
             css={{ marginBottom: theme.space(4) }}
           />
         ) : null}
-
-        {/* Nothing is being saved, so there is nothing to be not-ready to save. */}
-        {!readOnly && problems.length > 0 ? (
-          <Alert
-            type="warning"
-            showIcon
-            data-testid="template-form-problems"
-            title="Not ready to save"
-            description={
-              <ul css={{ margin: 0, paddingInlineStart: theme.space(4) }}>
-                {problems.map((problem) => (
-                  <li key={problem}>{problem}</li>
-                ))}
-              </ul>
-            }
-          />
-        ) : null}
       </Form>
 
       {embedded ? null : (
         <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-          <Tag>AgentTemplate</Tag> is a <code>{KAGENT_API_VERSION}</code> custom resource.
+          <code>AgentTemplate</code> is a <code>{KAGENT_API_VERSION}</code> custom resource.
           Everything on this form writes one field of its <code>spec</code>, except the
           labels, which are <code>metadata</code>.
         </Paragraph>
       )}
     </Space>
   );
+}
+
+/** A FormField while editing; reading is not a form, so labels drop the required and optional marks. */
+function Field({ readOnly, required, error, hintPlacement, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
+  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} hintPlacement={hintPlacement} {...props} />;
 }

@@ -1,6 +1,7 @@
-import { Button, Space } from "antd";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { BackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { PromptForm } from "@/components/prompts/PromptForm";
 import { paths } from "@/router/routes";
 import { apiClient, useInvalidatePrompts, type CreatePromptTemplateRequest } from "@/api";
@@ -22,22 +23,19 @@ export function PromptNewPage() {
     await invalidatePrompts().catch(() => {});
     // Straight to the list, where the new library can actually be seen — a success
     // message on a form the user is still looking at proves less than the row itself.
+    toastSaved("created", "prompt library", payload.name);
     await navigate(paths.prompts);
   }
 
   return (
-    <PageFrame
-      title="New prompt library"
-      description="A library is a named bag of prompt fragments agents can include by key."
-      actions={
-        <Link to={paths.prompts}>
-          <Button>Back to libraries</Button>
-        </Link>
-      }
-    >
-      <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
+    <>
+      <BackLink to={paths.prompts} resource="Prompts" />
+      <PageFrame
+        title="New prompt library"
+        description="A library is a named bag of prompt fragments agents can include by key."
+      >
         <PromptForm onSubmit={createLibrary} />
-      </Space>
-    </PageFrame>
+      </PageFrame>
+    </>
   );
 }

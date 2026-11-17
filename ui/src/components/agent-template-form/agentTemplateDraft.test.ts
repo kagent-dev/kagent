@@ -4,6 +4,7 @@ import {
   draftFromSpec,
   draftProblems,
   emptyDraft,
+  templateDraftIssues,
   labelsFromDraft,
   specFromDraft,
 } from "./agentTemplateDraft";
@@ -307,9 +308,24 @@ describe("the agent template draft", () => {
 
     draft.outputSource = "configMap";
     draft.outputSchemaConfigMap = "schemas";
-    expect(draftProblems(draft, { isCreate: true })).toContain(
-      "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-    );
+    expect(templateDraftIssues(draft, { isCreate: true })).toEqual([
+      { field: "outputKey", message: "Name the key that holds the schema." },
+    ]);
+  });
+
+  it("ties each half-filled row to the field that needs it", () => {
+    const draft = emptyDraft("kagent");
+    draft.name = "t";
+    draft.mcpTools = [{ serverRef: { name: "" }, tools: [] }];
+    draft.subAgentTools = [{ name: "review", description: "", refName: "" }];
+    draft.labels = [{ key: " ", value: "x" }];
+
+    expect(templateDraftIssues(draft, { isCreate: true }).map((issue) => issue.field)).toEqual([
+      "mcp:0:server",
+      "subAgent:0:template",
+      "subAgent:0:description",
+      "label:0:key",
+    ]);
   });
 
   it("carries labels through, because they decide whether anything runs it", () => {

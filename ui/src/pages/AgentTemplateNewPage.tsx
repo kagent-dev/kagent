@@ -1,23 +1,30 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Alert, Button, Form, Select, Skeleton, Space } from "antd";
-import toast from "react-hot-toast";
+import { useMemo, useState, type ReactNode } from "react";
+import { Skeleton, Space } from "antd";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
 import {
   draftFromTemplate,
   emptyDraft,
   type AgentTemplateDraft,
-  draftProblems,
   labelsFromDraft,
   specFromDraft,
+  templateDraftIssues,
 } from "@/components/agent-template-form/agentTemplateDraft";
+import { SubmitError } from "@/components/common/SubmitError";
+import { ValidationNotice } from "@/components/form/ValidationNotice";
+import { BackLink } from "@/components/form/BackLink";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { toastSaved } from "@/components/form/saveToast";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
 import { CopyNotice } from "@/components/table/CopyNotice";
 import { agentTemplatesTab } from "@/router/routes";
 import { apiClient, useAgentTemplate, useInvalidateAgentTemplates, useNamespaces } from "@/api";
-
 
 /**
  * Create an agent template.
@@ -55,7 +62,6 @@ export function AgentTemplateNewPage() {
 /** `copyNotice` says, above a form that began blank, why the copy source was not applied. */
 function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDraft; copyNotice?: ReactNode }) {
   const navigate = useNavigate();
-  const theme = useTheme();
   const [searchParams] = useSearchParams();
   const namespaces = useNamespaces();
 
@@ -68,20 +74,28 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
   const invalidateTemplates = useInvalidateAgentTemplates();
   const [draft, setDraft] = useState(() => initial ?? emptyDraft(namespace));
   const [isSubmitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string>();
-  const errorRef = useRef<HTMLDivElement>(null);
+  const [failure, setFailure] = useState<unknown>();
 
-  useEffect(() => {
-    if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
-  }, [error]);
-
-  // The namespace comes from the URL or from the cluster, and the draft follows it
-  // until the reader picks one — after which their choice stands.
+  // The draft follows the URL or cluster namespace until the reader picks one.
   const effective = draft.namespace || namespace;
+  const current = { ...draft, namespace: effective };
+  const validation = useSubmitValidation(templateDraftIssues(current, { isCreate: true }));
+
+  // Compared by value against the draft the form opened with; `saved` lets the post-create navigation through.
+  const [baseline] = useState(() => JSON.stringify(draft));
+  const [saved, setSaved] = useState(false);
+  const blocker = useUnsavedChangesGuard(!saved && JSON.stringify(draft) !== baseline);
+
+  const update = (next: AgentTemplateDraft) => {
+    setDraft(next);
+    setFailure(undefined);
+  };
 
   async function create(): Promise<void> {
+    setFailure(undefined);
+    if (!validation.attempt()) return;
     setSubmitting(true);
-    setError(undefined);
+    setSaved(true);
     try {
       const created = await apiClient.agentBuildingBlocks.createAgentTemplate({
         namespace: effective,
@@ -93,99 +107,73 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
             labels: labelsFromDraft(draft),
           },
           // No existing spec to merge onto: this is a create.
-          spec: specFromDraft(draft),
+          spec: specFromDraft(current),
         },
       });
-      // Refreshes any list still on screen; SWR does not fetch a key with no mounted
-      // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
+      // Refreshes any list still on screen. Guarded, not load-bearing.
       await invalidateTemplates().catch(() => {});
-      toast.success(`Agent template ${created.name} created`);
-      // The address the reader ends up at, with the parameter the list reads. Through
-      // `paths.agentTemplates` this was lost twice over: that route is a redirect and
-      // carries no query string, and the list narrows on `ns` rather than `namespace`.
+      toastSaved("created", "agent template", created.name);
+      // The list narrows on `ns`; `paths.agentTemplates` is a redirect that drops the query.
       navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(effective)}`);
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setSaved(false);
+      setFailure(cause);
     } finally {
       setSubmitting(false);
     }
   }
 
-  const problems = draftProblems({ ...draft, namespace: effective }, { isCreate: true });
-
   return (
-    <PageFrame
-      title="New agent template"
-      description="What an agent does. A harness supplies the runtime; an agent is one of each."
-    >
-      <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
-        {copyNotice}
-        <AgentTemplateForm
-          draft={{ ...draft, namespace: effective }}
-          onChange={setDraft}
-          isCreate
-          namespace={effective}
-          namespaceField={
-            <Form.Item label="Namespace" required>
-              <div data-testid="template-form-namespace">
-                <Select
-                  value={effective}
-                  loading={namespaces.isLoading}
-                  onChange={(value: string) =>
-                    // Clear the selection because local references resolve in the new namespace.
-                    setDraft({ ...draft, namespace: value, modelConfig: undefined })
-                  }
-                  options={(namespaces.data ?? []).map((entry) => ({
-                    value: entry.name,
-                    label: entry.name,
-                  }))}
+    <>
+      <BackLink to={agentTemplatesTab} resource="Templates" />
+      <PageFrame
+        title="New agent template"
+        description="What an agent does. A harness supplies the runtime; an agent is one of each."
+      >
+        <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
+          {copyNotice}
+          <AgentTemplateForm
+            draft={current}
+            onChange={update}
+            isCreate
+            namespace={effective}
+            errorFor={validation.errorFor}
+            namespaceField={
+              <FormField label="Namespace" required error={validation.errorFor("namespace")}>
+                <div data-testid="template-form-namespace">
+                  <NamespaceSelect
+                    value={effective}
+                    // Local references resolve in the new namespace, so the model is cleared.
+                    onChange={(value) => update({ ...draft, namespace: value, modelConfig: undefined })}
+                  />
+                </div>
+              </FormField>
+            }
+          />
+
+          <FormActions
+            submitLabel="Create"
+            onSubmit={() => void create()}
+            submitting={isSubmitting}
+            cancel={{ to: agentTemplatesTab }}
+            testIdPrefix="template"
+            error={
+              failure !== undefined ? (
+                <SubmitError
+                  error={failure}
+                  what="agent template"
+                  onRetry={() => void create()}
+                  data-testid="template-create-error"
                 />
-              </div>
-            </Form.Item>
-          }
-        />
+              ) : validation.issues.length > 0 ? <ValidationNotice data-testid="template-create-error" /> : null
+            }
+          />
+        </Space>
 
-        {/*
-          The submit gets its own line, above a rule.
-
-          It used to sit directly under the last field of a long form, reading as one
-          more row of it — and the form's own "Add a label" button is a small primary
-          button too, so the two were competing at the same weight for very different
-          consequences.
-        */}
-        <div
-          css={{
-            display: "flex",
-            gap: theme.space(2),
-            paddingTop: theme.space(5),
-            borderTop: `1px solid ${theme.color.border}`,
-          }}
-        >
-          <Button
-            type="primary"
-            loading={isSubmitting}
-            disabled={problems.length > 0}
-            onClick={() => void create()}
-            data-testid="template-submit"
-          >
-            Create template
-          </Button>
-          <Button onClick={() => navigate(agentTemplatesTab)}>Cancel</Button>
-        </div>
-
-        {/* Under the button that failed, scrolled into view: the form's top is off-screen. */}
-        {error ? (
-          <div ref={errorRef} css={{ scrollMarginBottom: theme.space(4) }}>
-            <Alert
-              type="error"
-              showIcon
-              title="Could not create the agent template"
-              description={error}
-              data-testid="template-create-error"
-            />
-          </div>
-        ) : null}
-      </Space>
-    </PageFrame>
+        <UnsavedChangesModal blocker={blocker} testIdPrefix="template">
+          This template has not been created. Leaving throws away what you entered.
+        </UnsavedChangesModal>
+      </PageFrame>
+    </>
   );
 }

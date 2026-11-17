@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Select, Space, Typography, type InputRef } from "antd";
+import { Alert, Button, Form, Input, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
-import { Plus } from "lucide-react";
-import { EGRESS_LIMITS, isApiError, useNamespaces, type EgressPolicyResource } from "@/api";
+import { EGRESS_LIMITS, isApiError, type EgressPolicyResource } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
+import { ValidationNotice } from "@/components/form/ValidationNotice";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { DestinationEditor } from "./DestinationEditor";
 import { egressCopy } from "./egressPolicyCopy";
 import {
-  draftIssues,
+  draftFieldIssues,
   emptyDestination,
   resourceFromDraft,
   type EgressPolicyDraft,
@@ -15,60 +22,45 @@ import {
 
 const { Text } = Typography;
 
-// region Helpers
-
 /** `Aborted` is the server saying our `resourceVersion` is stale. */
 function isStale(error: unknown): boolean {
   return isApiError(error) && error.code === "Aborted";
 }
 
-/** Where focus goes after a destination is added or removed. */
-type FocusTarget = { field: "origin" | "remove"; rowId: number } | { field: "add" };
-
-// region Component
+/** The edited values, without row ids, for telling whether anything changed. */
+const contents = (draft: EgressPolicyDraft) => JSON.stringify(draft, (key, value) => (key === "id" ? undefined : value));
 
 /** Fields and rules for an egress policy. The caller owns the request. */
 export function EgressPolicyForm({
   initial,
   existing,
   onSubmit,
-  onCancel,
+  cancelTo,
   onReload,
 }: {
   initial: EgressPolicyDraft;
   /** The loaded resource on an edit; its metadata goes back with the save. */
   existing?: EgressPolicyResource;
   onSubmit: (resource: EgressPolicyResource) => Promise<void>;
-  onCancel: () => void;
+  /** Where Cancel goes. */
+  cancelTo: string;
   /** Re-reads the policy after a stale save. */
   onReload?: () => void;
 }) {
   const theme = useTheme();
-  const namespaces = useNamespaces();
   const editing = Boolean(existing);
   const [draft, setDraft] = useState(initial);
-  const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [failure, setFailure] = useState<unknown>();
-  const issues = useMemo(() => draftIssues(draft), [draft]);
-  const pendingFocus = useRef<FocusTarget>(undefined);
-  const addButton = useRef<HTMLButtonElement>(null);
+  const [baseline] = useState(() => contents(initial));
+  const issues = useMemo(() => draftFieldIssues(draft), [draft]);
+  const validation = useSubmitValidation(issues);
+  const blocker = useUnsavedChangesGuard(!saved && contents(draft) !== baseline);
+  const container = useRef<HTMLDivElement>(null);
+  const pendingOrigin = useRef<number>(undefined);
+  const focusAdd = useRef(false);
   const originInputs = useRef(new Map<number, InputRef>());
-  const removeButtons = useRef(new Map<number, HTMLButtonElement>());
-
-  // Runs once the add or remove has rendered, so the target element exists.
-  useEffect(() => {
-    const focusTarget = pendingFocus.current;
-    if (!focusTarget) return;
-    pendingFocus.current = undefined;
-    const target =
-      focusTarget.field === "origin"
-        ? originInputs.current.get(focusTarget.rowId)
-        : focusTarget.field === "remove"
-          ? removeButtons.current.get(focusTarget.rowId)
-          : undefined;
-    (target ?? addButton.current)?.focus();
-  }, [draft.destinations]);
 
   const update = (patch: Partial<EgressPolicyDraft>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -76,13 +68,15 @@ export function EgressPolicyForm({
   };
 
   async function submit() {
-    setSubmitted(true);
     setFailure(undefined);
-    if (issues.count > 0) return;
+    if (!validation.attempt()) return;
     setSaving(true);
     try {
+      // Marked before the call: a successful save navigates away, and the guard must let it.
+      setSaved(true);
       await onSubmit(resourceFromDraft(draft, existing));
     } catch (error) {
+      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);
@@ -94,47 +88,64 @@ export function EgressPolicyForm({
   function addDestination() {
     const next = emptyDestination();
     update({ destinations: [...draft.destinations, next] });
-    pendingFocus.current = { field: "origin", rowId: next.id };
+    // The new row's input mounts on the next render and takes focus from its ref callback.
+    pendingOrigin.current = next.id;
   }
 
   function removeDestination(index: number) {
-    const remaining = draft.destinations.filter((_, at) => at !== index);
-    update({ destinations: remaining });
-    // A lone row has no remove button, so focus falls back to "Add destination".
-    pendingFocus.current =
-      index > 0 && remaining.length > 1 ? { field: "remove", rowId: remaining[index - 1].id } : { field: "add" };
+    update({ destinations: draft.destinations.filter((_, at) => at !== index) });
+    // The removed row's button is gone, so focus falls back to "Add destination".
+    focusAdd.current = true;
   }
 
+  useEffect(() => {
+    if (!focusAdd.current) return;
+    focusAdd.current = false;
+    container.current?.querySelector<HTMLElement>('[data-testid="egress-destinations-add"]')?.focus();
+  }, [draft.destinations]);
+
+  const invalid = validation.submitted && issues.length > 0;
+
   return (
-    <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
+    <div ref={container} css={{ display: "flex", flexDirection: "column", gap: theme.space(4), maxWidth: 860 }}>
       <Form
         layout="vertical"
         component="div"
         css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: theme.space(4) }}
       >
-        <Form.Item htmlFor="egress-form-name-input" label={egressCopy.form.name} required={!editing} extra={editing ? egressCopy.form.identityLocked : undefined}>
+        <FormField
+          htmlFor="egress-form-name-input"
+          label={egressCopy.form.name}
+          required
+          error={validation.errorFor("name")}
+          help={editing ? egressCopy.form.identityLocked : undefined}
+        >
           <Input
             id="egress-form-name-input"
             data-testid="egress-form-name"
             value={draft.name}
             readOnly={editing}
             placeholder="github-api"
+            status={validation.errorFor("name") ? "error" : undefined}
             onChange={(event) => update({ name: event.target.value })}
             css={{ fontFamily: theme.font.mono }}
           />
-        </Form.Item>
-        <Form.Item htmlFor="egress-form-namespace-input" label={egressCopy.form.namespace} required={!editing} extra={editing ? egressCopy.form.identityLocked : undefined}>
-          <Select
+        </FormField>
+        <FormField
+          htmlFor="egress-form-namespace-input"
+          label={egressCopy.form.namespace}
+          required
+          error={validation.errorFor("namespace")}
+          help={editing ? egressCopy.form.identityLocked : undefined}
+        >
+          <NamespaceSelect
             id="egress-form-namespace-input"
             data-testid="egress-form-namespace"
-            value={draft.namespace || undefined}
+            value={draft.namespace}
             disabled={editing}
-            loading={namespaces.isLoading}
-            showSearch
-            onChange={(namespace: string) => update({ namespace })}
-            options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
+            onChange={(namespace) => update({ namespace })}
           />
-        </Form.Item>
+        </FormField>
       </Form>
 
       <div>
@@ -144,88 +155,84 @@ export function EgressPolicyForm({
         </Text>
       </div>
 
-      {draft.destinations.map((row, index) => (
-        <DestinationEditor
-          key={row.id}
-          index={index}
-          row={row}
-          disabled={saving}
-          problems={submitted ? issues.destinations[row.id] : undefined}
-          onChange={(next) =>
-            update({ destinations: draft.destinations.map((entry) => (entry.id === row.id ? next : entry)) })
-          }
-          onRemove={draft.destinations.length > 1 ? () => removeDestination(index) : undefined}
-          originRef={(input) => {
-            if (input) originInputs.current.set(row.id, input);
-            else originInputs.current.delete(row.id);
-          }}
-          removeRef={(button) => {
-            if (button) removeButtons.current.set(row.id, button);
-            else removeButtons.current.delete(row.id);
-          }}
-        />
-      ))}
-
-      <Button
-        icon={<Plus size={14} />}
-        ref={addButton}
-        data-testid="egress-form-add-destination"
-        disabled={full || saving}
-        onClick={addDestination}
-        css={{ alignSelf: "flex-start" }}
+      <FormRowList
+        data-testid="egress-destinations"
+        addLabel={egressCopy.form.addDestination}
+        onAdd={addDestination}
+        addDisabled={full || saving}
       >
-        {egressCopy.form.addDestination}
-      </Button>
-
-      {submitted && issues.policy.length > 0 ? (
-        <Alert
-          type="error"
-          showIcon
-          title={egressCopy.form.issuesTitle}
-          data-testid="egress-form-errors"
-          description={
-            <ul css={{ margin: 0, paddingLeft: theme.space(5) }}>
-              {issues.policy.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          }
-        />
+        {draft.destinations.map((row, index) => (
+          <FormRow
+            key={row.id}
+            data-testid={`egress-destination-${index}`}
+            removeLabel={egressCopy.form.removeDestination(index + 1)}
+            removeDisabled={saving}
+            onRemove={draft.destinations.length > 1 ? () => removeDestination(index) : undefined}
+          >
+            <DestinationEditor
+              index={index}
+              row={row}
+              disabled={saving}
+              errorFor={validation.errorFor}
+              onChange={(next) =>
+                update({ destinations: draft.destinations.map((entry) => (entry.id === row.id ? next : entry)) })
+              }
+              originRef={(input) => {
+                if (!input) {
+                  originInputs.current.delete(row.id);
+                  return;
+                }
+                originInputs.current.set(row.id, input);
+                if (pendingOrigin.current === row.id) {
+                  pendingOrigin.current = undefined;
+                  input.focus();
+                }
+              }}
+            />
+          </FormRow>
+        ))}
+      </FormRowList>
+      {validation.errorFor("destinations") ? (
+        <Text type="danger" data-testid="egress-destinations-error">{validation.errorFor("destinations")}</Text>
       ) : null}
 
-      {failure !== undefined && isStale(failure) ? (
-        <Alert
-          type="warning"
-          showIcon
-          title={egressCopy.form.staleTitle}
-          description={egressCopy.form.staleBody}
-          data-testid="egress-form-stale"
-          action={
-            onReload ? (
-              <Button size="small" onClick={onReload} data-testid="egress-form-reload">
-                {egressCopy.form.reload}
-              </Button>
-            ) : undefined
-          }
-        />
-      ) : failure !== undefined ? (
-        <SubmitError
-          error={failure}
-          what={egressCopy.kind}
-          outcome={editing ? "saved" : "created"}
-          onRetry={() => void submit()}
-          data-testid="egress-form-submit-error"
-        />
-      ) : null}
+      <FormActions
+        testIdPrefix="egress-form"
+        submitLabel={editing ? egressCopy.form.save : egressCopy.form.create}
+        onSubmit={() => void submit()}
+        submitting={saving}
+        cancel={{ to: cancelTo }}
+        error={
+          failure !== undefined && isStale(failure) ? (
+            <Alert
+              type="warning"
+              showIcon
+              title={egressCopy.form.staleTitle}
+              description={egressCopy.form.staleBody}
+              data-testid="egress-form-stale"
+              action={
+                onReload ? (
+                  <Button size="small" onClick={onReload} data-testid="egress-form-reload">
+                    {egressCopy.form.reload}
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : failure !== undefined ? (
+            <SubmitError
+              error={failure}
+              what={egressCopy.kind}
+              outcome={editing ? "saved" : "created"}
+              onRetry={() => void submit()}
+              data-testid="egress-form-submit-error"
+            />
+          ) : invalid ? <ValidationNotice data-testid="egress-form-submit-error" /> : undefined
+        }
+      />
 
-      <Space size={8} wrap>
-        <Button type="primary" data-testid="egress-form-submit" loading={saving} onClick={() => void submit()}>
-          {editing ? egressCopy.form.save : egressCopy.form.create}
-        </Button>
-        <Button onClick={onCancel} data-testid="egress-form-cancel">
-          {egressCopy.form.cancel}
-        </Button>
-      </Space>
-    </Space>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="egress-form">
+        {egressCopy.form.discardBody}
+      </UnsavedChangesModal>
+    </div>
   );
 }

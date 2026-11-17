@@ -1,7 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  Alert,
-  Button,
   Checkbox,
   Form,
   Input,
@@ -11,10 +9,19 @@ import {
   Typography,
 } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { SubmitError } from "@/components/common/SubmitError";
+import { ValidationNotice } from "@/components/form/ValidationNotice";
+import { BackLink } from "@/components/form/BackLink";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { toastSaved } from "@/components/form/saveToast";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import {
   type McpServerFormValues,
   emptyMcpServerForm,
@@ -35,7 +42,8 @@ export function McpServerNewPage() {
   // Once the user names the server themselves, the suggestion stops overwriting
   // it — a name that keeps changing under the cursor is worse than no help.
   const [nameTouched, setNameTouched] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [baseline] = useState(() => JSON.stringify(values));
+  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
   const navigate = useNavigate();
@@ -90,26 +98,27 @@ export function McpServerNewPage() {
     setFailure(undefined);
   };
 
-  const issues = useMemo(() => validateMcpServerForm(values), [values]);
-  const issueFor = (field: keyof McpServerFormValues) =>
-    submitted ? issues.find((issue) => issue.field === field)?.message : undefined;
+  const validation = useSubmitValidation(useMemo(() => validateMcpServerForm(values), [values]));
+
+  // Saving counts as clean, so the navigation after it is not blocked.
+  const isDirty = !saved && JSON.stringify(values) !== baseline;
+  const blocker = useUnsavedChangesGuard(isDirty);
 
   const submit = async () => {
-    setSubmitted(true);
     setFailure(undefined);
-    if (issues.length > 0) return;
+    if (!validation.attempt()) return;
 
     setSaving(true);
     try {
+      setSaved(true);
       await apiClient.mcpServers.create(toCreateRequest(values));
       // Refreshes any list still on screen; SWR does not fetch a key with no mounted
       // subscriber, so the one navigated to re-reads on mount. Guarded, not load-bearing.
       await invalidateServers().catch(() => {});
-      // Straight to the list, which is where the new server can actually be
-      // seen — a success message on a form the user is still looking at proves
-      // less than the row itself.
+      toastSaved("created", "MCP server", values.name.trim());
       await navigate(paths.mcpServers);
     } catch (error) {
+      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);
@@ -117,14 +126,11 @@ export function McpServerNewPage() {
   };
 
   return (
+    <>
+    <BackLink to={paths.mcpServers} resource="MCP servers" />
     <PageFrame
       title="New MCP server"
       description="Register a tool server so agents can call the tools it exposes."
-      actions={
-        <Link to={paths.mcpServers}>
-          <Button>Back to servers</Button>
-        </Link>
-      }
     >
       <Space
         orientation="vertical"
@@ -136,11 +142,11 @@ export function McpServerNewPage() {
         </Text>
 
         <Form layout="vertical" component="div">
-          <Form.Item
+          <FormField
             label="Name"
             required
-            validateStatus={issueFor("name") ? "error" : undefined}
-            help={issueFor("name")}
+            error={validation.errorFor("name")}
+            help="Filled in from the URL. You can change it."
           >
             <Input
               data-testid="mcp-name"
@@ -148,188 +154,157 @@ export function McpServerNewPage() {
               value={values.name}
               onChange={(event) => setName(event.target.value)}
             />
-          </Form.Item>
+          </FormField>
 
-          <Form.Item
+          <FormField
             label="Namespace"
-            validateStatus={issueFor("namespace") ? "error" : undefined}
-            help={issueFor("namespace")}
+            required
+            error={validation.errorFor("namespace")}
+            help="Pick the namespace to register the server in."
           >
-            <Input
+            <NamespaceSelect
               data-testid="mcp-namespace"
-              placeholder="kagent"
               value={values.namespace}
-              onChange={(event) => set("namespace", event.target.value)}
+              onChange={(namespace) => set("namespace", namespace)}
             />
+          </FormField>
+
+          <FormField
+            label="Server URL"
+            required
+            error={validation.errorFor("url")}
+            help="The MCP endpoint the controller will connect to. The scheme comes from the TLS setting below."
+          >
+            {/* The scheme is a fixed prefix the TLS toggle writes, so what is on screen
+                reads as the one URL the form submits. */}
+            <Input
+              data-testid="mcp-url"
+              prefix={
+                <Text type="secondary" css={{ whiteSpace: "nowrap" }} data-testid="mcp-url-scheme">
+                  {schemeFor(values.tlsEnabled)}
+                </Text>
+              }
+              placeholder="mcp.example.com/sse"
+              value={values.url}
+              onChange={(event) => setUrl(event.target.value)}
+            />
+          </FormField>
+
+          {/* TLS is its own control rather than a hand-typed scheme: it drives the
+              prefix above. */}
+          <FormField
+            label="TLS"
+            required={false}
+            help="Whether the controller dials the upstream over TLS. HTTPS verifies the upstream's certificate; HTTP is plaintext."
+          >
+            <Segmented<string>
+              data-testid="mcp-tls"
+              value={values.tlsEnabled ? "https" : "http"}
+              onChange={(value) => set("tlsEnabled", value === "https")}
+              options={[
+                { label: "HTTP", value: "http" },
+                { label: "HTTPS", value: "https" },
+              ]}
+            />
+          </FormField>
+
+          <Form.Item>
+            <Space size={6}>
+              <Checkbox
+                data-testid="mcp-streamable"
+                checked={values.streamableHttp}
+                onChange={(event) => set("streamableHttp", event.target.checked)}
+              >
+                Use streamable HTTP instead of SSE
+              </Checkbox>
+              {/* Named as an example rather than a list, which would go stale silently. */}
+              <Tooltip title="Some harnesses, like Codex, only accept streamable HTTP.">
+                <Info
+                  size={14}
+                  data-testid="mcp-streamable-info"
+                  aria-label="Some harnesses, like Codex, only accept streamable HTTP."
+                  tabIndex={0}
+                  css={{
+                    display: "block",
+                    color: theme.color.textMuted,
+                    cursor: "help",
+                    "&:hover, &:focus-visible": { color: theme.color.text },
+                  }}
+                />
+              </Tooltip>
+            </Space>
           </Form.Item>
 
-              <Form.Item
-                label="Server URL"
-                required
-                validateStatus={issueFor("url") ? "error" : undefined}
-                help={
-                  issueFor("url") ??
-                  "The MCP endpoint the controller will connect to. The scheme comes from the TLS setting below."
-                }
-              >
-                {/* The scheme is an affix rather than an addon: `addonBefore`
-                    is deprecated in favour of `Space.Compact`, which wants a
-                    control beside the field, and this is not one — it is a fixed
-                    label the TLS toggle writes and the reader cannot edit.
-                    `prefix` renders it inside the field, so what is on screen
-                    reads as the one URL the form submits. */}
-                <Input
-                  data-testid="mcp-url"
-                  prefix={
-                    <Text
-                      type="secondary"
-                      css={{ whiteSpace: "nowrap" }}
-                      data-testid="mcp-url-scheme"
-                    >
-                      {schemeFor(values.tlsEnabled)}
-                    </Text>
-                  }
-                  placeholder="mcp.example.com/sse"
-                  value={values.url}
-                  onChange={(event) => setUrl(event.target.value)}
-                />
-              </Form.Item>
+          <FormField
+            label="Headers sent to the server"
+            required={false}
+            error={validation.errorFor("headersJson")}
+            help="A JSON object. Leave empty to send none."
+          >
+            <Input.TextArea
+              data-testid="mcp-headers"
+              placeholder='{"Authorization": "Bearer …"}'
+              value={values.headersJson}
+              onChange={(event) => set("headersJson", event.target.value)}
+              autoSize={{ minRows: 2, maxRows: 8 }}
+              css={{ fontFamily: theme.font.mono }}
+            />
+          </FormField>
 
-              {/* TLS as its own control, not a scheme the reader hand-types: the
-                  controller derives the effective scheme from whether spec.tls is
-                  present, so the toggle is the single source of that intent and it
-                  drives the grayed prefix above and the CA field below. */}
-              <Form.Item
-                label="TLS"
-                help="Whether the controller dials the upstream over TLS. HTTPS verifies the upstream's certificate; HTTP is plaintext."
-              >
-                <Segmented<string>
-                  data-testid="mcp-tls"
-                  value={values.tlsEnabled ? "https" : "http"}
-                  onChange={(value) => set("tlsEnabled", value === "https")}
-                  options={[
-                    { label: "HTTP", value: "http" },
-                    { label: "HTTPS", value: "https" },
-                  ]}
-                />
-              </Form.Item>
+          <FormField label="Connection timeout" required={false} help="Time allowed to connect, like 5s or 1m.">
+            <Input
+              data-testid="mcp-timeout"
+              value={values.timeout}
+              onChange={(event) => set("timeout", event.target.value)}
+            />
+          </FormField>
 
-              <Form.Item>
-                <Space size={6}>
-                  <Checkbox
-                    data-testid="mcp-streamable"
-                    checked={values.streamableHttp}
-                    onChange={(event) => set("streamableHttp", event.target.checked)}
-                  >
-                    Use streamable HTTP instead of SSE
-                  </Checkbox>
-                  {/* Named as an example rather than a list: which harnesses refuse SSE
-                      is theirs to change, and a list here would go stale silently. */}
-                  <Tooltip title="Some harnesses, like Codex, only accept streamable HTTP.">
-                    <Info
-                      size={14}
-                      data-testid="mcp-streamable-info"
-                      aria-label="Some harnesses, like Codex, only accept streamable HTTP."
-                      tabIndex={0}
-                      css={{
-                        display: "block",
-                        color: theme.color.textMuted,
-                        cursor: "help",
-                        "&:hover, &:focus-visible": { color: theme.color.text },
-                      }}
-                    />
-                  </Tooltip>
-                </Space>
-              </Form.Item>
+          {/* Only SSE has a read timeout, so the field disappears when streamable
+              HTTP is chosen. */}
+          {!values.streamableHttp ? (
+            <FormField label="SSE read timeout" required={false} help="How long to wait for data on the stream, like 300s.">
+              <Input
+                data-testid="mcp-sse-timeout"
+                value={values.sseReadTimeout}
+                onChange={(event) => set("sseReadTimeout", event.target.value)}
+              />
+            </FormField>
+          ) : null}
 
-              <Form.Item
-                label="Headers"
-                validateStatus={issueFor("headersJson") ? "error" : undefined}
-                help={
-                  issueFor("headersJson") ??
-                  'A JSON object, for example {"Authorization": "Bearer …"}.'
-                }
-              >
-                <Input.TextArea
-                  data-testid="mcp-headers"
-                  placeholder="{}"
-                  value={values.headersJson}
-                  onChange={(event) => set("headersJson", event.target.value)}
-                  autoSize={{ minRows: 2, maxRows: 8 }}
-                  css={{ fontFamily: theme.font.mono }}
-                />
-              </Form.Item>
-
-              <Form.Item label="Connection timeout">
-                <Input
-                  data-testid="mcp-timeout"
-                  value={values.timeout}
-                  onChange={(event) => set("timeout", event.target.value)}
-                />
-              </Form.Item>
-
-              {/* Only SSE has a read timeout, so the field disappears rather than
-                  sitting there inert when streamable HTTP is chosen. */}
-              {!values.streamableHttp ? (
-                <Form.Item label="SSE read timeout">
-                  <Input
-                    data-testid="mcp-sse-timeout"
-                    value={values.sseReadTimeout}
-                    onChange={(event) => set("sseReadTimeout", event.target.value)}
-                  />
-                </Form.Item>
-              ) : null}
-
-              <Form.Item>
-                <Checkbox
-                  data-testid="mcp-terminate"
-                  checked={values.terminateOnClose}
-                  onChange={(event) => set("terminateOnClose", event.target.checked)}
-                >
-                  Terminate the connection when the session closes
-                </Checkbox>
-              </Form.Item>
+          <Form.Item>
+            <Checkbox
+              data-testid="mcp-terminate"
+              checked={values.terminateOnClose}
+              onChange={(event) => set("terminateOnClose", event.target.checked)}
+            >
+              Terminate the connection when the session closes
+            </Checkbox>
+          </Form.Item>
         </Form>
 
-        {submitted && issues.length > 0 ? (
-          <Alert
-            type="error"
-            showIcon
-            title="This server cannot be created yet"
-            data-testid="mcp-form-errors"
-            description={
-              <ul css={{ margin: 0, paddingLeft: theme.space(5) }}>
-                {issues.map((issue) => (
-                  <li key={`${issue.field}-${issue.message}`}>{issue.message}</li>
-                ))}
-              </ul>
-            }
-          />
-        ) : null}
+        <FormActions
+          submitLabel="Create"
+          onSubmit={() => void submit()}
+          submitting={saving}
+          cancel={{ to: paths.mcpServers }}
+          testIdPrefix="mcp"
+          error={
+            failure !== undefined ? (
+              <SubmitError
+                data-testid="mcp-submit-error"
+                error={failure}
+                what="MCP server"
+                onRetry={() => void submit()}
+              />
+            ) : validation.issues.length > 0 ? <ValidationNotice data-testid="mcp-submit-error" /> : null
+          }
+        />
 
-        {failure !== undefined ? (
-          <SubmitError
-            data-testid="mcp-submit-error"
-            error={failure}
-            what="MCP server"
-            onRetry={() => void submit()}
-          />
-        ) : null}
-
-        <Space size={8}>
-          <Button
-            type="primary"
-            data-testid="mcp-submit"
-            loading={saving}
-            onClick={() => void submit()}
-          >
-            Create server
-          </Button>
-          <Link to={paths.mcpServers}>
-            <Button>Cancel</Button>
-          </Link>
-        </Space>
+        <UnsavedChangesModal blocker={blocker} testIdPrefix="mcp">
+          This form has edits that have not been saved. Leaving throws them away.
+        </UnsavedChangesModal>
       </Space>
     </PageFrame>
+    </>
   );
 }

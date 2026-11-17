@@ -3,6 +3,7 @@ import {
   Alert,
   AutoComplete,
   Button,
+  Checkbox,
   Col,
   Collapse,
   Form,
@@ -15,15 +16,16 @@ import {
   Typography,
 } from "antd";
 import { useTheme } from "@emotion/react";
-import { Link } from "react-router-dom";
-import {
-  AlertTriangle,
-  ExternalLink,
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { SubmitError } from "@/components/common/SubmitError";
+import { ValidationNotice } from "@/components/form/ValidationNotice";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import {
   RESOURCE_NAME_HINT,
   isValidResourceName,
@@ -31,7 +33,6 @@ import {
 } from "@/components/common/resourceName";
 import { paths } from "@/router/routes";
 import {
-  useNamespaces,
   useProviderModels,
   useProviders,
   type CreateModelConfigRequest,
@@ -45,6 +46,7 @@ import {
   isBadNumber,
   modelDraftIssues,
   newHeaderRow,
+  paramLabel,
   type ModelAuthType,
   type ModelDraft,
   type ModelTls,
@@ -88,6 +90,14 @@ interface ModelFormProps {
   allowProviderSelectionWhenIdentityLocked?: boolean;
 }
 
+/** The draft by value, minus the header rows' bookkeeping ids, for dirty checks. */
+function draftContents(draft: ModelDraft): string {
+  return JSON.stringify({
+    ...draft,
+    defaultHeaders: draft.defaultHeaders.map((row) => [row.key, row.value]),
+  });
+}
+
 /** A small "open the provider's docs" link, when there is one to open. */
 function DocsLink({ href, title }: { href?: string; title: string }) {
   const theme = useTheme();
@@ -127,7 +137,7 @@ export function ModelForm({
   onSubmit,
   initial,
   outcome = "created",
-  submitLabel = "Create model",
+  submitLabel = "Create",
   identityLocked = false,
   additionalProviderOptions = [],
   onProviderChange,
@@ -138,13 +148,14 @@ export function ModelForm({
 
   const providers = useProviders();
   const providerModels = useProviderModels();
-  const namespaces = useNamespaces();
 
   const [draft, setDraft] = useState<ModelDraft>(initial ?? emptyModelDraft());
   // Whether the name has been typed into. True when editing: an existing name is
   // its own and must not be rewritten by the model picker.
   const [nameTouched, setNameTouched] = useState(isEdit);
-  const [submitted, setSubmitted] = useState(false);
+  const [baseline] = useState(() => draftContents(draft));
+  const [saved, setSaved] = useState(false);
+  const [optionalOpen, setOptionalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
 
@@ -263,15 +274,37 @@ export function ModelForm({
   const effectiveName = nameTouched
     ? draft.name
     : slugifyResourceName(draft.model ?? "");
-  // The Secret name/key fields, shared by every provider that offers "Existing
-  // secret". They used to live only in the non-Ollama branch, so choosing that
-  // mode for Ollama rendered the choice with no field to fill in and submitted
-  // no credential at all.
+  const effective = useMemo<ModelDraft>(
+    () => ({ ...draft, name: effectiveName }),
+    [draft, effectiveName],
+  );
+
+  const validation = useSubmitValidation(
+    useMemo(
+      () =>
+        modelDraftIssues(effective, {
+          isValidName: isValidResourceName,
+          nameHint: RESOURCE_NAME_HINT,
+          requiredParamKeys: requiredKeys,
+          isEdit,
+        }),
+      [effective, requiredKeys, isEdit],
+    ),
+  );
+  const { errorFor } = validation;
+
+  // Saving counts as clean, so the navigation after it is not blocked.
+  const isDirty = !saved && draftContents(effective) !== baseline;
+  const blocker = useUnsavedChangesGuard(isDirty);
+
+  // The Secret name/key fields, shared by every provider that offers "Existing secret".
   const secretFields = (
     <>
-      <Form.Item
-        label="API key secret"
-        help="The name of an existing Kubernetes Secret holding the credential."
+      <FormField
+        label="Existing secret"
+        required
+        error={errorFor("apiKeySecret")}
+        help="The Secret to read the API key from."
       >
         <Input
           data-testid="model-api-key-secret"
@@ -279,24 +312,14 @@ export function ModelForm({
           value={draft.apiKeySecret}
           onChange={(event) => set("apiKeySecret", event.target.value)}
         />
-      </Form.Item>
-      <Form.Item
-        label="Secret key"
-        validateStatus={
-          submitted &&
-          draft.apiKeySecretKey.trim() &&
-          !draft.apiKeySecret.trim()
-            ? "error"
-            : undefined
-        }
+      </FormField>
+      <FormField
+        label="Key in secret"
+        required={false}
         help={
-          submitted &&
-          draft.apiKeySecretKey.trim() &&
-          !draft.apiKeySecret.trim()
-            ? "A secret key needs the secret that holds it."
-            : isOllama
-              ? "Which key inside that Secret. Defaults to OLLAMA_API_KEY."
-              : "Which key inside that Secret. Defaults to the provider's usual key."
+          isOllama
+            ? "Which entry in the Secret to read. Defaults to OLLAMA_API_KEY."
+            : "Which entry in the Secret to read. Defaults to the provider's usual key."
         }
       >
         <Input
@@ -305,24 +328,8 @@ export function ModelForm({
           value={draft.apiKeySecretKey}
           onChange={(event) => set("apiKeySecretKey", event.target.value)}
         />
-      </Form.Item>
+      </FormField>
     </>
-  );
-
-  const effective = useMemo<ModelDraft>(
-    () => ({ ...draft, name: effectiveName }),
-    [draft, effectiveName],
-  );
-
-  const issues = useMemo(
-    () =>
-      modelDraftIssues(effective, {
-        isValidName: isValidResourceName,
-        nameHint: RESOURCE_NAME_HINT,
-        requiredParamKeys: requiredKeys,
-        isEdit,
-      }),
-    [effective, requiredKeys, isEdit],
   );
 
   const changeProvider = (type: string) => {
@@ -345,14 +352,21 @@ export function ModelForm({
   };
 
   const submit = async () => {
-    setSubmitted(true);
     setFailure(undefined);
-    if (issues.length > 0) return;
+    if (!validation.attempt()) {
+      // An error inside the collapsed optional parameters would otherwise stay out of sight.
+      if (optionalKeys.some((key) => errorFor(`param:${key}`) !== undefined || isBadNumber(key, draft.params[key] ?? ""))) {
+        setOptionalOpen(true);
+      }
+      return;
+    }
 
     setSaving(true);
     try {
+      setSaved(true);
       await onSubmit(buildModelPayload(effective));
     } catch (error) {
+      setSaved(false);
       setFailure(error);
     } finally {
       setSaving(false);
@@ -361,26 +375,19 @@ export function ModelForm({
 
   const paramField = (key: string, required: boolean) => {
     const value = draft.params[key] ?? "";
-    const missing = required && submitted && !value.trim();
-    const badNumber = submitted && isBadNumber(key, value);
+    const label = paramLabel(key);
     return (
-      <Form.Item
+      <FormField
         key={key}
-        label={key}
+        label={label}
         required={required}
-        validateStatus={missing || badNumber ? "error" : undefined}
-        help={
-          missing
-            ? `${key} is required.`
-            : badNumber
-              ? `${key} must be a number.`
-              : ENUM_PARAMS[key]?.help
-        }
+        error={errorFor(`param:${key}`)}
+        help={ENUM_PARAMS[key]?.help}
       >
         {ENUM_PARAMS[key] ? (
           <Select
             data-testid={`model-param-${key}`}
-            placeholder={required ? `Choose ${key}` : `(optional) ${key}`}
+            placeholder={`Choose ${label.toLowerCase()}`}
             allowClear={!required}
             value={value || undefined}
             options={ENUM_PARAMS[key].values.map((option) => ({ label: option, value: option }))}
@@ -389,21 +396,17 @@ export function ModelForm({
         ) : (
           <Input
             data-testid={`model-param-${key}`}
-            placeholder={required ? `Enter ${key}` : `(optional) ${key}`}
+            placeholder={`Enter ${label.toLowerCase()}`}
             value={value}
             onChange={(event) => setParam(key, event.target.value)}
           />
         )}
-      </Form.Item>
+      </FormField>
     );
   };
 
   return (
-    <Space
-      orientation="vertical"
-      size="middle"
-      css={{ display: "flex", maxWidth: 720 }}
-    >
+    <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 720 }}>
       {providers.error || providerModels.error ? (
         <Alert
           type="warning"
@@ -428,7 +431,7 @@ export function ModelForm({
       <Form layout="vertical" component="div">
         <Row gutter={16}>
           <Col xs={24} md={12}>
-            <Form.Item
+            <FormField
               label={
                 <Space size={6}>
                   Provider
@@ -439,12 +442,8 @@ export function ModelForm({
                 </Space>
               }
               required
-              validateStatus={
-                submitted && !draft.provider ? "error" : undefined
-              }
-              help={
-                submitted && !draft.provider ? "Choose a provider." : undefined
-              }
+              error={errorFor("provider")}
+              help="Choose where the model runs."
             >
               <Space.Compact css={{ display: "flex" }}>
                 <Select
@@ -452,27 +451,18 @@ export function ModelForm({
                   placeholder="Select a provider"
                   value={draft.provider}
                   loading={providers.isLoading}
-                  disabled={
-                    identityLocked && !allowProviderSelectionWhenIdentityLocked
-                  }
+                  disabled={identityLocked && !allowProviderSelectionWhenIdentityLocked}
                   css={{ flex: 1 }}
                   options={providerSelectOptions}
                   onChange={changeProvider}
                   optionRender={(o) => (
-                    <ProviderIconWithLabel
-                      type={String(o.value ?? "")}
-                      label={o.label}
-                    />
+                    <ProviderIconWithLabel type={String(o.value ?? "")} label={o.label} />
                   )}
                   labelRender={(l) => (
-                    <ProviderIconWithLabel
-                      type={String(l.value ?? "")}
-                      label={l.label}
-                    />
+                    <ProviderIconWithLabel type={String(l.value ?? "")} label={l.label} />
                   )}
                 />
-                {/* A refresh, because a provider configured after this page loaded — or
-                    its newly pulled models — should be reachable without a reload. */}
+                {/* A refresh, so a provider configured after this page loaded is reachable without a reload. */}
                 <Button
                   data-testid="model-fetch"
                   icon={<RefreshCw size={14} aria-hidden />}
@@ -485,41 +475,26 @@ export function ModelForm({
                   Refresh models
                 </Button>
               </Space.Compact>
-            </Form.Item>
+            </FormField>
           </Col>
 
           <Col xs={24} md={12}>
-            <Form.Item
-              label="Model"
+            <FormField
+              label="Provider model"
               required
-              validateStatus={submitted && !draft.model ? "error" : undefined}
-              help={
-                submitted && !draft.model
-                  ? "Choose a model."
-                  : draft.provider
-                    ? "Pick model from the list, or type it if it isn't listed."
-                    : "Pick a provider first."
-              }
+              error={errorFor("model")}
+              help="Pick from the list, or type a model name."
             >
               <AutoComplete
                 data-testid="model-model"
-                placeholder={
-                  draft.provider
-                    ? "Select or type a model"
-                    : "Pick a provider first"
-                }
+                placeholder={draft.provider ? "Select or type a model" : "Pick a provider first"}
                 value={draft.model}
                 disabled={
-                  !draft.provider ||
-                  (identityLocked && !allowProviderSelectionWhenIdentityLocked)
+                  !draft.provider || (identityLocked && !allowProviderSelectionWhenIdentityLocked)
                 }
-                options={modelsForProvider.map((item) => ({
-                  value: item.name,
-                }))}
+                options={modelsForProvider.map((item) => ({ value: item.name }))}
                 filterOption={(input, option) =>
-                  (option?.value ?? "")
-                    .toLowerCase()
-                    .includes(input.toLowerCase())
+                  (option?.value ?? "").toLowerCase().includes(input.toLowerCase())
                 }
                 onChange={(next) => set("model", next)}
               />
@@ -536,18 +511,18 @@ export function ModelForm({
                   }}
                 >
                   <AlertTriangle size={14} aria-hidden />
-                  This model does not support function calling, so agents cannot
-                  call tools with it.
+                  This model does not support function calling, so agents cannot call tools with it.
                 </Text>
               ) : null}
-            </Form.Item>
+            </FormField>
           </Col>
         </Row>
 
         {isOllama ? (
-          <Form.Item
-            label="Model tag"
-            help={`The Ollama version tag. Defaults to “${OLLAMA_DEFAULT_TAG}”.`}
+          <FormField
+            label="Ollama tag"
+            required={false}
+            help={`Which version of the model to pull. Defaults to “${OLLAMA_DEFAULT_TAG}”.`}
           >
             <Input
               data-testid="model-ollama-tag"
@@ -555,27 +530,17 @@ export function ModelForm({
               value={draft.modelTag}
               onChange={(event) => set("modelTag", event.target.value)}
             />
-          </Form.Item>
+          </FormField>
         ) : null}
 
-        <Form.Item
+        <FormField
           label="Name"
           required
-          validateStatus={
-            submitted &&
-            (!effectiveName.trim() ||
-              !isValidResourceName(effectiveName.trim()))
-              ? "error"
-              : undefined
-          }
+          error={errorFor("name")}
           help={
-            submitted && !effectiveName.trim()
-              ? "A name is required."
-              : submitted && !isValidResourceName(effectiveName.trim())
-                ? RESOURCE_NAME_HINT
-                : identityLocked
-                  ? "A configuration cannot be renamed; create a new one instead."
-                  : "Defaults to the model's own name."
+            identityLocked
+              ? "A configuration cannot be renamed; create a new one instead."
+              : "Defaults to the model's own name."
           }
         >
           <Input
@@ -589,115 +554,78 @@ export function ModelForm({
             }}
             css={{ fontFamily: theme.font.mono }}
           />
-        </Form.Item>
+        </FormField>
 
-        <Form.Item
+        <FormField
           label="Namespace"
           required
-          validateStatus={
-            submitted && !draft.namespace.trim() ? "error" : undefined
-          }
-          help={
-            submitted && !draft.namespace.trim()
-              ? "A namespace is required."
-              : undefined
-          }
+          error={errorFor("namespace")}
+          help="Pick the namespace to create the model in."
         >
-          <Select
+          <NamespaceSelect
             data-testid="model-namespace"
             value={draft.namespace}
-            loading={namespaces.isLoading}
-            showSearch
             disabled={identityLocked}
-            options={(namespaces.data ?? []).map((item) => ({
-              value: item.name,
-              label: item.name,
-            }))}
-            onChange={(next) => set("namespace", next)}
+            onChange={(namespace) => set("namespace", namespace)}
           />
-        </Form.Item>
+        </FormField>
 
-        {/* Authentication. Ollama needs no key for a local model, so it defaults
-            to no credential, but an Ollama Cloud model authenticates against
-            api.ollama.com with a key — hence the Secret option. Every other
-            provider picks a mode: a key typed here (stored in a Secret the
-            backend creates), an existing Secret referenced by name, forwarding
-            the caller's own credential (passthrough), or no credential. */}
+        {/* Ollama needs no key for a local model, but an Ollama Cloud model authenticates
+            with a key, hence the Secret option. Other providers pick a mode: a key typed
+            here, an existing Secret, the caller's own credential, or none. */}
         {isOllama ? (
           <>
-            <Form.Item
+            <FormField
               label="Authentication"
-              extra="A local Ollama model needs no API key. To run a cloud model against api.ollama.com, name a Secret holding OLLAMA_API_KEY — an explicit host is used instead when one is set."
+              required
+              help="A local Ollama model needs no API key. To run a cloud model against api.ollama.com, name a Secret holding OLLAMA_API_KEY — an explicit host is used instead when one is set."
             >
               <Radio.Group
                 data-testid="model-auth-type"
                 value={draft.authType}
-                onChange={(event) =>
-                  set("authType", event.target.value as ModelAuthType)
-                }
+                onChange={(event) => set("authType", event.target.value as ModelAuthType)}
                 options={authOptions}
                 optionType="button"
               />
-            </Form.Item>
+            </FormField>
             {draft.authType === "secret" ? secretFields : null}
           </>
         ) : (
           <>
-            <Form.Item label="Authentication">
+            <FormField label="Authentication" required error={errorFor("authType")}>
               <Radio.Group
                 data-testid="model-auth-type"
                 value={draft.authType}
-                onChange={(event) =>
-                  set("authType", event.target.value as ModelAuthType)
-                }
+                onChange={(event) => set("authType", event.target.value as ModelAuthType)}
                 options={authOptions}
                 optionType="button"
               />
-            </Form.Item>
+            </FormField>
 
             {draft.authType === "apiKey" ? (
-              <Form.Item
+              <FormField
                 label={
                   <Space size={6}>
-                    {isEdit
-                      ? "API key (leave blank to keep existing)"
-                      : "API key"}
+                    {isEdit ? "API key (leave blank to keep existing)" : "API key"}
                     <DocsLink
                       href={info?.apiKeyLink ?? undefined}
                       title={`Get your ${providerDisplayName(draft.provider ?? "")} API key`}
                     />
                   </Space>
                 }
-                /* Required to create and not to edit, which is what the label says
-                   too: an edit that leaves this blank keeps the key already stored. */
+                // Required to create and not to edit: a blank edit keeps the stored key.
                 required={!isEdit}
-                validateStatus={
-                  submitted &&
-                  !isEdit &&
-                  !!draft.provider &&
-                  !draft.apiKey.trim()
-                    ? "error"
-                    : undefined
-                }
-                help={
-                  submitted &&
-                  !isEdit &&
-                  !!draft.provider &&
-                  !draft.apiKey.trim()
-                    ? "An API key is required, or choose another authentication type."
-                    : "Typed once and stored in a Kubernetes Secret the controller creates and owns."
-                }
+                error={errorFor("apiKey")}
+                help="Typed once and stored in a Kubernetes Secret the controller creates and owns."
               >
                 <Input.Password
                   data-testid="model-api-key"
-                  placeholder={
-                    isEdit ? "Enter a new key to replace it" : "Enter API key…"
-                  }
+                  placeholder={isEdit ? "Enter a new key to replace it" : "Enter API key…"}
                   value={draft.apiKey}
                   autoComplete="new-password"
                   onChange={(event) => set("apiKey", event.target.value)}
                 />
-              </Form.Item>
+              </FormField>
             ) : null}
 
             {draft.authType === "secret" ? secretFields : null}
@@ -715,23 +643,40 @@ export function ModelForm({
 
         {draft.authType === "actorJwt" ? (
           <>
-            <Form.Item label="Audiences" required extra="Services allowed to accept this Actor token.">
-              <Select mode="tags" value={draft.actorAudiences} onChange={(value) => set("actorAudiences", value)} tokenSeparators={[","]} />
-            </Form.Item>
-            <Form.Item label="Token lifetime (seconds)">
-              <InputNumber min={300} max={3600} precision={0} value={draft.actorExpirationSeconds} onChange={(value) => set("actorExpirationSeconds", value ?? 900)} />
-            </Form.Item>
+            <FormField
+              label="Audiences"
+              required
+              error={errorFor("actorAudiences")}
+              help="Services allowed to accept this Actor token."
+            >
+              <Select
+                mode="tags"
+                value={draft.actorAudiences}
+                onChange={(value) => set("actorAudiences", value)}
+                tokenSeparators={[","]}
+              />
+            </FormField>
+            <FormField
+              label="Token lifetime (seconds)"
+              required
+              error={errorFor("actorExpirationSeconds")}
+            >
+              <InputNumber
+                min={300}
+                max={3600}
+                precision={0}
+                value={draft.actorExpirationSeconds}
+                onChange={(value) => set("actorExpirationSeconds", value ?? 900)}
+              />
+            </FormField>
           </>
         ) : null}
 
-        {/* Provider parameters. Required ones (an Azure endpoint, a Bedrock region)
-            gate submission; the optional tuning knobs are tucked away until asked
-            for so the common case stays short. */}
+        {/* Required provider parameters (an Azure endpoint, a Bedrock region) gate
+            submission; the optional ones stay collapsed so the common case is short. */}
         {draft.provider && requiredKeys.length > 0 ? (
           <div data-testid="model-required-params">
-            <Text css={{ fontSize: 13, fontWeight: 500 }}>
-              Required parameters
-            </Text>
+            <Text css={{ fontSize: 13, fontWeight: 500 }}>Required parameters</Text>
             <div css={{ marginTop: theme.space(2) }}>
               {requiredKeys.map((key) => paramField(key, true))}
             </div>
@@ -742,6 +687,8 @@ export function ModelForm({
           <Collapse
             ghost
             data-testid="model-optional-params"
+            activeKey={optionalOpen ? ["optional"] : []}
+            onChange={(keys) => setOptionalOpen(keys.length > 0)}
             items={[
               {
                 key: "optional",
@@ -752,8 +699,7 @@ export function ModelForm({
           />
         ) : null}
 
-        {/* Advanced: headers sent on every request, and TLS for the connection to
-            the provider. Both apply to any provider, so they sit apart from the
+        {/* Headers and TLS apply to any provider, so they sit apart from the
             provider-specific parameters and stay collapsed until wanted. */}
         {draft.provider ? (
           <Collapse
@@ -765,76 +711,52 @@ export function ModelForm({
                 label: "Advanced (headers, TLS)",
                 children: (
                   <>
-                    <Form.Item
+                    <FormField
                       label="Default headers"
+                      required={false}
+                      hintPlacement="above"
                       help="Sent on every request to the provider — for API versioning, tracing, or provider-specific needs."
                     >
-                      <Space
-                        orientation="vertical"
-                        size={8}
-                        css={{ display: "flex" }}
+                      <FormRowList
+                        data-testid="model-headers"
+                        addLabel="Add header"
+                        onAdd={addHeader}
                       >
                         {draft.defaultHeaders.map((row, index) => (
-                          <Space
+                          <FormRow
                             key={row.id}
-                            size={8}
-                            css={{ display: "flex" }}
+                            onRemove={() => removeHeader(row.id)}
+                            removeLabel={`Remove header ${index + 1}`}
                           >
-                            <Input
-                              data-testid="model-header-name"
-                              aria-label={`Header ${index + 1} name`}
-                              placeholder="Header-Name"
-                              value={row.key}
-                              onChange={(event) =>
-                                setHeader(row.id, "key", event.target.value)
-                              }
-                            />
-                            <Input
-                              data-testid="model-header-value"
-                              aria-label={`Header ${index + 1} value`}
-                              placeholder="value"
-                              value={row.value}
-                              onChange={(event) =>
-                                setHeader(row.id, "value", event.target.value)
-                              }
-                            />
-                            <Button
-                              aria-label={`Remove header ${index + 1}`}
-                              icon={<Trash2 size={14} />}
-                              onClick={() => removeHeader(row.id)}
-                            />
-                          </Space>
+                            <Space size={8} css={{ display: "flex" }}>
+                              <Input
+                                data-testid="model-header-name"
+                                aria-label={`Header ${index + 1} name`}
+                                placeholder="Header-Name"
+                                value={row.key}
+                                onChange={(event) => setHeader(row.id, "key", event.target.value)}
+                              />
+                              <Input
+                                data-testid="model-header-value"
+                                aria-label={`Header ${index + 1} value`}
+                                placeholder="value"
+                                value={row.value}
+                                onChange={(event) => setHeader(row.id, "value", event.target.value)}
+                              />
+                            </Space>
+                          </FormRow>
                         ))}
-                        <Button
-                          data-testid="model-add-header"
-                          icon={<Plus size={14} />}
-                          onClick={addHeader}
-                        >
-                          Add header
-                        </Button>
-                      </Space>
-                    </Form.Item>
+                      </FormRowList>
+                    </FormField>
 
                     <Form.Item>
-                      <Space size={16} wrap>
-                        <label
-                          css={{
-                            display: "inline-flex",
-                            gap: 6,
-                            alignItems: "center",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            data-testid="model-tls-disable-verify"
-                            checked={draft.tls.disableVerify}
-                            onChange={(event) =>
-                              setTls("disableVerify", event.target.checked)
-                            }
-                          />
-                          Skip TLS verification
-                        </label>
-                      </Space>
+                      <Checkbox
+                        data-testid="model-tls-disable-verify"
+                        checked={draft.tls.disableVerify}
+                        onChange={(event) => setTls("disableVerify", event.target.checked)}
+                      >
+                        Skip TLS verification
+                      </Checkbox>
                     </Form.Item>
                     {draft.tls.disableVerify ? (
                       <Alert
@@ -852,49 +774,29 @@ export function ModelForm({
         ) : null}
       </Form>
 
-      {submitted && issues.length > 0 ? (
-        <Alert
-          type="error"
-          showIcon
-          title={
-            identityLocked
-              ? "This model cannot be saved yet"
-              : "This model cannot be created yet"
-          }
-          data-testid="model-form-errors"
-          description={
-            <ul css={{ margin: 0, paddingLeft: theme.space(5) }}>
-              {issues.map((issue) => (
-                <li key={issue}>{issue}</li>
-              ))}
-            </ul>
-          }
-        />
-      ) : null}
+      <FormActions
+        submitLabel={submitLabel}
+        onSubmit={() => void submit()}
+        submitting={saving}
+        cancel={{ to: paths.models }}
+        testIdPrefix="model"
+        error={
+          failure !== undefined ? (
+            <SubmitError
+              error={failure}
+              what="model configuration"
+              outcome={outcome}
+              onRetry={() => void submit()}
+              data-testid="model-submit-error"
+            />
+          ) : validation.issues.length > 0 ? <ValidationNotice data-testid="model-submit-error" /> : null
+        }
+      />
 
-      {failure !== undefined ? (
-        <SubmitError
-          error={failure}
-          what="model configuration"
-          outcome={outcome}
-          onRetry={() => void submit()}
-          data-testid="model-submit-error"
-        />
-      ) : null}
-
-      <Space size={8}>
-        <Button
-          type="primary"
-          data-testid="model-submit"
-          loading={saving}
-          onClick={() => void submit()}
-        >
-          {submitLabel}
-        </Button>
-        <Link to={paths.models}>
-          <Button>Cancel</Button>
-        </Link>
-      </Space>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="model">
+        This form has edits that have not been saved. Leaving throws them away; the
+        configuration on the cluster is unchanged either way.
+      </UnsavedChangesModal>
     </Space>
   );
 }

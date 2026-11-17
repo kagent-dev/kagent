@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "@emotion/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { SWRConfig } from "swr";
 import { afterEach, expect, it } from "vitest";
 import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
@@ -25,14 +25,13 @@ afterEach(() => setApiTransport(undefined));
  * land on.
  */
 function renderAt(entry: string) {
+  const router = createMemoryRouter([
+    { path: "/schedules/:id", element: <ScheduledRunPage /> },
+    { path: "/schedules/:id/edit", element: <ScheduledRunEditPage /> },
+  ], { initialEntries: [entry] });
   render(<ThemeProvider theme={themeFor("dark")}>
     <SWRConfig value={{ provider: () => new Map(), shouldRetryOnError: false }}>
-      <MemoryRouter initialEntries={[entry]}>
-        <Routes>
-          <Route path="/schedules/:id" element={<ScheduledRunPage />} />
-          <Route path="/schedules/:id/edit" element={<ScheduledRunEditPage />} />
-        </Routes>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </SWRConfig>
   </ThemeProvider>);
 }
@@ -92,14 +91,14 @@ it("keeps unsaved edits after a conflict and preserves the exact timeout on the 
     });
   }));
   renderEditor();
-  const prompt = await screen.findByLabelText("Prompt", { exact: true });
+  const prompt = await screen.findByLabelText(/^Prompt/);
   fireEvent.change(prompt, { target: { value: "Changed prompt" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await screen.findByText(/Schedule changed/);
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await screen.findByText(/This schedule changed since you opened it/);
   expect(attempted).toBe(true);
   // The form is still the one the reader typed into — a failed save must not remount
   // it, which is also what keeps the create request ID stable across a retry.
-  expect(screen.getByLabelText("Prompt", { exact: true })).toHaveValue("Changed prompt");
+  expect(screen.getByLabelText(/^Prompt/)).toHaveValue("Changed prompt");
 });
 
 it("serializes a fractional timeout without floating-point nanoseconds", async () => {
@@ -118,10 +117,10 @@ it("serializes a fractional timeout without floating-point nanoseconds", async (
     });
   }));
   renderEditor();
-  const timeout = await screen.findByLabelText("Execution timeout (seconds)");
+  const timeout = await screen.findByLabelText(/^Execution timeout/);
   expect(timeout).toHaveValue("90.000123");
   fireEvent.change(timeout, { target: { value: "1.001" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(attempted).toBe(true));
   // A saved edit leaves for the schedule it changed, so the form is gone and the
   // detail page's history is on screen.
