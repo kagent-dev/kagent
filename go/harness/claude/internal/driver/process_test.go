@@ -298,3 +298,37 @@ func TestToolCallSplitsTheMCPName(t *testing.T) {
 		})
 	}
 }
+
+func TestProcessDriverSetsSessionIDEnvironmentPerTurn(t *testing.T) {
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "env")
+	executable := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\nprintf '%s' \"${KAGENT_SESSION_ID-unset}\" > \"$CAPTURE\"\nIFS= read -r line\nprintf '%s\\n' '{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"11111111-1111-4111-8111-111111111111\"}'\ncat >/dev/null\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	d := NewProcessDriver(ProcessConfig{Executable: executable, Workspace: dir, Environment: []string{"CAPTURE=" + capture, "KAGENT_SESSION_ID=stale"}, MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: time.Second})
+	for _, tc := range []struct {
+		name      string
+		contextID string
+		want      string
+	}{
+		{name: "first session", contextID: "ctx-1", want: "ctx-1"},
+		{name: "second session replaces the first", contextID: "ctx-2", want: "ctx-2"},
+		{name: "no session leaves it unset", contextID: "", want: "unset"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			outcome, err := d.Run(t.Context(), runtime.Turn{Prompt: "hello", ContextID: tc.contextID}, &recordingSink{})
+			if err != nil || outcome.Failure != nil {
+				t.Fatalf("Run() = %#v, %v", outcome, err)
+			}
+			got, err := os.ReadFile(capture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != tc.want {
+				t.Errorf("KAGENT_SESSION_ID = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

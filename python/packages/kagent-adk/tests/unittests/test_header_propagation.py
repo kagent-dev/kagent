@@ -1,8 +1,11 @@
 """Tests for header propagation to MCP tools."""
 
+import asyncio
+
 from kagent.config.v1.adk_pb2 import ADKHTTPConnectionParams as StreamableHTTPConnectionParams
 from kagent.config.v1.adk_pb2 import ADKSSEConnectionParams as SseConnectionParams
 
+from kagent.adk._request_identity import public_context_id
 from kagent.adk.types import (
     HttpMcpServerConfig,
     SseMcpServerConfig,
@@ -162,6 +165,140 @@ class TestCreateHeaderProvider:
 
         headers = provider(None)
         assert headers == {}
+
+
+class MockSessionContext(MockReadonlyContext):
+    """Mock ReadonlyContext that also exposes the ADK session."""
+
+    def __init__(self, state: dict, session_id: str):
+        super().__init__(state)
+        self.session = type("Session", (), {"id": session_id})()
+
+
+class TestSessionIdHeader:
+    """Tests for sending the kagent session ID as a header."""
+
+    def test_returns_none_when_not_configured(self):
+        assert create_header_provider(session_id_header=None) is None
+        assert create_header_provider(session_id_header="") is None
+
+    def test_sends_session_id_under_configured_name(self):
+        provider = create_header_provider(session_id_header="X-Kagent-Session-Id")
+        assert provider is not None
+
+        headers = provider(MockSessionContext(state={}, session_id="sess-1"))
+        assert headers == {"X-Kagent-Session-Id": "sess-1"}
+
+    def test_public_context_id_wins_over_session_id(self):
+        provider = create_header_provider(session_id_header="X-Kagent-Session-Id")
+        assert provider is not None
+
+        token = public_context_id.set("ctx-public")
+        try:
+            headers = provider(MockSessionContext(state={}, session_id="conversation"))
+        finally:
+            public_context_id.reset(token)
+        assert headers == {"X-Kagent-Session-Id": "ctx-public"}
+
+    def test_falls_back_to_session_id_when_public_context_id_unset(self):
+        provider = create_header_provider(session_id_header="X-Kagent-Session-Id")
+        assert provider is not None
+
+        assert public_context_id.get() == ""
+        headers = provider(MockSessionContext(state={}, session_id="conversation"))
+        assert headers == {"X-Kagent-Session-Id": "conversation"}
+
+    def test_public_context_id_reaches_provider_from_nested_task(self):
+        provider = create_header_provider(session_id_header="X-Kagent-Session-Id")
+        assert provider is not None
+        context = MockSessionContext(state={}, session_id="conversation")
+
+        async def call_provider():
+            return provider(context)
+
+        async def nested_call():
+            return await asyncio.create_task(call_provider())
+
+        async def request_task():
+            token = public_context_id.set("ctx-public")
+            try:
+                return await nested_call()
+            finally:
+                public_context_id.reset(token)
+
+        async def run():
+            return await asyncio.create_task(request_task())
+
+        headers = asyncio.run(run())
+        assert headers == {"X-Kagent-Session-Id": "ctx-public"}
+
+    def test_omits_header_when_session_id_is_empty(self):
+        provider = create_header_provider(session_id_header="X-Kagent-Session-Id")
+        assert provider is not None
+
+        assert provider(MockSessionContext(state={}, session_id="")) == {}
+
+    def test_omits_header_without_session_or_context(self):
+        provider = create_header_provider(session_id_header="X-Kagent-Session-Id")
+        assert provider is not None
+
+        assert provider(MockReadonlyContext(state={})) == {}
+        assert provider(None) == {}
+
+    def test_combines_with_allowed_headers(self):
+        provider = create_header_provider(
+            allowed_headers=["x-user-email"],
+            session_id_header="X-Kagent-Session-Id",
+        )
+        assert provider is not None
+
+        context = MockSessionContext(state={"headers": {"x-user-email": "test@example.com"}}, session_id="sess-1")
+        assert provider(context) == {"x-user-email": "test@example.com", "X-Kagent-Session-Id": "sess-1"}
+
+    def test_session_id_replaces_forwarded_header_of_same_name_case_insensitively(self):
+        provider = create_header_provider(
+            allowed_headers=["x-kagent-session-id"],
+            session_id_header="X-Kagent-Session-Id",
+        )
+        assert provider is not None
+
+        context = MockSessionContext(state={"headers": {"x-kagent-session-id": "forged"}}, session_id="sess-1")
+        headers = provider(context)
+        assert {k.lower(): v for k, v in headers.items()} == {"x-kagent-session-id": "sess-1"}
+        assert len(headers) == 1
+
+    def test_sts_headers_are_not_overwritten(self):
+        def mock_sts_provider(ctx):
+            return {"Authorization": "Bearer sts-token"}
+
+        provider = create_header_provider(
+            sts_header_provider=mock_sts_provider,
+            session_id_header="X-Kagent-Session-Id",
+        )
+        assert provider is not None
+
+        headers = provider(MockSessionContext(state={}, session_id="sess-1"))
+        assert headers == {"Authorization": "Bearer sts-token", "X-Kagent-Session-Id": "sess-1"}
+
+
+class TestMcpServerConfigSessionIdHeader:
+    """Tests for session_id_header field in MCP server configs."""
+
+    def test_configs_carry_session_id_header(self):
+        http = HttpMcpServerConfig(
+            params=StreamableHTTPConnectionParams(url="http://localhost:8080"),
+            session_id_header="X-Kagent-Session-Id",
+        )
+        sse = SseMcpServerConfig(
+            params=SseConnectionParams(url="http://localhost:8080"),
+            session_id_header="X-Kagent-Session-Id",
+        )
+        assert http.session_id_header == "X-Kagent-Session-Id"
+        assert sse.session_id_header == "X-Kagent-Session-Id"
+
+    def test_session_id_header_defaults_empty(self):
+        http = HttpMcpServerConfig(params=StreamableHTTPConnectionParams(url="http://localhost:8080"))
+        assert http.session_id_header == ""
 
 
 class TestMcpServerConfigAllowedHeaders:

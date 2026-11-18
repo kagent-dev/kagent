@@ -281,6 +281,8 @@ message ADKHTTPMCPServerConfig {
   bool require_approval = 4;
   // Forward the incoming A2A bearer token as this server's Authorization header.
   bool token_passthrough = 5;
+  // Name of the header that carries the kagent session ID on requests to this server.
+  string session_id_header = 6;
 }
 message ADKSSEMCPServerConfig {
   ADKSSEConnectionParams params = 1 [(buf.validate.field).required = true];
@@ -289,6 +291,8 @@ message ADKSSEMCPServerConfig {
   bool require_approval = 4;
   // Forward the incoming A2A bearer token as this server's Authorization header.
   bool token_passthrough = 5;
+  // Name of the header that carries the kagent session ID on requests to this server.
+  string session_id_header = 6;
 }
 message ADKStdioMCPServerConfig {
   string command = 1;

@@ -30,6 +30,7 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		config.SseTools = append(config.SseTools, &configv1.ADKSSEMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
 			TokenPassthrough: ptr.Deref(server.Spec.TokenPassthrough, false),
+			SessionIdHeader:  server.Spec.SessionIDHeader,
 		})
 	default:
 		params := &configv1.ADKHTTPConnectionParams{Url: targetURL, Headers: headers}
@@ -46,6 +47,7 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		config.HttpTools = append(config.HttpTools, &configv1.ADKHTTPMCPServerConfig{
 			Params: params, Tools: tools, RequireApproval: requireApproval,
 			TokenPassthrough: ptr.Deref(server.Spec.TokenPassthrough, false),
+			SessionIdHeader:  server.Spec.SessionIDHeader,
 		})
 	}
 
