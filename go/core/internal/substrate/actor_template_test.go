@@ -270,7 +270,7 @@ func TestActorResources(t *testing.T) {
 }
 
 func TestGoldenEgressPolicyIsPartOfTemplateIdentity(t *testing.T) {
-	policy, err := bootstrapEgressPolicy("team-a", "https://controller.example")
+	policy, err := bootstrapEgressPolicy("team-a", "https://controller.example", nil)
 	require.NoError(t, err)
 	original := &ateapipb.ActorTemplate{GoldenEgressPolicy: policy}
 	for _, scenario := range []struct {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -22,6 +23,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const (
@@ -32,6 +34,9 @@ const (
 	durableDataMount            = "/data"
 	// Matches EnvVar.value's maxLength in Substrate's ateapi.proto.
 	maxEnvironmentValueRunes = 32768
+	// Allow bootstrap and harness startup around checkout. The deployment's
+	// actor workflow deadline must also allow image download and boot time.
+	workspaceWakeupTimeoutSeconds = int32((workspace.StartupTimeout + time.Minute) / time.Second)
 )
 
 const egressTrustVolume = "egress-trust"
@@ -69,7 +74,7 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if err != nil {
 		return nil, fmt.Errorf("encode bootstrap descriptor: %w", err)
 	}
-	goldenPolicy, err := bootstrapEgressPolicy(spec.Namespace, spec.ControlPlaneURL)
+	goldenPolicy, err := bootstrapEgressPolicy(spec.Namespace, spec.ControlPlaneURL, spec.GoldenAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +159,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 		template.Containers[0].VolumeMounts = append(template.Containers[0].VolumeMounts, &ateapipb.VolumeMount{
 			Name: name, MountPath: image.MountPath(),
 		})
+	}
+	if spec.GoldenAccess != nil {
+		template.Containers[0].WakeupProbe.TimeoutSeconds = workspaceWakeupTimeoutSeconds
 	}
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))

@@ -171,12 +171,22 @@ func (f *createActorFake) CreateActor(_ context.Context, in *ateapipb.CreateActo
 	return f.actor, nil
 }
 
-func TestCreateActorUsesStableTemplateRef(t *testing.T) {
+func TestCreateActorUsesTemplateDefault(t *testing.T) {
 	fake := &createActorFake{}
 	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
 	_, err := client.CreateActor(t.Context(), "team-a", "actor", "team-a", "template")
 	require.NoError(t, err)
 	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Nil(t, fake.actor.GetSourceTag(), "Substrate selects the template's golden snapshot")
+}
+
+func TestCreateActorFromTagUsesCheckpoint(t *testing.T) {
+	fake := &createActorFake{}
+	client := &Client{ControlClient: fake, cfg: Config{CallTimeout: time.Second}}
+	_, err := client.CreateActorFromTag(t.Context(), "team-a", "fork", "team-a", "template", "team-a", "checkpoint")
+	require.NoError(t, err)
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "template"}, fake.actor.GetActorTemplate())
+	require.Equal(t, &ateapipb.ObjectRef{Atespace: "team-a", Name: "checkpoint"}, fake.actor.GetSourceTag())
 }
 
 func (f *listActorTemplatesFake) ListActorTemplates(_ context.Context, in *ateapipb.ListActorTemplatesRequest, _ ...grpc.CallOption) (*ateapipb.ListActorTemplatesResponse, error) {

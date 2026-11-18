@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const (
@@ -26,20 +28,21 @@ var nativeNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // Config is compiler-owned input to the native adapter. Credential values are
 // supplied only through the process environment.
 type Config struct {
-	MaxContentLength     *int64                 `json:"max_content_length,omitempty"`
-	ControlPlaneURL      string                 `json:"control_plane_url"`
-	LogLevel             string                 `json:"log_level,omitempty"`
-	Version              int                    `json:"version"`
-	CodexExecutable      string                 `json:"codex_executable"`
-	ExpectedCodexVersion string                 `json:"expected_codex_version"`
-	StrictVersion        bool                   `json:"strict_version"`
-	Model                string                 `json:"model"`
-	Provider             Provider               `json:"provider"`
-	DeveloperInstruction string                 `json:"developer_instruction,omitempty"`
-	Agents               map[string]Agent       `json:"agents,omitempty"`
-	SkillResources       *agentplugin.Resources `json:"skill_resources,omitempty"`
-	MCPServers           map[string]MCPServer   `json:"mcp_servers,omitempty"`
-	Telemetry            *Telemetry             `json:"telemetry,omitempty"`
+	Workspace            *configv1.GitWorkspaceConfig `json:"workspace,omitempty"`
+	MaxContentLength     *int64                       `json:"max_content_length,omitempty"`
+	ControlPlaneURL      string                       `json:"control_plane_url"`
+	LogLevel             string                       `json:"log_level,omitempty"`
+	Version              int                          `json:"version"`
+	CodexExecutable      string                       `json:"codex_executable"`
+	ExpectedCodexVersion string                       `json:"expected_codex_version"`
+	StrictVersion        bool                         `json:"strict_version"`
+	Model                string                       `json:"model"`
+	Provider             Provider                     `json:"provider"`
+	DeveloperInstruction string                       `json:"developer_instruction,omitempty"`
+	Agents               map[string]Agent             `json:"agents,omitempty"`
+	SkillResources       *agentplugin.Resources       `json:"skill_resources,omitempty"`
+	MCPServers           map[string]MCPServer         `json:"mcp_servers,omitempty"`
+	Telemetry            *Telemetry                   `json:"telemetry,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy for the Go wrapper. Telemetry above configures the native
 	// Codex exporters, which are a separate producer.
@@ -109,6 +112,9 @@ func Parse(data []byte) (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if err := workspace.Validate(c.Workspace); err != nil {
+		return err
+	}
 	if c.MaxContentLength != nil && *c.MaxContentLength < 0 {
 		return fmt.Errorf("max_content_length must be nonnegative")
 	}

@@ -209,6 +209,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	args := strings.Join(runner.Args(runtime.Turn{Prompt: "test"}), "\n")
 	for _, required := range []string{
 		"--setting-sources\n\n",
+		"--add-dir\n" + filepath.Join(durableDir, "workspace"),
 		"--settings\n" + filepath.Join(ephemeralDir, "settings.json"),
 		"--dangerously-skip-permissions",
 		"--permission-prompt-tool\nmcp__" + approvalMCPServerName + "__approve",

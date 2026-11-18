@@ -56,6 +56,11 @@ def test_invalid_contract(value):
         parse_config(value)
 
 
+def test_workspace_source_requires_supported_runtime():
+    with pytest.raises(ValueError, match="require the Go ADK, Codex, or Claude runtime"):
+        parse_config({"workspace": {"url": "https://github.com/org/repo.git", "ref": "main"}})
+
+
 _NUMERIC_CASES = json.loads(
     (Path(__file__).resolve().parents[5] / "go/adk/pkg/config/testdata/numeric_cases.json").read_text()
 )
