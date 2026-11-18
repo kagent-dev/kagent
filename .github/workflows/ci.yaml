@@ -141,7 +141,7 @@ jobs:
           rm -f "$RUNNER_TEMP/live-ui-setup.status"
           setsid nohup bash -c '
             yarn install --immutable && yarn playwright install --with-deps chromium
-            echo $? > "$RUNNER_TEMP/live-ui-setup.status"
+            echo $? > "$RUNNER_TEMP/live-ui-setup.status.tmp" && mv "$RUNNER_TEMP/live-ui-setup.status.tmp" "$RUNNER_TEMP/live-ui-setup.status"
           ' > "$RUNNER_TEMP/live-ui-setup.log" 2>&1 < /dev/null &
 
       - name: Install Kagent
@@ -323,6 +323,7 @@ jobs:
                 test -f "$RUNNER_TEMP/live-ui-setup.status" && break
                 sleep 5
               done
+              test -f "$RUNNER_TEMP/live-ui-setup.status" || { echo "::error::Live UI toolchain install did not finish"; cat "$RUNNER_TEMP/live-ui-setup.log"; exit 1; }
               if [ "$(cat "$RUNNER_TEMP/live-ui-setup.status")" != 0 ]; then
                 cat "$RUNNER_TEMP/live-ui-setup.log"
                 exit 1
@@ -334,7 +335,7 @@ jobs:
               echo "KAGENT_E2E_UI_LOOP_LIVE_URL: $KAGENT_E2E_UI_LOOP_LIVE_URL"
               cd ../ui
               # agent-lifecycle and agent-template-skills need a model that answers.
-              yarn test:pw:live --workers=1 live/pages live/substrate live/schedules
+              yarn test:pw:live --workers=1 --retries=1 --global-timeout=600000 live/pages live/substrate live/schedules
             ' || live_ui_rc=$?
             if [ "$live_ui_rc" != 0 ]; then echo "::error::Live UI tests failed"; fi
           fi

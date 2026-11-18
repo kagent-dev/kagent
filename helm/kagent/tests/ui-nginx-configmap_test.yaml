@@ -17,6 +17,12 @@ tests:
           path: data["nginx.conf"]
           pattern: 'location = /mcp \{\s+proxy_pass http://kagent_backend/mcp;'
 
+  - it: serves the app shell for browser navigations to /mcp
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'location = /mcp \{[^}]*error_page 418 = /index\.html;\s+if \(\$http_accept ~\* "text/html"\) \{\s+return 418;'
+
   - it: serves public JWKS through the controller
     asserts:
       - matchRegex:
