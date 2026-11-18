@@ -2,13 +2,12 @@ import { Alert, Button, Card, Skeleton, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { invoke } from "@/api/operations";
-import { useApiResource } from "@/api/hooks/useApiResource";
 import { linkInk } from "@/components/common/linkStyles";
 import { rowClickHandler } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { buildPath, paths } from "@/router/routes";
-import { schedulesFor, type ScheduledAgentRef } from "./scheduleTargets";
+import type { ScheduledAgentRef } from "./scheduleTargets";
+import { useAgentSchedules } from "./useAgentSchedules";
 
 const { Text } = Typography;
 
@@ -18,23 +17,16 @@ const { Text } = Typography;
  * Every occurrence starts a fresh conversation, so an agent with a schedule is doing
  * work nobody in its conversation list asked for by hand.
  *
- * Last on the page deliberately: it is a second read, and anything below it would be
- * pushed down as that read lands.
+ * Shown in its own tab on the agent's page; the tab label carries the count.
  */
 export function AgentSchedules({ agent }: { agent: ScheduledAgentRef }) {
   const theme = useTheme();
   const navigate = useNavigate();
 
-  // `ListScheduledRuns` takes only a page, so the narrowing is done here. Past 100
-  // schedules that needs a server-side filter on the RPC, not a second page read.
-  const schedules = useApiResource(["scheduledRuns.list", "agents"], () =>
-    invoke("scheduledRuns.list", { page: { limit: 100 } }),
-  );
-
-  const rows = schedulesFor(schedules.data?.scheduledRuns ?? [], agent);
+  const { schedules, rows = [] } = useAgentSchedules(agent);
 
   return (
-    <Card title="Schedules" size="small" data-testid="agent-schedules">
+    <Card size="small" data-testid="agent-schedules">
       {schedules.error ? (
         // A failed read is not an empty list: the create action and the "none yet"
         // wording are both withheld, because neither is known to be true.

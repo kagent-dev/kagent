@@ -49,12 +49,10 @@ test("agents: one agent lists its own conversations, and only its own", async ({
     await expectSettled(page);
   });
 
-  await test.step("2. the rail names the agent by its template and says what runs it", async () => {
-    // The rail, not a page heading: this page has none. The rail names the agent, holds
-    // the way back and offers a new conversation, so a title repeating the name and
-    // three buttons repeating rail entries were a band across the top saying nothing.
+  await test.step("2. the rail and the header name the agent, and the structure says what runs it", async () => {
     await expect(page.getByTestId("agent-rail-identity")).toContainText("shared-brain");
-    await expect(page.getByTestId("agent-identity")).toContainText("k8s-agent");
+    await expect(page.getByTestId("agent-name")).toHaveText("shared-brain");
+    await expect(page.getByTestId("structure-harness")).toContainText("kagent/k8s-agent");
   });
 
   await test.step("3. it lists this pair's conversation and not its twin's", async () => {
@@ -264,10 +262,9 @@ test("agents: an agent links to its template, and a conversation links up to its
       "href",
       `/agent-templates/kagent/${agents.k8s.template}`,
     );
-    // Said on the page, because readers need to distinguish inline templates from
-    // shared templates and understand that Harnesses always remain separate.
-    await expect(page.getByTestId("agent-identity-note")).toContainText(
-      "Templates may be inline or shared; Harnesses are always referenced",
+    // Each node says what it is on the node itself, not behind an info icon.
+    await expect(page.getByTestId("structure-template")).toContainText(
+      "Agents built from it share these settings",
     );
   });
 
@@ -500,7 +497,9 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
   page,
 }) => {
   await test.step("1. the schedules targeting this agent are listed", async () => {
-    await loadPage(page, agentPage(agents.k8s));
+    // The tab is in the address, so it opens straight onto the schedules.
+    await loadPage(page, `${agentPage(agents.k8s)}?tab=schedules`);
+    await expect(page.getByRole("tab", { name: "Schedules (3)" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("agent-schedules")).toBeVisible();
     await expectSettled(page);
 
@@ -532,6 +531,7 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
 
   await test.step("2b. so does the rest of the row, without the link firing twice", async () => {
     await loadPage(page, agentPage(agents.k8s));
+    await page.getByRole("tab", { name: /Schedules/ }).click();
     const row = page
       .getByTestId("agent-schedules-list")
       .locator('[data-testid^="agent-schedule-"]')
@@ -547,7 +547,7 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
     // The same template's twin on another harness has none, which is also the
     // assertion the client-side filter exists for: keyed on the template alone, the
     // three above would appear here too.
-    await loadPage(page, agentPage(agents.sharedOnK8s));
+    await loadPage(page, `${agentPage(agents.sharedOnK8s)}?tab=schedules`);
     await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
     await expect(page.getByTestId("agent-schedules-list")).toHaveCount(0);
 
@@ -557,7 +557,7 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
   });
 
   await test.step("4. a failed read says so, and does not claim there are none", async () => {
-    await loadPage(page, agentPage(agents.k8s), { scenario: "error" });
+    await loadPage(page, `${agentPage(agents.k8s)}?tab=schedules`, { scenario: "error" });
 
     const alert = page.getByTestId("agent-schedules-error");
     await expect(alert).toBeVisible();
@@ -568,4 +568,72 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
     await expect(page.getByTestId("agent-schedules-empty")).toHaveCount(0);
     await expect(page.getByTestId("agent-schedules-create")).toHaveCount(0);
   });
+});
+
+/**
+ * What the agent is made of, shown as a tree above its conversations.
+ *
+ * `shared-brain` exercises every branch: two bindings on one server (one asks first),
+ * and a chain of sub-agents deeper than the page expands in place.
+ */
+test("agents: the page shows the agent's structure, and sub-agents expand in place", async ({ page }) => {
+  await loadPage(page, agentPage(agents.sharedOnK8s));
+  await expectSettled(page);
+  const structure = page.getByTestId("agent-structure");
+
+  await test.step("1. the harness and the shared template head the tree", async () => {
+    await expect(structure.getByTestId("structure-harness")).toContainText("kagent runtime");
+    await expect(page.getByTestId("agent-template-link")).toHaveText("kagent/shared-brain");
+    // Three agents reference the template: this one, its fast-lane twin and its namesake twin.
+    await expect(page.getByTestId("agent-template-shared")).toHaveText("Shared by 3 agents");
+    await expect(page.getByTestId("agent-revision")).toHaveText("rev-shared-b…");
+  });
+
+  await test.step("2. tools open into one group per binding, and say which ask first", async () => {
+    const tools = structure.getByTestId("structure-tools").first();
+    await expect(tools).toContainText("1 MCP server, 3 tools");
+    await expect(tools.getByTestId("structure-tool-group")).toHaveCount(0);
+
+    await tools.getByTestId("structure-tools-toggle").click();
+    await expect(tools.getByTestId("structure-tools-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(tools.getByTestId("structure-tool-group")).toHaveCount(2);
+    await expect(tools.getByTestId("structure-tool-group").nth(0)).toContainText("k8s_get_events");
+    await expect(tools.getByTestId("structure-tool-group").nth(1)).toContainText("Asks before each call");
+  });
+
+  await test.step("3. a sub-agent expands to its own template's parts", async () => {
+    const noteTaker = structure.getByTestId("structure-subagent-note-taker");
+    await noteTaker.getByTestId("structure-subagent-note-taker-toggle").click();
+    await expect(noteTaker.getByTestId("structure-model").first()).toContainText("kagent/default-model-config");
+
+    // Only the top list of sub-agents starts open. One more level opens in place, and its
+    // prompt lives in a ConfigMap, so that is named instead.
+    await noteTaker.getByTestId("structure-subagents-toggle").first().click();
+    const triage = noteTaker.getByTestId("structure-subagent-triage");
+    await triage.getByTestId("structure-subagent-triage-toggle").click();
+    await expect(triage.getByTestId("structure-instructions").first()).toContainText("support-prompts");
+  });
+
+  await test.step("4. past two levels a sub-agent is a link to its template", async () => {
+    await structure.getByTestId("structure-subagent-triage").getByTestId("structure-subagents-toggle").first().click();
+    const deepest = structure.getByTestId("structure-subagent-link-cluster-checker");
+    await expect(deepest).toBeVisible();
+    await expect(deepest.getByRole("link")).toHaveAttribute("href", `/agent-templates/kagent/${agents.k8s.template}`);
+    await expect(structure.getByTestId("structure-subagent-cluster-checker")).toHaveCount(0);
+  });
+
+  await test.step("5. conversations and schedules sit in tabs below, with counts", async () => {
+    await expect(page.getByRole("tab", { name: "Conversations (1)" })).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "Schedules (0)" }).click();
+    await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
+    await expect(page).toHaveURL(/[?&]tab=schedules/);
+  });
+});
+
+test("agents: an inline template is shown as part of the agent", async ({ page }) => {
+  await loadPage(page, agentPage({ name: "release-notes", template: "", harness: "" }));
+  await expectSettled(page);
+  await expect(page.getByTestId("agent-template-inline")).toHaveText("Inline");
+  await expect(page.getByTestId("agent-template-link")).toHaveCount(0);
+  await expect(page.getByTestId("structure-tools")).toContainText("This agent answers from the model alone.");
 });

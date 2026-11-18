@@ -829,6 +829,15 @@ export const mockAgentTemplates: AgentTemplate[] = [
         // The other prompt source: read from a ConfigMap rather than inline. The two
         // are mutually exclusive on the CRD, so a form has to know which is in use.
         systemPromptFrom: { name: "support-prompts", key: "triage" },
+        tools: [
+          {
+            subAgent: {
+              name: "cluster-checker",
+              description: "Checks the cluster when a ticket mentions a workload.",
+              templateRef: { name: "k8s-agent-7f3a91c" },
+            },
+          },
+        ],
       },
     },
   },
@@ -844,6 +853,15 @@ export const mockAgentTemplates: AgentTemplate[] = [
         modelConfig: { name: "default-model-config" },
         description: "Summarises a conversation into notes.",
         systemPrompt: "You take notes.",
+        tools: [
+          {
+            subAgent: {
+              name: "triage",
+              description: "Sorts a note into the right support queue.",
+              templateRef: { name: "support-triage-2b91d0e" },
+            },
+          },
+        ],
       },
     },
   },
@@ -864,6 +882,30 @@ export const mockAgentTemplates: AgentTemplate[] = [
         modelConfig: { name: "default-model-config" },
         description: "One configuration, run on two different runtimes.",
         systemPrompt: "You are a general assistant.",
+        // Sub-agents chain three deep (note-taker -> support-triage -> k8s-agent), past
+        // what the agent page expands in place. The controller rejects cycles.
+        tools: [
+          {
+            mcp: {
+              server: { kind: "RemoteMCPServer", name: "kagent-tool-server" },
+              tools: ["k8s_get_pods", "k8s_get_events"],
+            },
+          },
+          {
+            mcp: {
+              server: { kind: "RemoteMCPServer", name: "kagent-tool-server" },
+              tools: ["k8s_describe_resource"],
+              requireApproval: true,
+            },
+          },
+          {
+            subAgent: {
+              name: "note-taker",
+              description: "Writes up what was decided.",
+              templateRef: { name: "note-taker" },
+            },
+          },
+        ],
       },
     },
   },
