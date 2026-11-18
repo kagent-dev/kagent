@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -192,9 +193,9 @@ func TestImageToolReturnsMCPImages(t *testing.T) {
 			require.Equal(t, tc.output, result["output"])
 			// The result keeps only a note; the images wait for the A2A conversion.
 			if tc.images == nil {
-				require.NotContains(t, result, ToolResultImagesKey)
+				require.NotContains(t, result, kagenta2a.ToolResultImagesKey)
 			} else {
-				require.Equal(t, fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(tc.images)), result[ToolResultImagesKey])
+				require.Equal(t, fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(tc.images)), result[kagenta2a.ToolResultImagesKey])
 			}
 			require.Equal(t, tc.images, TakeToolImages(ctx, call))
 			require.Nil(t, TakeToolImages(ctx, call), "images are taken once")

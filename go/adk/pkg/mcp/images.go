@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
@@ -15,9 +16,6 @@ import (
 
 // ADK drops MCP image bytes. They are captured per call, stashed by call ID, and
 // added to the A2A result for the UI, so the model and session never see them.
-
-// ToolResultImagesKey holds a note in the tool result and the images in the A2A result.
-const ToolResultImagesKey = "images"
 
 const (
 	// Base64 caps for an image, a call and an A2A task (the task is resent under a 16 MiB gRPC limit).
@@ -228,6 +226,6 @@ func (t imageTool) Run(ctx adkagent.Context, args any) (map[string]any, error) {
 		result = map[string]any{}
 	}
 	StashToolImages(ctx, call, sink.images)
-	result[ToolResultImagesKey] = fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(sink.images))
+	result[kagenta2a.ToolResultImagesKey] = fmt.Sprintf("%d image(s) returned for display; you cannot see their contents", len(sink.images))
 	return result, nil
 }

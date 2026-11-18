@@ -86,7 +86,7 @@ func addToolImages(ctx context.Context, converted *a2atype.Part, call mcp.ToolCa
 	for i, image := range images {
 		list[i] = map[string]any{"mimeType": image.MIMEType, "data": image.Data}
 	}
-	response[mcp.ToolResultImagesKey] = list
+	response[kagenta2a.ToolResultImagesKey] = list
 }
 
 // storedToolImageBytes returns the bytes the task's stored images count toward its cap.
@@ -107,7 +107,7 @@ func storedToolImageBytes(task *a2atype.Task) int {
 	total := 0
 	for _, part := range parts {
 		response, _ := asDataPart(part)[PartKeyResponse].(map[string]any)
-		images, _ := response[mcp.ToolResultImagesKey].([]any)
+		images, _ := response[kagenta2a.ToolResultImagesKey].([]any)
 		for _, image := range images {
 			if image, ok := image.(map[string]any); ok {
 				data, _ := image["data"].(string)

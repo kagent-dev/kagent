@@ -255,9 +255,6 @@ func (t *turn) item(i int) TaskItem {
 	return TaskItem{Index: i, Message: &message}
 }
 
-// toolResultImagesKey is the key of a tool result's images.
-const toolResultImagesKey = "images"
-
 // withoutImageData is parts with each tool result image's data replaced by its
 // size, since a text client cannot use base64 and it would crowd out the result.
 func withoutImageData(parts a2atype.ContentParts) a2atype.ContentParts {
@@ -279,26 +276,33 @@ func withoutPartImageData(part *a2atype.Part) *a2atype.Part {
 	}
 	data, _ := part.Data().(map[string]any)
 	response, _ := data["response"].(map[string]any)
-	images, _ := response[toolResultImagesKey].([]any)
-	if len(images) == 0 {
-		return part
-	}
-	listed := make([]any, len(images))
-	for i, image := range images {
-		fields, ok := image.(map[string]any)
-		if !ok {
-			listed[i] = image
-			continue
-		}
-		fields = maps.Clone(fields)
-		if encoded, ok := fields["data"].(string); ok {
+	// Go agents send response.images; Python agents send image items in response.content.
+	changed := false
+	for _, key := range []string{apia2a.ToolResultImagesKey, "content"} {
+		items, _ := response[key].([]any)
+		listed := make([]any, len(items))
+		for i, item := range items {
+			listed[i] = item
+			fields, ok := item.(map[string]any)
+			encoded, isData := fields["data"].(string)
+			if !ok || !isData || (key == "content" && fields["type"] != "image") {
+				continue
+			}
+			fields = maps.Clone(fields)
 			delete(fields, "data")
 			fields["size"] = len(encoded)
+			listed[i] = fields
+			if !changed {
+				response, changed = maps.Clone(response), true
+			}
 		}
-		listed[i] = fields
+		if changed && len(items) > 0 {
+			response[key] = listed
+		}
 	}
-	response = maps.Clone(response)
-	response[toolResultImagesKey] = listed
+	if !changed {
+		return part
+	}
 	data = maps.Clone(data)
 	data["response"] = response
 	out := a2atype.NewDataPart(data)

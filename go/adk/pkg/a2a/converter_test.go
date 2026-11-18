@@ -232,7 +232,7 @@ func TestGenAIPartConverter_PreservesLongRunningMetadata(t *testing.T) {
 }
 
 func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
-	note := map[string]any{"output": "chart", mcp.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}
+	note := map[string]any{"output": "chart", kagenta2a.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}
 	ctx := mcp.WithToolImages(context.Background(), 0)
 	mcp.StashToolImages(ctx, mcp.ToolCallKey{InvocationID: "invocation-1", CallID: "call-images"}, []mcp.ToolImage{{MIMEType: "image/png", Data: "cG5n"}})
 
@@ -256,10 +256,10 @@ func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 		t.Fatalf("another invocation's call took the images: %#v", got)
 	}
 	want := []any{map[string]any{"mimeType": "image/png", "data": "cG5n"}}
-	if got := convert("invocation-1", "call-images")[mcp.ToolResultImagesKey]; !reflect.DeepEqual(got, want) {
+	if got := convert("invocation-1", "call-images")[kagenta2a.ToolResultImagesKey]; !reflect.DeepEqual(got, want) {
 		t.Fatalf("images = %#v, want %#v", got, want)
 	}
-	if got := convert("invocation-1", "call-images")[mcp.ToolResultImagesKey]; got != note[mcp.ToolResultImagesKey] {
+	if got := convert("invocation-1", "call-images")[kagenta2a.ToolResultImagesKey]; got != note[kagenta2a.ToolResultImagesKey] {
 		t.Fatalf("images were added twice: %#v", got)
 	}
 	if got := convert("invocation-1", "call-other"); !reflect.DeepEqual(got, note) {
@@ -269,7 +269,7 @@ func TestGenAIPartConverter_AddsStashedToolImages(t *testing.T) {
 
 func TestStoredToolImageBytes(t *testing.T) {
 	response := func(images ...any) *a2atype.Part {
-		return a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{mcp.ToolResultImagesKey: images}})
+		return a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{kagenta2a.ToolResultImagesKey: images}})
 	}
 	image := map[string]any{"mimeType": "image/png", "data": "cG5n"}
 	task := &a2atype.Task{
@@ -277,7 +277,7 @@ func TestStoredToolImageBytes(t *testing.T) {
 		Artifacts: []*a2atype.Artifact{{Parts: a2atype.ContentParts{response(image, image), a2atype.NewTextPart("text")}}},
 		History: []*a2atype.Message{{Parts: a2atype.ContentParts{
 			response(image),
-			a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{mcp.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}}),
+			a2atype.NewDataPart(map[string]any{PartKeyResponse: map[string]any{kagenta2a.ToolResultImagesKey: "1 image(s) returned for display; you cannot see their contents"}}),
 		}}},
 	}
 	if got, want := storedToolImageBytes(task), 4*mcp.ToolImageCost("cG5n"); got != want {
