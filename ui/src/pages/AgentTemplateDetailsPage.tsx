@@ -32,6 +32,7 @@ import { agentTemplatesTab } from "@/router/routes";
 import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import {
   apiClient,
   useAgentConversations,
@@ -225,7 +226,13 @@ export function AgentTemplateDetailsPage() {
             namespace: row.namespace, name: row.name,
           });
           return href ? (
-            <ResourceLink mono to={href} data-testid={`template-agent-link-${row.name}`} css={{ fontSize: 13 }}>
+            <ResourceLink
+              mono
+              to={href}
+              icon={resourceIcons.agent}
+              data-testid={`template-agent-link-${row.name}`}
+              css={{ fontSize: 13 }}
+            >
               {row.name}
             </ResourceLink>
           ) : (
@@ -319,6 +326,7 @@ export function AgentTemplateDetailsPage() {
   return (
     <PageFrame
       title={name ? `Agent template ${name}` : "Agent template"}
+      icon={resourceIcons.template}
       description={
         namespace && !missing
           ? `What this agent does, in the ${namespace} namespace.`

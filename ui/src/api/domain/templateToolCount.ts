@@ -1,5 +1,5 @@
 import { referenceLabel, type ObjectReference, type ToolBinding } from "./agentTemplates";
-import type { ToolServerResponse } from "./mcpServers";
+import type { DiscoveredTool, ToolServerResponse } from "./mcpServers";
 
 /** The tools a template exposes. `unknownServers` lists "all tools" servers with no discovered count. */
 export interface TemplateToolCount {
@@ -66,4 +66,45 @@ export function countTemplateTools(
   let total = subAgents;
   for (const names of named.values()) total += names.size;
   return { total, unknownServers: [...unknownServers] };
+}
+
+/** The tools a template takes from one server, gathered across its bindings. */
+export interface ServerToolGroup {
+  server: ObjectReference;
+  /** `namespace/name`. */
+  ref: string;
+  groupKind: string;
+  /** True when some binding names no tools, which grants every tool. */
+  allTools: boolean;
+  /** The tools named, in binding order; empty when `allTools`. */
+  selected: string[];
+  /** What the server reported, or undefined when it is not in the catalog. */
+  discovered?: DiscoveredTool[];
+}
+
+/** Groups a template's MCP bindings by server, in the order each server first appears. */
+export function groupToolsByServer(
+  bindings: readonly ToolBinding[],
+  servers: ReadonlyMap<string, ToolServerResponse>,
+  ownerNamespace: string,
+): ServerToolGroup[] {
+  const groups = new Map<string, ServerToolGroup>();
+  for (const { mcp } of bindings) {
+    if (!mcp) continue;
+    const ref = referenceLabel(mcp.server, ownerNamespace);
+    const groupKind = bindingGroupKind(mcp.server);
+    const key = serverKey(groupKind, ref);
+    const group = groups.get(key) ?? {
+      server: mcp.server,
+      ref,
+      groupKind,
+      allTools: false,
+      selected: [],
+      discovered: servers.get(key)?.discoveredTools,
+    };
+    if (!mcp.tools?.length) group.allTools = true;
+    for (const name of mcp.tools ?? []) if (!group.selected.includes(name)) group.selected.push(name);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => (group.allTools ? { ...group, selected: [] } : group));
 }

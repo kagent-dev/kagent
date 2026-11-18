@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolBinding } from "./agentTemplates";
 import type { ToolServerResponse } from "./mcpServers";
-import { countTemplateTools, findToolServer, indexToolServers } from "./templateToolCount";
+import { countTemplateTools, findToolServer, groupToolsByServer, indexToolServers } from "./templateToolCount";
 
 const server = (ref: string, names: string[]): ToolServerResponse => ({
   ref,
@@ -71,5 +71,24 @@ describe("findToolServer", () => {
 
   it("matches by name alone when no kind is given", () => {
     expect(findToolServer(serverList, "ops/k8s", null)?.ref).toBe("ops/k8s");
+  });
+});
+
+describe("groupToolsByServer", () => {
+  it("merges each server's bindings, and an unnamed binding grants every tool", () => {
+    const bindings: ToolBinding[] = [
+      { mcp: { server: { name: "docs" }, tools: ["a", "b"] } },
+      { mcp: { server: { name: "k8s", namespace: "ops" }, tools: ["x"] } },
+      { mcp: { server: { name: "docs" }, tools: ["b", "c"] } },
+      { mcp: { server: { name: "k8s", namespace: "ops" } } },
+      { mcp: { server: { name: "gone" }, tools: ["z"] } },
+    ];
+    const groups = groupToolsByServer(bindings, servers, "team");
+    expect(groups.map(({ ref, allTools, selected, discovered }) => ({ ref, allTools, selected, total: discovered?.length })))
+      .toEqual([
+        { ref: "team/docs", allTools: false, selected: ["a", "b", "c"], total: 3 },
+        { ref: "ops/k8s", allTools: true, selected: [], total: 2 },
+        { ref: "team/gone", allTools: false, selected: ["z"], total: undefined },
+      ]);
   });
 });

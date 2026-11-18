@@ -9,6 +9,7 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { templateRefName, useAgentsAcrossNamespaces, useHarnesses, type Agent, type HarnessSpec } from "@/api";
 import { backLinkState } from "@/router/backLink";
@@ -43,6 +44,7 @@ export function HarnessDetailsPage() {
         css={{ fontSize: 12 }}
         to={buildPath(paths.modelEdit, { namespace: ref.namespace || namespace || "", name: ref.name })}
         state={here}
+        icon={resourceIcons.model}
         data-testid={testId}
       >
         {`${ref.namespace || namespace}/${ref.name}`}
@@ -84,6 +86,7 @@ export function HarnessDetailsPage() {
   return (
     <PageFrame
       title={name ? `Harness ${name}` : "Harness"}
+      icon={resourceIcons.harness}
       description={namespace && !missing ? `The runtime agents run on, in the ${namespace} namespace.` : undefined}
       actions={
         <Space size={8} wrap>
@@ -151,6 +154,7 @@ export function HarnessDetailsPage() {
                         css={{ fontSize: 12 }}
                         to={agentPageUrl(agent) ?? paths.agents}
                         state={here}
+                        icon={resourceIcons.agent}
                         data-testid={`harness-user-${agent.name}`}
                       >
                         {agent.name}
@@ -168,6 +172,7 @@ export function HarnessDetailsPage() {
                           css={{ fontSize: 12 }}
                           to={buildPath(paths.agentTemplateDetail, { namespace: agent.namespace, name: template })}
                           state={here}
+                          icon={resourceIcons.template}
                           data-testid={`harness-user-template-${agent.name}`}
                         >
                           {template}

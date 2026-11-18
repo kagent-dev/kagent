@@ -7,11 +7,16 @@ import { themeFor } from "@/theme/theme";
 import type { AgentInstance } from "@/api";
 import { AgentContextPanel } from "./AgentContextPanel";
 
-const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(), useAgent: vi.fn()}));
+const {useAgentTemplate, useAgent, useMcpServers} = vi.hoisted(() => ({
+  useAgentTemplate: vi.fn(),
+  useAgent: vi.fn(),
+  useMcpServers: vi.fn(),
+}));
 
 vi.mock("@/api", () => ({
   useAgentTemplate,
   useAgent,
+  useMcpServers,
   bareName: (ref: string) => ref.split("/").pop(),
 }));
 
@@ -30,7 +35,9 @@ function renderPanel(
   modelNamespace?: string,
   instance?: AgentInstance,
   template: unknown = { ref: { name: "helper-template" } },
+  servers: unknown[] = [],
 ) {
+  useMcpServers.mockReturnValue({ data: servers });
   useAgent.mockReturnValue({data: {resource: {spec: {template, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
@@ -121,6 +128,7 @@ describe("AgentContextPanel", () => {
   it.each([
     ["chat-agent-context-harness", "/harnesses/kagent/runner"],
     ["chat-agent-context-model", "/models/shared/gpt/edit"],
+    ["chat-agent-context-server", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev"],
     ["chat-agent-context-tool", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev#tool-list_pods"],
   ])("opens %s at %s with a way back to this conversation", async (testId, path) => {
     renderPanel(
@@ -128,6 +136,7 @@ describe("AgentContextPanel", () => {
       "shared",
       { agent: "kagent/assistant" } as AgentInstance,
     );
+    await userEvent.click(screen.getByTestId("chat-agent-context-server-toggle"));
     await userEvent.click(screen.getByTestId(testId));
     expect(screen.getByTestId("location-path").textContent).toBe(path);
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
@@ -144,20 +153,39 @@ describe("AgentContextPanel", () => {
       },
     ]);
 
-    expect(screen.getByText("kagent/tools (all tools)")).toBeTruthy();
+    expect(screen.getByTestId("chat-agent-context-server").textContent).toBe("kagent/tools");
+    expect(screen.getByTestId("chat-agent-context-server-count").textContent).toBe("All tools");
   });
 
-  it("renders explicitly selected MCP tools by name", () => {
-    renderPanel([
-      {
-        mcp: {
-          server: { kind: "RemoteMCPServer", name: "tools" },
-          tools: ["list_pods"],
-        },
-      },
+  it("groups tools under their server with a selected-of-total count, collapsed until opened", async () => {
+    renderPanel(
+      [
+        { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } },
+        { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["get_logs", "list_pods"] } },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      [{
+        ref: "kagent/tools",
+        groupKind: "RemoteMCPServer.api.kagent.dev",
+        discoveredTools: ["list_pods", "get_logs", "describe"].map((name) => ({ name, description: `Does ${name}` })),
+      }],
+    );
+    expect(screen.getAllByTestId("chat-agent-context-server")).toHaveLength(1);
+    expect(screen.getByTestId("chat-agent-context-server-count").textContent).toBe("2/3 tools");
+
+    const toggle = screen.getByTestId("chat-agent-context-server-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getAllByTestId("chat-agent-context-tool").map((tool) => tool.textContent)).toEqual([
+      "list_pods",
+      "get_logs",
     ]);
 
-    expect(screen.getByText("kagent/tools: list_pods")).toBeTruthy();
+    await userEvent.hover(screen.getAllByTestId("chat-agent-context-tool")[1]);
+    expect(await screen.findByText("Does get_logs")).toBeTruthy();
   });
 });
 
@@ -165,13 +193,19 @@ describe("AgentContextPanel", () => {
    const resolved = namespace || "kagent";
    renderPanel([{ mcp: { server: { kind: "RemoteMCPServer", name: "tools", namespace } } }], namespace);
    expect(screen.getByText(`${resolved}/gpt`)).toBeTruthy();
-   expect(screen.getByText(`${resolved}/tools (all tools)`)).toBeTruthy();
+   expect(screen.getByTestId("chat-agent-context-server").textContent).toBe(`${resolved}/tools`);
  });
 
- it("distinguishes identical tool names from different servers", () => {
+ it("keeps identical tool names from different servers apart", () => {
    renderPanel(["kagent", "shared"].map((namespace) => ({ mcp: {
      server: { kind: "RemoteMCPServer", name: "tools", namespace }, tools: ["list_pods"],
    } })));
-   expect(screen.getByText("kagent/tools: list_pods")).toBeTruthy();
-   expect(screen.getByText("shared/tools: list_pods")).toBeTruthy();
+   expect(screen.getAllByTestId("chat-agent-context-server").map((link) => link.textContent)).toEqual([
+     "kagent/tools",
+     "shared/tools",
+   ]);
+   expect(screen.getAllByTestId("chat-agent-context-server-count").map((count) => count.textContent)).toEqual([
+     "1 tool",
+     "1 tool",
+   ]);
  });

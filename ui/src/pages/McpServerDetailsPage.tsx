@@ -7,7 +7,9 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
+import { ToolTooltip } from "@/components/mcp/ToolTooltip";
 import { safeDecode, toolAnchor } from "@/components/mcp/toolAnchor";
 import {
   bindingGroupKind,
@@ -38,6 +40,7 @@ export function McpServerDetailsPage() {
   const kind = searchParams.get(MCP_SERVER_KIND_PARAM);
   const server = servers.data && findToolServer(servers.data, `${namespace}/${name}`, kind);
   const missing = Boolean(servers.data) && !server;
+  const descriptions = new Map(server?.discoveredTools.map((tool) => [tool.name, tool.description]));
   const templates = useAgentTemplatesAcrossNamespaces(namespace ? [namespace] : undefined);
   const bindsThis = ({ mcp }: ToolBinding, template: AgentTemplate) =>
     mcp !== undefined &&
@@ -59,6 +62,7 @@ export function McpServerDetailsPage() {
   return (
     <PageFrame
       title={name ? `MCP server ${name}` : "MCP server"}
+      icon={resourceIcons.mcpServer}
       description={namespace && !missing ? `A tool server agents can call, in the ${namespace} namespace.` : undefined}
       actions={
         <Space size={8} wrap>
@@ -127,6 +131,7 @@ export function McpServerDetailsPage() {
                         css={{ fontSize: 12 }}
                         to={buildPath(paths.agentTemplateDetail, { namespace: template.namespace, name: template.name })}
                         state={backLinkState(location, "Back to MCP server")}
+                        icon={resourceIcons.template}
                         data-testid={`mcp-server-user-${template.name}`}
                       >
                         {template.name}
@@ -143,9 +148,23 @@ export function McpServerDetailsPage() {
                       return names.length ? (
                         <Space size={[4, 4]} wrap>
                           {names.map((tool) => (
-                            <Tag key={tool} css={{ fontFamily: theme.font.mono, marginInlineEnd: 0 }}>
-                              {tool}
-                            </Tag>
+                            <ToolTooltip key={tool} name={tool} description={descriptions.get(tool)}>
+                              {/* Focusable so keyboard users get the tooltip too. */}
+                              <Tag
+                                tabIndex={0}
+                                data-testid="mcp-server-user-tool"
+                                css={{
+                                  fontFamily: theme.font.mono,
+                                  marginInlineEnd: 0,
+                                  cursor: "help",
+                                  "&:hover, &:focus-visible": { borderColor: theme.color.primaryText },
+                                  "&:active": { color: theme.color.text, borderColor: theme.color.text },
+                                  "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}`, outlineOffset: 1 },
+                                }}
+                              >
+                                {tool}
+                              </Tag>
+                            </ToolTooltip>
                           ))}
                         </Space>
                       ) : (

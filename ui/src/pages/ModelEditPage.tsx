@@ -2,6 +2,7 @@ import { Alert, Skeleton, Space } from "antd";
 import toast from "react-hot-toast";
 import { useParams } from "react-router-dom";
 import { BackButton } from "@/components/common/BackButton";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { useGoBack } from "@/router/backLink";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ModelForm } from "@/components/model-form/ModelForm";
@@ -50,6 +51,7 @@ export function ModelEditPage() {
   return (
     <PageFrame
       title={name ? `Edit ${name}` : "Edit model"}
+      icon={resourceIcons.model}
       description="Replaces the configuration's provider, model and credential reference."
       actions={<BackButton back={back} testId="model-back" />}
     >
@@ -75,6 +77,7 @@ export function ModelEditPage() {
             // cannot move a configuration.
             identityLocked
             onSubmit={saveModel}
+            onCancel={back.goBack}
           />
         ) : null}
       </Space>

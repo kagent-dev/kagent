@@ -168,7 +168,7 @@ export function ModelsPage() {
           const { namespace, name } = parseRef(row.ref);
           return (
             <Space size={0}>
-              <Link to={buildPath(paths.modelEdit, { namespace, name })}>
+              <Link to={buildPath(paths.modelEdit, { namespace, name })} state={backLinkState(location, "Back to models")}>
                 <Button
                   type="text"
                   size="small"

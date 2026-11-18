@@ -25,6 +25,7 @@ import {
 import { SkillsField } from "./SkillsField";
 import { useLocation } from "react-router-dom";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { backLinkState } from "@/router/backLink";
 import { buildPath, paths } from "@/router/routes";
 
@@ -249,6 +250,7 @@ export function AgentTemplateForm({
                   name: draft.modelConfig.name,
                 })}
                 state={backLinkState(location, "Back to template")}
+                icon={resourceIcons.model}
                 data-testid="template-form-model-link"
                 css={{ paddingInline: 12, fontSize: 14 }}
               >

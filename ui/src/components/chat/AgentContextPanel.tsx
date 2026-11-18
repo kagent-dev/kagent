@@ -1,14 +1,22 @@
+import { useId, useMemo, useState } from "react";
 import { referenceLabel } from "@/api/domain/agentTemplates";
-import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
+import { Alert, Button, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { Info } from "lucide-react";
-import { useLocation } from "react-router-dom";
-import { bindingGroupKind } from "@/api/domain/templateToolCount";
-import { useAgent, useAgentTemplate, bareName, type AgentInstance, type ObjectReference } from "@/api";
+import { ChevronRight, Info } from "lucide-react";
+import { useLocation, type To } from "react-router-dom";
+import {
+  bindingGroupKind,
+  groupToolsByServer,
+  indexToolServers,
+  type ServerToolGroup,
+} from "@/api/domain/templateToolCount";
+import { useAgent, useAgentTemplate, useMcpServers, bareName, type AgentInstance, type ObjectReference } from "@/api";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { buildPath, mcpServerTo, paths } from "@/router/routes";
-import { backLinkState } from "@/router/backLink";
+import { backLinkState, type BackLinkState } from "@/router/backLink";
 import { toolAnchor } from "@/components/mcp/toolAnchor";
+import { ToolTooltip } from "@/components/mcp/ToolTooltip";
 
 const { Text, Paragraph } = Typography;
 
@@ -66,6 +74,9 @@ export function AgentContextPanel({
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
   const tools = spec?.tools ?? [];
+  const subAgents = tools.flatMap((binding) => (binding.subAgent ? [binding.subAgent] : []));
+  const mcpServers = useMcpServers();
+  const serversByRef = useMemo(() => indexToolServers(mcpServers.data ?? []), [mcpServers.data]);
   // Every link here leads back to this panel's page, so its target can return.
   const back = backLinkState(location, instance ? "Back to conversation" : "Back to agent");
   const linkCss = { justifySelf: "start", fontSize: 12 } as const;
@@ -93,6 +104,7 @@ export function AgentContextPanel({
               name: templateName,
             })}
             state={back}
+            icon={resourceIcons.template}
             tooltip="Open the AgentTemplate this agent is built from"
             data-testid="chat-agent-context-template"
           >
@@ -117,6 +129,7 @@ export function AgentContextPanel({
             css={linkCss}
             to={buildPath(paths.harness, { namespace, name: harnessRef })}
             state={back}
+            icon={resourceIcons.harness}
             tooltip="Open the Harness this agent runs on"
             data-testid="chat-agent-context-harness"
           >
@@ -156,6 +169,7 @@ export function AgentContextPanel({
                 css={linkCss}
                 to={refPath(paths.modelEdit, spec.modelConfig)}
                 state={back}
+                icon={resourceIcons.model}
                 data-testid="chat-agent-context-model"
               >
                 {referenceLabel(spec.modelConfig, templateNamespace)}
@@ -173,43 +187,25 @@ export function AgentContextPanel({
                 None — this agent answers from the model alone.
               </Text>
             ) : (
-              <Space
-                size={4}
-                wrap
-                // A long server and tool name would otherwise run past the panel's edge.
-                css={{ maxWidth: "100%", ".ant-tag": { whiteSpace: "normal", wordBreak: "break-word", marginInlineEnd: 0 } }}
-              >
-                {tools.flatMap((binding, index) => {
-                  const mcp = binding.mcp;
-                  return mcp
-                    ? mcp.tools?.length
-                      ? mcp.tools.map((tool) => (
-                          <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                            <ResourceLink
-                              to={serverTo(mcp.server, toolAnchor(tool))}
-                              state={back}
-                              data-testid="chat-agent-context-tool"
-                            >
-                              {referenceLabel(mcp.server, templateNamespace)}: {tool}
-                            </ResourceLink>
-                          </Tag>
-                        ))
-                      : [
-                          <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            <ResourceLink to={serverTo(mcp.server)} state={back} data-testid="chat-agent-context-tool">
-                              {referenceLabel(mcp.server, templateNamespace)} (all tools)
-                            </ResourceLink>
-                          </Tag>,
-                        ]
-                    : binding.subAgent
-                      ? [
-                          <Tag key={`${index}-agent`} color="processing">
-                            {binding.subAgent.name}
-                          </Tag>,
-                        ]
-                      : [];
-                })}
-              </Space>
+              <div css={{ display: "grid", gap: theme.space(2) }}>
+                {groupToolsByServer(tools, serversByRef, templateNamespace).map((group) => (
+                  <ServerTools
+                    key={`${group.groupKind}|${group.ref}`}
+                    group={group}
+                    to={(hash) => serverTo(group.server, hash)}
+                    back={back}
+                  />
+                ))}
+                {subAgents.length ? (
+                  <Space size={4} wrap>
+                    {subAgents.map((subAgent, index) => (
+                      <Tag key={`${index}-${subAgent.name}`} color="processing" css={{ marginInlineEnd: 0 }}>
+                        {subAgent.name}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : null}
+              </div>
             )}
           </Field>
 
@@ -261,6 +257,82 @@ export function AgentContextPanel({
           </Text>
         </Field>
       ) : null}
+    </div>
+  );
+}
+
+/** What `count` says for one server: how many of its tools the agent takes. */
+function toolCountLabel({ allTools, selected, discovered }: ServerToolGroup): string {
+  const total = discovered?.length;
+  const tools = (n: number) => (n === 1 ? "tool" : "tools");
+  if (allTools) return total ? `All ${total} ${tools(total)}` : "All tools";
+  return total ? `${selected.length}/${total} ${tools(total)}` : `${selected.length} ${tools(selected.length)}`;
+}
+
+/** One MCP server's row: a link to it, a tool count, and its tools behind a toggle. */
+function ServerTools({ group, to, back }: { group: ServerToolGroup; to: (hash?: string) => To; back: BackLinkState }) {
+  const theme = useTheme();
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  const descriptions = new Map(group.discovered?.map((tool) => [tool.name, tool.description]));
+  const names = group.allTools ? (group.discovered ?? []).map((tool) => tool.name) : group.selected;
+
+  return (
+    <div data-testid="chat-agent-context-server-group" css={{ display: "grid", gap: theme.space(1) }}>
+      <div css={{ display: "flex", alignItems: "flex-start", gap: theme.space(1), minWidth: 0 }}>
+        <Button
+          type="text"
+          size="small"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-label={`${open ? "Hide" : "Show"} tools from ${group.ref}`}
+          data-testid="chat-agent-context-server-toggle"
+          onClick={() => setOpen((value) => !value)}
+          icon={
+            <ChevronRight
+              size={14}
+              aria-hidden
+              css={{ transition: "transform 120ms ease", transform: open ? "rotate(90deg)" : undefined }}
+            />
+          }
+          css={{ flexShrink: 0, width: 20, minWidth: 20, height: 20, padding: 0, color: theme.color.textMuted }}
+        />
+        <ResourceLink
+          mono
+          icon={resourceIcons.mcpServer}
+          to={to()}
+          state={back}
+          data-testid="chat-agent-context-server"
+          css={{ fontSize: 12, flex: "0 1 auto", lineHeight: "20px" }}
+        >
+          {group.ref}
+        </ResourceLink>
+        <Tag data-testid="chat-agent-context-server-count" css={{ marginInlineEnd: 0, marginInlineStart: "auto", flexShrink: 0, fontSize: 11 }}>
+          {toolCountLabel(group)}
+        </Tag>
+      </div>
+      <div id={listId} hidden={!open} css={{ paddingInlineStart: 24 }}>
+        {names.length ? (
+          <Space
+            size={4}
+            wrap
+            // A long tool name would otherwise run past the panel's edge.
+            css={{ maxWidth: "100%", ".ant-tag": { whiteSpace: "normal", wordBreak: "break-word", marginInlineEnd: 0 } }}
+          >
+            {names.map((tool) => (
+              <Tag key={tool} css={{ fontFamily: theme.font.mono }}>
+                <ToolTooltip name={tool} description={descriptions.get(tool)}>
+                  <ResourceLink to={to(toolAnchor(tool))} state={back} data-testid="chat-agent-context-tool">
+                    {tool}
+                  </ResourceLink>
+                </ToolTooltip>
+              </Tag>
+            ))}
+          </Space>
+        ) : (
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>Every tool this server reports.</Text>
+        )}
+      </div>
     </div>
   );
 }

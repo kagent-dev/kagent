@@ -158,7 +158,7 @@ test("chat: the template opened from a conversation leads back to it", async ({ 
  * The harness and the MCP server named in the panel each have a details page, and each
  * leads back to the conversation the same way the template page does.
  */
-test("chat: the harness and an MCP server open from a conversation and lead back to it", async ({ page }) => {
+test("chat: the harness, an MCP server and the model open from a conversation and lead back to it", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto(AGENT_CHAT);
   const harness = page.getByTestId("chat-agent-context-harness");
@@ -183,19 +183,37 @@ test("chat: the harness and an MCP server open from a conversation and lead back
   });
 
   await test.step("3. a tool link opens its MCP server, with that tool marked", async () => {
-    await page.getByTestId("chat-agent-context-tool").filter({ hasText: "k8s_get_events" }).click();
+    // Tools sit under their server, collapsed, with a selected-of-total count.
+    const group = page.getByTestId("chat-agent-context-server-group").filter({ hasText: "kagent/kagent-tool-server" });
+    await expect(group.getByTestId("chat-agent-context-server-count")).toHaveText(/^\d+\/3 tools$/);
+    await group.getByTestId("chat-agent-context-server-toggle").click();
+    const tool = group.getByTestId("chat-agent-context-tool").filter({ hasText: "k8s_get_events" });
+    await tool.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Read recent events for a resource.");
+    await tool.click();
     await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-k8s_get_events$/);
     const tools = page.getByTestId("mcp-server-tools");
     await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
     await expect(tools.locator("[data-current]")).toContainText("k8s_get_events");
     await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
     await expect(page.getByTestId("mcp-server-users")).toContainText("k8s_get_pods");
+    await page.getByTestId("mcp-server-user-tool").filter({ hasText: "k8s_get_pods" }).focus();
+    await expect(page.getByRole("tooltip")).toContainText("List pods in a namespace.");
   });
 
   await test.step("4. and its back button returns to the conversation", async () => {
     const back = page.getByTestId("mcp-server-back");
     await expect(back).toHaveText("Back to conversation");
     await back.click();
+    await expect(page).toHaveURL(chatUrl);
+    await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
+  });
+
+  await test.step("5. Cancel on the model it opens returns to the conversation", async () => {
+    await page.getByTestId("chat-agent-context-model").click();
+    await expect(page).toHaveURL(/\/models\/[^/]+\/[^/]+\/edit$/);
+    await expect(page.getByTestId("model-cancel")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("model-cancel").click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
   });

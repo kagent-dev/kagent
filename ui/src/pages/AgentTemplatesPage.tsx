@@ -15,6 +15,7 @@ import { clickableRow } from "@/components/table/rowClick";
 import { buildPath, mcpServerTo, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import {
   apiClient,
   parseRef,
@@ -141,6 +142,7 @@ export function AgentTemplatesTab() {
               mono
               to={buildPath(paths.modelEdit, { namespace: model.namespace || row.namespace, name: model.name })}
               state={backLinkState(location, "Back to templates")}
+              icon={resourceIcons.model}
               data-testid={`template-model-${row.name}`}
               css={{ fontSize: 12 }}
             >
@@ -192,6 +194,7 @@ export function AgentTemplatesTab() {
                   mono
                   to={mcpServerTo(server)}
                   state={backLinkState(location, "Back to templates")}
+                  icon={resourceIcons.mcpServer}
                   data-testid={`template-tool-server-${row.name}-${server.name}`}
                   css={{ fontSize: 12 }}
                 >

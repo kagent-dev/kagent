@@ -1,14 +1,12 @@
 import {
-  Bot,
   CalendarClock,
   Boxes,
-  Cpu,
   LayoutDashboard,
   MessageSquareText,
-  Server,
   ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { paths } from "@/router/routes";
 
 export interface NavItem {
@@ -33,15 +31,15 @@ export const coreNavItems: NavItem[] = [
     icon: LayoutDashboard,
     order: 100,
   },
-  { key: "agents", label: "Agents", path: paths.agents, icon: Bot, order: 200 },
+  { key: "agents", label: "Agents", path: paths.agents, icon: resourceIcons.agent, order: 200 },
   { key: "scheduledRuns", label: "Schedules", path: paths.scheduledRuns, icon: CalendarClock, order: 275 },
   
-  { key: "models", label: "Models", path: paths.models, icon: Cpu, order: 300 },
+  { key: "models", label: "Models", path: paths.models, icon: resourceIcons.model, order: 300 },
   {
     key: "mcpServers",
     label: "MCP Servers",
     path: paths.mcpServers,
-    icon: Server,
+    icon: resourceIcons.mcpServer,
     order: 400,
   },
   {
