@@ -5,6 +5,7 @@ within the A2A (Agent-to-Agent) protocol, converting graph events to A2A events.
 """
 
 import hashlib
+import json
 import uuid
 from typing import Any
 
@@ -51,10 +52,14 @@ async def _convert_langgraph_event_to_a2a(
             continue
 
         for message in messages:
-            # Deduplicate using content hash (message.id is often None)
+            # Deduplicate using content hash (message.id is often None). A tool
+            # call has empty content and a tool result is often the same text as
+            # an earlier one, so the hash must also cover which tool call it is.
             msg_content = f"{type(message).__name__}:{message.content}"
             if hasattr(message, "tool_calls") and message.tool_calls:
-                msg_content += f":tools:{len(message.tool_calls)}"
+                msg_content += f":tools:{json.dumps(message.tool_calls, sort_keys=True, default=str)}"
+            if getattr(message, "tool_call_id", None):
+                msg_content += f":tool_call_id:{message.tool_call_id}"
             msg_id = hashlib.md5(msg_content.encode()).hexdigest()
 
             if msg_id in sent_message_ids:
