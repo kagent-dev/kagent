@@ -718,3 +718,14 @@ func TestUsesRawOutputSchema(t *testing.T) {
 		})
 	}
 }
+
+func TestCreateGoogleADKAgentRejectsDeclarativeWorkflow(t *testing.T) {
+	cfg := &configv1.ADKConfig{Agent: &configv1.ADKAgentConfig{
+		Model: &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}},
+		Workflow: &configv1.ADKWorkflowConfig{
+			Document: []byte(`{}`), Sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+		},
+	}}
+	_, err := CreateGoogleADKAgent(t.Context(), cfg, "agent", nil)
+	require.ErrorContains(t, err, "declarative workflow, which only BYO images run")
+}

@@ -1,0 +1,127 @@
+# Writer and three critics in a bounded revision loop.
+#
+#   START -> write -+-> critic_clarity -+
+#             ^     +-> critic_accuracy-+-> gather (join) -> decide -+- DONE   -> publish
+#             |     +-> critic_style ---+                            |
+#             +----------------------------------------------- REVISE +
+#
+#   1. `write` is the Writer agent. It drafts from the user's topic, and on later
+#      turns rewrites the draft from the critics' feedback. Its reply is saved to
+#      state.draft (output_key), so later nodes can read the draft.
+#   2. Three critics review the draft in parallel. Each answers `APPROVE` or
+#      `REVISE: <feedback>` as its first words.
+#   3. `gather` joins the three verdicts into one map keyed by critic.
+#   4. `decide` counts the turn and the approvals. It takes DONE when all three
+#      approve or the turn limit is reached; otherwise it takes REVISE and its
+#      output, the draft plus all feedback, becomes the Writer's next input.
+#   5. `publish` returns the draft with how many turns it took.
+#
+# The loop is bounded by state.turn, not by trust in the model: `decide` always
+# takes DONE on turn 5, so the cycle runs at most 5 times. An unconditional cycle
+# would be rejected at build time, and so would a second unconditional edge into
+# `write`; the loop-back edge is routed (REVISE), so it is conditional.
+#
+# The agent node is named `write` and its agent `writer`: a node id must not equal
+# an agent name.
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+
+agents:
+  - name: writer_critics
+    agent_class: Workflow
+    description: A writer drafts a paragraph, three critics review it in parallel, and the writer revises for at most 5 turns
+    max_concurrency: 3
+    nodes:
+      - { id: write, type: agent, agent: writer }
+
+      - id: critic_clarity
+        type: llm
+        model: reviewer
+        instruction: |
+          You are the Clarity critic. Review the paragraph you are given for
+          clarity only: is it easy to follow, free of jargon without explanation,
+          and well organised?
+          Answer with `APPROVE` if it is clear. Otherwise answer
+          `REVISE: ` followed by one or two sentences saying what to fix.
+          Your first word must be APPROVE or REVISE.
+
+      - id: critic_accuracy
+        type: llm
+        model: reviewer
+        instruction: |
+          You are the Accuracy critic. Review the paragraph you are given for
+          factual accuracy only: flag any claim that is wrong, overstated or
+          unsupported.
+          Answer with `APPROVE` if every claim is sound. Otherwise answer
+          `REVISE: ` followed by one or two sentences naming the claim to fix.
+          Your first word must be APPROVE or REVISE.
+
+      - id: critic_style
+        type: llm
+        model: reviewer
+        instruction: |
+          You are the Style critic. Review the paragraph you are given for style
+          only: tone, concision, and wording. The paragraph should be 60 to 120
+          words and read as a single paragraph with no headings or bullets.
+          Answer with `APPROVE` if the style is good. Otherwise answer
+          `REVISE: ` followed by one or two sentences saying what to change.
+          Your first word must be APPROVE or REVISE.
+
+      - { id: gather, type: join }
+
+      - id: decide
+        type: cel
+        vars:
+          - name: turn
+            expr: default(state.turn, 0) + 1
+          - name: approved
+            expr: |
+              ['critic_clarity', 'critic_accuracy', 'critic_style']
+                .filter(k, input[k].trim().upperAscii().startsWith('APPROVE'))
+                .size()
+        # First match wins. REVISE is explicit so the loop-back edge is routed.
+        routes:
+          - route: DONE
+            when: vars.approved == 3 || vars.turn >= 5
+          - route: REVISE
+            when: "true"
+        # Used only on REVISE: the Writer's next input. On DONE it is ignored.
+        output: |
+          'Revise the DRAFT below. Address every point in the CRITIC FEEDBACK. Reply with only the revised paragraph.\n\n' +
+          'DRAFT:\n' + state.draft + '\n\n' +
+          'CRITIC FEEDBACK:\n' +
+          '- Clarity: ' + input.critic_clarity + '\n' +
+          '- Accuracy: ' + input.critic_accuracy + '\n' +
+          '- Style: ' + input.critic_style
+        state_delta:
+          turn: vars.turn
+          approved: vars.approved
+
+      - id: publish
+        type: cel
+        output: |
+          'Final draft after ' + string(state.turn) + ' turn(s), approved by ' + string(state.approved) + ' of 3 critics:\n\n' + state.draft
+
+    edges:
+      - { from: START, to: write }
+      - { from: write, to: critic_clarity }
+      - { from: write, to: critic_accuracy }
+      - { from: write, to: critic_style }
+      - { from: critic_clarity, to: gather }
+      - { from: critic_accuracy, to: gather }
+      - { from: critic_style, to: gather }
+      - { from: gather, to: decide }
+      - { from: decide, to: publish, route: DONE }
+      - { from: decide, to: write, route: REVISE }
+
+  - name: writer
+    agent_class: LlmAgent
+    model: reviewer
+    mode: single_turn
+    output_key: draft
+    instruction: |
+      You are the Writer. When given a topic, write one paragraph of 60 to 120
+      words about it: a single paragraph, no headings, no bullets.
+      When given a DRAFT and CRITIC FEEDBACK, rewrite the draft so that it
+      addresses every point of feedback.
+      Reply with only the paragraph.

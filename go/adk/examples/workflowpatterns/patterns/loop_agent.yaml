@@ -1,0 +1,8 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: loop_agent
+    agent_class: LoopAgent
+    max_iterations: 2
+    sub_agents: [polish]
+  - { name: polish, agent_class: LlmAgent, model: stub, instruction: Improve the text. }

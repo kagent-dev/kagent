@@ -1,0 +1,12 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: unconditional_cycle
+    agent_class: Workflow
+    nodes:
+      - { id: first, type: function, function: clean }
+      - { id: second, type: function, function: upper }
+    edges:
+      - { from: START, to: first }
+      - { from: first, to: second }
+      - { from: second, to: first }

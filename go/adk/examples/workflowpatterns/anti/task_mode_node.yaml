@@ -1,0 +1,10 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: task_mode_node
+    agent_class: Workflow
+    nodes:
+      - { id: work, type: agent, agent: worker }
+    edges:
+      - { from: START, to: work }
+  - { name: worker, agent_class: LlmAgent, model: stub, mode: task, instruction: Do the task. }

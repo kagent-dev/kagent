@@ -4,12 +4,22 @@ from buf.validate import validate_pb2 as _validate_pb2
 from google.protobuf import duration_pb2 as _duration_pb2
 from kagent.config.v1 import config_pb2 as _config_pb2
 from google.protobuf.internal import containers as _containers
+from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
 from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
+
+class ADKAgentIsolation(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    ADK_AGENT_ISOLATION_UNSPECIFIED: _ClassVar[ADKAgentIsolation]
+    ADK_AGENT_ISOLATION_SHARED: _ClassVar[ADKAgentIsolation]
+    ADK_AGENT_ISOLATION_SESSION: _ClassVar[ADKAgentIsolation]
+ADK_AGENT_ISOLATION_UNSPECIFIED: ADKAgentIsolation
+ADK_AGENT_ISOLATION_SHARED: ADKAgentIsolation
+ADK_AGENT_ISOLATION_SESSION: ADKAgentIsolation
 
 class ADKConfig(_message.Message):
     __slots__ = ("runtime", "agent")
@@ -20,7 +30,7 @@ class ADKConfig(_message.Message):
     def __init__(self, runtime: _Optional[_Union[ADKRuntimeConfig, _Mapping]] = ..., agent: _Optional[_Union[ADKAgentConfig, _Mapping]] = ...) -> None: ...
 
 class ADKAgentConfig(_message.Message):
-    __slots__ = ("name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "agent_plugins", "context_config", "session_db_url", "skills_directory", "sub_agents", "output")
+    __slots__ = ("name", "model", "description", "instruction", "http_tools", "sse_tools", "stdio_tools", "remote_agents", "stream", "memory", "agent_plugins", "context_config", "session_db_url", "skills_directory", "sub_agents", "output", "workflow", "isolation")
     NAME_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -37,6 +47,8 @@ class ADKAgentConfig(_message.Message):
     SKILLS_DIRECTORY_FIELD_NUMBER: _ClassVar[int]
     SUB_AGENTS_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
+    WORKFLOW_FIELD_NUMBER: _ClassVar[int]
+    ISOLATION_FIELD_NUMBER: _ClassVar[int]
     name: str
     model: ADKModelConfig
     description: str
@@ -53,7 +65,9 @@ class ADKAgentConfig(_message.Message):
     skills_directory: str
     sub_agents: _containers.RepeatedCompositeFieldContainer[ADKAgentConfig]
     output: ADKOutputConfig
-    def __init__(self, name: _Optional[str] = ..., model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., description: _Optional[str] = ..., instruction: _Optional[str] = ..., http_tools: _Optional[_Iterable[_Union[ADKHTTPMCPServerConfig, _Mapping]]] = ..., sse_tools: _Optional[_Iterable[_Union[ADKSSEMCPServerConfig, _Mapping]]] = ..., stdio_tools: _Optional[_Iterable[_Union[ADKStdioMCPServerConfig, _Mapping]]] = ..., remote_agents: _Optional[_Iterable[_Union[ADKRemoteAgentConfig, _Mapping]]] = ..., stream: _Optional[bool] = ..., memory: _Optional[_Union[ADKMemoryConfig, _Mapping]] = ..., agent_plugins: _Optional[_Union[ADKAgentPlugins, _Mapping]] = ..., context_config: _Optional[_Union[ADKContextConfig, _Mapping]] = ..., session_db_url: _Optional[str] = ..., skills_directory: _Optional[str] = ..., sub_agents: _Optional[_Iterable[_Union[ADKAgentConfig, _Mapping]]] = ..., output: _Optional[_Union[ADKOutputConfig, _Mapping]] = ...) -> None: ...
+    workflow: ADKWorkflowConfig
+    isolation: ADKAgentIsolation
+    def __init__(self, name: _Optional[str] = ..., model: _Optional[_Union[ADKModelConfig, _Mapping]] = ..., description: _Optional[str] = ..., instruction: _Optional[str] = ..., http_tools: _Optional[_Iterable[_Union[ADKHTTPMCPServerConfig, _Mapping]]] = ..., sse_tools: _Optional[_Iterable[_Union[ADKSSEMCPServerConfig, _Mapping]]] = ..., stdio_tools: _Optional[_Iterable[_Union[ADKStdioMCPServerConfig, _Mapping]]] = ..., remote_agents: _Optional[_Iterable[_Union[ADKRemoteAgentConfig, _Mapping]]] = ..., stream: _Optional[bool] = ..., memory: _Optional[_Union[ADKMemoryConfig, _Mapping]] = ..., agent_plugins: _Optional[_Union[ADKAgentPlugins, _Mapping]] = ..., context_config: _Optional[_Union[ADKContextConfig, _Mapping]] = ..., session_db_url: _Optional[str] = ..., skills_directory: _Optional[str] = ..., sub_agents: _Optional[_Iterable[_Union[ADKAgentConfig, _Mapping]]] = ..., output: _Optional[_Union[ADKOutputConfig, _Mapping]] = ..., workflow: _Optional[_Union[ADKWorkflowConfig, _Mapping]] = ..., isolation: _Optional[_Union[ADKAgentIsolation, str]] = ...) -> None: ...
 
 class ADKModelConfig(_message.Message):
     __slots__ = ("model", "headers", "tls_insecure_skip_verify", "tls_ca_cert_path", "tls_disable_system_cas", "api_key_passthrough", "openai", "azure_openai", "anthropic", "gemini_vertex_ai", "gemini_anthropic", "ollama", "gemini", "bedrock", "sap_ai_core", "foundry", "mistral")
@@ -466,6 +480,14 @@ class ADKOutputConfig(_message.Message):
     json_schema: bytes
     sha256: str
     def __init__(self, json_schema: _Optional[bytes] = ..., sha256: _Optional[str] = ...) -> None: ...
+
+class ADKWorkflowConfig(_message.Message):
+    __slots__ = ("document", "sha256")
+    DOCUMENT_FIELD_NUMBER: _ClassVar[int]
+    SHA256_FIELD_NUMBER: _ClassVar[int]
+    document: bytes
+    sha256: str
+    def __init__(self, document: _Optional[bytes] = ..., sha256: _Optional[str] = ...) -> None: ...
 
 class ADKAgentPlugins(_message.Message):
     __slots__ = ("skills", "plugins")

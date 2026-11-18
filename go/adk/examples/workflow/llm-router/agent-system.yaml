@@ -1,0 +1,84 @@
+# LLM-driven routing, declared in YAML.
+#
+# Port of google/adk-go examples/workflow/routing/llm. The Go original needs a
+# custom BaseNode to turn the classifier's reply into Event.Routes; here the
+# `route` CEL node does that with no Go code.
+#
+#   START -> classify (llm) -> route (cel) -+- QUESTION    -> answer_question (llm)
+#                                           +- EXCLAMATION -> react_exclamation (llm)
+#                                           +- DEFAULT     -> comment_statement (llm)
+#
+#   1. `classify` is the first model call. It answers with one word.
+#   2. `route` normalises that word and picks the branch. An off-script reply
+#      matches no rule and takes DEFAULT, the same fallback the Go sample uses.
+#   3. `route` forwards the user's original message, not the label, because a
+#      single_turn llm node sees only its input.
+#   4. The branch's llm node is the second model call and writes the reply. The
+#      Go sample's handlers only echoed the text; here each branch has its own
+#      instruction.
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+
+agents:
+  - name: llm_router
+    agent_class: Workflow
+    description: Classifies a message as question, exclamation or statement and routes it to a handler
+    nodes:
+      - id: classify
+        type: llm
+        model: reviewer
+        instruction: |
+          Classify the user's message into one of three categories:
+          - "question": ends with '?' or asks for information
+          - "exclamation": expresses strong emotion, often ends with '!'
+          - "statement": a neutral declarative sentence
+
+          Answer with EXACTLY one word, lowercase, no punctuation:
+          question, exclamation, or statement.
+
+      - id: route
+        type: cel
+        vars:
+          - name: label
+            expr: input.trim().lowerAscii()
+        routes:
+          - route: QUESTION
+            when: vars.label.startsWith('question')
+          - route: EXCLAMATION
+            when: vars.label.startsWith('exclamation')
+        # A single_turn llm node sees only its input, so forward the user's
+        # message, not the label. The label is kept in state for inspection.
+        output: user.content
+        state_delta:
+          label: vars.label
+
+      # Second LLM stage. One single_turn llm node per branch, each with its own
+      # instruction. Branches stay separate terminals: mutually exclusive routes
+      # must not converge on a non-join node. Each node sees the user's message.
+      - id: answer_question
+        type: llm
+        model: reviewer
+        instruction: |
+          The user asked a question. Answer it directly in at most three sentences.
+          If you do not know, say so instead of guessing.
+
+      - id: react_exclamation
+        type: llm
+        model: reviewer
+        instruction: |
+          The user expressed strong emotion. Reply in one short sentence that
+          acknowledges the feeling. Do not ask questions.
+
+      - id: comment_statement
+        type: llm
+        model: reviewer
+        instruction: |
+          The user made a neutral statement. Reply with one short sentence that
+          adds a relevant, accurate remark. Do not ask questions.
+
+    edges:
+      - { from: START, to: classify }
+      - { from: classify, to: route }
+      - { from: route, to: answer_question, route: QUESTION }
+      - { from: route, to: react_exclamation, route: EXCLAMATION }
+      - { from: route, to: comment_statement, route: DEFAULT }

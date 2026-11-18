@@ -1,0 +1,21 @@
+{
+  "type": "llm_as_judge",
+  "name": "instruction_following",
+  "description": "Scores one LLM call of the llm-router workflow: did the reply obey every explicit constraint in that node's system instruction. Covers classify (one word, correct category) and the three branch nodes (length, tone, no questions).",
+  "prompt": [
+    {
+      "role": "user",
+      "content": "You are checking one LLM call from a routing workflow. The call's messages include a system instruction that defines the node's task, followed by the user's message. Judge whether the reply obeys that instruction.\n\n## Messages sent to the model\n{{input}}\n\n## Model reply\n{{output}}\n\n## How to judge\n1. Find every explicit, checkable constraint in the system instruction: required output format, exact wording or word count, length limits (for example \"at most three sentences\" or \"one short sentence\"), forbidden behaviour (for example \"do not ask questions\"), and, for a classifier, the allowed labels and their definitions.\n2. Check the reply against each one. For a classifier, also decide whether the label is the correct one for the user's message under the definitions given.\n3. A reply that is accurate but breaks any constraint fails. A reply that guesses instead of saying it does not know fails when the instruction asks for that honesty.\n\nReturn true only if every constraint is met and, for a classifier, the label is correct. Return false otherwise. Judge only what is written."
+    }
+  ],
+  "variableMapping": [
+    { "variable": "input", "source": "input" },
+    { "variable": "output", "source": "output" }
+  ],
+  "modelConfig": { "provider": "google", "model": "gemini-3.8-flash" },
+  "outputDefinition": {
+    "dataType": "BOOLEAN",
+    "scoreValueInstructions": "true if every instruction constraint is met (and a classifier label is correct); false otherwise.",
+    "scoreReasoningInstructions": "One concise sentence naming the first violated constraint, or confirming all were met."
+  }
+}

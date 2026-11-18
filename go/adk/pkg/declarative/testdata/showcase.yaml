@@ -1,0 +1,138 @@
+# All-options showcase: a root Workflow plus LlmAgent specialists covering every
+# built-in node type, StringRoute/DEFAULT routing, fan-out/join, nesting,
+# parallel workers, dynamic orchestration, and human-in-the-loop.
+#
+# ADK graph constraints this document respects:
+# - A mid-graph agent or llm node runs single_turn; chat is only valid from START
+#   and task agents cannot be graph nodes.
+# - Mutually exclusive routes must not fan in to a non-join node, so each route
+#   ends in its own terminal.
+# - A join is for fan-out that always runs every branch.
+# - An agent has one parent: it appears in at most one sub_agents list.
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: multi_agent_root
+    agent_class: Workflow
+    description: Multi-agent orchestrator with fan-out/join, string routes and every node type
+    entry: branch_a
+    # Graph-wide cap: at most two nodes run at once across the fan-out.
+    max_concurrency: 2
+    sub_agents: [specialist_helper]
+    nodes:
+      # Fan-out branches and their join.
+      - { id: branch_a, type: function, function: branch_a }
+      - { id: branch_b, type: function, function: branch_b }
+      - { id: branch_c, type: function, function: branch_c }
+      - { id: gather, type: join }
+
+      # Route dispatcher.
+      - { id: classify, type: function, function: route_by_text }
+
+      # BUG: parallel_worker -> nested workflow -> terminal.
+      - { id: map_items, type: parallel_worker, function: prefix, max_concurrency: 4 }
+      - id: nested
+        type: workflow
+        nodes:
+          - { id: n_plan, type: function, function: plan }
+          - { id: n_exec, type: function, function: execute }
+        edges:
+          - { from: START, to: n_plan }
+          - { from: n_plan, to: n_exec }
+      - { id: finish_bug, type: function, function: summarize_join }
+
+      # BILLING: tool node -> terminal.
+      - { id: lookup, type: tool, tool: lookup_customer }
+      - { id: finish_billing, type: function, function: summarize_join }
+
+      # SUPPORT: agent node -> terminal.
+      - { id: call_specialist, type: agent, agent: specialist_helper }
+      - { id: finish_support, type: function, function: summarize_join }
+
+      # OTHER: inline llm -> dynamic -> hitl -> terminal.
+      - id: inline_llm
+        type: llm
+        model: stub
+        description: Inline LLM node for OTHER tickets
+        instruction: Summarize the ticket in one short sentence.
+        tools: [lookup_customer]
+        output_key: ticket_summary
+      - { id: refine, type: dynamic, function: critique, max_iters: 2, children: [critic] }
+      # Owned by `refine`: no edges, scheduled only by the dynamic function.
+      - { id: critic, type: function, function: critic_step }
+      - { id: approve, type: hitl, message: "Confirm final reply before send (yes/no)" }
+      - { id: finish_other, type: function, function: summarize_join }
+
+      # Fallback terminal.
+      - id: finish_default
+        type: function
+        function: prefix
+        timeout: 30s
+        retry: { max_attempts: 2, initial_delay: 10ms, max_delay: 50ms, backoff_factor: 2, jitter: 0 }
+
+    edges:
+      - { from: START, to: branch_a }
+      - { from: START, to: branch_b }
+      - { from: START, to: branch_c }
+      - { from: branch_a, to: gather }
+      - { from: branch_b, to: gather }
+      - { from: branch_c, to: gather }
+      - { from: gather, to: classify }
+      - { from: classify, to: map_items, route: BUG }
+      - { from: classify, to: lookup, route: BILLING }
+      - { from: classify, to: call_specialist, route: SUPPORT }
+      - { from: classify, to: inline_llm, route: OTHER }
+      - { from: classify, to: finish_default, route: DEFAULT }
+      - { from: map_items, to: nested }
+      - { from: nested, to: finish_bug }
+      - { from: lookup, to: finish_billing }
+      - { from: call_specialist, to: finish_support }
+      - { from: inline_llm, to: refine }
+      - { from: refine, to: approve }
+      - { from: approve, to: finish_other }
+
+  - name: specialist_helper
+    agent_class: LlmAgent
+    model: stub
+    mode: single_turn
+    description: Support specialist with memory tools and a sub-agent
+    instruction: |
+      Handle SUPPORT tickets. Use preload_memory / load_memory when useful.
+      Delegate coding details to code_expert.
+    tools: [preload_memory, load_memory, lookup_customer]
+    output_key: specialist_reply
+    sub_agents: [code_expert]
+
+  - name: code_expert
+    agent_class: LlmAgent
+    model: stub
+    mode: single_turn
+    description: Coding helper sub-agent
+    instruction: Answer coding questions briefly with a short example.
+    global_instruction: Be concise.
+    include_contents: none
+    disallow_transfer_to_peers: true
+
+  # A chat coordinator is not a graph node; it documents the chat + sub_agents
+  # pattern and is addressable through System.Agent.
+  - name: learning_coordinator
+    agent_class: LlmAgent
+    model: stub
+    mode: chat
+    description: Chat coordinator that delegates to a docs expert
+    instruction: Delegate documentation questions to docs_expert and answer the rest yourself.
+    tools: [lookup_customer]
+    output_key: coordinator_reply
+    sub_agents: [docs_expert]
+
+  - name: docs_expert
+    agent_class: LlmAgent
+    model: stub
+    mode: single_turn
+    description: Documentation helper
+    instruction: Answer documentation questions briefly.
+    output_schema:
+      type: object
+      properties:
+        answer: { type: string }
+      required: [answer]

@@ -1,0 +1,9 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: agent_as_tool
+    agent_class: LlmAgent
+    model: caller
+    instruction: Delegate to the specialist.
+    agent_tools: [specialist]
+  - { name: specialist, agent_class: LlmAgent, model: history, description: Answers one question., instruction: Answer. }

@@ -1,0 +1,10 @@
+{"input": "What time is it?", "expected": "question"}
+{"input": "Can you explain how a Kubernetes controller works", "expected": "question"}
+{"input": "Where is the nearest train station?", "expected": "question"}
+{"input": "I can't believe we won!", "expected": "exclamation"}
+{"input": "This is absolutely amazing!", "expected": "exclamation"}
+{"input": "Stop that right now!", "expected": "exclamation"}
+{"input": "The sky is blue.", "expected": "statement"}
+{"input": "Kubernetes schedules pods onto nodes.", "expected": "statement"}
+{"input": "I had coffee this morning.", "expected": "statement"}
+{"input": "Tell me a story", "expected": "statement"}

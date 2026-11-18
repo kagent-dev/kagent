@@ -1,0 +1,13 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: map_reduce
+    agent_class: Workflow
+    nodes:
+      - { id: split, type: function, function: split }
+      - { id: shout_all, type: parallel_worker, function: upper, max_concurrency: 2 }
+      - { id: reduce, type: function, function: join_words }
+    edges:
+      - { from: START, to: split }
+      - { from: split, to: shout_all }
+      - { from: shout_all, to: reduce }

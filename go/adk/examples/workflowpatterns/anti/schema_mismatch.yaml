@@ -1,0 +1,11 @@
+apiVersion: adk.declarative/v0.2
+kind: AgentSystem
+agents:
+  - name: schema_mismatch
+    agent_class: Workflow
+    nodes:
+      - { id: produce, type: function, function: clean, output_schema: { type: string } }
+      - { id: consume, type: function, function: clean, input_schema: { type: integer } }
+    edges:
+      - { from: START, to: produce }
+      - { from: produce, to: consume }

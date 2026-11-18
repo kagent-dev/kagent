@@ -397,6 +397,12 @@ build-byo-a2a: buildx-create
 	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=core/test/byoa2a/main.go -t $(DOCKER_REGISTRY)/$(DOCKER_REPO)/byo-a2a:$(VERSION) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/byo-a2a:$(VERSION)
 
+.PHONY: build-workflow-agent
+build-workflow-agent: ## Build and push the generic BYO image for declarative workflow agents
+build-workflow-agent: buildx-create
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) --build-arg BUILD_PACKAGE=./adk/examples/declarative -t $(DOCKER_REGISTRY)/$(DOCKER_REPO)/workflow-agent:$(VERSION) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(DOCKER_REGISTRY)/$(DOCKER_REPO)/workflow-agent:$(VERSION)
+
 .PHONY: build-claude-harness
 build-claude-harness: ## Build and push the native Claude Harness image
 build-claude-harness: buildx-create

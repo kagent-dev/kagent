@@ -1,2 +1,3 @@
 *.crt
 *.dox
+/declarative
