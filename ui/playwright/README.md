@@ -223,7 +223,7 @@ leg, before the Go suite, against the deployed UI image. Setting
 `KAGENT_E2E_UI_LOOP_LIVE_URL` points a live run at an app that is already running
 instead of starting the dev server.
 
-A live run reaches the controller through Vite's proxy, exactly as a deployed
+A live run started by this config reaches the controller through Vite's proxy, exactly as a deployed
 build reaches it through nginx, so the app uses the same relative URLs either way
 and this mode tests the addressing a real deployment uses.
 

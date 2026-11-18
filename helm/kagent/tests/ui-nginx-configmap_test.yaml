@@ -21,7 +21,10 @@ tests:
     asserts:
       - matchRegex:
           path: data["nginx.conf"]
-          pattern: 'location = /mcp \{[^}]*error_page 418 = /index\.html;\s+if \(\$http_accept ~\* "text/html"\) \{\s+return 418;'
+          pattern: 'location = /mcp \{[^}]*error_page 418 = /index\.html;\s+if \(\$mcp_app_shell\) \{\s+return 418;'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: '"~\*\^\(GET\|HEAD\):\.\*text/html" 1;'
 
   - it: serves public JWKS through the controller
     asserts:

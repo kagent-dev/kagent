@@ -325,11 +325,11 @@ jobs:
               done
               test -f "$RUNNER_TEMP/live-ui-setup.status" || { echo "::error::Live UI toolchain install did not finish"; cat "$RUNNER_TEMP/live-ui-setup.log"; exit 1; }
               if [ "$(cat "$RUNNER_TEMP/live-ui-setup.status")" != 0 ]; then
-                cat "$RUNNER_TEMP/live-ui-setup.log"
+                echo "::error::Live UI toolchain install failed (exit $(cat "$RUNNER_TEMP/live-ui-setup.status"))"; cat "$RUNNER_TEMP/live-ui-setup.log"
                 exit 1
               fi
-              kubectl -n kagent rollout status deploy/kagent-ui --timeout=5m
-              UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath="{.status.loadBalancer.ingress[0].ip}")"
+              kubectl -n kagent rollout status deploy/kagent-ui --timeout=2m
+              for _ in $(seq 1 30); do UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath="{.status.loadBalancer.ingress[0].ip}")"; [ -n "$UI_IP" ] && break; sleep 2; done
               test -n "$UI_IP"
               export KAGENT_E2E_UI_LOOP_LIVE_URL="http://${UI_IP}:8080"
               echo "KAGENT_E2E_UI_LOOP_LIVE_URL: $KAGENT_E2E_UI_LOOP_LIVE_URL"
