@@ -38,7 +38,7 @@ func TestMaterializeMountedSelections(t *testing.T) {
 		Plugins: []agentplugin.Bundle{{Source: agentplugin.Source{Directory: root, Path: "plugin"}, Skills: []string{"selected"}}},
 	}
 	for range 2 {
-		_, err := Materialize(t.Context(), resources, paths)
+		_, err := Materialize(t.Context(), resources, paths, PreferAgentPlugins)
 		require.NoError(t, err)
 	}
 	for path, want := range map[string]string{"renamed/SKILL.md": "# Standalone", "selected/SKILL.md": "# Selected", "renamed/alias.sh": files["standalone/run.sh"]} {
@@ -109,7 +109,7 @@ func TestMaterializeMountedSourceFailures(t *testing.T) {
 			cached := filepath.Join(paths.Packages, "standalone-0")
 			require.NoError(t, os.Mkdir(cached, 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(cached, "SKILL.md"), []byte("# Stale"), 0o644))
-			_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "skill", Source: source}}}, paths)
+			_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{Name: "skill", Source: source}}}, paths, PreferAgentPlugins)
 			require.ErrorContains(t, err, tt.wantError)
 			require.NoDirExists(t, filepath.Join(paths.Skills, "skill"))
 		})
@@ -124,7 +124,7 @@ func TestMaterializeMountedClaudePlugin(t *testing.T) {
 	root := filepath.Join(alias, "plugin")
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".claude-plugin"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".claude-plugin/plugin.json"), []byte(`{"name":"mounted-native"}`), 0o644))
-	materialized, err := Materialize(t.Context(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: agentplugin.Source{Directory: root}}}}, Paths{Packages: t.TempDir(), Skills: t.TempDir()})
+	materialized, err := Materialize(t.Context(), agentplugin.Resources{Plugins: []agentplugin.Bundle{{Source: agentplugin.Source{Directory: root}}}}, Paths{Packages: t.TempDir(), Skills: t.TempDir()}, PreferAgentPlugins)
 	require.NoError(t, err)
 	root, err = filepath.EvalSymlinks(root)
 	require.NoError(t, err)

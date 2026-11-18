@@ -33,6 +33,21 @@ type Paths struct {
 	Skills   string
 }
 
+// ManifestPreference selects the manifest read from a plugin that ships both a
+// root plugin.json and a .claude-plugin/plugin.json. A plugin with only one of
+// them is read from that one under either preference.
+type ManifestPreference int
+
+const (
+	// PreferAgentPlugins reads the root plugin.json and copies the selected
+	// skills. It is for runtimes that load only Agent Plugins skills.
+	PreferAgentPlugins ManifestPreference = iota
+	// PreferClaude reads .claude-plugin/plugin.json and keeps the plugin whole
+	// for Claude Code, which loads all of its skills, subagents, commands, and
+	// hooks. The root plugin.json is not read.
+	PreferClaude
+)
+
 // Materialization is the runtime-neutral result of materializing Agent Plugin
 // resources. Only Claude-format plugin locations are exposed.
 type Materialization struct {
@@ -68,7 +83,7 @@ type materializedPlugin struct {
 	claudeFormat bool
 }
 
-// ClaudeFormatPluginRoots lists plugins with a .claude-plugin/plugin.json manifest.
+// ClaudeFormatPluginRoots lists plugins read from .claude-plugin/plugin.json.
 // They are kept whole for the Claude CLI; their skills are never copied.
 func (m Materialization) ClaudeFormatPluginRoots() []string {
 	var roots []string
@@ -81,10 +96,11 @@ func (m Materialization) ClaudeFormatPluginRoots() []string {
 }
 
 // Materialize fetches Agent Plugin resources and copies explicitly selected
-// skills into their runtime directory; Claude-format plugins are kept whole.
-// It does not load runtime configuration.
-func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths) (Materialization, error) {
-	plugins, err := materializeResources(ctx, resources, paths)
+// skills into their runtime directory; plugins read from their Claude manifest
+// are kept whole. The preference decides which manifest a plugin that ships
+// both is read from. It does not load runtime configuration.
+func Materialize(ctx context.Context, resources agentplugin.Resources, paths Paths, preference ManifestPreference) (Materialization, error) {
+	plugins, err := materializeResources(ctx, resources, paths, preference)
 	if err != nil {
 		return Materialization{}, err
 	}
@@ -107,7 +123,7 @@ func LoadMCP(ctx context.Context, materialization Materialization, dataRoot stri
 	return result, nil
 }
 
-func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths) ([]materializedPlugin, error) {
+func materializeResources(ctx context.Context, resources agentplugin.Resources, paths Paths, preference ManifestPreference) ([]materializedPlugin, error) {
 	selectedSkills := make([]string, 0, len(resources.Skills))
 	for _, skill := range resources.Skills {
 		selectedSkills = append(selectedSkills, skill.Name)
@@ -145,7 +161,7 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 		if err != nil {
 			return nil, fmt.Errorf("materialize plugin %d: %w", i, err)
 		}
-		manifest, claudeFormat, err := loadManifest(pluginRoot)
+		manifest, claudeFormat, err := loadManifest(pluginRoot, preference)
 		if err != nil {
 			return nil, fmt.Errorf("load plugin %d: %w", i, err)
 		}
@@ -406,12 +422,14 @@ type manifestAuthor struct {
 	URL   string `json:"url,omitempty"`
 }
 
-// loadManifest reads the root plugin.json, or .claude-plugin/plugin.json only when that is absent.
-func loadManifest(root string) (value manifest, claudeFormat bool, err error) {
-	raw, err := os.ReadFile(filepath.Join(root, "plugin.json"))
+// loadManifest reads the manifest the preference selects, or the other one only
+// when that is absent.
+func loadManifest(root string, preference ManifestPreference) (value manifest, claudeFormat bool, err error) {
+	claudeFormat = preference == PreferClaude
+	raw, err := os.ReadFile(manifestPath(root, claudeFormat))
 	if os.IsNotExist(err) {
-		claudeFormat = true
-		raw, err = os.ReadFile(filepath.Join(root, filepath.FromSlash(claudeManifest)))
+		claudeFormat = !claudeFormat
+		raw, err = os.ReadFile(manifestPath(root, claudeFormat))
 	}
 	if err != nil {
 		return manifest{}, false, err
@@ -448,6 +466,13 @@ func loadManifest(root string) (value manifest, claudeFormat bool, err error) {
 		return manifest{}, false, fmt.Errorf("invalid plugin name %q", value.Name)
 	}
 	return value, claudeFormat, nil
+}
+
+func manifestPath(root string, claudeFormat bool) string {
+	if claudeFormat {
+		return filepath.Join(root, filepath.FromSlash(claudeManifest))
+	}
+	return filepath.Join(root, "plugin.json")
 }
 
 type mcpDocument struct {

@@ -64,10 +64,12 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		if err := utils.EnsurePrivateDir(skillsDir); err != nil {
 			return nil, fmt.Errorf("prepare generated Claude skills directory: %w", err)
 		}
+		// A plugin that also ships an Agent Plugins manifest is still passed whole
+		// with --plugin-dir, so Claude Code loads its subagents, commands, and hooks.
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(claudeDir, "packages"),
 			Skills:   skillsDir,
-		})
+		}, agentplugins.PreferClaude)
 		if err != nil {
 			return nil, fmt.Errorf("materialize Claude skills: %w", err)
 		}

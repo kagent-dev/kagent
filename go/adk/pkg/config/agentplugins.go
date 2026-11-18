@@ -27,7 +27,7 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *configv1.ADKAgent
 		materialization, err := agentplugins.Materialize(ctx, PluginResources(agentConfig.AgentPlugins), agentplugins.Paths{
 			Packages: paths.Packages,
 			Skills:   paths.Skills,
-		})
+		}, agentplugins.PreferAgentPlugins)
 		if err != nil {
 			return fmt.Errorf("materialize agent plugins: %w", err)
 		}
