@@ -618,6 +618,62 @@ func TestExecutorRecoversTaskOwnershipAfterConstruction(t *testing.T) {
 	require.Empty(t, reservedTaskID(t, executor))
 }
 
+// abandonedTurn is a restored continuation the runtime refuses to replay.
+type fakeAbandonedTurn struct {
+	fakePendingTurn
+	canceled bool
+}
+
+func (*fakeAbandonedTurn) Abandoned() {}
+
+func (f *fakeAbandonedTurn) Resume(context.Context, runtime.InputResponse, runtime.EventSink) (runtime.Outcome, error) {
+	return runtime.Outcome{}, runtime.ErrSessionAbandoned
+}
+
+func (f *fakeAbandonedTurn) Cancel(context.Context, runtime.ModelCallSink) error {
+	f.canceled = true
+	return nil
+}
+
+// A turn the runtime cannot replay still has to end. The Actor is replaced
+// while a resumed turn is running, so its journal records a native call whose
+// outcome cannot be established. Admission refuses the session either way, but
+// without this the task stays active for as long as the Actor lives and the
+// session cannot be deleted.
+func TestExecutorCancelsARestoredTurnItCannotResume(t *testing.T) {
+	pending := &fakeAbandonedTurn{}
+	runner := &restoringRunner{taskID: "task-1", contextID: testContextID, pending: pending}
+	executor, err := New(runner, &fakeContinuation{data: testSessionID}, tracing.RuntimeTelemetry{})
+	require.NoError(t, err)
+
+	// Nothing may run on it, and no input may be committed against it.
+	id, err := executor.ReservedTaskID()
+	require.ErrorIs(t, err, runtime.ErrSessionAbandoned)
+	require.Empty(t, id)
+	_, errs := collect(executor.Execute(t.Context(), requestContext("task-1", "hello")))
+	require.Len(t, errs, 1)
+	require.ErrorIs(t, errs[0], runtime.ErrSessionAbandoned)
+	require.False(t, pending.canceled)
+
+	// Cancellation of another task is still refused, and says which state it
+	// did not match.
+	_, errs = collect(executor.Cancel(t.Context(), requestContext("other-task", "ignored")))
+	require.Len(t, errs, 1)
+	require.ErrorContains(t, errs[0], "abandoned task")
+	require.False(t, pending.canceled)
+
+	events, errs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
+	require.Empty(t, errs)
+	require.True(t, pending.canceled)
+	require.NotEmpty(t, events)
+	require.Equal(t, a2atype.TaskStateCanceled, events[len(events)-1].(*a2atype.TaskStatusUpdateEvent).Status.State)
+
+	// The executor no longer holds the Actor, so a new session's first turn can
+	// run once the runtime stops restoring that record.
+	runner.taskID, runner.contextID, runner.pending = "", "", nil
+	require.Empty(t, reservedTaskID(t, executor))
+}
+
 func TestExecutorRejectsCorruptRestoration(t *testing.T) {
 	runner := &restoringRunner{err: errors.New("corrupt durable data")}
 	executor, err := New(runner, &fakeContinuation{}, tracing.RuntimeTelemetry{})

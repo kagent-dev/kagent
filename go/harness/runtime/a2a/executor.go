@@ -89,6 +89,15 @@ type parkedTask struct {
 	origin  trace.SpanContext
 }
 
+// abandonedTask owns a restored turn that cannot be resumed. It holds the
+// Actor the same way a parked task does, so the one native conversation stays
+// serialized, but admission refuses it and only Cancel consumes it.
+type abandonedTask struct {
+	taskRef
+	pending runtime.PendingTurn
+	origin  trace.SpanContext
+}
+
 // continuedTurn is the parked turn handed to the request that continues it.
 type continuedTurn struct {
 	pending runtime.PendingTurn
@@ -105,6 +114,7 @@ type cancelingTask struct {
 
 func (*activeTask) isExecutorState()    {}
 func (*parkedTask) isExecutorState()    {}
+func (*abandonedTask) isExecutorState() {}
 func (*cancelingTask) isExecutorState() {}
 
 type executionSink struct {
@@ -650,23 +660,18 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 				yield(nil, fmt.Errorf("cancellation does not match the parked task"))
 				return
 			}
-			canceling := &cancelingTask{taskRef: ref, done: make(chan struct{})}
-			e.state = canceling
-			e.mu.Unlock()
-
-			sink := &executionSink{owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
-			err := state.pending.Cancel(ctx, sink)
-			if flushErr := tracing.InvocationFromContext(ctx).Flush(ctx); flushErr != nil {
-				a2alog.Error(ctx, "failed to flush cancellation traces", flushErr)
+			e.cancelPending(ctx, reqCtx, ref, state.pending, yield)
+			return
+		case *abandonedTask:
+			// Cancel is the one operation left on a turn that cannot be
+			// replayed. Without it the task stays active for as long as the
+			// Actor does, and its session cannot be deleted.
+			if !state.matches(ref) {
+				e.mu.Unlock()
+				yield(nil, fmt.Errorf("cancellation does not match the abandoned task"))
+				return
 			}
-			e.mu.Lock()
-			canceling.err = err
-			if e.state == canceling {
-				e.state = nil
-			}
-			close(canceling.done)
-			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, err, yield)
+			e.cancelPending(ctx, reqCtx, ref, state.pending, yield)
 			return
 		case *cancelingTask:
 			if !state.matches(ref) {
@@ -705,6 +710,29 @@ func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, know
 	yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
 }
 
+// cancelPending ends a turn the executor holds but is not running. It is
+// called with the executor mutex held and releases it: the native cleanup
+// behind Cancel performs RPC and process work that must not hold the lock.
+func (e *Executor) cancelPending(ctx context.Context, reqCtx *a2asrv.ExecutorContext, ref taskRef, pending runtime.PendingTurn, yield func(a2atype.Event, error) bool) {
+	canceling := &cancelingTask{taskRef: ref, done: make(chan struct{})}
+	e.state = canceling
+	e.mu.Unlock()
+
+	sink := &executionSink{owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
+	err := pending.Cancel(ctx, sink)
+	if flushErr := tracing.InvocationFromContext(ctx).Flush(ctx); flushErr != nil {
+		a2alog.Error(ctx, "failed to flush cancellation traces", flushErr)
+	}
+	e.mu.Lock()
+	canceling.err = err
+	if e.state == canceling {
+		e.state = nil
+	}
+	close(canceling.done)
+	e.mu.Unlock()
+	yieldCancellation(ctx, reqCtx, err, yield)
+}
+
 func (r taskRef) matches(other taskRef) bool {
 	return r.taskID == other.taskID && r.contextID == other.contextID
 }
@@ -718,8 +746,13 @@ func (e *Executor) ReservedTaskID() (a2atype.TaskID, error) {
 	if err := e.restorePending(); err != nil {
 		return "", err
 	}
-	if task, ok := e.state.(*parkedTask); ok {
+	switch task := e.state.(type) {
+	case *parkedTask:
 		return task.taskID, nil
+	case *abandonedTask:
+		// No input can be committed against this task, not even its own answer,
+		// so the store is told the same thing admission tells the caller.
+		return "", runtime.ErrSessionAbandoned
 	}
 	return "", nil
 }
@@ -748,6 +781,11 @@ func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, er
 		}
 		e.state = task
 		return &continuedTurn{pending: state.pending, origin: state.origin}, nil
+	case *abandonedTask:
+		// A restored turn the runtime refuses to replay. It reads the same to a
+		// caller as it did before the handle was kept: the work cannot continue
+		// here, whether this request answers it or starts something new.
+		return nil, runtime.ErrSessionAbandoned
 	default:
 		return nil, errBusy
 	}
@@ -780,7 +818,15 @@ func (e *Executor) restorePending() error {
 	if traced, ok := pending.(pendingTraceOrigin); ok {
 		origin = traced.TraceOrigin().SpanContext()
 	}
-	e.state = &parkedTask{taskRef: taskRef{taskID: a2atype.TaskID(taskID), contextID: contextID}, pending: pending, origin: origin}
+	ref := taskRef{taskID: a2atype.TaskID(taskID), contextID: contextID}
+	if _, abandoned := pending.(runtime.AbandonedTurn); abandoned {
+		// The runtime cannot replay this turn, so the task it belongs to is over
+		// in every way but being told so. Admission still refuses it; only
+		// cancellation can end it.
+		e.state = &abandonedTask{taskRef: ref, pending: pending, origin: origin}
+		return nil
+	}
+	e.state = &parkedTask{taskRef: ref, pending: pending, origin: origin}
 	return nil
 }
 

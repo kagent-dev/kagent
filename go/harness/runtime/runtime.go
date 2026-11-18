@@ -159,6 +159,17 @@ type PendingTurn interface {
 	Cancel(context.Context, ModelCallSink) error
 }
 
+// AbandonedTurn is a restored continuation whose native call can no longer be
+// replayed, because the Actor was replaced while the harness still owned it.
+// Resume reports ErrSessionAbandoned, as a restore of such a record always has,
+// but Cancel still ends it, so the task does not outlive the process that was
+// running it and its session can be deleted.
+type AbandonedTurn interface {
+	PendingTurn
+	// Abandoned separates this handle from a continuation that can be resumed.
+	Abandoned()
+}
+
 // Outcome describes why a runtime operation stopped producing events. Failure
 // ends the turn, Pending returns a durable continuation awaiting input, and an
 // empty Outcome is successful completion. Failure and Pending are exclusive.
