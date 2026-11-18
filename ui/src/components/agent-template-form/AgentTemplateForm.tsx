@@ -239,7 +239,7 @@ export function AgentTemplateForm({
         >
           <div data-testid="template-form-model" css={{ display: "flex", alignItems: "center", gap: theme.space(2) }}>
             <Select
-              css={{ minWidth: 320, flex: "0 1 auto" }}
+              css={{ minWidth: readOnly ? 0 : 320, flex: "0 1 auto", "&&": readOnly ? { width: "auto" } : undefined }}
               value={referenceLabel(draft.modelConfig, namespace) || undefined}
               loading={models.isLoading}
               placeholder={placeholder("Choose a model configuration")}
