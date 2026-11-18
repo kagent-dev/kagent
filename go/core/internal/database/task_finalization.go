@@ -105,6 +105,9 @@ func settleSessionTask(ctx context.Context, tx pgx.Tx, session sessionRow, taskI
 	`, session.HistoryID, taskID, row.ExpectedVersion, version); err != nil {
 		return err
 	}
+	if err := bindTaskContinuations(ctx, tx, session.ID, session.HistoryID, taskID, task.Status.State); err != nil {
+		return err
+	}
 	return publishPushBoundary(ctx, tx, session.HistoryID, taskID, version, task)
 }
 

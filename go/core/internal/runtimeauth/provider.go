@@ -29,7 +29,11 @@ func NewProvider(users auth.AuthProvider, verifier actorJWTVerifier, store Sessi
 
 func (p *Provider) Authenticate(ctx context.Context, headers http.Header, query url.Values) (auth.Session, error) {
 	if !actorCredentials(headers, p.actorIssuer) {
-		return p.users.Authenticate(ctx, headers, query)
+		caller, err := p.users.Authenticate(ctx, headers, query)
+		if err != nil {
+			return nil, err
+		}
+		return p.withOrigin(ctx, headers, caller)
 	}
 	identity, err := p.actors.Authenticate(ctx, headers, query)
 	if err != nil {
@@ -51,6 +55,9 @@ func (p *Provider) Authenticate(ctx context.Context, headers http.Header, query 
 }
 
 func (p *Provider) UpstreamAuth(request *http.Request, session auth.Session, destinationSessionID string) error {
+	if delegated, ok := session.(originSession); ok {
+		session = delegated.Session
+	}
 	if session != nil && session.Principal().RuntimeBinding != nil {
 		if _, err := Session(auth.AuthSessionTo(request.Context(), session), p.store); err != nil {
 			return err
