@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"go.opentelemetry.io/contrib/processors/baggagecopy"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
@@ -12,7 +13,7 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
-// Init boots the process telemetry with the request attribute span processor.
+// Init installs caller baggage promotion before the authoritative request attributes.
 // Call it before the first ADK invocation, which caches the SDK capture mode.
 func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (*kagenttelemetry.Providers, error) {
 	// ADK only accepts capture configuration through its OTEL variable. Supply
@@ -26,10 +27,16 @@ func Init(ctx context.Context, telemetry tracing.RuntimeTelemetry) (*kagenttelem
 			return nil, fmt.Errorf("failed to configure ADK content capture: %w", err)
 		}
 	}
+	processors := make([]sdktrace.SpanProcessor, 0, 2)
+	if filter := AllowedBaggageCopyFilter(); filter != nil {
+		processors = append(processors, baggagecopy.NewSpanProcessor(filter))
+	}
+	processors = append(processors, requestAttributesSpanProcessor{})
+
 	return kagenttelemetry.Init(ctx, kagenttelemetry.Options{
 		Identity:       telemetry.ResourceIdentity(),
 		Config:         telemetry.ExporterConfig(),
 		Defaults:       telemetry.ResourceDefaults(""),
-		SpanProcessors: []sdktrace.SpanProcessor{requestAttributesSpanProcessor{}},
+		SpanProcessors: processors,
 	})
 }

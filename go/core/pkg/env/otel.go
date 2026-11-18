@@ -12,6 +12,8 @@ type OTELSignalVars struct {
 }
 
 var (
+	KagentTraceContextKeys = RegisterStringVar("KAGENT_TRACE_CONTEXT_KEYS", "",
+		"Allowlist of caller context keys copied from W3C baggage onto agent spans. Accepts comma-separated keys or JSON strings and {from, to} mappings. Empty disables promotion.", ComponentController, ComponentAgentRuntime)
 	OTELTraces                             = registerOTELSignal("TRACES")
 	OTELMetrics                            = registerOTELSignal("METRICS")
 	OTELLogs                               = registerOTELSignal("LOGS")
