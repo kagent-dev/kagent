@@ -440,3 +440,79 @@ func TestBuildModelRequirements(t *testing.T) {
 		})
 	}
 }
+
+// Each Ollama ModelConfig in an agent keeps its own host. The host used to be
+// written to the shared OLLAMA_API_BASE variable, so the last model compiled
+// (the summarizer, the memory embedder, or a shared subagent) silently moved
+// every other Ollama model in the revision to its endpoint.
+func TestBuildOllamaHostPerModel(t *testing.T) {
+	ollamaModel := func(name, host string) *v1alpha3.ModelConfig {
+		return &v1alpha3.ModelConfig{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test"},
+			Spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
+				Ollama: &v1alpha3.OllamaConfig{Host: host}},
+		}
+	}
+	collections := contextTestCollections(t,
+		ollamaModel("agent", "127.0.0.1:11434"),
+		ollamaModel("summarizer", "http://127.0.0.1:11435"),
+		ollamaModel("embedding", "http://127.0.0.1:11436"),
+		ollamaModel("child", "http://127.0.0.1:11437"),
+	)
+	template := &translator.TemplateConfiguration{Name: "assistant", Namespace: "test",
+		Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ObjectReference{Name: "agent"}}}
+	harness := &translator.HarnessConfiguration{Name: "kagent", Namespace: "test",
+		Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{
+			Compaction: &v1alpha3.KagentHarnessCompaction{
+				CompactionInterval: new(2),
+				Summarizer:         &v1alpha3.KagentHarnessSummarizer{ModelConfigRef: &v1alpha3.ObjectReference{Name: "summarizer"}},
+			},
+			Memory: &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ObjectReference{Name: "embedding"}},
+		}}}
+	child := &translator.AgentInput{Template: &translator.TemplateConfiguration{Name: "child", Namespace: "test"},
+		ResolvedModelConfig: resolvedModel(t, collections, "child")}
+
+	t.Run("Given an agent, summarizer, embedder and subagent on four Ollama hosts, when the agent is built, assert that each compiled model keeps its own host and none is written to OLLAMA_API_BASE", func(t *testing.T) {
+		result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(t.Context(), &translator.HarnessInput{
+			Harness: harness,
+			Root: &translator.AgentInput{Template: template, ResolvedModelConfig: resolvedModel(t, collections, "agent"),
+				Shared: []translator.AgentInputBinding{{Name: "child", Agent: child}}},
+		})
+		require.NoError(t, err)
+
+		require.Equal(t, "http://127.0.0.1:11434", result.Config.Model.GetOllama().GetHost(), "a bare host:port is normalized to http")
+		require.Equal(t, "http://127.0.0.1:11435", result.Config.ContextConfig.Compaction.SummarizerModel.GetOllama().GetHost())
+		require.Equal(t, "http://127.0.0.1:11436", result.Config.Memory.Embedding.BaseUrl)
+		require.Len(t, result.Config.SubAgents, 1)
+		require.Equal(t, "http://127.0.0.1:11437", result.Config.SubAgents[0].Model.GetOllama().GetHost())
+		for _, variable := range result.Environment {
+			require.NotEqual(t, env.OllamaAPIBase.Name(), variable.Name, "per-model hosts must not collapse into one shared variable")
+		}
+		for _, origin := range []string{"http://127.0.0.1:11434", "http://127.0.0.1:11435", "http://127.0.0.1:11436", "http://127.0.0.1:11437"} {
+			require.Contains(t, result.Egress, origin)
+		}
+	})
+
+	t.Run("Given an Ollama host written with an uppercase scheme, when the agent is built, assert that the compiled host and the egress origin keep the real hostname", func(t *testing.T) {
+		upper := contextTestCollections(t, ollamaModel("agent", "HTTP://gpu:11434"))
+		result, err := NewBuilder(krt.TestingDummyContext{}, upper).Build(t.Context(), &translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+			Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, upper, "agent")},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "http://gpu:11434", result.Config.Model.GetOllama().GetHost())
+		require.Equal(t, []string{"http://gpu:11434"}, result.Egress)
+	})
+
+	t.Run("Given an Ollama model without a host, when the agent is built, assert that the compiled model has no host so the runtime keeps its cloud and local routing", func(t *testing.T) {
+		local := contextTestCollections(t, ollamaModel("agent", ""))
+		result, err := NewBuilder(krt.TestingDummyContext{}, local).Build(t.Context(), &translator.HarnessInput{
+			Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+			Root:    &translator.AgentInput{Template: &translator.TemplateConfiguration{}, ResolvedModelConfig: resolvedModel(t, local, "agent")},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result.Config.Model.GetOllama())
+		require.Empty(t, result.Config.Model.GetOllama().GetHost())
+		require.Empty(t, result.Environment)
+	})
+}

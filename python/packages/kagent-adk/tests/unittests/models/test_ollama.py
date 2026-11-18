@@ -231,3 +231,45 @@ class TestCreateOllamaLlm:
         # Options are type-coerced by _convert_ollama_options before reaching create_ollama_llm
         assert result.ollama_options["temperature"] == 0.8
         assert result.ollama_options["top_p"] == 0.9
+
+
+class TestOllamaHostSelection:
+    """Each compiled Ollama model is sent to its own host.
+
+    Two Ollama models in one runtime (for example the agent and its compaction
+    summarizer) may use different servers, so the shared ``OLLAMA_API_BASE``
+    variable is only the fallback for configs compiled without a host.
+    """
+
+    @staticmethod
+    def _client_host(config: ModelConfig) -> str:
+        from kagent.adk.types import _create_llm_from_model_config
+
+        llm = _create_llm_from_model_config(config)
+        with mock.patch("kagent.adk.models._ollama.AsyncClient") as mock_client:
+            mock_client.return_value = mock.MagicMock()
+            _ = llm._client
+            return mock_client.call_args.kwargs["host"]
+
+    def test_model_host_wins_over_ollama_api_base(self):
+        from kagent.adk.types import Ollama
+
+        config = ModelConfig(model="llama3.2", ollama=Ollama(host="http://127.0.0.1:11434"))
+        with mock.patch.dict(os.environ, {"OLLAMA_API_BASE": "http://127.0.0.1:11435"}):
+            assert self._client_host(config) == "http://127.0.0.1:11434"
+
+    def test_two_models_keep_separate_hosts(self):
+        from kagent.adk.types import Ollama
+
+        agent = ModelConfig(model="llama3.2", ollama=Ollama(host="http://127.0.0.1:11434"))
+        summarizer = ModelConfig(model="llama3.2", ollama=Ollama(host="http://127.0.0.1:11435"))
+        with mock.patch.dict(os.environ, {"OLLAMA_API_BASE": "http://127.0.0.1:11435"}):
+            assert self._client_host(agent) == "http://127.0.0.1:11434"
+            assert self._client_host(summarizer) == "http://127.0.0.1:11435"
+
+    def test_model_without_host_falls_back_to_ollama_api_base(self):
+        from kagent.adk.types import Ollama
+
+        config = ModelConfig(model="llama3.2", ollama=Ollama())
+        with mock.patch.dict(os.environ, {"OLLAMA_API_BASE": "http://ollama-svc:11434"}):
+            assert self._client_host(config) == "http://ollama-svc:11434"

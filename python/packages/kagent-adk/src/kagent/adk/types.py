@@ -589,6 +589,7 @@ def _create_llm_from_model_config(model_config: ModelConfig):
         # api key passthrough is not applicable for ollama
         return create_ollama_llm(
             model=model_config.model,
+            host=settings.host or None,
             options=ollama_options,
             extra_headers=extra_headers,
             **_transport_kwargs(model_config),
