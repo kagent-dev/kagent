@@ -14,10 +14,10 @@ import (
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
 
-// NewToolCmd builds the tool list command.
-func NewToolCmd() *cobra.Command {
+// NewMCPServerCmd builds the mcp-server list command.
+func NewMCPServerCmd() *cobra.Command {
 	list := &cobra.Command{
-		Use: "list", Short: "List MCP tool servers and their discovered tools", Args: cobra.NoArgs,
+		Use: "list", Short: "List MCP servers and the tools they expose", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) (err error) {
 			session, format, err := openAPI(cmd)
 			if err != nil {
@@ -26,19 +26,19 @@ func NewToolCmd() *cobra.Command {
 			defer func() { err = errors.Join(err, session.Close()) }()
 			response, err := session.API.Tool.ListToolServers(cmd.Context(), &apiv1.ListToolServersRequest{})
 			if err != nil {
-				return fmt.Errorf("list tool servers: %w", err)
+				return fmt.Errorf("list MCP servers: %w", err)
 			}
-			return writeToolServers(cmd.OutOrStdout(), format, session.Namespace, response)
+			return writeMCPServers(cmd.OutOrStdout(), format, session.Namespace, response)
 		},
 	}
-	cmd := &cobra.Command{Use: "tool", Short: "List the MCP tools AgentTemplates can bind"}
+	cmd := &cobra.Command{Use: "mcp-server", Short: "List the MCP servers that AgentTemplates can bind"}
 	cmd.AddCommand(list)
 	return cmd
 }
 
-// writeToolServers filters to namespace here, because ListToolServers takes no
+// writeMCPServers filters to namespace here, because ListToolServers takes no
 // namespace and returns every server the caller can read, as namespace/name.
-func writeToolServers(w io.Writer, format clioutput.Format, namespace string, response *apiv1.ListToolServersResponse) error {
+func writeMCPServers(w io.Writer, format clioutput.Format, namespace string, response *apiv1.ListToolServersResponse) error {
 	servers := slices.DeleteFunc(response.GetToolServers(), func(server *apiv1.ToolServer) bool {
 		return !strings.HasPrefix(server.GetRef(), namespace+"/")
 	})

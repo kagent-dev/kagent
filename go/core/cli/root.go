@@ -104,7 +104,7 @@ func Root(opts ...Option) *cobra.Command {
 		commands.NewApplyAgentCmd(),
 		commands.NewHarnessCmd(),
 		commands.NewModelCmd(),
-		commands.NewToolCmd(),
+		commands.NewMCPServerCmd(),
 		commands.NewInstallCmd(),
 		commands.NewUninstallCmd(),
 		commands.NewBugReportCmd(),
