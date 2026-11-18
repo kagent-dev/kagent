@@ -198,8 +198,8 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	status := adka2a.AttachHitlExtension(
 		a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Which database?")),
 		&apia2a.AskUserRequest{
-			Type: adka2a.HITLTypeAskUserRequest, ID: "question-1",
-			Questions: []apia2a.HITLQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
+			Type: adka2a.HITLTypeAskUserRequest, Id: "question-1",
+			Questions: []*apia2a.HITLQuestion{{Question: "Which database?", Choices: []string{"PostgreSQL", "MySQL"}}},
 		},
 	)
 	gateway := &fakeGateway{task: &a2atype.Task{
@@ -225,7 +225,7 @@ func TestTaskUpdateTranslatesAskUserResponse(t *testing.T) {
 	response := adka2a.GetAskUserResponse(gateway.reply)
 	text := a2aText(gateway.reply)
 	gateway.mu.Unlock()
-	if response == nil || response.ID != "question-1" || len(response.Answers) != 1 || response.Answers[0].Answer[0] != "PostgreSQL" || text != "PostgreSQL" {
+	if response == nil || response.Id != "question-1" || len(response.Answers) != 1 || response.Answers[0].Answer[0] != "PostgreSQL" || text != "PostgreSQL" {
 		t.Fatalf("ask_user response = %#v", response)
 	}
 }

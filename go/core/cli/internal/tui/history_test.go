@@ -58,7 +58,7 @@ func TestResumedHistoryShowsEverything(t *testing.T) {
 	}
 	tasks = append(tasks, historyTask(26,
 		artifactOf(thoughtPart("weighing the file"), dataPart("function_call", "read_file", map[string]any{"args": map[string]any{"file_path": "notes.md"}})),
-		artifactOf(dataPart("function_response", "read_file", map[string]any{"response": map[string]any{"result": "     1|ok"}})),
+		artifactOf(dataPart("function_response", "read_file", map[string]any{"response": map[string]any{"output": map[string]any{"result": "     1|ok"}}})),
 		artifactOf(a2atype.NewTextPart("The file says ok.")),
 	))
 	failed := historyTask(27)

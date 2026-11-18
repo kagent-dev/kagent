@@ -26,6 +26,7 @@ from a2a import types as a2a_types
 from google.genai import types as genai_types
 from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.struct_pb2 import Value
+from kagent.api.v1.interactions_pb2 import ToolActivity
 from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT,
     A2A_DATA_PART_METADATA_TYPE_EXECUTABLE_CODE,
@@ -33,6 +34,8 @@ from kagent.core.a2a import (
     A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE,
     A2A_PART_TYPE_METADATA_KEY,
 )
+
+from .tool_response import decode_tool_response, encode_tool_response
 
 logger = logging.getLogger("kagent_adk." + __name__)
 
@@ -73,8 +76,13 @@ def convert_a2a_part_to_genai_part(
                     )
             if metadata[A2A_PART_TYPE_METADATA_KEY] == A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE:
                 if isinstance(data_value, dict):
+                    activity = ParseDict(data_value, ToolActivity(), ignore_unknown_fields=True)
                     return genai_types.Part(
-                        function_response=genai_types.FunctionResponse.model_validate(data_value, by_alias=True)
+                        function_response=genai_types.FunctionResponse(
+                            id=activity.id,
+                            name=activity.name,
+                            response=decode_tool_response(activity.response),
+                        )
                     )
             if metadata[A2A_PART_TYPE_METADATA_KEY] == A2A_DATA_PART_METADATA_TYPE_CODE_EXECUTION_RESULT:
                 if isinstance(data_value, dict):
@@ -123,7 +131,14 @@ def convert_genai_part_to_a2a_part(
         )
 
     if part.function_response:
-        payload = part.function_response.model_dump(by_alias=True, exclude_none=True)
+        response = part.function_response
+        payload = MessageToDict(
+            ToolActivity(
+                id=response.id or "",
+                name=response.name or "",
+                response=encode_tool_response(response.response or {}),
+            )
+        )
         return a2a_types.Part(
             data=ParseDict(payload, Value()),
             metadata={A2A_PART_TYPE_METADATA_KEY: A2A_DATA_PART_METADATA_TYPE_FUNCTION_RESPONSE},
