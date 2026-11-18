@@ -22,7 +22,7 @@ from kagent.core.a2a._task_store import KAgentTaskStore
 def openai_agent(monkeypatch):
     from agents import Agent, Runner
 
-    def run_streamed(agent, user_input, *, context):
+    def run_streamed(agent, user_input, *, session, context):
         assert user_input == "go"
         assert context.session_id == "conversation"
         return SimpleNamespace(stream_events=MagicMock(), final_output="OpenAI answer")

@@ -31,6 +31,7 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from agents import SQLiteSession
 from agents.agent import Agent
 from agents.run import Runner
 from kagent.core.a2a import now_timestamp
@@ -67,16 +68,20 @@ class OpenAIAgentExecutor(AgentExecutor):
         *,
         agent: Agent | Callable[[], Agent],
         config: OpenAIAgentExecutorConfig | None = None,
+        session_db_path: str | None = None,
     ):
         """Initialize the executor.
 
         Args:
             agent: OpenAI Agent instance or factory function that returns an agent
             config: Optional executor configuration
+            session_db_path: SQLite file holding conversation history per A2A context;
+                without it each turn sees only the current message
         """
         super().__init__()
         self._agent = agent
         self._config = config or OpenAIAgentExecutorConfig()
+        self._session_db_path = session_db_path
 
     def _resolve_agent(self) -> Agent:
         """Resolve the agent, handling both instances and factory functions."""
@@ -94,6 +99,7 @@ class OpenAIAgentExecutor(AgentExecutor):
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
         session_context = SessionContext(session_id=context.context_id)
+        session = SQLiteSession(context.context_id, self._session_db_path) if self._session_db_path else None
         emitted_text = False
 
         try:
@@ -101,6 +107,7 @@ class OpenAIAgentExecutor(AgentExecutor):
             result = Runner.run_streamed(
                 agent,
                 user_input,
+                session=session,
                 context=session_context,
             )
 
@@ -146,6 +153,9 @@ class OpenAIAgentExecutor(AgentExecutor):
         except Exception as e:
             logger.error(f"Error during agent execution: {e}", exc_info=True)
             raise
+        finally:
+            if session is not None:
+                session.close()
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue):

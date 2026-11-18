@@ -19,8 +19,10 @@ class KAgentConfig:
         name: str | None = None,
         namespace: str | None = None,
         runtime: RuntimeConfig | None = None,
+        session_db_path: str | None = None,
     ):
         self.runtime = runtime or RuntimeConfig()
+        self.session_db_path = session_db_path
         resolved_api_url = api_url if api_url is not None else self.runtime.control_plane_url
         resolved_gateway_url = gateway_url if gateway_url is not None else self.runtime.gateway_url
         resolved_name = name if name is not None else self.runtime.name
@@ -51,7 +53,12 @@ class KAgentConfig:
         """Read and validate root settings from a runtime document on disk."""
         path = Path(path)
         document = json.loads(path.read_text())
-        return cls(runtime=parse_runtime_config(document["runtime"]))
+        # The controller points agent.session_db_url at the Actor's durable directory.
+        session_db_url = document.get("agent", {}).get("session_db_url", "")
+        return cls(
+            runtime=parse_runtime_config(document["runtime"]),
+            session_db_path=session_db_url.partition(":///")[2] or None,
+        )
 
     @property
     def name(self):

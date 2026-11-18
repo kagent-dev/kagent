@@ -105,6 +105,7 @@ class KAgentApp:
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
             config=self.executor_config,
+            session_db_path=self.config.session_db_path,
         )
 
         controller = AsyncControllerClient(self.config.api_url)
