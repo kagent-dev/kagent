@@ -20,7 +20,7 @@ message of the Readiness check after Apply names what does not fit. Find the fix
 ## Find tools
 
 ```sh
-kagent tool list -o json | jq -r '.toolServers[]? | .ref as $s | .discoveredTools[]? | "\($s) \(.name): \(.description)"' | grep ' k8s_'
+kagent mcp-server list -o json | jq -r '.toolServers[]? | .ref as $s | .discoveredTools[]? | "\($s) \(.name): \(.description)"' | grep ' k8s_'
 ```
 
 - Each line starts with `NAMESPACE/SERVER`. Filter on a tool prefix, such as `k8s_` or `helm_`.
@@ -63,7 +63,7 @@ spec:
         - mcp:
             server:
               kind: RemoteMCPServer  # kagent 1.0.x requires it
-              name: SERVER         # kagent tool list, the part after NS/
+              name: SERVER         # kagent mcp-server list, the part after NS/
             tools: [TOOL, TOOL]
             requireApproval: true  # only on a binding with tools that change state
 ```
@@ -128,7 +128,7 @@ again, or delete the Agent. Match the `apply` error, or the `message` of the fai
 | --- | --- |
 | `internal server error` | Remove all `metadata` fields except `name`. |
 | `resolve ModelConfig "NS/NAME": secret NAME not found` | An admin must create the API key Secret of the ModelConfig. Or use another model. |
-| `resolve KIND "...": not found` | Use a name from the list for that kind: `kagent harness list`, `model list`, `tool list`, or `agent template list`. Apply a missing AgentTemplate first. If `harness list` is empty, see "Troubleshooting" in SKILL.md. |
+| `resolve KIND "...": not found` | Use a name from the list for that kind: `kagent harness list`, `model list`, `mcp-server list`, or `agent template list`. Apply a missing AgentTemplate first. If `harness list` is empty, see "Troubleshooting" in SKILL.md. |
 | `map to the same native name` | Merge the bindings of that server into one `tools` item. If one of its tools changes state, set `requireApproval: true` on it. |
 | `must use the root` ... `provider and authentication configuration` | Give the helper template the same `modelConfig` as the agent. |
 | `cannot contain` (a helper) | Remove the listed items, such as `tools`, from the helper template. |
