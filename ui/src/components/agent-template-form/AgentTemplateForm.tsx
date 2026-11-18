@@ -237,9 +237,9 @@ export function AgentTemplateForm({
           label="Model configuration"
           extra={modelHelp}
         >
-          <div data-testid="template-form-model">
+          <div data-testid="template-form-model" css={{ display: "flex", alignItems: "center", gap: theme.space(2) }}>
             <Select
-              css={{ minWidth: 320 }}
+              css={{ minWidth: 320, flex: "0 1 auto" }}
               value={referenceLabel(draft.modelConfig, namespace) || undefined}
               loading={models.isLoading}
               placeholder={placeholder("Choose a model configuration")}
@@ -257,7 +257,7 @@ export function AgentTemplateForm({
                 })}
                 state={backLinkState(location, "Back to template")}
                 data-testid="template-form-model-link"
-                css={{ marginInlineStart: theme.space(2), fontSize: 13 }}
+                css={{ fontSize: 13, whiteSpace: "nowrap" }}
               >
                 Open model
               </ResourceLink>
