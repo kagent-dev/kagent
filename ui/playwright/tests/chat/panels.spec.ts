@@ -171,6 +171,7 @@ test("chat: the harness and an MCP server open from a conversation and lead back
     await expect(page).toHaveURL(/\/harnesses\/kagent\/k8s-agent$/);
     await expect(page.getByTestId("harness-runtime")).toHaveText("kagent", { timeout: 30_000 });
     await expect(page.getByTestId("harness-user-k8s-agent-7f3a91c")).toBeVisible();
+    await expect(page.getByTestId("harness-user-template-k8s-agent-7f3a91c")).toHaveText("k8s-agent-7f3a91c");
   });
 
   await test.step("2. and its back button returns to the conversation", async () => {
@@ -188,6 +189,7 @@ test("chat: the harness and an MCP server open from a conversation and lead back
     await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
     await expect(tools.locator("[data-current]")).toContainText("k8s_get_events");
     await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
+    await expect(page.getByTestId("mcp-server-users")).toContainText("k8s_get_pods");
   });
 
   await test.step("4. and its back button returns to the conversation", async () => {

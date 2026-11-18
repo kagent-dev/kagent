@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { DescriptionsProps } from "antd";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
@@ -10,7 +10,7 @@ import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import { agentPageUrl } from "@/components/agent/agentUrl";
-import { useAgentsAcrossNamespaces, useHarnesses, type HarnessSpec } from "@/api";
+import { templateRefName, useAgentsAcrossNamespaces, useHarnesses, type Agent, type HarnessSpec } from "@/api";
 import { backLinkState } from "@/router/backLink";
 import { buildPath, harnessesTab, paths } from "@/router/routes";
 
@@ -133,18 +133,51 @@ export function HarnessDetailsPage() {
             ) : users.length === 0 ? (
               <Text css={{ color: theme.color.textMuted }}>No agents in this namespace use this harness.</Text>
             ) : (
-              <Space size={[16, 8]} wrap>
-                {users.map((agent) => (
-                  <ResourceLink
-                    key={agent.ref}
-                    mono
-                    to={agentPageUrl(agent) ?? paths.agents}
-                    data-testid={`harness-user-${agent.name}`}
-                  >
-                    {agent.name}
-                  </ResourceLink>
-                ))}
-              </Space>
+              <Table<Agent>
+                size="small"
+                rowKey={(row) => row.ref}
+                dataSource={users}
+                pagination={users.length > 10 ? { pageSize: 10, hideOnSinglePage: true } : false}
+                columns={[
+                  {
+                    title: "Agent",
+                    key: "agent",
+                    render: (_, agent) => (
+                      <ResourceLink
+                        mono
+                        css={{ fontSize: 12 }}
+                        to={agentPageUrl(agent) ?? paths.agents}
+                        state={here}
+                        data-testid={`harness-user-${agent.name}`}
+                      >
+                        {agent.name}
+                      </ResourceLink>
+                    ),
+                  },
+                  {
+                    title: "Template",
+                    key: "template",
+                    render: (_, agent) => {
+                      const template = templateRefName(agent);
+                      return template ? (
+                        <ResourceLink
+                          mono
+                          css={{ fontSize: 12 }}
+                          to={buildPath(paths.agentTemplateDetail, { namespace: agent.namespace, name: template })}
+                          state={here}
+                          data-testid={`harness-user-template-${agent.name}`}
+                        >
+                          {template}
+                        </ResourceLink>
+                      ) : (
+                        <Tag css={{ marginInlineEnd: 0 }} data-testid={`harness-user-template-${agent.name}`}>
+                          Inline
+                        </Tag>
+                      );
+                    },
+                  },
+                ]}
+              />
             )}
           </Card>
         ) : null}

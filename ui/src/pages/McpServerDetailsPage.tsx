@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { useLocation, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -9,7 +9,8 @@ import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
 import { safeDecode, toolAnchor } from "@/components/mcp/toolAnchor";
-import { useAgentTemplatesAcrossNamespaces, useMcpServers } from "@/api";
+import { useAgentTemplatesAcrossNamespaces, useMcpServers, type AgentTemplate } from "@/api";
+import { backLinkState } from "@/router/backLink";
 import { buildPath, paths } from "@/router/routes";
 
 const { Text } = Typography;
@@ -20,7 +21,8 @@ const { Text } = Typography;
  */
 export function McpServerDetailsPage() {
   const theme = useTheme();
-  const { hash } = useLocation();
+  const location = useLocation();
+  const { hash } = location;
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const back = useGoBack({ to: paths.mcpServers, label: "Back to MCP servers" });
   const servers = useMcpServers();
@@ -81,34 +83,70 @@ export function McpServerDetailsPage() {
             data-testid="mcp-server-details"
             items={[
               { key: "kind", label: "Kind", children: <Tag>{server.groupKind.split(".")[0] || server.groupKind}</Tag> },
-              {
-                key: "usedBy",
-                label: "Templates using it",
-                children: templates.error ? (
-                  <Text css={{ color: theme.color.textMuted }}>Could not read the templates in this namespace.</Text>
-                ) : !templates.data ? (
-                  <Text css={{ color: theme.color.textMuted }}>…</Text>
-                ) : users.length === 0 ? (
-                  <Text css={{ color: theme.color.textMuted }}>No templates in this namespace use it.</Text>
-                ) : (
-                  <Space size={[16, 4]} wrap>
-                    {users.map((template) => (
-                      <ResourceLink
-                        key={template.ref}
-                        mono
-                        to={buildPath(paths.agentTemplateDetail, { namespace: template.namespace, name: template.name })}
-                        data-testid={`mcp-server-user-${template.name}`}
-                      >
-                        {template.name}
-                      </ResourceLink>
-                    ))}
-                  </Space>
-                ),
-              },
             ]}
           />
         ) : !servers.error && !missing ? (
           <Skeleton active paragraph={{ rows: 4 }} data-testid="mcp-server-detail-loading" />
+        ) : null}
+
+        {server ? (
+          <Card size="small" title="Templates using it" css={{ maxWidth: 900 }} data-testid="mcp-server-users">
+            {templates.error ? (
+              <Text css={{ color: theme.color.textMuted }}>Could not read the templates in this namespace.</Text>
+            ) : !templates.data ? (
+              <Skeleton active paragraph={{ rows: 2 }} title={false} />
+            ) : users.length === 0 ? (
+              <Text css={{ color: theme.color.textMuted }}>No templates in this namespace use it.</Text>
+            ) : (
+              <Table<AgentTemplate>
+                size="small"
+                rowKey={(row) => row.ref}
+                dataSource={users}
+                pagination={users.length > 10 ? { pageSize: 10, hideOnSinglePage: true } : false}
+                columns={[
+                  {
+                    title: "Template",
+                    key: "template",
+                    render: (_, template) => (
+                      <ResourceLink
+                        mono
+                        css={{ fontSize: 12 }}
+                        to={buildPath(paths.agentTemplateDetail, { namespace: template.namespace, name: template.name })}
+                        state={backLinkState(location, "Back to MCP server")}
+                        data-testid={`mcp-server-user-${template.name}`}
+                      >
+                        {template.name}
+                      </ResourceLink>
+                    ),
+                  },
+                  {
+                    title: "Tools used",
+                    key: "tools",
+                    render: (_, template) => {
+                      const names = (template.resource.spec.tools ?? [])
+                        .filter(
+                          (binding) =>
+                            binding.mcp?.server.name === name &&
+                            (binding.mcp?.server.namespace || template.namespace) === namespace,
+                        )
+                        .flatMap((binding) => binding.mcp?.tools ?? []);
+                      return names.length ? (
+                        <Space size={[4, 4]} wrap>
+                          {names.map((tool) => (
+                            <Tag key={tool} css={{ fontFamily: theme.font.mono, marginInlineEnd: 0 }}>
+                              {tool}
+                            </Tag>
+                          ))}
+                        </Space>
+                      ) : (
+                        <Text css={{ color: theme.color.textMuted }}>All tools</Text>
+                      );
+                    },
+                  },
+                ]}
+              />
+            )}
+          </Card>
         ) : null}
 
         {server ? (
