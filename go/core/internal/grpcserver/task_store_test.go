@@ -344,7 +344,10 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, store.RegisterSessionPushNotification(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL}))
 	workerCtx, stopWorker := context.WithCancel(t.Context())
 	workerDone := make(chan error, 1)
-	pushSigner, err := sessionsvc.NewPushJWTSigner("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n", "https://kagent.example")
+	keyPath := filepath.Join(t.TempDir(), "push-private-key.pem")
+	require.NoError(t, os.WriteFile(keyPath, []byte("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n"), 0o600))
+	pushSigner, err := sessionsvc.NewPushJWTSigner(keyPath, "https://kagent.example", 5*time.Minute)
+
 	require.NoError(t, err)
 	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner, pushWake, sessionsvc.PushWorkerConfig{RecoveryInterval: time.Minute, MaxConcurrency: 10, SendTimeout: time.Second}, noop.NewMeterProvider())
 	go func() { workerDone <- worker.Start(workerCtx) }()

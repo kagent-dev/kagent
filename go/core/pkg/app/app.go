@@ -191,12 +191,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 			return err
 		}
 	}
-	var pushPrivateKey string
-	if cfg.GetPush().GetSigningPrivateKeyFile() != "" {
-		pushPrivateKey, err = config.ReadSecret(cfg.GetPush().GetSigningPrivateKeyFile())
-		if err != nil {
-			return fmt.Errorf("push.signingPrivateKeyFile: %w", err)
-		}
+	pushSigner, err := sessionsvc.NewPushJWTSigner(cfg.GetPush().GetSigningPrivateKeyFile(),
+		strings.TrimRight(cfg.GetPush().GetIssuer(), "/"), cfg.GetPush().GetSigningKeyActivationDelay().AsDuration())
+	if err != nil {
+		return fmt.Errorf("configure push JWT signing: %w", err)
 	}
 	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
 		return err
@@ -388,10 +386,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp(), cfg.GetSessions().GetAutomaticRecovery())
 	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
-	pushIssuer := cfg.GetPush().GetIssuer()
-	pushSigner, err := sessionsvc.NewPushJWTSigner(pushPrivateKey, strings.TrimRight(pushIssuer, "/"))
-	if err != nil {
-		return fmt.Errorf("configure push JWT signing: %w", err)
+	if pushSigner != nil {
+		if err := manager.Add(pushSigner); err != nil {
+			return fmt.Errorf("add push signing key reloader: %w", err)
+		}
 	}
 	if err := manager.Add(sessionsvc.NewPushWorker(store, pushSender, pushSigner, pushWake, sessionsvc.PushWorkerConfig{
 		RecoveryInterval: cfg.GetPush().GetRecoveryInterval().AsDuration(),
