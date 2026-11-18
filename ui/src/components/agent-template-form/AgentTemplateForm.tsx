@@ -163,6 +163,8 @@ export function AgentTemplateForm({
       };
     });
 
+  const selectedModel = models.data?.find((model) => model.ref === referenceLabel(draft.modelConfig, namespace));
+
   // A load error shows only when it leaves nothing to choose from. An empty list
   // may mean none exist or access hides them, so the hint names both.
   const modelHelp =
@@ -238,18 +240,9 @@ export function AgentTemplateForm({
           extra={modelHelp}
         >
           <div data-testid="template-form-model" css={{ display: "flex", alignItems: "center", gap: theme.space(2) }}>
-            <Select
-              css={{ minWidth: readOnly ? 0 : 320, flex: "0 1 auto", "&&": readOnly ? { width: "auto" } : undefined }}
-              value={referenceLabel(draft.modelConfig, namespace) || undefined}
-              loading={models.isLoading}
-              placeholder={placeholder("Choose a model configuration")}
-              popupMatchSelectWidth={false}
-              onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
-              options={modelOptions}
-              {...readOnlySelect}
-            />
-            {/* Only while reading: following it mid-edit would drop the draft. */}
+            {/* The value is the link while reading; following it mid-edit would drop the draft. */}
             {readOnly && draft.modelConfig?.name ? (
+              <>
               <ResourceLink
                 to={buildPath(paths.modelEdit, {
                   namespace: draft.modelConfig.namespace || namespace,
@@ -257,11 +250,28 @@ export function AgentTemplateForm({
                 })}
                 state={backLinkState(location, "Back to template")}
                 data-testid="template-form-model-link"
-                css={{ fontSize: 13, whiteSpace: "nowrap" }}
+                css={{ paddingInline: 12, fontSize: 14 }}
               >
-                Open model
+                {referenceLabel(draft.modelConfig, namespace)}
               </ResourceLink>
-            ) : null}
+              {selectedModel ? (
+                <Text data-testid="template-form-model-type" css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  {selectedModel.spec.model}
+                </Text>
+              ) : null}
+              </>
+            ) : (
+              <Select
+                css={{ minWidth: 320 }}
+                value={referenceLabel(draft.modelConfig, namespace) || undefined}
+                loading={models.isLoading}
+                placeholder={placeholder("Choose a model configuration")}
+                popupMatchSelectWidth={false}
+                onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
+                options={modelOptions}
+                {...readOnlySelect}
+              />
+            )}
           </div>
         </Form.Item>
 

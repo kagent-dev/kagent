@@ -180,6 +180,18 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(page.getByTestId("template-submit")).toHaveCount(0);
     await expect(page.getByTestId("template-edit")).toBeVisible();
 
+    // The model value is itself the link; it opens the model and back returns here.
+    await expect(page.getByTestId("template-form-model-link")).toHaveText("kagent/default-model-config");
+    // The model type sits beside the link, outside it.
+    await expect(page.getByTestId("template-form-model-type")).toBeVisible();
+    await expect(page.getByTestId("template-form-model-link").getByTestId("template-form-model-type")).toHaveCount(0);
+    await page.getByTestId("template-form-model-link").click();
+    await page.waitForURL(/\/models\/kagent\/default-model-config\/edit/);
+    await expect(page.getByTestId("model-back")).toHaveText("Back to template");
+    await page.getByTestId("model-back").click();
+    await page.waitForURL(new RegExp(`/agent-templates/kagent/${CREATED}`));
+    await expect(page.getByTestId("template-edit")).toBeVisible();
+
     /*
      * The id lands on antd's inner `<input>`, so this locator *is* the input — and a
      * read-only input is what proves the same component is being used rather than a
