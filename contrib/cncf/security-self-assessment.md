@@ -167,7 +167,7 @@ In the future, kagent intends to build and maintain compliance with several indu
 |   |  |
 | - | - |
 | Documentation | https://kagent.dev/docs/kagent |
-| Contributing | https://github.com/kagent-dev/kagent/blob/main/CONTRIBUTION.md |
+| Contributing | https://github.com/kagent-dev/kagent/blob/main/CONTRIBUTING.md |
 | Slack | https://cloud-native.slack.com/archives/C08ETST0076 |
 | Discord | https://discord.com/invite/Fu3k65f2k3 |
 | Community meetings | https://calendar.google.com/calendar/u/0?cid=Y183OTI0OTdhNGU1N2NiNzVhNzE0Mjg0NWFkMzVkNTVmMTkxYTAwOWVhN2ZiN2E3ZTc5NDA5Yjk5NGJhOTRhMmVhQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20 |
