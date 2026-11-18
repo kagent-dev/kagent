@@ -305,6 +305,14 @@ isolation. The trusted controller decodes claims without verifying signatures
 or expiry, so all public API, A2A, and MCP traffic must pass through the validating
 proxy and UI nginx.
 
+#### Service-account-only authentication
+
+Set `config.server.auth.mode: deny` together with
+`config.server.auth.serviceAccount.authority` to reject every user credential.
+Only Kubernetes service-account tokens with the `kagent-invocation` audience and
+Substrate Actor credentials authenticate. The UI and the `kagent` CLI stop working
+in this mode, because they send no service-account token.
+
 #### Selecting a Substrate sandbox
 
 The default sandbox is `gvisor`. With Substrate configured, use these values

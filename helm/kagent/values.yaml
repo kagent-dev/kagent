@@ -158,6 +158,9 @@ config:
   kubernetes: {}
   server:
     auth:
+      # insecure: trust X-User-Id, defaulting to admin@kagent.dev.
+      # trusted-proxy: trust bearer JWTs verified by an upstream proxy.
+      # deny: reject all user credentials; requires serviceAccount.
       mode: insecure
       # Opt in to Kubernetes TokenReview authentication independently of the mode.
       # serviceAccount:

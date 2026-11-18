@@ -35,6 +35,19 @@ tests:
           path: data["nginx.conf"]
           pattern: 'proxy_set_header x-user-id "";'
 
+  - it: strips internal agent identity headers in deny mode even if opted in
+    set:
+      config.server.auth.mode: deny
+      config.server.auth.serviceAccount.authority: kubernetes
+      ui.additionalForwardedHeaders: [X-Agent-Name, X-User-Id]
+    asserts:
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-agent-name "";'
+      - matchRegex:
+          path: data["nginx.conf"]
+          pattern: 'proxy_set_header x-user-id "";'
+
   - it: should render the unified UI ConfigMap
     template: ui-nginx-configmap.yaml
     asserts:

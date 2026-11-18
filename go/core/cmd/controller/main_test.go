@@ -52,6 +52,8 @@ func TestControllerAuthenticator(t *testing.T) {
 		{name: "non-string subject", mode: "trusted-proxy", payload: `{"sub":42}`, wantAuthError: true},
 		{name: "missing credentials", mode: "trusted-proxy", wantAuthError: true},
 		{name: "malformed credentials", mode: "trusted-proxy", payload: "invalid", wantAuthError: true},
+		{name: "deny missing credentials", mode: "deny", wantAuthError: true},
+		{name: "deny user token", mode: "deny", payload: `{"sub":"subject","email":"user@example.com"}`, wantAuthError: true},
 		{name: "unsupported mode", mode: "oidc", wantConfigError: true},
 		{name: "empty mode", mode: "", wantConfigError: true},
 	} {

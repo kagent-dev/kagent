@@ -152,10 +152,18 @@ message ControllerServerConfig {
 }
 
 message AuthenticationConfig {
+  // deny rejects every user credential. Only verified service-account tokens and
+  // Substrate Actor credentials authenticate, so it requires service_account.
+  option (buf.validate.message).cel = {
+    id: "authentication.deny_service_account"
+    message: "mode deny requires service_account"
+    expression: "!has(this.mode) || this.mode != 'deny' || has(this.service_account)"
+  };
   optional string mode = 1 [(buf.validate.field).string = {
     in: [
       "insecure",
-      "trusted-proxy"
+      "trusted-proxy",
+      "deny"
     ]
   }];
   string user_id_claim = 2;

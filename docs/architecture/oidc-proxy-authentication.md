@@ -116,6 +116,18 @@ take this verifier when enabled. Verification failure never falls back to the
 trusted proxy, including for federated credentials from another cluster. Unverified
 claims only select the verifier; TokenReview establishes identity and authority.
 
+`deny` mode rejects every user credential, including `X-User-Id`, the
+`user_id` query parameter, and unverified bearer JWTs. Only verified
+service-account tokens and Substrate Actor credentials authenticate, so the
+mode requires `config.server.auth.serviceAccount`; configuration validation
+rejects it otherwise. Use it for headless installs whose callers are
+workloads, or where untrusted pods can reach the controller and no
+authenticating proxy is deployed. The bundled UI and the `kagent` CLI send no
+service-account token, so they cannot call a controller in this mode. Chart
+features that call the controller without a service-account token, such as
+tool discovery for the `kagent-api` RemoteMCPServer, fail in the same way as
+in `trusted-proxy` mode.
+
 Direct machine callers intentionally forward their verified inbound token, like
 human callers. That token retains its Kagent authority wherever it is forwarded;
 passthrough destinations must be trusted with it. An embedding application's
@@ -154,7 +166,7 @@ differs.
 | --- | --- | --- |
 | `oauth2-proxy.enabled` | `false` | Install the authentication proxy |
 | `oauth2-proxy.config.existingSecret` | Empty | Reference client and cookie credentials |
-| `config.server.auth.mode` | `insecure` | Select `insecure` or `trusted-proxy` |
+| `config.server.auth.mode` | `insecure` | Select `insecure`, `trusted-proxy`, or `deny` |
 | `config.server.auth.userIdClaim` | Empty (`sub`) | JWT identity claim, falling back to `sub` |
 | `config.server.auth.serviceAccount` | Unset | Opt in to local TokenReview authentication with a configured authority |
 | `ui.auth.ssoRedirectPath` | `/oauth2/start` | Start or restart browser sign-in |

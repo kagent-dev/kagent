@@ -2221,11 +2221,12 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\fbind_address\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\vbindAddress\x88\x01\x01\x12'\n" +
 	"\x0fgrpc_reflection\x18\x02 \x01(\bR\x0egrpcReflection\x12:\n" +
 	"\x04auth\x18\x03 \x01(\v2&.kagent.config.v1.AuthenticationConfigR\x04authB\x0f\n" +
-	"\r_bind_address\"\xd5\x01\n" +
-	"\x14AuthenticationConfig\x127\n" +
-	"\x04mode\x18\x01 \x01(\tB\x1e\xbaH\x1br\x19R\binsecureR\rtrusted-proxyH\x00R\x04mode\x88\x01\x01\x12\"\n" +
+	"\r_bind_address\"\xf3\x02\n" +
+	"\x14AuthenticationConfig\x12=\n" +
+	"\x04mode\x18\x01 \x01(\tB$\xbaH!r\x1fR\binsecureR\rtrusted-proxyR\x04denyH\x00R\x04mode\x88\x01\x01\x12\"\n" +
 	"\ruser_id_claim\x18\x02 \x01(\tR\vuserIdClaim\x12W\n" +
-	"\x0fservice_account\x18\x03 \x01(\v2..kagent.config.v1.ServiceAccountAuthenticationR\x0eserviceAccountB\a\n" +
+	"\x0fservice_account\x18\x03 \x01(\v2..kagent.config.v1.ServiceAccountAuthenticationR\x0eserviceAccount:\x95\x01\xbaH\x91\x01\x1a\x8e\x01\n" +
+	"#authentication.deny_service_account\x12\"mode deny requires service_account\x1aC!has(this.mode) || this.mode != 'deny' || has(this.service_account)B\a\n" +
 	"\x05_mode\"E\n" +
 	"\x1cServiceAccountAuthentication\x12%\n" +
 	"\tauthority\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\tauthority\"\xc7\x03\n" +
