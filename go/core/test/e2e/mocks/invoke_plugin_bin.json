@@ -1,0 +1,67 @@
+{
+  "openai": [
+    {
+      "name": "plugin_bin_execute",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "user",
+          "content": "Run the plugin binary."
+        }
+      },
+      "response": {
+        "id": "plugin_bin_execute",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "",
+              "tool_calls": [
+                {
+                  "id": "call_plugin_bin",
+                  "type": "function",
+                  "function": {
+                    "name": "bash",
+                    "arguments": "{\"command\": \"kagent-e2e-plugin-tool\"}"
+                  }
+                }
+              ]
+            },
+            "finish_reason": "tool_calls"
+          }
+        ]
+      }
+    },
+    {
+      "name": "plugin_bin_result",
+      "match": {
+        "match_type": "contains",
+        "message": {
+          "role": "tool",
+          "content": "PLUGIN_BIN_OUTPUT",
+          "tool_call_id": "call_plugin_bin"
+        }
+      },
+      "response": {
+        "id": "plugin_bin_result",
+        "object": "chat.completion",
+        "created": 1677652288,
+        "model": "gpt-4.1-mini",
+        "choices": [
+          {
+            "index": 0,
+            "message": {
+              "role": "assistant",
+              "content": "PLUGIN_BIN_DONE"
+            },
+            "finish_reason": "stop"
+          }
+        ]
+      }
+    }
+  ]
+}

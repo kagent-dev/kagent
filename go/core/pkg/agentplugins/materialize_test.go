@@ -266,7 +266,7 @@ func TestValidatePackageRejectsEscapingSymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(t.TempDir(), "outside"), filepath.Join(root, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	if err := validatePackage(root); err == nil {
+	if err := validatePackage(root, true); err == nil {
 		t.Fatal("validatePackage() accepted an escaping symlink")
 	}
 }
@@ -279,7 +279,7 @@ func TestCopySkillPreservesContainedSymlink(t *testing.T) {
 	if err := os.Symlink("SKILL.md", filepath.Join(source, "README.md")); err != nil {
 		t.Fatal(err)
 	}
-	if err := validatePackage(source); err != nil {
+	if err := validatePackage(source, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := copySkill(source, destination); err != nil {
