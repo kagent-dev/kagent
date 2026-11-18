@@ -29,9 +29,13 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 	if len(tools) == 0 {
 		return mcpCompilation{}, nil
 	}
+	names, err := translator.MCPBindingNames(namespace, tools)
+	if err != nil {
+		return mcpCompilation{}, err
+	}
 	result := mcpCompilation{servers: make(map[string]codexconfig.MCPServer, len(tools))}
 	identities := map[string]string{}
-	for _, tool := range tools {
+	for i, tool := range tools {
 		server := tool.Server
 		if server == nil {
 			return mcpCompilation{}, fmt.Errorf("resolved Codex MCP binding has no server")
@@ -39,7 +43,7 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		if ptr.Deref(server.Spec.TokenPassthrough, false) {
 			return mcpCompilation{}, translator.NewValidationError("Codex does not support RemoteMCPServer %q tokenPassthrough", server.Name)
 		}
-		name := translator.MCPRuntimeName(namespace, server)
+		name := names[i]
 		if previous, ok := identities[name]; ok {
 			return mcpCompilation{}, translator.NewValidationError("Codex MCP servers %q and %q map to the same native name %q", previous, server.Name, name)
 		}

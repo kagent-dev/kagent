@@ -95,7 +95,6 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 	if err != nil {
 		return nil, err
 	}
-	protectedServers := approvalServerNames(cfg.MCPServers)
 	if _, exists := cfg.MCPServers[approvalMCPServerName]; exists {
 		return nil, fmt.Errorf("Claude MCP server name %q is reserved for human approval", approvalMCPServerName)
 	}
@@ -111,7 +110,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 			return nil, fmt.Errorf("materialize Claude system prompt: %w", err)
 		}
 	}
-	approvalBroker, err := driver.NewApprovalBroker(protectedServers, filepath.Join(input.DurableDir, "adapter"), cfg.MaxEventBytes)
+	approvalBroker, err := driver.NewApprovalBroker(cfg.MCPServers, filepath.Join(input.DurableDir, "adapter"), cfg.MaxEventBytes)
 	if err != nil {
 		return nil, fmt.Errorf("start Claude approval broker: %w", err)
 	}
@@ -148,19 +147,10 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		StrictVersion: cfg.StrictVersion, Workspace: input.Workspace, Model: cfg.Model,
 		AppendSystemPromptFile: systemPromptPath, AgentsJSON: agentsJSON, MCPConfigPath: mcpConfigPath,
 		SettingsPath: settingsPath, PermissionPromptTool: permissionPromptTool, ApprovalBroker: approvalBroker,
-		PluginDirs: pluginDirs, Environment: environment,
+		DisallowedTools: cfg.DisallowedTools, PluginDirs: pluginDirs, Environment: environment,
 		MaxEventBytes: cfg.MaxEventBytes, MaxStderrBytes: cfg.MaxStderrBytes,
 		InterruptGrace: cfg.InterruptGrace(), AwaitTelemetry: awaitTelemetry,
 	}), nil
-}
-
-func approvalServerNames(servers map[string]config.MCPServer) (protected []string) {
-	for name, server := range servers {
-		if server.RequireApproval {
-			protected = append(protected, name)
-		}
-	}
-	return protected
 }
 
 func materializeGoogleCredentials(environment []string, directory string) ([]string, error) {
