@@ -103,6 +103,7 @@ class OpenAIAgentExecutor(AgentExecutor):
         """Stream agent execution events and convert them to A2A events."""
         session_context = SessionContext(session_id=session.session_id)
         emitted_text = False
+        tool_names: dict[str, str] = {}
 
         try:
             # Use run_streamed for streaming support
@@ -120,6 +121,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     event,
                     context.task_id,
                     context.context_id,
+                    tool_names=tool_names,
                 )
 
                 for a2a_event in a2a_events:
