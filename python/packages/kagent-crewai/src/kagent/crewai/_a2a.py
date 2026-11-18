@@ -14,6 +14,7 @@ from kagent.core.a2a import (
     KAgentRequestContextBuilder,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._runtime import grpc_address, runtime_lifespan
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 from kagent.core.telemetry import conv, shutdown_lifespan
 
@@ -72,7 +73,9 @@ class KAgentApp:
 
         faulthandler.enable()
         app = FastAPI(
-            lifespan=shutdown_lifespan(controller.lifespan()),
+            lifespan=runtime_lifespan(
+                request_handler, grpc_address(self.config.runtime), shutdown_lifespan(controller.lifespan())
+            ),
             title=f"KAgent CrewAI: {self.config.app_name}",
             description=f"CrewAI agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,

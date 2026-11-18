@@ -1855,8 +1855,6 @@ dependencies = [
     { name = "google-adk", extra = ["a2a", "db"] },
     { name = "google-auth" },
     { name = "google-genai" },
-    { name = "grpcio" },
-    { name = "grpcio-health-checking" },
     { name = "httpx" },
     { name = "httpx-sse" },
     { name = "httpx2" },
@@ -1902,8 +1900,6 @@ requires-dist = [
     { name = "google-adk", extras = ["a2a", "db"], specifier = ">=2.14.1,<3" },
     { name = "google-auth", specifier = ">=2.62.1" },
     { name = "google-genai", specifier = ">=2.34.0,<3" },
-    { name = "grpcio", specifier = ">=1.83.0" },
-    { name = "grpcio-health-checking", specifier = ">=1.74.0,<1.75.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "httpx-sse", specifier = ">=0.4.3" },
     { name = "httpx2", specifier = ">=2.13.1" },
@@ -1935,6 +1931,8 @@ version = "0.2.0"
 source = { editable = "packages/kagent-core" }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "grpcio" },
+    { name = "grpcio-health-checking" },
     { name = "kagent-proto" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-distro" },
@@ -1964,6 +1962,8 @@ openai-agents = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", extras = ["http-server"], specifier = ">=1.1.5,<2" },
+    { name = "grpcio", specifier = ">=1.83.0" },
+    { name = "grpcio-health-checking", specifier = ">=1.74.0,<1.75.0" },
     { name = "kagent-proto", editable = "packages/kagent-proto" },
     { name = "opentelemetry-api", specifier = ">=1.45.2,<2" },
     { name = "opentelemetry-distro", specifier = ">=0.63b0,<1" },
@@ -3608,7 +3608,7 @@ name = "protobuf-py"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "protobuf-py-ext", marker = "(platform_machine == 'arm64' and platform_python_implementation == 'CPython' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux') or (platform_machine == 'x86_64' and platform_python_implementation == 'CPython' and sys_platform == 'linux') or (platform_machine == 'AMD64' and platform_python_implementation == 'CPython' and sys_platform == 'win32') or (platform_machine == 'ARM64' and platform_python_implementation == 'CPython' and sys_platform == 'win32')" },
+    { name = "protobuf-py-ext", marker = "platform_machine == 'arm64' and platform_python_implementation == 'CPython' and sys_platform == 'darwin' or (platform_machine == 'aarch64' or platform_machine == 'x86_64') and platform_python_implementation == 'CPython' and sys_platform == 'linux' or (platform_machine == 'AMD64' or platform_machine == 'ARM64') and platform_python_implementation == 'CPython' and sys_platform == 'win32'" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/71/2a/6a08d3a3ddbfd745f987c5ff22129a979ea74319fbfe5b9d59c7a6730d25/protobuf_py-0.6.0.tar.gz", hash = "sha256:be6b8d84ba54380ca5e5e50f20e4dd42df81c845cf9dc8c021f147d8c516b341", size = 161533, upload-time = "2026-09-30T06:45:41.388Z" }

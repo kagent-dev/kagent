@@ -15,22 +15,20 @@ This package provides CrewAI integration for KAgent with A2A (Agent-to-Agent) se
 This package supports both CrewAI Crews and Flows. To get started, define your CrewAI crew or flow as you normally would, then replace the `kickoff` command with the `KAgentApp` which will handle A2A requests and execution.
 
 ```python
+import json
+from pathlib import Path
+
+import uvicorn
 from kagent.crewai import KAgentApp
-from kagent.core import KAgentConfig
+from kagent.core import KAgentConfig, materialize_from_bootstrap
 
 # This is the crew or flow you defined
 from research_crew.crew import ResearchCrew
 
+materialize_from_bootstrap("/config")
 app = KAgentApp(
     crew=ResearchCrew().crew(),
-    agent_card={
-        "name": "my-crewai-agent",
-        "description": "A CrewAI agent with KAgent integration",
-        "version": "0.1.0",
-        "capabilities": {"streaming": True},
-        "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"],
-    },
+    agent_card=json.loads(Path("/config/agent-card.json").read_text()),
     config=KAgentConfig.from_file(),
 )
 
@@ -88,6 +86,8 @@ For local development, configure the HTTP endpoint used by protocol traffic:
 ```
 
 ## Deployment
+
+Start Uvicorn on a separate HTTP port such as `8080`. During application startup, `build()` starts the A2A gRPC server on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
 
 The uses the same deployment approach as other KAgent A2A applications (ADK / LangGraph). You can refer to `samples/crewai/` for examples.
 

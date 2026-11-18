@@ -11,7 +11,10 @@ This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent)
 ## Quick Start
 
 ```python
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
+import json
+from pathlib import Path
+
+from kagent.core import KAgentConfig, materialize_from_bootstrap
 from kagent.langgraph import KAgentApp
 import os
 import sqlite3
@@ -25,12 +28,8 @@ class State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], "The conversation history"]
 
 
+materialize_from_bootstrap("/config")
 config = KAgentConfig.from_file()
-controller_client = AsyncControllerClient(
-    config.grpc_url,
-    agent_name=config.app_name,
-    token_provider=AsyncFileTokenProvider(),
-)
 
 # Define and compile your graph
 builder = StateGraph(State)
@@ -46,16 +45,8 @@ graph = builder.compile(checkpointer=checkpointer)
 # Create KAgent app
 app = KAgentApp(
     graph=graph,
-    agent_card={
-        "name": "my-langgraph-agent",
-        "description": "A LangGraph agent with KAgent integration",
-        "version": "0.1.0",
-        "capabilities": {"streaming": True},
-        "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"],
-    },
+    agent_card=json.loads(Path("/config/agent-card.json").read_text()),
     config=config,
-    controller_client=controller_client,
 )
 
 # Build FastAPI application
@@ -79,6 +70,8 @@ Set `runtime.control_plane_url` and `runtime.gateway_url` in `/config/config.jso
 ```
 
 ## Deployment
+
+Start Uvicorn on a separate HTTP port such as `8080`. During application startup, `build()` starts the A2A gRPC server on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
 
 Use the same deployment pattern as kagent-adk samples with Docker and Kubernetes.
 

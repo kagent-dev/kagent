@@ -4,7 +4,7 @@ from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
 from google.protobuf.json_format import ParseDict
 from grpc_health.v1 import health_pb2, health_pb2_grpc
 from kagent.core._runtime_config import RuntimeConfig
-from kagent.core.a2a import KAgentGrpcServerCallContextBuilder
+from kagent.core.a2a import KAgentGrpcServerCallContextBuilder, _runtime
 
 import kagent.adk._a2a as _a2a
 from kagent.adk import KAgentApp
@@ -57,7 +57,7 @@ async def test_grpc_health():
 async def test_grpc_dispatch_uses_jsonrpc_handler(monkeypatch):
     handlers = []
     real_create_jsonrpc_routes = _a2a.create_jsonrpc_routes
-    real_grpc_handler = _a2a.GrpcHandler
+    real_grpc_handler = _runtime.GrpcHandler
 
     def capture_jsonrpc_handler(handler, *args, **kwargs):
         handlers.append(handler)
@@ -68,7 +68,7 @@ async def test_grpc_dispatch_uses_jsonrpc_handler(monkeypatch):
         return real_grpc_handler(handler, *args, **kwargs)
 
     monkeypatch.setattr(_a2a, "create_jsonrpc_routes", capture_jsonrpc_handler)
-    monkeypatch.setattr(_a2a, "GrpcHandler", capture_grpc_handler)
+    monkeypatch.setattr(_runtime, "GrpcHandler", capture_grpc_handler)
     app = make_app().build(local=True)
 
     async with app.router.lifespan_context(app):
@@ -103,9 +103,9 @@ async def test_grpc_ingress_is_traced_except_health(monkeypatch):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    real_interceptor = _a2a.aio_server_interceptor
+    real_interceptor = _runtime.aio_server_interceptor
     monkeypatch.setattr(
-        _a2a, "aio_server_interceptor", lambda **kwargs: real_interceptor(tracer_provider=provider, **kwargs)
+        _runtime, "aio_server_interceptor", lambda **kwargs: real_interceptor(tracer_provider=provider, **kwargs)
     )
     app = make_app().build(local=True)
     trace_id = 0x4BF92F3577B34DA6A3CE929D0E0E4736

@@ -22,6 +22,7 @@ from kagent.core.a2a import (
 )
 
 # --- Configure Logging ---
+from kagent.core.a2a._runtime import grpc_address, runtime_lifespan
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 from kagent.core.telemetry import conv, shutdown_lifespan
 
@@ -114,7 +115,9 @@ class KAgentApp:
 
         # Create FastAPI application
         app = FastAPI(
-            lifespan=shutdown_lifespan(controller.lifespan()),
+            lifespan=runtime_lifespan(
+                request_handler, grpc_address(self.config.runtime), shutdown_lifespan(controller.lifespan())
+            ),
             title=f"KAgent LangGraph: {self.config.app_name}",
             description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
             version=self.agent_card.version,

@@ -26,6 +26,7 @@ from kagent.core.a2a import (
     TelemetryRequestHandler,
     get_a2a_max_content_length,
 )
+from kagent.core.a2a._runtime import grpc_address, runtime_lifespan
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 from kagent.core.telemetry import conv, shutdown_lifespan
 from opentelemetry.instrumentation.genai.openai_agents import OpenAIAgentsInstrumentor
@@ -159,7 +160,11 @@ class KAgentApp:
         faulthandler.enable()
 
         # Create FastAPI app with lifespan
-        app = FastAPI(lifespan=shutdown_lifespan(controller.lifespan()))
+        app = FastAPI(
+            lifespan=runtime_lifespan(
+                request_handler, grpc_address(self.config.runtime), shutdown_lifespan(controller.lifespan())
+            )
+        )
         app.add_middleware(
             A2ARequestSizeLimitMiddleware,
             max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
