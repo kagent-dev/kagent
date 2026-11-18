@@ -36,11 +36,13 @@ from ._hitl import (
     require_tool_approval_response,
 )
 from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
+from ._runtime import A2AServer
 from ._telemetry import TelemetryRequestHandler, request_attributes
 from ._time import now_timestamp
 from ._usage import USAGE_EXTENSION_URI, attach_usage_agent_extension
 
 __all__ = [
+    "A2AServer",
     "get_a2a_max_content_length",
     "get_request_user_id",
     "set_request_user_id",

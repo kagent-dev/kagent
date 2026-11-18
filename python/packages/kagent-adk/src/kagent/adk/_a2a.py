@@ -17,12 +17,13 @@ from google.genai import types
 from kagent.core import AsyncControllerClient
 from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
+    A2AServer,
     KAgentRequestContextBuilder,
     TelemetryRequestHandler,
     attach_hitl_agent_extension,
     attach_usage_agent_extension,
 )
-from kagent.core.a2a._runtime import A2AServer, grpc_address
+from kagent.core.a2a._runtime import grpc_address
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig

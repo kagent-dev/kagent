@@ -140,7 +140,15 @@ def run(
     ] = False,
 ):
     if local:
-        config, agent_card = _load_agent_files(Path(working_dir) / name)
+        agent_dir = Path(working_dir) / name
+        config_path = agent_dir / "config.json"
+        config = parse_config(config_path.read_text()) if config_path.exists() else Config()
+        agent_card = parse_agent_card(json.loads((agent_dir / "agent-card.json").read_text()))
+        # Local runs are unprivileged; port 80 on every interface is the Substrate default.
+        if not config.runtime.host:
+            config.runtime.host = "127.0.0.1"
+        if not config.runtime.port:
+            config.runtime.port = 8080
     else:
         config, agent_card = _load_revision("/config")
     runtime = config.runtime

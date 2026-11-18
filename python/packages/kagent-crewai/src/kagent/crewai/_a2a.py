@@ -4,10 +4,7 @@ from typing import Union
 from a2a.types import AgentCard
 from google.protobuf.json_format import ParseDict
 from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap
-from kagent.core.a2a import (
-    KAgentRequestContextBuilder,
-)
-from kagent.core.a2a._runtime import A2AServer
+from kagent.core.a2a import A2AServer, KAgentRequestContextBuilder
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 from kagent.core.telemetry import conv
 
