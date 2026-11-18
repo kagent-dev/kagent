@@ -76,7 +76,13 @@ const LIVE = process.env.KAGENT_E2E_UI_LOOP_LIVE === "true";
  * server is about to want, or vice versa.
  */
 const LIVE_PORT = Number(process.env.KAGENT_E2E_UI_LOOP_LIVE_PORT ?? 8301);
-const LIVE_BASE_URL = `http://localhost:${LIVE_PORT}`;
+
+/**
+ * An app already running, such as the deployed UI image in CI, tested instead of a dev
+ * server this config starts. Empty counts as absent.
+ */
+const LIVE_EXTERNAL_URL = process.env.KAGENT_E2E_UI_LOOP_LIVE_URL || undefined;
+const LIVE_BASE_URL = LIVE_EXTERNAL_URL ?? `http://localhost:${LIVE_PORT}`;
 
 /** Read by `playwright/globalSetup.ts` to decide what to verify about a server. */
 export const LIVE_PROJECT = "chromium-live";
@@ -93,7 +99,7 @@ export const LIVE_PROJECT = "chromium-live";
 const LIVE_APP = { KAGENT_UI_VITE_API_MODE: "live", KAGENT_UI_ENABLE_MOCK: "false" };
 
 /**
- * How the live server is started.
+ * How the live server is started, unless `KAGENT_E2E_UI_LOOP_LIVE_URL` names one.
  *
  * Named for the same reason the three env pins above are: a branch whose backend
  * needs more than a dev server — a credential minted per run, a port-forward
@@ -210,21 +216,23 @@ export default defineConfig({
   // loud startup error instead; set KAGENT_E2E_UI_LOOP_PORT / KAGENT_E2E_UI_LOOP_EXTENSION_PORT to run
   // alongside a dev server you want to keep.
   webServer: LIVE
-    ? [
-        {
-          command: LIVE_COMMAND,
-          url: LIVE_BASE_URL,
-          reuseExistingServer: false,
-          timeout: 120_000,
-          // Whatever starts the live server is the most useful output a failed
-          // live run has — something that cannot reach the backend says so there,
-          // and Playwright discards a web server's stdout unless asked to pass it
-          // through.
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...LIVE_APP, ...ownCache(LIVE_PORT) },
-        },
-      ]
+    ? LIVE_EXTERNAL_URL
+      ? []
+      : [
+          {
+            command: LIVE_COMMAND,
+            url: LIVE_BASE_URL,
+            reuseExistingServer: false,
+            timeout: 120_000,
+            // Whatever starts the live server is the most useful output a failed
+            // live run has — something that cannot reach the backend says so there,
+            // and Playwright discards a web server's stdout unless asked to pass it
+            // through.
+            stdout: "pipe",
+            stderr: "pipe",
+            env: { ...LIVE_APP, ...ownCache(LIVE_PORT) },
+          },
+        ]
     : [
         {
           command: serveBuild(PORT),

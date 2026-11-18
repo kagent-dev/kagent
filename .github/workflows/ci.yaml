@@ -106,6 +106,44 @@ jobs:
       - name: Create Kind cluster
         run: make create-kind-cluster
 
+      # The live UI lane runs on gvisor only. Its toolchain installs while Install Kagent builds.
+      - name: Setup Node.js
+        if: matrix.sandbox_class == 'gvisor'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ui/.nvmrc
+
+      - name: Enable Corepack
+        if: matrix.sandbox_class == 'gvisor'
+        run: corepack enable
+
+      - name: Cache Yarn downloads
+        if: matrix.sandbox_class == 'gvisor'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ui/.yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      # The Playwright version is pinned by yarn.lock.
+      - name: Cache Playwright browsers
+        if: matrix.sandbox_class == 'gvisor'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+
+      - name: Start live UI toolchain install
+        if: matrix.sandbox_class == 'gvisor'
+        working-directory: ./ui
+        run: |
+          # Detached so it overlaps Install Kagent. The e2e step waits on the status file.
+          rm -f "$RUNNER_TEMP/live-ui-setup.status"
+          setsid nohup bash -c '
+            yarn install --immutable && yarn playwright install --with-deps chromium
+            echo $? > "$RUNNER_TEMP/live-ui-setup.status"
+          ' > "$RUNNER_TEMP/live-ui-setup.log" 2>&1 < /dev/null &
+
       - name: Install Kagent
         id: install-kagent
         env:
@@ -118,7 +156,10 @@ jobs:
           export BUILDX_BUILDER_NAME
           make buildx-create
           mkdir -p "$RUNNER_TEMP/runtime-images"
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
+          images="controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest"
+          # The live UI lane tests the built UI image.
+          if [ "${{ matrix.sandbox_class }}" = gvisor ]; then images="$images ui"; fi
+          printf '%s\n' $images | xargs -P4 -n1 bash -c '
             image="$1"
             RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" \
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
@@ -175,7 +216,10 @@ jobs:
                 metrics:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
           ui:
-            replicas: 0
+            # Only the gvisor leg runs the live UI lane.
+            replicas: ${{ matrix.sandbox_class == 'gvisor' && 1 || 0 }}
+            service:
+              type: ${{ matrix.sandbox_class == 'gvisor' && 'LoadBalancer' || 'ClusterIP' }}
           kagent-tools:
             enabled: false
           # The example Agent needs kagent-tools, and the e2e suites do not use it.
@@ -270,6 +314,30 @@ jobs:
             sleep 5
           done
           test "$READY" = True
+          # The live UI lane runs before the Go suite, which restarts the controller. A failure
+          # is held until the Go suite has run, so one run reports both.
+          live_ui_rc=0
+          if [ "${{ matrix.sandbox_class }}" = gvisor ]; then
+            bash -eo pipefail -c '
+              for _ in $(seq 1 120); do
+                test -f "$RUNNER_TEMP/live-ui-setup.status" && break
+                sleep 5
+              done
+              if [ "$(cat "$RUNNER_TEMP/live-ui-setup.status")" != 0 ]; then
+                cat "$RUNNER_TEMP/live-ui-setup.log"
+                exit 1
+              fi
+              kubectl -n kagent rollout status deploy/kagent-ui --timeout=5m
+              UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath="{.status.loadBalancer.ingress[0].ip}")"
+              test -n "$UI_IP"
+              export KAGENT_E2E_UI_LOOP_LIVE_URL="http://${UI_IP}:8080"
+              echo "KAGENT_E2E_UI_LOOP_LIVE_URL: $KAGENT_E2E_UI_LOOP_LIVE_URL"
+              cd ../ui
+              # agent-lifecycle and agent-template-skills need a model that answers.
+              yarn test:pw:live --workers=1 live/pages live/substrate live/schedules
+            ' || live_ui_rc=$?
+            if [ "$live_ui_rc" != 0 ]; then echo "::error::Live UI tests failed"; fi
+          fi
           export KAGENT_E2E_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo "KAGENT_E2E_API_URL: $KAGENT_E2E_API_URL"
           make core/bin/kagent-local
@@ -282,6 +350,7 @@ jobs:
           ../telemetry/live-check.sh start
           export KAGENT_E2E_LIVE_CHECK_ENDPOINT=127.0.0.1:4319
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=30m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
+          exit "$live_ui_rc"
 
       - name: Check E2E telemetry with Weaver live-check
         if: always()
@@ -304,6 +373,15 @@ jobs:
           path: ${{ runner.temp }}/e2e-logs
           retention-days: 7
 
+      - name: Upload live UI test results
+        if: failure() && matrix.sandbox_class == 'gvisor'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ui-live-test-results
+          path: ui/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: fail print info
         if: failure()
         run: |
@@ -316,6 +394,7 @@ jobs:
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller || true
+          kubectl logs -n kagent deployment/kagent-ui --tail=200 || true
           kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
           kubectl describe pods -n ate-system || true

@@ -215,8 +215,13 @@ KAGENT_E2E_UI_LOOP_LIVE_PORT=8312 yarn test:pw:live   # to run beside something 
 ```
 
 Unlike `yarn test:pw`, this one **does** need a cluster, with the controller
-port-forwarded. It is not run in CI. The specs live in `playwright/live/`, and the
-coverage deliberately left out of it is in `DEFERRED.md`.
+port-forwarded. The specs live in `playwright/live/`, and the coverage deliberately
+left out of it is in `DEFERRED.md`.
+
+CI runs `live/pages`, `live/substrate` and `live/schedules` on the gvisor `test-e2e`
+leg, before the Go suite, against the deployed UI image. Setting
+`KAGENT_E2E_UI_LOOP_LIVE_URL` points a live run at an app that is already running
+instead of starting the dev server.
 
 A live run reaches the controller through Vite's proxy, exactly as a deployed
 build reaches it through nginx, so the app uses the same relative URLs either way
