@@ -89,4 +89,4 @@ class KAgentApp:
                 conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name, config=self.config.runtime
             )
 
-        return A2AServer(request_handler, self.config.runtime, controller.lifespan())
+        return A2AServer(request_handler, self.config.runtime, controller)

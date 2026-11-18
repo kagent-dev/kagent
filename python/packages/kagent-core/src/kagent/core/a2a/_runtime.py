@@ -43,12 +43,14 @@ class A2AServer:
         self,
         handler: DefaultRequestHandlerV2,
         runtime: RuntimeConfig,
-        *lifespans: Callable[[A2AServer], AbstractAsyncContextManager] | None,
+        *resources: AbstractAsyncContextManager | None,
+        lifespan: Callable[[A2AServer], AbstractAsyncContextManager] | None = None,
         address: str | None = None,
     ):
         self._handler = handler
         self._address = address or grpc_address(runtime)
-        self._lifespans = lifespans
+        self._resources = resources
+        self._lifespan = lifespan
         self._max_content_length = get_a2a_max_content_length(optional_field(runtime, "max_content_length"))
 
     def run(self) -> None:
@@ -70,9 +72,11 @@ class A2AServer:
         async with AsyncExitStack() as stack:
             if providers := current():
                 stack.callback(providers.shutdown)
-            for lifespan in self._lifespans:
-                if lifespan is not None:
-                    await stack.enter_async_context(lifespan(self))
+            if self._lifespan is not None:
+                await stack.enter_async_context(self._lifespan(self))
+            for resource in self._resources:
+                if resource is not None:
+                    await stack.enter_async_context(resource)
             stack.push_async_callback(self._handler.aclose)
             server = grpc.aio.server(
                 interceptors=[aio_server_interceptor(filter_=filters.negate(filters.health_check()))],

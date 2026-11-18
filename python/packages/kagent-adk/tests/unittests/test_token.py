@@ -41,3 +41,24 @@ async def test_refresh_token_survives_unexpected_error():
 
     assert read_calls == 3, "the loop must keep running after the first read raises"
     assert service.token == "new-token", "a later successful read must still update the token"
+
+
+@pytest.mark.asyncio
+async def test_token_refresh_finishes_when_resource_closes(monkeypatch):
+    service = KAgentTokenService(app_name="test-agent")
+    refreshing = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def refresh():
+        try:
+            refreshing.set()
+            await asyncio.Future()
+        finally:
+            finished.set()
+
+    monkeypatch.setattr(service, "_refresh_token", refresh)
+    monkeypatch.setattr("kagent.adk._token.read_token", lambda: "initial-token")
+    async with service:
+        await asyncio.wait_for(refreshing.wait(), timeout=2)
+        assert await service.get_token() == "initial-token"
+    assert finished.is_set()

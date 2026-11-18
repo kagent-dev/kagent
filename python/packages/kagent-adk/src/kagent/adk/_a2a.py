@@ -1,7 +1,8 @@
 #! /usr/bin/env python3
 import faulthandler
 import logging
-from typing import Any, Callable, List, Optional
+from contextlib import AbstractAsyncContextManager
+from typing import Callable, List, Optional
 
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
@@ -40,7 +41,7 @@ class KAgentApp:
         agent_card: AgentCard,
         kagent_api_url: str,
         app_name: str,
-        lifespan: Optional[Callable[[Any], Any]] = None,
+        lifespan: Optional[Callable[[A2AServer], AbstractAsyncContextManager]] = None,
         plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
         config: Optional[Config] = None,
@@ -53,7 +54,7 @@ class KAgentApp:
             agent_card: Agent card configuration for A2A protocol
             kagent_api_url: URL of the KAgent control-plane API
             app_name: Application name for identification
-            lifespan: Optional lifespan function
+            lifespan: Optional agent hook receiving the server before listeners start
             plugins: Optional list of plugins
             stream: Whether to stream the response
             config: Optional runtime and agent configuration
@@ -144,9 +145,9 @@ class KAgentApp:
         return A2AServer(
             request_handler,
             self.config.runtime,
-            self._lifespan,
-            token_service.lifespan() if token_service else None,
-            controller_client.lifespan() if controller_client else None,
+            token_service,
+            controller_client,
+            lifespan=self._lifespan,
             address=self.a2a_grpc_address,
         )
 

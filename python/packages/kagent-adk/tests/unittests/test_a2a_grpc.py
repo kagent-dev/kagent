@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sys
+from contextlib import asynccontextmanager
 
 import grpc
 import httpx
@@ -8,6 +9,7 @@ import pytest
 from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
 from google.protobuf.json_format import ParseDict
 from grpc_health.v1 import health_pb2, health_pb2_grpc
+from kagent.core import AsyncControllerClient
 from kagent.core._runtime_config import RuntimeConfig
 from kagent.core.a2a import KAgentGrpcServerCallContextBuilder, _runtime
 
@@ -15,7 +17,9 @@ from kagent.adk import KAgentApp
 from kagent.adk.types import Config
 
 
-def make_app(address: str | None = "127.0.0.1:0", port: int | None = None, max_content_length: int | None = None):
+def make_app(
+    address: str | None = "127.0.0.1:0", port: int | None = None, max_content_length: int | None = None, lifespan=None
+):
     card = ParseDict(
         {
             "name": "test-app",
@@ -30,6 +34,7 @@ def make_app(address: str | None = "127.0.0.1:0", port: int | None = None, max_c
         AgentCard(),
     )
     return KAgentApp(
+        lifespan=lifespan,
         root_agent_factory=lambda: None,
         agent_card=card,
         kagent_api_url="http://unused",
@@ -42,6 +47,37 @@ def make_app(address: str | None = "127.0.0.1:0", port: int | None = None, max_c
 @pytest.mark.parametrize("port,expected", [(None, "[::]:80"), (9090, "[::]:9090")])
 def test_grpc_address_from_runtime_port(port, expected):
     assert make_app(address=None, port=port).a2a_grpc_address == expected
+
+
+@pytest.mark.asyncio
+async def test_agent_hook_unwinds_if_readiness_fails(monkeypatch):
+    events = []
+
+    @asynccontextmanager
+    async def hook(server):
+        assert server is app
+        events.append("enter")
+        try:
+            yield
+        finally:
+            events.append("exit")
+
+    async def fail_readiness(*args, **kwargs):
+        raise OSError("readiness port unavailable")
+
+    close = AsyncControllerClient.close
+
+    async def close_controller(client):
+        await close(client)
+        events.append("controller closed")
+
+    monkeypatch.setattr(AsyncControllerClient, "close", close_controller)
+    app = make_app(lifespan=hook).build()
+    monkeypatch.setattr(asyncio, "start_server", fail_readiness)
+    with pytest.raises(OSError, match="readiness port unavailable"):
+        async with app.listen():
+            pytest.fail("startup succeeded with no readiness listener")
+    assert events == ["enter", "controller closed", "exit"]
 
 
 @pytest.mark.asyncio

@@ -135,7 +135,7 @@ class KAgentApp:
             if not signal_enabled("TRACES") or not OpenAIAgentsInstrumentor().is_instrumented_by_opentelemetry:
                 set_tracing_disabled(True)
 
-        return A2AServer(request_handler, self.config.runtime, controller.lifespan())
+        return A2AServer(request_handler, self.config.runtime, controller)
 
     async def test(self, task: str) -> None:
         """Test the agent with a simple task.
