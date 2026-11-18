@@ -86,28 +86,30 @@ func readFileContent(ctx context.Context, path string, offset, limit int) (strin
 	if lineLimit <= 0 {
 		lineLimit = defaultReadLines
 	}
-	count := 0
+	count, lines := 0, 0
 	err := scanFileLines(ctx, path, func(lineNum int, line string) bool {
+		lines = lineNum
 		if lineNum < start {
 			return true
 		}
-		count++
-		if !appendResultLine(&result, fmt.Sprintf("%6d|%s", lineNum, truncateRunes(line, maxLineRunes))) {
-			return false
-		}
 		if count == lineLimit {
+			// Only offer a continuation when a line actually follows the page.
 			if limit <= 0 {
-				fmt.Fprintf(&result, "[read limited to %d lines; continue with offset=%d]", lineLimit, lineNum+1)
+				fmt.Fprintf(&result, "[read limited to %d lines; continue with offset=%d]", lineLimit, lineNum)
 			}
 			return false
 		}
-		return true
+		count++
+		return appendResultLine(&result, fmt.Sprintf("%6d|%s", lineNum, truncateRunes(line, maxLineRunes)))
 	})
 	if err != nil {
 		return "", err
 	}
-	if result.Len() == 0 {
+	switch {
+	case lines == 0:
 		return "File is empty.", nil
+	case result.Len() == 0:
+		return fmt.Sprintf("Offset %d is past the end of the file, which has %d lines.", start, lines), nil
 	}
 	return strings.TrimSuffix(result.String(), "\n"), nil
 }
