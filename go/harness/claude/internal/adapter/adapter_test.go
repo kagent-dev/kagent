@@ -262,6 +262,14 @@ func TestSetEnvironmentOverridesExistingValue(t *testing.T) {
 	}
 }
 
+func TestPinnedEnvironmentOverridesTheActorEnvironment(t *testing.T) {
+	got := pinnedEnvironment([]string{"PATH=/bin", "DISABLE_UPDATES=0", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=0"})
+	want := []string{"PATH=/bin", "DISABLE_UPDATES=1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pinnedEnvironment() = %v, want %v", got, want)
+	}
+}
+
 func TestNativeTelemetryEnvironmentFollowsExportedSignals(t *testing.T) {
 	for name, test := range map[string]struct {
 		environment []string
