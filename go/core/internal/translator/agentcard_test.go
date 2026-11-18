@@ -8,15 +8,17 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
-func TestManagedAgentCardDeclaresHITL(t *testing.T) {
+func TestManagedAgentCardDeclaresItsExtensions(t *testing.T) {
 	card := ManagedAgentCard("managed-agent", &TemplateConfiguration{
 		Name: "managed-agent", Namespace: "", Source: &metav1.ObjectMeta{Name: "managed-agent"},
 	})
-	if !card.Capabilities.Streaming || len(card.Capabilities.Extensions) != 1 {
+	if !card.Capabilities.Streaming || len(card.Capabilities.Extensions) != 2 {
 		t.Fatalf("capabilities = %#v", card.Capabilities)
 	}
-	extension := card.Capabilities.Extensions[0]
-	if extension.URI != apia2a.HITLExtensionURI || extension.Required {
-		t.Fatalf("HITL extension = %#v", extension)
+	// Both are optional: requiring one would refuse clients that do not know it.
+	for index, uri := range []string{apia2a.HITLExtensionURI, apia2a.UsageExtensionURI} {
+		if extension := card.Capabilities.Extensions[index]; extension.URI != uri || extension.Required {
+			t.Fatalf("extension %d = %#v, want optional %s", index, extension, uri)
+		}
 	}
 }

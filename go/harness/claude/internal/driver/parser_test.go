@@ -10,6 +10,7 @@ import (
 	"testing/iotest"
 
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 const pinnedClaudeVersion = "2.1.285"
@@ -83,6 +84,34 @@ func TestParseJSONLTerminalFailure(t *testing.T) {
 	}
 	if last.Kind != EventFailed || last.SafeMessage != "budget limit reached" {
 		t.Fatalf("last event = %#v", last)
+	}
+}
+
+// A turn Claude Code stops at one of its own limits still spent tokens. The result's modelUsage
+// continues from the totals the resumed session saved, so the turn reports only what they grew by,
+// before the failure. The totals are from Claude Code 2.1.292, with the subtype of a turn limit.
+func TestParseJSONLLimitResultReportsTheTurnsOwnUsage(t *testing.T) {
+	start := map[string]modelUsage{"claude-haiku-4-5-20251001": {InputTokens: 10, OutputTokens: 42, CacheCreationInputTokens: 6614}}
+	input := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"e67aab23-392c-46f0-bbaa-c8cb31543fe7"}`,
+		`{"type":"result","subtype":"error_max_turns","is_error":true,"num_turns":1,"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":20,"outputTokens":81,"cacheReadInputTokens":6614,"cacheCreationInputTokens":6702}},"session_id":"e67aab23-392c-46f0-bbaa-c8cb31543fe7"}`,
+	}, "\n") + "\n"
+	var calls []runtime.ModelCall
+	var last Event
+	if err := parseJSONL(t.Context(), strings.NewReader(input), 4096, start, nil, func(event Event) error {
+		if event.Kind == EventModelCall {
+			calls = append(calls, *event.ModelCall)
+		}
+		last = event
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if last.Kind != EventFailed {
+		t.Fatalf("last event = %#v, want the limit reported as a failure", last)
+	}
+	if len(calls) != 1 || calls[0].InputTokens != 6712 || calls[0].CacheReadTokens != 6614 || calls[0].CacheWriteTokens != 88 || calls[0].OutputTokens != 39 {
+		t.Fatalf("model calls = %+v, want the turn's own 6712 input (6614 cached, 88 written) and 39 output tokens", calls)
 	}
 }
 

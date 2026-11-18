@@ -9,8 +9,9 @@ import (
 )
 
 // ManagedAgentCard describes the common private A2A contract implemented by
-// the kagent, Codex, and Claude harnesses. The gateway replaces the private
-// interface while preserving these runtime capabilities.
+// the kagent, Codex, and Claude harnesses: each answers human-in-the-loop
+// requests and reports task usage. The gateway replaces the private interface
+// while preserving these runtime capabilities.
 func ManagedAgentCard(agentName string, template *TemplateConfiguration) *a2atype.AgentCard {
 	outputModes := []string{"text"}
 	if template.Spec.OutputSchema != nil || template.Spec.OutputSchemaFrom != nil {
@@ -19,7 +20,7 @@ func ManagedAgentCard(agentName string, template *TemplateConfiguration) *a2atyp
 	return &a2atype.AgentCard{
 		Name: strings.ReplaceAll(agentName, "-", "_"), Description: template.Spec.Description, Version: "v1",
 		SupportedInterfaces: []*a2atype.AgentInterface{{URL: "http://127.0.0.1:80", ProtocolBinding: a2atype.TransportProtocolGRPC, ProtocolVersion: a2atype.Version}},
-		Capabilities:        a2atype.AgentCapabilities{Streaming: true, Extensions: []a2atype.AgentExtension{apia2a.HITLExtension()}},
+		Capabilities:        a2atype.AgentCapabilities{Streaming: true, Extensions: []a2atype.AgentExtension{apia2a.HITLExtension(), apia2a.UsageExtension()}},
 		Skills:              []a2atype.AgentSkill{}, DefaultInputModes: []string{"text"}, DefaultOutputModes: outputModes,
 	}
 }
