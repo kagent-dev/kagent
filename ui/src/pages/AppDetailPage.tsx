@@ -5,7 +5,7 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
 import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
-import { buildPath, paths } from "@/router/routes";
+import { mcpServerTo, paths } from "@/router/routes";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import { parseRef, useMcpServers, type DiscoveredTool, type ToolServerResponse } from "@/api";
 
@@ -176,7 +176,11 @@ export function AppDetailPage() {
                     key: "server",
                     label: "Server",
                     children: (
-                      <ResourceLink mono to={buildPath(paths.mcpServer, parseRef(match.server.ref))} data-testid="app-server-link">
+                      <ResourceLink
+                        mono
+                        to={mcpServerTo({ ...parseRef(match.server.ref), groupKind: match.server.groupKind })}
+                        data-testid="app-server-link"
+                      >
                         {match.server.ref}
                       </ResourceLink>
                     ),
@@ -206,7 +210,7 @@ export function AppDetailPage() {
                 tools={match.server.discoveredTools.filter(
                   (tool) => tool.name !== match.tool.name,
                 )}
-                server={parseRef(match.server.ref)}
+                server={{ ...parseRef(match.server.ref), groupKind: match.server.groupKind }}
               />
             </Card>
           </>

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
-import { useLocation, useParams } from "react-router-dom";
+import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { BackButton } from "@/components/common/BackButton";
@@ -9,15 +9,23 @@ import { useGoBack } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
 import { safeDecode, toolAnchor } from "@/components/mcp/toolAnchor";
-import { useAgentTemplatesAcrossNamespaces, useMcpServers, type AgentTemplate } from "@/api";
+import {
+  bindingGroupKind,
+  findToolServer,
+  useAgentTemplatesAcrossNamespaces,
+  useMcpServers,
+  type AgentTemplate,
+  type ToolBinding,
+} from "@/api";
 import { backLinkState } from "@/router/backLink";
-import { buildPath, paths } from "@/router/routes";
+import { buildPath, MCP_SERVER_KIND_PARAM, paths } from "@/router/routes";
 
 const { Text } = Typography;
 
 /**
  * One MCP server and the tools it reports. There is no get for a tool server, so it
- * is found in the list. A `#tool-<name>` hash scrolls to and marks that tool.
+ * is found in the list. `?kind=` picks one when two kinds share a name; links made
+ * without it match by name alone. A `#tool-<name>` hash scrolls to and marks that tool.
  */
 export function McpServerDetailsPage() {
   const theme = useTheme();
@@ -25,22 +33,28 @@ export function McpServerDetailsPage() {
   const { hash } = location;
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const back = useGoBack({ to: paths.mcpServers, label: "Back to MCP servers" });
+  const [searchParams] = useSearchParams();
   const servers = useMcpServers();
-  const server = servers.data?.find((row) => row.ref === `${namespace}/${name}`);
+  const kind = searchParams.get(MCP_SERVER_KIND_PARAM);
+  const server = servers.data && findToolServer(servers.data, `${namespace}/${name}`, kind);
   const missing = Boolean(servers.data) && !server;
   const templates = useAgentTemplatesAcrossNamespaces(namespace ? [namespace] : undefined);
+  const bindsThis = ({ mcp }: ToolBinding, template: AgentTemplate) =>
+    mcp !== undefined &&
+    mcp.server.name === name &&
+    (mcp.server.namespace || template.namespace) === namespace &&
+    bindingGroupKind(mcp.server) === server?.groupKind;
   const users = (templates.data?.templates ?? []).filter((template) =>
-    (template.resource.spec.tools ?? []).some(
-      (binding) =>
-        binding.mcp?.server.name === name && (binding.mcp?.server.namespace || template.namespace) === namespace,
-    ),
+    (template.resource.spec.tools ?? []).some((binding) => bindsThis(binding, template)),
   );
 
   const anchor = safeDecode(hash.replace(/^#/, ""));
   const currentTool = anchor.startsWith(toolAnchor("")) ? anchor.slice(toolAnchor("").length) : undefined;
+  // Keyed on a boolean, so a background refresh does not scroll the reader back.
+  const found = Boolean(server);
   useEffect(() => {
-    if (server && currentTool) document.getElementById(toolAnchor(currentTool))?.scrollIntoView({ block: "center" });
-  }, [server, currentTool]);
+    if (found && currentTool) document.getElementById(toolAnchor(currentTool))?.scrollIntoView({ block: "center" });
+  }, [found, currentTool]);
 
   return (
     <PageFrame
@@ -124,11 +138,7 @@ export function McpServerDetailsPage() {
                     key: "tools",
                     render: (_, template) => {
                       const names = (template.resource.spec.tools ?? [])
-                        .filter(
-                          (binding) =>
-                            binding.mcp?.server.name === name &&
-                            (binding.mcp?.server.namespace || template.namespace) === namespace,
-                        )
+                        .filter((binding) => bindsThis(binding, template))
                         .flatMap((binding) => binding.mcp?.tools ?? []);
                       return names.length ? (
                         <Space size={[4, 4]} wrap>

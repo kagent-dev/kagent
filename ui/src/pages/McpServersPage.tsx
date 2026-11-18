@@ -4,11 +4,12 @@ import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Plus } from "lucide-react";
 import { useTheme } from "@emotion/react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { Highlighted, ToolServerTools } from "@/components/mcp/ToolServerTools";
-import { buildPath, paths } from "@/router/routes";
+import { mcpServerTo, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   apiClient,
@@ -110,6 +111,7 @@ export function McpServersPage() {
   // so refreshing the list alone leaves it counting a deregistered server's tools.
   const invalidateServers = useInvalidateMcpServers();
   const view = useListView(FILTER_IDS);
+  const location = useLocation();
 
   const servers = useMemo(() => data ?? [], [data]);
 
@@ -162,7 +164,8 @@ export function McpServersPage() {
         render: (_, row) => (
           <ResourceLink
             mono
-            to={buildPath(paths.mcpServer, parseRef(row.server.ref))}
+            to={mcpServerTo({ ...parseRef(row.server.ref), groupKind: row.server.groupKind })}
+            state={backLinkState(location, "Back to MCP servers")}
             data-testid={`mcp-server-link-${parseRef(row.server.ref).name}`}
           >
             <Highlighted text={parseRef(row.server.ref).name} term={view.query} />
@@ -229,7 +232,7 @@ export function McpServersPage() {
         },
       },
     ],
-    [theme, view, isFiltering, invalidateServers],
+    [theme, view, isFiltering, invalidateServers, location],
   );
 
   const toolTotal = servers.reduce(
@@ -330,7 +333,8 @@ export function McpServersPage() {
                 key={view.query}
                 tools={row.tools}
                 highlight={view.query}
-                server={parseRef(row.server.ref)}
+                server={{ ...parseRef(row.server.ref), groupKind: row.server.groupKind }}
+                linkState={backLinkState(location, "Back to MCP servers")}
               />
             ),
             // Controlled rather than `expandRowByClick`, so `clickableRow` can keep a

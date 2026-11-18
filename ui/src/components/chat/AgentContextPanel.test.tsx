@@ -19,7 +19,7 @@ function LocationState() {
   const location = useLocation();
   return (
     <>
-      <pre data-testid="location-path">{location.pathname + location.hash}</pre>
+      <pre data-testid="location-path">{location.pathname + location.search + location.hash}</pre>
       <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>
     </>
   );
@@ -121,7 +121,7 @@ describe("AgentContextPanel", () => {
   it.each([
     ["chat-agent-context-harness", "/harnesses/kagent/runner"],
     ["chat-agent-context-model", "/models/shared/gpt/edit"],
-    ["chat-agent-context-tool", "/mcp/kagent/tools#tool-list_pods"],
+    ["chat-agent-context-tool", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev#tool-list_pods"],
   ])("opens %s at %s with a way back to this conversation", async (testId, path) => {
     renderPanel(
       [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],

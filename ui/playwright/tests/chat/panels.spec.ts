@@ -184,7 +184,7 @@ test("chat: the harness and an MCP server open from a conversation and lead back
 
   await test.step("3. a tool link opens its MCP server, with that tool marked", async () => {
     await page.getByTestId("chat-agent-context-tool").filter({ hasText: "k8s_get_events" }).click();
-    await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server#tool-k8s_get_events$/);
+    await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-k8s_get_events$/);
     const tools = page.getByTestId("mcp-server-tools");
     await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
     await expect(tools.locator("[data-current]")).toContainText("k8s_get_events");

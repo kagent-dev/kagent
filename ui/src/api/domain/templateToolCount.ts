@@ -8,13 +8,22 @@ export interface TemplateToolCount {
 }
 
 /** The `groupKind` the controller reports for a binding's server. Group and kind each default on their own. */
-function bindingGroupKind({ group, kind }: ObjectReference): string {
+export function bindingGroupKind({ group, kind }: ObjectReference): string {
   const resolvedKind = kind || "RemoteMCPServer";
   const resolvedGroup = group ?? "api.kagent.dev";
   return resolvedGroup ? `${resolvedKind}.${resolvedGroup}` : resolvedKind;
 }
 
 const serverKey = (groupKind: string, ref: string) => `${groupKind}|${ref}`;
+
+/** The server at `namespace/name` of `groupKind`, or of any kind when none is given. */
+export function findToolServer(
+  servers: readonly ToolServerResponse[],
+  ref: string,
+  groupKind?: string | null,
+): ToolServerResponse | undefined {
+  return servers.find((server) => server.ref === ref && (!groupKind || server.groupKind === groupKind));
+}
 
 /** Servers keyed by kind and `namespace/name`, since two kinds can share a name. */
 export function indexToolServers(servers: readonly ToolServerResponse[]): Map<string, ToolServerResponse> {

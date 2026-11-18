@@ -1,6 +1,7 @@
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
+import { useLocation } from "react-router-dom";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { Skeleton, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -19,6 +20,7 @@ import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { backLinkState } from "@/router/backLink";
 
 /** The filters this tab offers, which `useListView` keeps in the URL. */
 const FILTER_IDS = ["ns"] as const;
@@ -41,6 +43,7 @@ export function HarnessesTab() {
   const loadFailure = namespaceFailure ?? harnesses.error;
 
   const view = useListView(FILTER_IDS);
+  const location = useLocation();
   const selectedNamespaces = view.selected("ns");
 
   const rows = harnesses.data ?? [];
@@ -79,6 +82,7 @@ export function HarnessesTab() {
           <ResourceLink
             mono
             to={buildPath(paths.harness, { namespace: row.namespace, name: row.name })}
+            state={backLinkState(location, "Back to harnesses")}
             data-testid={`harness-link-${row.name}`}
           >
             {row.name}

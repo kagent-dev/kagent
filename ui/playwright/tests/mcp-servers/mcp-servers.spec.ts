@@ -115,15 +115,21 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(page.getByTestId("tool-server-tools")).toBeHidden();
   });
 
-  await test.step("4b. a tool name opens its server's details at that tool, and back returns", async () => {
+  await test.step("4b. a tool name opens its server's details at that tool, and back keeps the filter", async () => {
+    await page.getByTestId("mcp-servers-filters-search").fill("grafana");
+    await expect(page).toHaveURL(/[?&]q=grafana/);
     await dataRows(page).filter({ hasText: "grafana-mcp" }).getByRole("cell").nth(2).click();
     await page.getByTestId("tool-server-tool-link").filter({ hasText: "grafana_query" }).click();
-    await expect(page).toHaveURL(/\/mcp\/platform\/grafana-mcp#tool-grafana_query$/);
+    await expect(page).toHaveURL(/\/mcp\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-grafana_query$/);
     await expect(page.getByTestId("mcp-server-tools").locator("[data-current]")).toContainText("grafana_query");
 
     await expect(page.getByTestId("mcp-server-back")).toHaveText("Back to MCP servers");
     await page.getByTestId("mcp-server-back").click();
-    await expect(page).toHaveURL(/\/mcp$/);
+    await expect(page).toHaveURL(/\/mcp\?(.*&)?q=grafana(&|$)/);
+    await expect(page.getByTestId("mcp-servers-filters-search")).toHaveValue("grafana");
+    await expect(dataRows(page)).toHaveCount(1);
+
+    await page.getByTestId("mcp-servers-filters-search").fill("");
     await expect(dataRows(page)).toHaveCount(SEEDED.length);
   });
 

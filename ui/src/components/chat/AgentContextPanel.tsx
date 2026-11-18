@@ -3,9 +3,10 @@ import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Info } from "lucide-react";
 import { useLocation } from "react-router-dom";
+import { bindingGroupKind } from "@/api/domain/templateToolCount";
 import { useAgent, useAgentTemplate, bareName, type AgentInstance, type ObjectReference } from "@/api";
 import { ResourceLink } from "@/components/common/ResourceLink";
-import { buildPath, paths } from "@/router/routes";
+import { buildPath, mcpServerTo, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
 import { toolAnchor } from "@/components/mcp/toolAnchor";
 
@@ -70,6 +71,8 @@ export function AgentContextPanel({
   const linkCss = { justifySelf: "start", fontSize: 12 } as const;
   const refPath = (path: string, ref: ObjectReference) =>
     buildPath(path, { namespace: ref.namespace || templateNamespace, name: ref.name });
+  const serverTo = (ref: ObjectReference, hash?: string) =>
+    mcpServerTo({ namespace: ref.namespace || templateNamespace, name: ref.name, groupKind: bindingGroupKind(ref) }, hash);
 
   return (
     <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
@@ -178,13 +181,12 @@ export function AgentContextPanel({
               >
                 {tools.flatMap((binding, index) => {
                   const mcp = binding.mcp;
-                  const server = mcp ? refPath(paths.mcpServer, mcp.server) : "";
                   return mcp
                     ? mcp.tools?.length
                       ? mcp.tools.map((tool) => (
                           <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
                             <ResourceLink
-                              to={{ pathname: server, hash: toolAnchor(tool) }}
+                              to={serverTo(mcp.server, toolAnchor(tool))}
                               state={back}
                               data-testid="chat-agent-context-tool"
                             >
@@ -194,7 +196,7 @@ export function AgentContextPanel({
                         ))
                       : [
                           <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            <ResourceLink to={server} state={back} data-testid="chat-agent-context-tool">
+                            <ResourceLink to={serverTo(mcp.server)} state={back} data-testid="chat-agent-context-tool">
                               {referenceLabel(mcp.server, templateNamespace)} (all tools)
                             </ResourceLink>
                           </Tag>,

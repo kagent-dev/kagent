@@ -3,7 +3,7 @@ import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Tag, Typogra
 import type { DescriptionsProps } from "antd";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
-import { Link, useLocation, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { BackButton } from "@/components/common/BackButton";
@@ -23,6 +23,7 @@ const { Text } = Typography;
 export function HarnessDetailsPage() {
   const theme = useTheme();
   const location = useLocation();
+  const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const back = useGoBack({ to: harnessesTab, label: "Back to harnesses" });
   const harnesses = useHarnesses(namespace);
@@ -87,11 +88,13 @@ export function HarnessDetailsPage() {
       actions={
         <Space size={8} wrap>
           {harness && namespace && name ? (
-            <Link to={buildPath(paths.harnessEdit, { namespace, name })} state={here}>
-              <Button icon={<Pencil size={14} />} data-testid="harness-edit">
-                Edit
-              </Button>
-            </Link>
+            <Button
+              icon={<Pencil size={14} />}
+              data-testid="harness-edit"
+              onClick={() => navigate(buildPath(paths.harnessEdit, { namespace, name }), { state: here })}
+            >
+              Edit
+            </Button>
           ) : null}
           <BackButton back={back} testId="harness-back" />
           <RefreshButton onRefresh={harnesses.refresh} what="Harness" loading={harnesses.isLoading} disabled={missing} />

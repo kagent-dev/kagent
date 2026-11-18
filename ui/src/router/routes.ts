@@ -131,6 +131,18 @@ export const harnessesTab = `${paths.agents}?tab=harnesses`;
 /** The egress tab of the policies page. */
 export const egressPoliciesTab = `${paths.policies}?tab=egress`;
 
+/** The query parameter naming an MCP server's kind on its details page. */
+export const MCP_SERVER_KIND_PARAM = "kind";
+
+/** An MCP server's details page. The kind is in the query, since two kinds can share a namespace and name. */
+export function mcpServerTo(server: { namespace: string; name: string; groupKind: string }, hash?: string) {
+  return {
+    pathname: buildPath(paths.mcpServer, server),
+    search: `?${new URLSearchParams({ [MCP_SERVER_KIND_PARAM]: server.groupKind })}`,
+    hash,
+  };
+}
+
 export function buildPath(
   path: string,
   params: Record<string, string | undefined>,

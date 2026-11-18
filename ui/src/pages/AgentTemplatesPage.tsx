@@ -12,13 +12,14 @@ import { byText, listTableChange, matchesQuery, paginationFor, sortOrderFor } fr
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { clickableRow } from "@/components/table/rowClick";
-import { buildPath, paths } from "@/router/routes";
+import { buildPath, mcpServerTo, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   apiClient,
   parseRef,
   useAgentTemplatesAcrossNamespaces,
+  bindingGroupKind,
   countTemplateTools,
   indexToolServers,
   useInvalidateAgentTemplates,
@@ -171,12 +172,15 @@ export function AgentTemplatesTab() {
             );
           const servers = [
             ...new Map(
-              bindings
-                .filter((binding) => binding.mcp?.server.name)
-                .map((binding) => {
-                  const server = { namespace: binding.mcp?.server.namespace || row.namespace, name: binding.mcp?.server.name ?? "" };
-                  return [`${server.namespace}/${server.name}`, server] as const;
-                }),
+              bindings.flatMap(({ mcp }) => {
+                if (!mcp?.server.name) return [];
+                const server = {
+                  namespace: mcp.server.namespace || row.namespace,
+                  name: mcp.server.name,
+                  groupKind: bindingGroupKind(mcp.server),
+                };
+                return [[`${server.groupKind}|${server.namespace}/${server.name}`, server] as const];
+              }),
             ).values(),
           ];
           return (
@@ -184,9 +188,9 @@ export function AgentTemplatesTab() {
               <span data-testid={`template-tool-count-${row.name}`}>{count}</span>
               {servers.map((server) => (
                 <ResourceLink
-                  key={`${server.namespace}/${server.name}`}
+                  key={`${server.groupKind}|${server.namespace}/${server.name}`}
                   mono
-                  to={buildPath(paths.mcpServer, server)}
+                  to={mcpServerTo(server)}
                   state={backLinkState(location, "Back to templates")}
                   data-testid={`template-tool-server-${row.name}-${server.name}`}
                   css={{ fontSize: 12 }}

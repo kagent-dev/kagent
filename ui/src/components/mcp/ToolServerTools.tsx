@@ -3,7 +3,8 @@ import { useTheme } from "@emotion/react";
 import { Wrench } from "lucide-react";
 import type { DiscoveredTool } from "@/api";
 import { ResourceLink } from "@/components/common/ResourceLink";
-import { buildPath, paths } from "@/router/routes";
+import { mcpServerTo } from "@/router/routes";
+import type { BackLinkState } from "@/router/backLink";
 import { toolAnchor } from "./toolAnchor";
 
 const { Text } = Typography;
@@ -13,7 +14,9 @@ interface ToolServerToolsProps {
   /** Highlighted inside tool names and descriptions, when a filter is active. */
   highlight?: string;
   /** Links each tool name to its place on this server's details page. */
-  server?: { namespace: string; name: string };
+  server?: { namespace: string; name: string; groupKind: string };
+  /** Router state for those links, so the details page leads back here. */
+  linkState?: BackLinkState;
   /** Gives each tool an anchor id, and marks the one named here. */
   anchors?: { current?: string };
 }
@@ -25,7 +28,7 @@ interface ToolServerToolsProps {
  * may not have completed a handshake yet, or the server may genuinely expose
  * nothing. The copy says which without implying something went wrong.
  */
-export function ToolServerTools({ tools, highlight, server, anchors }: ToolServerToolsProps) {
+export function ToolServerTools({ tools, highlight, server, linkState, anchors }: ToolServerToolsProps) {
   const theme = useTheme();
 
   if (tools.length === 0) {
@@ -75,7 +78,8 @@ export function ToolServerTools({ tools, highlight, server, anchors }: ToolServe
             <div css={{ fontFamily: theme.font.mono, wordBreak: "break-word" }}>
               {server ? (
                 <ResourceLink
-                  to={{ pathname: buildPath(paths.mcpServer, server), hash: toolAnchor(tool.name) }}
+                  to={mcpServerTo(server, toolAnchor(tool.name))}
+                  state={linkState}
                   data-testid="tool-server-tool-link"
                 >
                   <Highlighted text={tool.name} term={highlight} />
