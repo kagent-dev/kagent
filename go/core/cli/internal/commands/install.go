@@ -16,6 +16,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
@@ -69,7 +70,20 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	if !cfg.DryRun && version.Version == "dev" {
 		return errors.New("installation requires a released version of kagent")
 	}
-	settings := cliconfig.FromContext(cmd.Context()).GetInstall()
+	settings := proto.Clone(cliconfig.FromContext(cmd.Context()).GetInstall()).(*configv1.InstallConfig)
+	for _, chart := range []*configv1.ChartConfig{settings.GetKagent(), settings.GetSubstrate(), settings.GetPodCertificate(), settings.GetAtelet()} {
+		if chart.GetInlineValues() == nil {
+			continue
+		}
+		path, err := createInlineHelmValuesFile(chart.GetInlineValues())
+		if err != nil {
+			return err
+		}
+		defer func() {
+			resultErr = errors.Join(resultErr, os.Remove(path))
+		}()
+		chart.ValuesFiles = append(chart.ValuesFiles, path)
+	}
 	modelProvider, err := installModelProvider(settings.GetDefaultModelProvider(), cfg.Provider)
 	if err != nil {
 		return err
@@ -158,6 +172,24 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 	}
 	pf.Stop()
 	return printInstallNextSteps(cmd.OutOrStdout(), options.Namespace)
+}
+
+func createInlineHelmValuesFile(values *structpb.Struct) (string, error) {
+	data, err := values.MarshalJSON()
+	if err != nil {
+		return "", fmt.Errorf("encode inline Helm values: %w", err)
+	}
+	file, err := os.CreateTemp("", "kagent-helm-values-*.json")
+	if err != nil {
+		return "", fmt.Errorf("create inline Helm values file: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		return "", errors.Join(fmt.Errorf("write inline Helm values: %w", err), file.Close(), os.Remove(file.Name()))
+	}
+	if err := file.Close(); err != nil {
+		return "", errors.Join(fmt.Errorf("close inline Helm values: %w", err), os.Remove(file.Name()))
+	}
+	return file.Name(), nil
 }
 
 // printInstallNextSteps tells a new user how to reach kagent after install.

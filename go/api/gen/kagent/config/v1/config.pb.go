@@ -11,6 +11,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
+	structpb "google.golang.org/protobuf/types/known/structpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -437,10 +438,13 @@ func (x *InstallConfig) GetAtelet() *ChartConfig {
 }
 
 type ChartConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Repository    *string                `protobuf:"bytes,1,opt,name=repository,proto3,oneof" json:"repository,omitempty"`
-	Version       *string                `protobuf:"bytes,2,opt,name=version,proto3,oneof" json:"version,omitempty"`
-	ValuesFiles   []string               `protobuf:"bytes,3,rep,name=values_files,json=valuesFiles,proto3" json:"values_files,omitempty"`
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Repository  *string                `protobuf:"bytes,1,opt,name=repository,proto3,oneof" json:"repository,omitempty"`
+	Version     *string                `protobuf:"bytes,2,opt,name=version,proto3,oneof" json:"version,omitempty"`
+	ValuesFiles []string               `protobuf:"bytes,3,rep,name=values_files,json=valuesFiles,proto3" json:"values_files,omitempty"`
+	// Inline chart values override values_files, but not installer-generated --set
+	// values.
+	InlineValues  *structpb.Struct `protobuf:"bytes,4,opt,name=inline_values,json=inlineValues,proto3" json:"inline_values,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -492,6 +496,13 @@ func (x *ChartConfig) GetVersion() string {
 func (x *ChartConfig) GetValuesFiles() []string {
 	if x != nil {
 		return x.ValuesFiles
+	}
+	return nil
+}
+
+func (x *ChartConfig) GetInlineValues() *structpb.Struct {
+	if x != nil {
+		return x.InlineValues
 	}
 	return nil
 }
@@ -2125,7 +2136,7 @@ var File_kagent_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1dkagent/config/v1/config.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\"\xea\x02\n" +
+	"\x1dkagent/config/v1/config.proto\x12\x10kagent.config.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xea\x02\n" +
 	"\tCLIConfig\x12B\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2\".kagent.config.v1.ConnectionConfigR\n" +
@@ -2174,13 +2185,14 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x16bundled_postgres_image\x18\x05 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x01R\x14bundledPostgresImage\x88\x01\x01\x125\n" +
 	"\x06atelet\x18\x06 \x01(\v2\x1d.kagent.config.v1.ChartConfigR\x06ateletB\x19\n" +
 	"\x17_default_model_providerB\x19\n" +
-	"\x17_bundled_postgres_image\"\xaf\x01\n" +
+	"\x17_bundled_postgres_image\"\xed\x01\n" +
 	"\vChartConfig\x12,\n" +
 	"\n" +
 	"repository\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x00R\n" +
 	"repository\x88\x01\x01\x12&\n" +
 	"\aversion\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01H\x01R\aversion\x88\x01\x01\x12/\n" +
-	"\fvalues_files\x18\x03 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\vvaluesFilesB\r\n" +
+	"\fvalues_files\x18\x03 \x03(\tB\f\xbaH\t\x92\x01\x06\"\x04r\x02\x10\x01R\vvaluesFiles\x12<\n" +
+	"\rinline_values\x18\x04 \x01(\v2\x17.google.protobuf.StructR\finlineValuesB\r\n" +
 	"\v_repositoryB\n" +
 	"\n" +
 	"\b_version\"\xe3\v\n" +
@@ -2413,6 +2425,7 @@ var file_kagent_config_v1_config_proto_goTypes = []any{
 	(*TokenPropagationConfig)(nil),       // 28: kagent.config.v1.TokenPropagationConfig
 	nil,                                  // 29: kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
 	(*durationpb.Duration)(nil),          // 30: google.protobuf.Duration
+	(*structpb.Struct)(nil),              // 31: google.protobuf.Struct
 }
 var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	2,  // 0: kagent.config.v1.CLIConfig.connection:type_name -> kagent.config.v1.ConnectionConfig
@@ -2426,55 +2439,56 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	6,  // 8: kagent.config.v1.InstallConfig.substrate:type_name -> kagent.config.v1.ChartConfig
 	6,  // 9: kagent.config.v1.InstallConfig.pod_certificate:type_name -> kagent.config.v1.ChartConfig
 	6,  // 10: kagent.config.v1.InstallConfig.atelet:type_name -> kagent.config.v1.ChartConfig
-	9,  // 11: kagent.config.v1.ControllerConfig.kubernetes:type_name -> kagent.config.v1.KubernetesConfig
-	10, // 12: kagent.config.v1.ControllerConfig.server:type_name -> kagent.config.v1.ControllerServerConfig
-	13, // 13: kagent.config.v1.ControllerConfig.database:type_name -> kagent.config.v1.DatabaseConfig
-	16, // 14: kagent.config.v1.ControllerConfig.substrate:type_name -> kagent.config.v1.SubstrateConfig
-	17, // 15: kagent.config.v1.ControllerConfig.sessions:type_name -> kagent.config.v1.SessionsConfig
-	18, // 16: kagent.config.v1.ControllerConfig.gateway:type_name -> kagent.config.v1.GatewayConfig
-	20, // 17: kagent.config.v1.ControllerConfig.sandboxes:type_name -> kagent.config.v1.SandboxConfig
-	21, // 18: kagent.config.v1.ControllerConfig.scheduled_runs:type_name -> kagent.config.v1.ScheduledRunsConfig
-	22, // 19: kagent.config.v1.ControllerConfig.runtime_revisions:type_name -> kagent.config.v1.RuntimeRevisionsConfig
-	23, // 20: kagent.config.v1.ControllerConfig.metrics:type_name -> kagent.config.v1.MetricsConfig
-	4,  // 21: kagent.config.v1.ControllerConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	24, // 22: kagent.config.v1.ControllerConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	26, // 23: kagent.config.v1.ControllerConfig.runtime_defaults:type_name -> kagent.config.v1.RuntimeDefaultsConfig
-	8,  // 24: kagent.config.v1.ControllerConfig.harness_images:type_name -> kagent.config.v1.HarnessImagesConfig
-	19, // 25: kagent.config.v1.ControllerConfig.push:type_name -> kagent.config.v1.PushConfig
-	11, // 26: kagent.config.v1.ControllerServerConfig.auth:type_name -> kagent.config.v1.AuthenticationConfig
-	12, // 27: kagent.config.v1.AuthenticationConfig.service_account:type_name -> kagent.config.v1.ServiceAccountAuthentication
-	14, // 28: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
-	14, // 29: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
-	15, // 30: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
-	30, // 31: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
-	30, // 32: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	30, // 33: kagent.config.v1.PostgresPoolConfig.connect_retry_timeout:type_name -> google.protobuf.Duration
-	30, // 34: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	30, // 35: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	30, // 36: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 37: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	30, // 38: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
-	30, // 39: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
-	30, // 40: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	30, // 41: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	30, // 42: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 43: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	30, // 44: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	30, // 45: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	25, // 46: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	25, // 47: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	25, // 48: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	29, // 49: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	30, // 50: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	4,  // 51: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	24, // 52: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	28, // 53: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	27, // 54: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	55, // [55:55] is the sub-list for method output_type
-	55, // [55:55] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	31, // 11: kagent.config.v1.ChartConfig.inline_values:type_name -> google.protobuf.Struct
+	9,  // 12: kagent.config.v1.ControllerConfig.kubernetes:type_name -> kagent.config.v1.KubernetesConfig
+	10, // 13: kagent.config.v1.ControllerConfig.server:type_name -> kagent.config.v1.ControllerServerConfig
+	13, // 14: kagent.config.v1.ControllerConfig.database:type_name -> kagent.config.v1.DatabaseConfig
+	16, // 15: kagent.config.v1.ControllerConfig.substrate:type_name -> kagent.config.v1.SubstrateConfig
+	17, // 16: kagent.config.v1.ControllerConfig.sessions:type_name -> kagent.config.v1.SessionsConfig
+	18, // 17: kagent.config.v1.ControllerConfig.gateway:type_name -> kagent.config.v1.GatewayConfig
+	20, // 18: kagent.config.v1.ControllerConfig.sandboxes:type_name -> kagent.config.v1.SandboxConfig
+	21, // 19: kagent.config.v1.ControllerConfig.scheduled_runs:type_name -> kagent.config.v1.ScheduledRunsConfig
+	22, // 20: kagent.config.v1.ControllerConfig.runtime_revisions:type_name -> kagent.config.v1.RuntimeRevisionsConfig
+	23, // 21: kagent.config.v1.ControllerConfig.metrics:type_name -> kagent.config.v1.MetricsConfig
+	4,  // 22: kagent.config.v1.ControllerConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	24, // 23: kagent.config.v1.ControllerConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	26, // 24: kagent.config.v1.ControllerConfig.runtime_defaults:type_name -> kagent.config.v1.RuntimeDefaultsConfig
+	8,  // 25: kagent.config.v1.ControllerConfig.harness_images:type_name -> kagent.config.v1.HarnessImagesConfig
+	19, // 26: kagent.config.v1.ControllerConfig.push:type_name -> kagent.config.v1.PushConfig
+	11, // 27: kagent.config.v1.ControllerServerConfig.auth:type_name -> kagent.config.v1.AuthenticationConfig
+	12, // 28: kagent.config.v1.AuthenticationConfig.service_account:type_name -> kagent.config.v1.ServiceAccountAuthentication
+	14, // 29: kagent.config.v1.DatabaseConfig.owner:type_name -> kagent.config.v1.DatabaseLoginConfig
+	14, // 30: kagent.config.v1.DatabaseConfig.read_write:type_name -> kagent.config.v1.DatabaseLoginConfig
+	15, // 31: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
+	30, // 32: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
+	30, // 33: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
+	30, // 34: kagent.config.v1.PostgresPoolConfig.connect_retry_timeout:type_name -> google.protobuf.Duration
+	30, // 35: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	30, // 36: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	30, // 37: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 38: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
+	30, // 39: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	30, // 40: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
+	30, // 41: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	30, // 42: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	30, // 43: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 44: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	30, // 45: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	30, // 46: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	25, // 47: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	25, // 48: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	25, // 49: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	29, // 50: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	30, // 51: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	4,  // 52: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	24, // 53: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	28, // 54: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	27, // 55: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }

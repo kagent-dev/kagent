@@ -49,7 +49,17 @@ func TestProviderAPIKeySelection(t *testing.T) {
 func TestInstallProfileCleansTemporaryValuesOnFailure(t *testing.T) {
 	temporary, tools, configDir := t.TempDir(), t.TempDir(), t.TempDir()
 	path := filepath.Join(configDir, "config.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("install:\n  defaultModelProvider: OpenAI\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(`install:
+  defaultModelProvider: OpenAI
+  kagent:
+    inlineValues: {controller: {replicas: 2}}
+  substrate:
+    inlineValues: {rustfs: {enabled: false}}
+  podCertificate:
+    inlineValues: {global: {imageRegistry: mirror.example}}
+  atelet:
+    inlineValues: {atelet: {resources: {limits: {memory: 2Gi}}}}
+`), 0o600))
 	t.Setenv("TMPDIR", temporary)
 	t.Setenv("PATH", tools)
 	t.Setenv("OPENAI_API_KEY", "test-key")
