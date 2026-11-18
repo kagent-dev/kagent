@@ -3,6 +3,7 @@ package scheduledrun
 import (
 	"context"
 	"errors"
+	"fmt"
 	"iter"
 	"testing"
 	"time"
@@ -258,6 +259,46 @@ func TestControllerDoesNotRepeatAnUncertainDispatch(t *testing.T) {
 	require.Equal(t, 1, reads)
 	require.Empty(t, execution.TaskId)
 	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
+}
+
+type rejectedDispatchGateway struct {
+	taskLookupGateway
+	err error
+}
+
+func (g rejectedDispatchGateway) SendStreamingMessage(context.Context, *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
+	return func(yield func(a2atype.Event, error) bool) { yield(nil, g.err) }
+}
+
+func TestControllerRecordsRejectedDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want apiv1.ScheduledRunExecutionState
+	}{
+		{"Given refused input, when dispatch returns, assert that execution fails", sessionsvc.ErrSendNotAccepted, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
+		{"Given wrapped refusal, when dispatch returns, assert that execution fails", fmt.Errorf("send: %w", sessionsvc.ErrSendNotAccepted), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
+		{"Given runtime recovery, when dispatch refuses input, assert that execution fails", sessionsvc.ErrRuntimeRecovering, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED},
+		{"Given an uncertain send, when dispatch returns, assert that execution stays running", a2atype.ErrInternalError, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			execution := &apiv1.ScheduledRunExecution{Id: "execution", SessionId: "session", State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING, Deadline: timestamppb.New(time.Now().Add(time.Hour))}
+			store := &scopedControllerStore{session: &apiv1.Session{Id: "session", Creator: "owner", State: apiv1.RuntimeState_RUNTIME_STATE_READY, Operation: apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE}}
+			execution.Creator = "owner"
+			gateway := rejectedDispatchGateway{err: tc.err, taskLookupGateway: taskLookupGateway{listTasks: func(*a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
+				return &a2atype.ListTasksResponse{}, nil
+			}}}
+			err := NewController(store, nil, gateway, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution})
+			require.ErrorIs(t, err, tc.err)
+			require.Equal(t, tc.want, execution.State)
+			require.Empty(t, execution.TaskId)
+			if tc.want == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED {
+				require.Equal(t, tc.err.Error(), execution.FailureReason)
+			} else {
+				require.Empty(t, execution.FailureReason)
+			}
+		})
+	}
 }
 
 // This policy grants only the Session operations exercised by durable dispatch.
