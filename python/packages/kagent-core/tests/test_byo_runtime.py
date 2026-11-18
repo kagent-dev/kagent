@@ -22,9 +22,8 @@ from kagent.core.a2a._task_store import KAgentTaskStore
 def openai_agent(monkeypatch):
     from agents import Agent, Runner
 
-    def run_streamed(agent, user_input, *, session, context):
+    def run_streamed(agent, user_input, *, context):
         assert user_input == "go"
-        assert session is None
         assert context.session_id == "conversation"
         return SimpleNamespace(stream_events=MagicMock(), final_output="OpenAI answer")
 
@@ -81,7 +80,7 @@ async def test_ready_byo_serves_and_persists_message(adapter, agent, answer, mon
         app = module.KAgentApp(
             **agent(monkeypatch), config=config, agent_card=a2a.AgentCard(name="byo", version="1"), tracing=False
         ).build()
-        async with app.router.lifespan_context(app):
+        async with app.listen():
             async with httpx.AsyncClient(trust_env=False) as http:
                 assert (await http.get("http://127.0.0.1:8081/readyz")).status_code == 200
             async with grpc.aio.insecure_channel(f"127.0.0.1:{unused_tcp_port}") as channel:

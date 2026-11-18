@@ -27,8 +27,10 @@ class KAgentTokenService:
         @asynccontextmanager
         async def _lifespan(app: Any):
             await self._update_token_loop()
-            yield
-            self._drain()
+            try:
+                yield
+            finally:
+                self._drain()
 
         return _lifespan
 

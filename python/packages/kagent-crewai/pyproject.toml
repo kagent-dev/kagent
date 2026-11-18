@@ -10,10 +10,8 @@ readme = "README.md"
 requires-python = ">=3.11, <3.14"
 dependencies = [
   "crewai[tools]>= 1.2.0",
-  "fastapi>=0.100.0",
   "pydantic>=2.0.0",
   "typing-extensions>=4.16.0",
-  "uvicorn>=0.20.0",
   "a2a-sdk[http-server]>=1.1.5",
   "kagent-core[crewai]>=0.1.0",
   "google-genai>=2.34.0,<3"

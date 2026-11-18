@@ -1,13 +1,10 @@
 import logging
 import os
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
-from fastapi import FastAPI
 from opentelemetry import _logs, metrics, trace
 from opentelemetry.distro import OpenTelemetryConfigurator
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import OTELResourceDetector
@@ -203,32 +200,3 @@ def bootstrap(
     if signal_enabled("TRACES") or signal_enabled("METRICS") or signal_enabled("LOGS"):
         _instrument(COMMON_INSTRUMENTORS + profile.instrumentors, instrument_options or {})
     return _current
-
-
-def instrument_app(app: FastAPI, **providers: Any) -> None:
-    if not (signal_enabled("TRACES") or signal_enabled("METRICS")):
-        return
-    FastAPIInstrumentor.instrument_app(
-        app,
-        exclude_spans=["receive", "send"],
-        excluded_urls=r"/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json",
-        **providers,
-    )
-
-
-def shutdown_lifespan(inner: Callable[[FastAPI], Any] | None = None):
-    """Wrap a FastAPI lifespan so the providers shut down when the app stops."""
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        try:
-            if inner is None:
-                yield
-            else:
-                async with inner(app):
-                    yield
-        finally:
-            if _current is not None:
-                _current.shutdown()
-
-    return lifespan

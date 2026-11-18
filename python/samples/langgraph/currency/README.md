@@ -1,13 +1,13 @@
 # Currency LangGraph Agent
 
-This is a currency LangGraph agent that demonstrates KAgent integration with session persistence via REST API.
+This is a currency LangGraph agent that demonstrates KAgent integration with controller-backed A2A task history.
 
 ## Features
 
 - Currency conversion agent using OpenAI
 - LangGraph state management with KAgent checkpointer
 - A2A protocol compatibility
-- Session persistence via KAgent REST API
+- A2A task persistence through controller gRPC
 - Streaming responses
 
 ## Quick Start
@@ -34,35 +34,8 @@ kubectl create secret generic kagent-openai -n kagent \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-4. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   current examples and E2E fixtures for the resource shape.
-
-## Local Development
-
-1. Install dependencies:
-
-```bash
-uv sync
-```
-
-2. Set environment variables:
-
-```bash
-export OPENAI_API_KEY=your_api_key_here
-# Load process settings from /config/config.json (see Configuration).
-```
-
-3. Run the agent server:
-
-```bash
-uv run currency
-```
-
-4. Test the agent:
-
-```bash
-uv run currency test
-```
+4. Configure a BYO `Harness` with this image and create an `Agent` that references it.
+   Send messages to the Agent through the [A2A gateway](../../../../docs/architecture/a2a-transports.md).
 
 ## Architecture
 
@@ -73,15 +46,15 @@ This agent demonstrates:
 - **A2A Integration**: Compatible with KAgent's agent-to-agent protocol
 - **Streaming**: Real-time response streaming via A2A events
 
-The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). Mount a persistent volume and point the variable there for persistence across pod replacement.
+The agent stores conversation history in `KAGENT_CHECKPOINT_DB` (default: `/tmp/currency-checkpoints.sqlite`). For checkpoints that survive Actor replacement, set the variable to a path in the Actor’s durable directory under `/data`.
 
 ## Configuration
 
 The agent can be configured via environment variables:
 
 - `OPENAI_API_KEY`: Required for OpenAI API access
-- `PORT`: Server port (default: 8080)
-- `HOST`: Server host (default: 0.0.0.0)
+
+The runtime configuration selects the A2A gRPC address (default `[::]:80`). Substrate probes `GET /readyz` on port `8081`.
 
 ## Tracing (OTel)
 
@@ -111,11 +84,4 @@ References:
 
 Managed entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
 to fetch and materialize the controller bundle before `KAgentConfig.from_file()`.
-The file loader does not bootstrap. For a standalone process, create the file and
-load it directly:
-
-```json
-{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
-```
-
 Provider credentials and standard `OTEL_*` overrides remain environment inputs.

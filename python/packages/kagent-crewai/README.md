@@ -6,7 +6,6 @@ This package provides CrewAI integration for KAgent with A2A (Agent-to-Agent) se
 
 - **A2A Server Integration**: Compatible with KAgent's Agent-to-Agent protocol
 - **Event Streaming**: Real-time streaming of crew execution events
-- **FastAPI Integration**: Ready-to-deploy web server for agent execution
 - **Session-aware Memory**: Store and retrieve agent memories scoped by session ID
 - **Flow State Persistence**: Save and restore CrewAI Flow states to KAgent backend
 
@@ -18,7 +17,6 @@ This package supports both CrewAI Crews and Flows. To get started, define your C
 import json
 from pathlib import Path
 
-import uvicorn
 from kagent.crewai import KAgentApp
 from kagent.core import KAgentConfig, materialize_from_bootstrap
 
@@ -32,8 +30,7 @@ app = KAgentApp(
     config=KAgentConfig.from_file(),
 )
 
-fastapi_app = app.build()
-uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+app.build().run()
 ```
 
 ## User Guide
@@ -75,31 +72,18 @@ To enable tracing, follow [this guide](https://kagent.dev/docs/kagent/getting-st
 The package mirrors the structure of `kagent-adk` and `kagent-langgraph` but uses CrewAI for multi-agent orchestration:
 
 - **CrewAIAgentExecutor**: Executes CrewAI workflows within A2A protocol
-- **KAgentApp**: FastAPI application builder with A2A integration
+- **KAgentApp**: gRPC server builder with A2A integration
 - **Event Converters**: Translates CrewAI events into A2A events for streaming.
 - **Task history**: The public A2A gateway persists client-visible task and event history.
 
-For local development, configure the HTTP endpoint used by protocol traffic:
-
-```bash
-# Load process settings from /config/config.json (see Configuration).
-```
-
 ## Deployment
 
-Start Uvicorn on a separate HTTP port such as `8080`. During application startup, `build()` starts the A2A gRPC server on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
+`app.build().run()` starts A2A gRPC on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
 
 The uses the same deployment approach as other KAgent A2A applications (ADK / LangGraph). You can refer to `samples/crewai/` for examples.
 
-### Runtime configuration file
+### Substrate startup
 
-Managed entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
-to fetch and materialize the controller bundle before `KAgentConfig.from_file()`.
-The file loader does not bootstrap. For a standalone process, create the file and
-load it directly:
-
-```json
-{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
-```
-
-Provider credentials and standard `OTEL_*` overrides remain environment inputs.
+The image materializes the controller's revision into `/config` before building
+the app. Clients discover and invoke the Agent through the
+[controller gateway](../../../docs/architecture/a2a-transports.md).

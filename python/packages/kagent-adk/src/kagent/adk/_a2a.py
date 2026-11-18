@@ -3,11 +3,8 @@ import faulthandler
 import logging
 from typing import Any, Callable, List, Optional
 
-from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.apps.app import EventsCompactionConfig
@@ -19,38 +16,21 @@ from google.genai import types
 from kagent.core import AsyncControllerClient
 from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
-    A2ARequestSizeLimitMiddleware,
     KAgentRequestContextBuilder,
     TelemetryRequestHandler,
     attach_hitl_agent_extension,
     attach_usage_agent_extension,
-    get_a2a_max_content_length,
 )
-from kagent.core.a2a._runtime import grpc_address, runtime_lifespan
+from kagent.core.a2a._runtime import A2AServer, grpc_address
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
-from kagent.core.telemetry import shutdown_lifespan
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
-from ._lifespan import LifespanManager
 from ._local_session_service import LocalSessionService
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
 from .types import Config
 
 logger = logging.getLogger(__name__)
-
-
-def health_check(request: Request) -> PlainTextResponse:
-    return PlainTextResponse("OK")
-
-
-def thread_dump(request: Request) -> PlainTextResponse:
-    import tempfile
-
-    with tempfile.TemporaryFile(mode="w+") as tmp:
-        faulthandler.dump_traceback(file=tmp, all_threads=True)
-        tmp.seek(0)
-        return PlainTextResponse(tmp.read())
 
 
 class KAgentApp:
@@ -89,7 +69,7 @@ class KAgentApp:
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
 
-    def build(self, local=False) -> FastAPI:
+    def build(self, local=False) -> A2AServer:
         attach_hitl_agent_extension(self.agent_card)
         attach_usage_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
@@ -161,29 +141,14 @@ class KAgentApp:
 
         faulthandler.enable()
 
-        lifespan_manager = LifespanManager()
-        lifespan_manager.add(shutdown_lifespan())
-        lifespan_manager.add(self._lifespan)
-        if not local:
-            lifespan_manager.add(token_service.lifespan())
-            lifespan_manager.add(controller_client.lifespan())
-
-        app = FastAPI(lifespan=runtime_lifespan(request_handler, self.a2a_grpc_address, lifespan_manager))
-        app.add_middleware(
-            A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
+        return A2AServer(
+            request_handler,
+            self.config.runtime,
+            self._lifespan,
+            token_service.lifespan() if token_service else None,
+            controller_client.lifespan() if controller_client else None,
+            address=self.a2a_grpc_address,
         )
-
-        # Health check/readiness probe
-        app.add_route("/health", methods=["GET"], route=health_check)
-        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-        add_a2a_routes_to_fastapi(
-            app,
-            agent_card_routes=create_agent_card_routes(self.agent_card),
-            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
-        )
-
-        return app
 
     async def test(self, task: str):
         session_service = InMemorySessionService()

@@ -29,8 +29,7 @@ app = KAgentApp(
 )
 
 # Run
-fastapi_app = app.build()
-# uvicorn run_me:fastapi_app --host 0.0.0.0 --port 8080
+app.build().run()
 ```
 
 ---
@@ -65,31 +64,9 @@ The production app persists A2A tasks and their public history through the contr
 
 ---
 
-## Local Development
-
-Test without KAgent backend using in-memory mode:
-
-```python
-from agents import Agent
-from kagent.core import KAgentConfig
-from kagent.openai import KAgentApp
-
-app = KAgentApp(
-    agent=Agent(name="Assistant"),
-    agent_card={"name": "Assistant", "version": "0.1.0"},
-    config=KAgentConfig(
-        name="assistant", namespace="local",
-        api_url="http://localhost", gateway_url="http://localhost",
-    ),
-)
-fastapi_app = app.build_local()
-```
-
----
-
 ## Deployment
 
-Start Uvicorn on a separate HTTP port such as `8080`. During application startup, `build()` starts the A2A gRPC server on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
+`app.build().run()` starts A2A gRPC on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
 
 Standard Docker deployment:
 
@@ -99,7 +76,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY agent.py .
-CMD ["uvicorn", "agent:fastapi_app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "agent.py"]
 ```
 
 Load `/config/config.json` with `KAgentConfig.from_file()` to connect to kagent.
@@ -110,14 +87,9 @@ Load `/config/config.json` with `KAgentConfig.from_file()` to connect to kagent.
 
 | Component               | Purpose                                      |
 | ----------------------- | -------------------------------------------- |
-| **KAgentApp**           | FastAPI application builder with A2A support |
+| **KAgentApp**           | gRPC server builder with A2A support |
 | **KAgentTaskStore**     | A2A task persistence via controller gRPC     |
 | **OpenAIAgentExecutor** | Executes agents with event streaming         |
-
----
-
-## Environment Variables
-
 
 ---
 
@@ -142,15 +114,8 @@ See `samples/openai/` for complete examples:
 
 See repository LICENSE file.
 
-### Runtime configuration file
+### Substrate startup
 
-Managed entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
-to fetch and materialize the controller bundle before `KAgentConfig.from_file()`.
-The file loader does not bootstrap. For a standalone process, create the file and
-load it directly:
-
-```json
-{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
-```
-
-Provider credentials and standard `OTEL_*` overrides remain environment inputs.
+The image materializes the controller's revision into `/config` before building
+the app. Clients discover and invoke the Agent through the
+[controller gateway](../../../docs/architecture/a2a-transports.md).

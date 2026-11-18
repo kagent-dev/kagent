@@ -2,23 +2,14 @@ import os
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
-from fastapi.testclient import TestClient
 from opentelemetry.instrumentation._semconv import _OpenTelemetrySemanticConventionStability
 from opentelemetry.propagate import get_global_textmap, set_global_textmap
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import HistogramDataPoint, InMemoryMetricReader
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import get_current_span
 
 from kagent.core._runtime_config import OTLPConfig, RuntimeConfig, TelemetryConfig
 from kagent.core.telemetry import _boot, _defaults
 from kagent.core.telemetry._conv import KagentRuntimeValues
 from kagent.core.telemetry._profiles import PROFILES, profile_for
-from kagent.core.telemetry._span_processor import KagentAttributesSpanProcessor
 
 _RESOURCE_ENV = ("OTEL_SERVICE_NAME", "OTEL_RESOURCE_ATTRIBUTES")
 
@@ -202,61 +193,6 @@ def test_force_flush_swallows_exporter_errors(monkeypatch):
     monkeypatch.setattr(_boot.trace, "get_tracer_provider", lambda: SimpleNamespace(force_flush=boom))
 
     _boot.force_flush()
-
-
-def _streaming_app():
-    app = FastAPI()
-
-    async def chunks():
-        for chunk in ("a", "b", "c"):
-            yield chunk
-
-    @app.post("/")
-    async def root():
-        return StreamingResponse(chunks(), media_type="text/event-stream")
-
-    @app.get("/health")
-    async def health():
-        return {"ok": True}
-
-    return app
-
-
-def test_inbound_http_follows_stable_semantic_conventions(configurator):
-    _boot.bootstrap(KagentRuntimeValues.BYO, config=exporting_config())
-    exporter = InMemorySpanExporter()
-    tracer_provider = TracerProvider()
-    tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
-    reader = InMemoryMetricReader()
-    app = _streaming_app()
-    _boot.instrument_app(app, tracer_provider=tracer_provider, meter_provider=MeterProvider(metric_readers=[reader]))
-
-    with TestClient(app) as client:
-        assert client.post("/").text == "abc"
-        client.get("/health")
-
-    spans = exporter.get_finished_spans()
-    assert [span.name for span in spans] == ["POST /"]
-    assert spans[0].attributes["http.request.method"] == "POST"
-
-    metrics = {
-        metric.name: metric
-        for resource in reader.get_metrics_data().resource_metrics
-        for scope in resource.scope_metrics
-        for metric in scope.metrics
-    }
-    duration = metrics["http.server.request.duration"]
-    assert duration.unit == "s"
-    (point,) = duration.data.data_points
-    assert isinstance(point, HistogramDataPoint)
-    assert set(point.attributes) == {
-        "http.request.method",
-        "http.route",
-        "http.response.status_code",
-        "network.protocol.version",
-        "url.scheme",
-    }
-    assert "http.server.duration" not in metrics
 
 
 @pytest.mark.parametrize("prefix", ["OTEL_EXPORTER_OTLP_", "OTEL_EXPORTER_OTLP_TRACES_"])

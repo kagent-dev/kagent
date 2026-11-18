@@ -1,6 +1,6 @@
 """KAgent OpenAI Agents SDK Application.
 
-This module provides the main KAgentApp class for building FastAPI applications
+This module provides the main KAgentApp class for building gRPC servers
 that integrate OpenAI Agents SDK with the A2A (Agent-to-Agent) protocol.
 """
 
@@ -11,24 +11,14 @@ import logging
 import os
 from collections.abc import Callable
 
-from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
-from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCard
 from agents import Agent, set_default_openai_api, set_default_openai_client, set_tracing_disabled
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app, signal_enabled
-from kagent.core._runtime_config import optional_field
-from kagent.core.a2a import (
-    A2ARequestSizeLimitMiddleware,
-    KAgentRequestContextBuilder,
-    TelemetryRequestHandler,
-    get_a2a_max_content_length,
-)
-from kagent.core.a2a._runtime import grpc_address, runtime_lifespan
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, signal_enabled
+from kagent.core.a2a import KAgentRequestContextBuilder
+from kagent.core.a2a._runtime import A2AServer
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
-from kagent.core.telemetry import conv, shutdown_lifespan
+from kagent.core.telemetry import conv
 from opentelemetry.instrumentation.genai.openai_agents import OpenAIAgentsInstrumentor
 
 from openai import AsyncOpenAI
@@ -36,21 +26,6 @@ from openai import AsyncOpenAI
 from ._agent_executor import OpenAIAgentExecutor, OpenAIAgentExecutorConfig
 
 logger = logging.getLogger(__name__)
-
-
-def health_check(request: Request) -> PlainTextResponse:
-    """Health check endpoint."""
-    return PlainTextResponse("OK")
-
-
-def thread_dump(request: Request) -> PlainTextResponse:
-    """Thread dump endpoint for debugging."""
-    import tempfile
-
-    with tempfile.TemporaryFile(mode="w+") as tmp:
-        faulthandler.dump_traceback(file=tmp, all_threads=True)
-        tmp.seek(0)
-        return PlainTextResponse(tmp.read())
 
 
 def _configure_openai_client() -> None:
@@ -100,7 +75,7 @@ def _openai_agents_instrument_options(keep_native: bool = False) -> dict[str, di
 
 
 class KAgentApp:
-    """FastAPI application builder for OpenAI Agents SDK with KAgent integration."""
+    """A2A gRPC server builder for OpenAI Agents SDK with KAgent integration."""
 
     def __init__(
         self,
@@ -124,23 +99,12 @@ class KAgentApp:
         self.executor_config = executor_config or OpenAIAgentExecutorConfig()
         self.tracing = tracing
 
-    def build(self) -> FastAPI:
-        """Build a production FastAPI application with KAgent integration.
-
-        This creates an application that:
-        - Persists public task history through the controller gRPC API
-        - Implements A2A protocol handlers
-        - Includes health check endpoints
-
-        Returns:
-            Configured FastAPI application
-        """
+    def build(self) -> A2AServer:
+        """Build the controller-backed A2A gRPC server."""
         _configure_openai_client()
 
         agent_executor = OpenAIAgentExecutor(
             agent=self.agent,
-            app_name=self.config.app_name,
-            session_factory=None,
             config=self.executor_config,
         )
 
@@ -159,17 +123,6 @@ class KAgentApp:
         # Enable fault handler
         faulthandler.enable()
 
-        # Create FastAPI app with lifespan
-        app = FastAPI(
-            lifespan=runtime_lifespan(
-                request_handler, grpc_address(self.config.runtime), shutdown_lifespan(controller.lifespan())
-            )
-        )
-        app.add_middleware(
-            A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
-        )
-
         if self.tracing:
             bootstrap(
                 conv.KagentRuntimeValues.OPENAI_AGENTS,
@@ -179,77 +132,10 @@ class KAgentApp:
                     self.config.runtime.telemetry.openai_native_tracing
                 ),
             )
-            instrument_app(app)
             if not signal_enabled("TRACES") or not OpenAIAgentsInstrumentor().is_instrumented_by_opentelemetry:
                 set_tracing_disabled(True)
 
-        # Add health check endpoints
-        app.add_route("/health", methods=["GET"], route=health_check)
-        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-
-        # Add A2A routes
-        add_a2a_routes_to_fastapi(
-            app,
-            agent_card_routes=create_agent_card_routes(self.agent_card),
-            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
-        )
-
-        return app
-
-    def build_local(self) -> FastAPI:
-        """Build a local FastAPI application for testing without KAgent backend.
-
-        This creates an application that:
-        - Uses InMemoryTaskStore (no KAgent backend needed)
-        - Runs agents without session persistence
-        - Useful for local development and testing
-
-        Returns:
-            Configured FastAPI application for local use
-        """
-        _configure_openai_client()
-
-        # Create agent executor without session factory (no persistence)
-        agent_executor = OpenAIAgentExecutor(
-            agent=self.agent,
-            app_name=self.config.app_name,
-            session_factory=None,  # No session persistence in local mode
-            config=self.executor_config,
-        )
-        # Use in-memory task store
-        task_store = InMemoryTaskStore()
-
-        # Create request context builder and handler
-        request_context_builder = KAgentRequestContextBuilder(task_store=task_store)
-        request_handler = TelemetryRequestHandler(
-            agent_executor=agent_executor,
-            task_store=task_store,
-            agent_card=self.agent_card,
-            request_context_builder=request_context_builder,
-        )
-
-        # Enable fault handler
-        faulthandler.enable()
-
-        # Create FastAPI app
-        app = FastAPI()
-        app.add_middleware(
-            A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
-        )
-
-        # Add health check endpoints
-        app.add_route("/health", methods=["GET"], route=health_check)
-        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-
-        # Add A2A routes
-        add_a2a_routes_to_fastapi(
-            app,
-            agent_card_routes=create_agent_card_routes(self.agent_card),
-            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
-        )
-
-        return app
+        return A2AServer(request_handler, self.config.runtime, controller.lifespan())
 
     async def test(self, task: str) -> None:
         """Test the agent with a simple task.
