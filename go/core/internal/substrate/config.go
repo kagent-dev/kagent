@@ -21,5 +21,10 @@ type Config struct {
 	// ClientCertFile contains the PEM client certificate and private key used for mTLS.
 	ClientCertFile string
 	DialTimeout    time.Duration
-	CallTimeout    time.Duration
+	// CallTimeout bounds one ate-api call that exchanges metadata.
+	CallTimeout time.Duration
+	// SnapshotTimeout bounds one ate-api call that waits for a snapshot to be
+	// written or read, which takes as long as the agent's data requires. Zero
+	// falls back to CallTimeout.
+	SnapshotTimeout time.Duration
 }
