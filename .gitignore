@@ -227,3 +227,5 @@ python/packages/kagent-adk/tests/fixtures/certs/*.srl
 
 # Weaver live-check report
 /telemetry/conformance/report/
+# Telemetry contract: its upstream registries and Weaver policies at their pins (fetched by make semconv-deps)
+/telemetry/deps/

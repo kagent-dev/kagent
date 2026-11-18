@@ -288,7 +288,9 @@ make semconv-verify     # what CI runs: check, policy tests, generate, drift che
 
 These targets need either Docker or a local `weaver` of exactly the version in
 `telemetry/versions.env`. A different local version is refused, so a green run
-on a laptop means the same as in CI. See
+on a laptop means the same as in CI. `make semconv-deps` fetches the contract's
+upstream sources once, at the commits pinned in the same file, into the
+git-ignored `telemetry/deps`; the other targets run it and then need no network. See
 [docs/architecture/telemetry.md](docs/architecture/telemetry.md) for the contract.
 
 `telemetry/live-check.sh start` and `stop` run Weaver live-check around an e2e
