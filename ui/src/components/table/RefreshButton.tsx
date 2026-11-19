@@ -41,16 +41,18 @@ export function useRefreshToast(
 
     setRefreshing(true);
     try {
-      await onRefresh();
-      toast.success(`${what} refreshed`);
-    } catch (cause) {
-      // The reason where there is one: a refresh that failed because nothing is
-      // listening and one that failed on a rejected credential need different
-      // things done about them.
-      const detail = cause instanceof Error ? cause.message : undefined;
-      toast.error(
-        detail ? `Could not refresh ${what}: ${detail}` : `Could not refresh ${what}`,
-      );
+      // One toast from the click: "Refreshing…" at once, then replaced by the outcome.
+      await toast.promise(onRefresh(), {
+        loading: `Refreshing ${what.toLowerCase()}…`,
+        success: `${what} refreshed`,
+        // The reason where there is one: no listener and a rejected credential need different fixes.
+        error: (cause: unknown) => {
+          const detail = cause instanceof Error ? cause.message : undefined;
+          return detail ? `Could not refresh ${what}: ${detail}` : `Could not refresh ${what}`;
+        },
+      });
+    } catch {
+      // Already reported by the toast above.
     } finally {
       setRefreshing(false);
     }
