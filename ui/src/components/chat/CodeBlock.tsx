@@ -37,6 +37,7 @@ export function CodeBlock({ code, fence }: { code: string; fence?: string }) {
           <MonacoCodeView
             code={text}
             language={language.id}
+            label={`${language.label} code block`}
             mode={mode}
             palette={palette}
             fontFamily={theme.font.mono}

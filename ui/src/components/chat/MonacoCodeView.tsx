@@ -108,6 +108,8 @@ const mix40 = (value: string) => `${value}40`;
 interface MonacoCodeViewProps {
   code: string;
   language: string;
+  /** The screen reader name, e.g. "YAML code block". */
+  label: string;
   mode: ThemeMode;
   palette: MarkdownPalette;
   fontFamily: string;
@@ -117,13 +119,14 @@ interface MonacoCodeViewProps {
 export default function MonacoCodeView({
   code,
   language,
+  label,
   mode,
   palette,
   fontFamily,
   loading,
 }: MonacoCodeViewProps) {
   const theme = useMemo(() => defineTheme(mode, palette), [mode, palette]);
-  const options = useMemo(() => ({ ...OPTIONS, fontFamily }), [fontFamily]);
+  const options = useMemo(() => ({ ...OPTIONS, fontFamily, ariaLabel: label }), [fontFamily, label]);
   return (
     <Editor
       value={code}
