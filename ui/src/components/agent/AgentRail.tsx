@@ -23,7 +23,6 @@ import {
   Copy,
   FileText,
   Folder,
-  MessageSquareText,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
@@ -1025,22 +1024,18 @@ export function AgentRail({
           }}
         />
 
-        {/* Heads the search's section, so it sits close under it; flush left with the row checkboxes. */}
+        {/* Heads the search's section, so it sits close under it. */}
         <Text
           data-testid="chat-sessions-heading"
           css={{
-            display: "flex",
-            alignItems: "center",
-            gap: theme.space(2),
             color: theme.color.textMuted,
             fontSize: 11,
             textTransform: "uppercase",
             letterSpacing: 0.6,
+            paddingInline: theme.space(2),
             marginTop: -9,
           }}
         >
-          {/* The sidebar's chat icon, in the rows' 16px checkbox column. */}
-          <MessageSquareText size={14} aria-hidden css={{ width: 16, flexShrink: 0 }} />
           Chats
         </Text>
 
@@ -1056,6 +1051,8 @@ export function AgentRail({
               minHeight: 28,
               // Pulls the list up by the rows' own padding, so this row sits evenly between the heading and the first title.
               marginBlock: "-6px -18px",
+              // Indented like the list, so its checkbox starts under the heading's first letter.
+              paddingInlineStart: theme.space(2),
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
@@ -1221,8 +1218,9 @@ export function AgentRail({
               /* The list clips its own overflow, and a checkbox's ring is drawn just
                  outside the box it belongs to — so the clip box is widened to the left
                  and pulled back by the same amount. The rail's own left padding is
-                 what this then has room to reach into. */
-              paddingInlineStart: theme.space(2),
+                 what this then has room to reach into. A further 8px starts the rows under the
+                 "Chats" heading's first letter. */
+              paddingInlineStart: theme.space(4),
               marginInlineStart: `-${theme.space(2)}`,
               // The conversation's scrollbar, a few hundred pixels away: two that do
               // not match read as two applications.

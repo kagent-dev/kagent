@@ -429,11 +429,16 @@ test("chat agent rail: several conversations can be picked and deleted together"
     await expect(page.getByTestId("chat-selection-count")).toHaveText("Select all");
     await expect(page.getByTestId("chat-bulk-menu")).toBeDisabled();
 
-    // The heading and select-all both line up with the row checkboxes below them.
+    // The row checkboxes and select-all start under the heading's first letter.
     const left = (selector: string) =>
       page.locator(selector).first().evaluate((n) => n.getBoundingClientRect().left);
+    const headingTextLeft = await page.getByTestId("chat-sessions-heading").evaluate((n) => {
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      return range.getBoundingClientRect().left;
+    });
     const rowBoxLeft = await boxes.first().evaluate((n) => n.closest(".ant-checkbox-wrapper")!.getBoundingClientRect().left);
-    expect(Math.abs((await left('[data-testid="chat-sessions-heading"]')) - rowBoxLeft), "Chats should align with the row checkboxes").toBeLessThanOrEqual(1);
+    expect(Math.abs(headingTextLeft - rowBoxLeft), "rows should align with the Chats heading").toBeLessThanOrEqual(1);
     expect(Math.abs((await left('[data-testid="chat-bulk-bar"] .ant-checkbox-wrapper')) - rowBoxLeft), "select-all should align with the row checkboxes").toBeLessThanOrEqual(1);
 
     // The heading sits close under the search; select-all sits evenly between it and the first title.
