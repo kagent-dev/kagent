@@ -362,6 +362,38 @@ test("chat agent rail: conversations are named", async ({ page }) => {
   });
 });
 
+/** Opening a row keeps its title on every frame until the transcript has loaded. */
+test("chat agent rail: opening a conversation never flashes its id", async ({ page }) => {
+  await page.goto(agentPage(agents.sharedOnFastLane));
+  const row = page.getByTestId(`chat-session-${AUTO_TITLED}`);
+  await expect(row).toContainText("Summarise last night's deploy", { timeout: 30_000 });
+
+  // Sampled per frame in the page, since a one-frame flash is gone before any poll.
+  await page.evaluate((testId) => {
+    const samples: string[] = [];
+    (window as unknown as { railSamples: string[] }).railSamples = samples;
+    const tick = () => {
+      const text = document.querySelector(`[data-testid="${testId}"]`)?.textContent;
+      if (text) samples.push(text);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, `chat-session-${AUTO_TITLED}`);
+
+  await row.click();
+  await expect(page).toHaveURL(new RegExp(`/agents/${AUTO_TITLED}/chat$`));
+  await expect(page.getByTestId("chat-message").first()).toBeVisible({ timeout: 30_000 });
+
+  const samples = await page.evaluate(
+    () => (window as unknown as { railSamples: string[] }).railSamples,
+  );
+  expect(samples.length, "the row should have been sampled").toBeGreaterThan(0);
+  expect(
+    samples.filter((text) => text.includes("Untitled") || text.includes(AUTO_TITLED.slice(0, 8))),
+    "no frame should show the row's id in place of its title",
+  ).toEqual([]);
+});
+
 /**
  * A new conversation keeps its title once you leave it. Only the Agent Details hop fails
  * without the fix here; the mock re-reads on the sibling hop, so the unit tests cover it.

@@ -44,7 +44,6 @@ import {
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
-import { useThemeMode } from "@/theme/useThemeMode";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
@@ -69,6 +68,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import {
   checkboxStyles,
   iconControlStyles,
+  rowStateStyles,
   rowStyles,
   scrollbarStyles,
   searchInputStyles,
@@ -186,7 +186,6 @@ export function AgentRail({
   onDeleted,
 }: AgentRailProps) {
   const theme = useTheme();
-  const { mode } = useThemeMode();
   const location = useLocation();
   const [query, setQuery] = useState("");
 
@@ -762,27 +761,8 @@ export function AgentRail({
           background: theme.color.bgElevated,
           border: `1px solid ${theme.color.border}`,
           minWidth: 0,
-          transition: "background 100ms ease, border-color 100ms ease",
-          /*
-           * Surface only, and lighter on the light theme.
-           *
-           * Moving the border as well made the whole card look redrawn on hover,
-           * beside rail rows whose borders hold still. And the same percentage does
-           * not read the same on both themes: layering near-black over white at 12%
-           * is a solid grey step, where near-white over near-black at 12% is barely a
-           * lift. So the mix is stated per theme rather than shared and wrong on one.
-           */
-          "&:hover": {
-            background: `color-mix(in srgb, ${theme.color.text} ${
-              mode === "light" ? "3.5%" : "6%"
-            }, ${theme.color.bgElevated})`,
-          },
-          "&:active": {
-            background: `color-mix(in srgb, ${theme.color.text} ${
-              mode === "light" ? "7%" : "12%"
-            }, ${theme.color.bgElevated})`,
-            transition: "none",
-          },
+          // Surface only, like the rail rows below it: the border holds still.
+          ...rowStateStyles(theme, theme.color.bgElevated),
         }}
       >
         <span
@@ -1244,11 +1224,11 @@ export function AgentRail({
               <ChatEntry
                 key={candidate.id}
                 instance={candidate}
-                /* The open conversation's title comes from the transcript already on
-                   screen; the rest are read for. Both are derived the same way from the
-                   same first message, so a row does not change its name when opened. */
+                /* The open row prefers its transcript's title, and keeps the listed one
+                   until that transcript loads, so opening a row never shows its id. */
                 autoTitle={
-                  candidate.id === ref.id ? autoTitle : derivedTitles[candidate.id]
+                  (candidate.id === ref.id ? autoTitle : undefined) ??
+                  derivedTitles[candidate.id]
                 }
                 href={href}
                 /*
@@ -1341,7 +1321,7 @@ export function AgentRail({
           id="app_agents_agentRail_gutter_actions"
           context={{
             instanceId: instance.id,
-            label: conversationLabel(instance, autoTitle),
+            label: conversationLabel(instance, autoTitle ?? derivedTitles[instance.id]),
           }}
         />
       ) : null}
@@ -1766,7 +1746,8 @@ function menuButtonStyles(theme: Theme, isOpen: boolean) {
     "&.ant-btn.ant-btn-variant-text.ant-btn-color-default": {
       border: `1px solid ${theme.color.primary}`,
       background: "transparent",
-      "&:hover, &:active": { background: theme.color.accentBg },
+      "&:hover": { background: theme.color.rowHoverBg },
+      "&:active": { background: theme.color.rowPressBg },
     },
   } as const;
 }
