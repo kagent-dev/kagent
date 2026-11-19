@@ -5,6 +5,7 @@ import { RouterProvider } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { SWRConfig } from "swr";
 import { GlobalStyles } from "./theme/GlobalStyles";
+import { SIDEBAR_FOOTER_HEIGHT_VAR } from "./components/Structure/SidebarFooter";
 import { ThemeModeProvider } from "./theme/themeMode";
 import { useThemeMode } from "./theme/useThemeMode";
 import {
@@ -61,6 +62,7 @@ function ThemedApp() {
       reservedPaths={reservedRoutePaths}
     >
       <ConfigProvider
+        modal={{ centered: true }}
         theme={{
           ...resolvedAntd,
           // The algorithm follows the mode, not the other way round: it decides
@@ -90,8 +92,33 @@ function ThemedApp() {
               value={{ revalidateOnFocus: false, shouldRetryOnError: false }}
             >
               <AppRouter />
-              {/* Top centre, over the header's empty middle: bottom-right covered the chat's Send button. */}
-              <Toaster position="top-center" />
+              {/* Bottom left, since bottom-right covered the chat's Send button. Raised above
+                  the sidebar footer's controls; 16px when a custom shell has no footer. */}
+              <Toaster
+                position="bottom-left"
+                containerStyle={{ bottom: `calc(var(${SIDEBAR_FOOTER_HEIGHT_VAR}, 0px) + 16px)` }}
+                toastOptions={{
+                  style: {
+                    background: resolvedTheme.color.bgElevated,
+                    color: resolvedTheme.color.text,
+                    border: `1px solid ${resolvedTheme.color.border}`,
+                    borderRadius: resolvedTheme.radius.md,
+                    fontFamily: resolvedTheme.font.body,
+                  },
+                  success: {
+                    iconTheme: {
+                      primary: resolvedTheme.color.success,
+                      secondary: resolvedTheme.color.bgElevated,
+                    },
+                  },
+                  error: {
+                    iconTheme: {
+                      primary: resolvedTheme.color.danger,
+                      secondary: resolvedTheme.color.bgElevated,
+                    },
+                  },
+                }}
+              />
             </SWRConfig>
           </ExtensionProviders>
         </ThemeProvider>

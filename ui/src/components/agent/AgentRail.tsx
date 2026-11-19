@@ -1024,19 +1024,8 @@ export function AgentRail({
           }}
         />
 
-        {/*
-          Select-all and the bulk action, under the search because they act on what the
-          search left behind.
-
-          The row is always here; only the actions button comes and goes. It used to be
-          the whole bar, which meant ticking the first conversation inserted a line and
-          pushed the entire list down under the reader's pointer — a jump at the exact
-          moment they were aiming at something. Keeping the row costs one line and buys
-          a list that does not move, and select-all is worth reaching for before a
-          selection exists anyway. The button sits at the end of the row behind an auto
-          margin, so its arrival moves nothing.
-        */}
-        {chats.length > 0 || conversations.isLoading ? (
+        {/* "Chats" (or the count) on the left; select-all and the bulk menu on the right. The
+            menu's slot is held while it's hidden, so ticking a chat moves nothing. */}
           <div
             css={{
               display: "flex",
@@ -1056,28 +1045,40 @@ export function AgentRail({
             }}
             data-testid="chat-bulk-bar"
           >
-            <Checkbox
-              checked={allVisibleSelected}
-              indeterminate={selected.size > 0 && !allVisibleSelected}
-              onChange={toggleAllVisible}
-              // Drawn while the list is read so the bar does not arrive under the
-              // reader's pointer, but there is nothing to select until it lands.
-              disabled={conversations.isLoading}
-              data-testid="chat-select-all"
-              css={checkboxStyles(theme)}
+            <Text
+              css={{
+                color: theme.color.textMuted,
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: 0.6,
+                paddingInlineStart: theme.space(2),
+                whiteSpace: "nowrap",
+              }}
             >
-              <Text
-                data-testid="chat-selection-count"
-                css={{ fontSize: 12, color: theme.color.textMuted }}
+              {/* The heading becomes the count: the rail is too narrow for both beside select-all. */}
+              {selected.size > 0 ? (
+                <span data-testid="chat-selection-count">{selected.size} selected</span>
+              ) : (
+                "Chats"
+              )}
+            </Text>
+
+            {chats.length > 0 || conversations.isLoading ? (
+              <Checkbox
+                checked={allVisibleSelected}
+                indeterminate={selected.size > 0 && !allVisibleSelected}
+                onChange={toggleAllVisible}
+                // Drawn while the list is read so the bar does not arrive under the
+                // reader's pointer, but there is nothing to select until it lands.
+                disabled={conversations.isLoading}
+                data-testid="chat-select-all"
+                css={{ ...checkboxStyles(theme), marginInlineStart: "auto" }}
               >
-                {/* The count once there is one, and what the box does before that.
-                    Never "Select none": that is what the box itself is for, and it
-                    already says all-or-some through its checked and indeterminate
-                    states — swapping the label hid the number at the moment it
-                    mattered most. */}
-                {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-              </Text>
-            </Checkbox>
+                <Text css={{ fontSize: 12, color: theme.color.textMuted, whiteSpace: "nowrap" }}>
+                  Select all
+                </Text>
+              </Checkbox>
+            ) : null}
 
             {selected.size > 0 ? (
             <Dropdown
@@ -1108,9 +1109,11 @@ export function AgentRail({
                 aria-label="Actions for the selected conversations"
                 data-testid="chat-bulk-menu"
                 // The same square as the menu on each row below it.
-                css={{ ...menuButtonStyles(theme, isBulkMenuOpen), marginInlineStart: "auto" }}
+                css={menuButtonStyles(theme, isBulkMenuOpen)}
               />
             </Dropdown>
+            ) : chats.length > 0 || conversations.isLoading ? (
+              <span aria-hidden css={{ width: 38, flexShrink: 0 }} />
             ) : null}
 
             <Modal
@@ -1132,19 +1135,6 @@ export function AgentRail({
               </Checkbox></div>
             </Modal>
           </div>
-        ) : null}
-
-        <Text
-          css={{
-            color: theme.color.textMuted,
-            fontSize: 11,
-            textTransform: "uppercase",
-            letterSpacing: 0.6,
-            paddingInline: theme.space(2),
-          }}
-        >
-          Chats
-        </Text>
 
         {actionError ? (
           <Alert

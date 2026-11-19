@@ -100,6 +100,17 @@ const darkColor = {
    * boundary, which this clears.
    */
   borderStrong: "#6f6a83",
+  // Header and sidebar text and states; their surface is `surfaceNav`.
+  navText: "#c2c0ca",
+  navHoverText: "#f9fafb",
+  navHoverBg: "rgba(249, 250, 251, 0.08)",
+  navPressBg: "rgba(249, 250, 251, 0.14)",
+  navActiveBg: "rgba(139, 92, 246, 0.24)",
+  navActiveText: "#f9fafb",
+  navActiveIcon: "#c4b5fd",
+  navActivePressBg: "rgba(139, 92, 246, 0.36)",
+  navMuted: "#a9a5b4",
+  navFocus: "rgba(249, 250, 251, 0.6)",
 } as const;
 
 const lightColor: Record<keyof typeof darkColor, string> = {
@@ -151,6 +162,16 @@ const lightColor: Record<keyof typeof darkColor, string> = {
    * clears it on both with room to spare (3.5:1 on white, 3.2:1 on a near-white panel).
    */
   borderStrong: "#8a86a0",
+  navText: "#383b49",
+  navHoverText: "#151927",
+  navHoverBg: "rgba(21, 25, 39, 0.05)",
+  navPressBg: "rgba(21, 25, 39, 0.11)",
+  navActiveBg: "rgba(109, 40, 217, 0.11)",
+  navActiveText: "#5b21b6",
+  navActiveIcon: "#6d28d9",
+  navActivePressBg: "rgba(109, 40, 217, 0.2)",
+  navMuted: "#5f5a6b",
+  navFocus: "rgba(21, 25, 39, 0.55)",
 };
 
 export const tokens = {
@@ -324,25 +345,27 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         itemHoverColor: color.primaryText,
         inkBarColor: color.primaryText,
       },
+      // The rail's states, all instant: motion tokens are zeroed for the menu only.
       Menu: {
-        darkItemBg: "transparent",
-        darkSubMenuItemBg: "transparent",
         itemBg: "transparent",
         subMenuItemBg: "transparent",
-        // Selected and hover, stated for both themes.
-        //
-        // Left to antd, the dark menu paints the selected row in solid primary — a
-        // filled purple band, which is the opposite of the inset pill the rail is
-        // shaped for, and it left the pressed state indistinguishable from the
-        // settled one. A tint of the primary over the rail reads as a pill and lets
-        // hover, press and selected be three visible steps.
-        darkItemSelectedBg: "rgba(139, 92, 246, 0.22)",
-        darkItemSelectedColor: "#f9fafb",
-        darkItemHoverBg: "rgba(249, 250, 251, 0.07)",
-        darkItemHoverColor: "#f9fafb",
-        itemSelectedBg: "rgba(109, 40, 217, 0.1)",
-        itemSelectedColor: color.primaryText,
-        itemHoverBg: "rgba(21, 25, 39, 0.04)",
+        itemColor: color.navText,
+        itemHoverColor: color.navHoverText,
+        itemHoverBg: color.navHoverBg,
+        itemActiveBg: color.navPressBg,
+        itemSelectedBg: color.navActiveBg,
+        itemSelectedColor: color.navActiveText,
+        itemHeight: 40,
+        itemMarginInline: 8,
+        itemMarginBlock: 2,
+        itemBorderRadius: tokens.radius.md,
+        iconSize: 16,
+        iconMarginInlineEnd: 10,
+        fontSize: 14,
+        activeBarBorderWidth: 0,
+        motionDurationFast: "0s",
+        motionDurationMid: "0s",
+        motionDurationSlow: "0s",
       },
     },
   };

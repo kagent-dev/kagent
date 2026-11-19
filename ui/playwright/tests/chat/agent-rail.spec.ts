@@ -431,24 +431,28 @@ test("chat agent rail: several conversations can be picked and deleted together"
      * the button that has nothing to act on yet is the only part missing.
      */
     await expect(page.getByTestId("chat-bulk-bar")).toBeVisible();
-    await expect(page.getByTestId("chat-selection-count")).toContainText("Select all");
+    await expect(page.getByTestId("chat-bulk-bar")).toContainText("Select all");
+    await expect(page.getByTestId("chat-selection-count")).toHaveCount(0);
     await expect(page.getByTestId("chat-bulk-menu")).toHaveCount(0);
 
-    // The property the row exists for: the list does not move when one is ticked.
-    const listTop = await rail
-      .locator('a[data-testid^="chat-session-"]')
-      .first()
-      .evaluate((node) => node.getBoundingClientRect().top);
+    // The property the row exists for: neither the list nor select-all moves when one is ticked.
+    const firstRow = rail.locator('a[data-testid^="chat-session-"]').first();
+    const selectAll = page.getByTestId("chat-select-all");
+    const listTop = await firstRow.evaluate((node) => node.getBoundingClientRect().top);
+    const selectAllLeft = await selectAll.evaluate((node) => node.getBoundingClientRect().left);
     await rows.first().hover();
     await boxes.first().click();
     await expect(page.getByTestId("chat-bulk-menu")).toBeVisible();
-    const listTopAfter = await rail
-      .locator('a[data-testid^="chat-session-"]')
-      .first()
-      .evaluate((node) => node.getBoundingClientRect().top);
+    await expect(page.getByTestId("chat-selection-count")).toContainText("1 selected");
+    const listTopAfter = await firstRow.evaluate((node) => node.getBoundingClientRect().top);
+    const selectAllLeftAfter = await selectAll.evaluate((node) => node.getBoundingClientRect().left);
     expect(
       Math.abs(listTopAfter - listTop),
       "ticking a conversation should not move the list under the pointer",
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(selectAllLeftAfter - selectAllLeft),
+      "ticking a conversation should not move select-all",
     ).toBeLessThanOrEqual(1);
 
     // Left as it was found, so the step below starts from nothing selected.
@@ -478,7 +482,7 @@ test("chat agent rail: several conversations can be picked and deleted together"
     // is nothing left to act on. The row remaining is the whole point of it.
     await expect(page.getByTestId("chat-bulk-bar")).toBeVisible();
     await expect(page.getByTestId("chat-bulk-menu")).toHaveCount(0);
-    await expect(page.getByTestId("chat-selection-count")).toContainText("Select all");
+    await expect(page.getByTestId("chat-selection-count")).toHaveCount(0);
   });
 
   await test.step("4. deleting the set asks once, and takes all of them", async () => {

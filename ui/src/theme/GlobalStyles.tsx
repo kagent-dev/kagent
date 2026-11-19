@@ -150,6 +150,40 @@ export function GlobalStyles() {
           box-shadow: none;
           outline: none;
         }
+
+        /* Modals fade in place: antd's zoom grows them from the click point, so they slid across the page. */
+        @keyframes kagentModalFadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes kagentModalFadeOut {
+          from {
+            opacity: 1;
+          }
+          to {
+            opacity: 0;
+          }
+        }
+        .ant-modal-root .ant-modal.ant-zoom-enter,
+        .ant-modal-root .ant-modal.ant-zoom-appear,
+        .ant-modal-root .ant-modal.ant-zoom-leave,
+        .ant-modal-root .ant-fade-enter,
+        .ant-modal-root .ant-fade-appear,
+        .ant-modal-root .ant-fade-leave {
+          animation-duration: 120ms;
+          animation-timing-function: ease-out;
+        }
+        .ant-modal-root .ant-modal.ant-zoom-enter.ant-zoom-enter-active,
+        .ant-modal-root .ant-modal.ant-zoom-appear.ant-zoom-appear-active {
+          animation-name: kagentModalFadeIn;
+        }
+        .ant-modal-root .ant-modal.ant-zoom-leave.ant-zoom-leave-active {
+          animation-name: kagentModalFadeOut;
+        }
       `}
     />
   );
