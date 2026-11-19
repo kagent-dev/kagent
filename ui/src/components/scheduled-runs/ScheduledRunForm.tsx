@@ -151,12 +151,12 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         </FormField>
       </>}
       <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}>
-        <Input id="schedule-name-input" data-testid="schedule-name" maxLength={200} status={status("name")}
+        <Input id="schedule-name-input" data-testid="schedule-name" placeholder="e.g. Morning health summary" maxLength={200} status={status("name")}
           value={draft.name} onChange={(event) => update({ name: event.target.value })} />
       </FormField>
       <FormField htmlFor="schedule-timezone-input" label="Time zone" required={false} {...validation.field("timeZone")}
         help="The schedule uses this time zone, including daylight-saving changes.">
-        <AutoComplete id="schedule-timezone-input" data-testid="schedule-timezone" options={timeZones} placeholder="UTC"
+        <AutoComplete id="schedule-timezone-input" data-testid="schedule-timezone" options={timeZones} placeholder="e.g. Europe/London"
           maxLength={253} status={status("timeZone")} value={draft.timeZone} onChange={(timeZone) => update({ timeZone })}
           filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
       </FormField>
@@ -178,7 +178,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
       </FormField>}
       {draft.frequency === "hourly" && <FormField htmlFor="schedule-minute-input" label="Minute past the hour"
         required {...validation.field("minute")} extra={cadence}>
-        <InputNumber id="schedule-minute-input" data-testid="schedule-minute" min={0} max={59} precision={0}
+        <InputNumber id="schedule-minute-input" data-testid="schedule-minute" placeholder="Minute, e.g. 15" min={0} max={59} precision={0}
           status={status("minute")} value={draft.minute} onChange={(minute) => update({ minute })} />
       </FormField>}
       {draft.frequency === "weekly" && <FormField label="On days" required {...validation.field("days")}>
@@ -187,7 +187,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
       </FormField>}
       {draft.frequency === "monthly" && <FormField htmlFor="schedule-month-day-input" label="Day of the month"
         required {...validation.field("monthDay")} help={error("monthDay") ?? "Months without this day are skipped."}>
-        <InputNumber id="schedule-month-day-input" data-testid="schedule-month-day" min={1} max={31} precision={0}
+        <InputNumber id="schedule-month-day-input" data-testid="schedule-month-day" placeholder="Day, e.g. 1" min={1} max={31} precision={0}
           status={status("monthDay")} value={draft.monthDay} onChange={(monthDay) => update({ monthDay })} />
       </FormField>}
       {["daily", "weekly", "monthly"].includes(draft.frequency) && <FormField htmlFor="schedule-time-input" label="At time"
@@ -197,16 +197,16 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
       </FormField>}
       {draft.frequency === "custom" && <FormField htmlFor="schedule-cron-input" label="Cron expression" required
         {...validation.field("cron")} help={error("cron") ?? "Five fields: minute, hour, day of month, month, day of week."}>
-        <Input id="schedule-cron-input" data-testid="schedule-cron" status={status("cron")}
+        <Input id="schedule-cron-input" data-testid="schedule-cron" placeholder="e.g. 0 9 * * *" status={status("cron")}
           value={draft.cron} onChange={(event) => update({ cron: event.target.value })} />
       </FormField>}
       <FormField htmlFor="schedule-prompt-input" label="Prompt" required {...validation.field("prompt")}>
-        <Input.TextArea id="schedule-prompt-input" data-testid="schedule-prompt" rows={5} status={status("prompt")}
+        <Input.TextArea id="schedule-prompt-input" data-testid="schedule-prompt" rows={5} placeholder="Tell the agent what to do on each run" status={status("prompt")}
           value={draft.prompt} onChange={(event) => update({ prompt: event.target.value })} />
       </FormField>
       <FormField htmlFor="schedule-timeout-input" label="Execution timeout" required {...validation.field("timeoutSeconds")}
         help={error("timeoutSeconds") ?? "Time limit in seconds. It covers queueing and agent startup."}>
-        <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" min={0.000001} max={TIMEOUT_MAX_SECONDS}
+        <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" placeholder="Seconds, e.g. 900" min={0.000001} max={TIMEOUT_MAX_SECONDS}
           status={status("timeoutSeconds")} value={draft.timeoutSeconds}
           onChange={(timeoutSeconds) => update({ timeoutSeconds })} />
       </FormField>

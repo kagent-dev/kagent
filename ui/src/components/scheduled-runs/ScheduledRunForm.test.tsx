@@ -71,9 +71,11 @@ beforeEach(() => {
 });
 
 describe("new schedule page", () => {
-  it("links back to the schedules list and marks every field", () => {
+  it("links back to the schedules list, marks every field and shows an example in each text box", () => {
     renderAt("/schedules/new");
     expect(screen.getByTestId("form-back-link")).toHaveTextContent("Schedules");
+    expect(screen.getByTestId("schedule-name")).toHaveAttribute("placeholder", "e.g. Morning health summary");
+    expect(screen.getByTestId("schedule-prompt")).toHaveAttribute("placeholder", "Tell the agent what to do on each run");
     expect(screen.getByLabelText(/^Schedule name/)).toHaveAccessibleName(/optional/);
     expect(screen.getByLabelText(/^Time zone/)).toHaveAccessibleName(/optional/);
     expect(screen.getByLabelText(/^Execution timeout/)).toHaveAccessibleName(/required/);
