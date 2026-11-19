@@ -131,6 +131,7 @@ export function FormField({
         </FieldLabel>
       }
       validateStatus={error ? "error" : validateStatus}
+      css={error ? { ".ant-form-item-explain": { paddingBottom: theme.space(2) } } : undefined}
       help={error ? <span id={errorId}>{error}</span> : undefined}
     >
       {onTouch && typeof body !== "function" ? (
