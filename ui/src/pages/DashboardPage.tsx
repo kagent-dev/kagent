@@ -116,7 +116,7 @@ export function DashboardPage() {
       title="Dashboard"
       description="Overview of agents, models, and recent activity."
       actions={
-        <RefreshButton onRefresh={refreshAll} what="Dashboard" loading={isRefreshing} />
+        <RefreshButton onRefresh={refreshAll} what="Dashboard" loading={isRefreshing} iconOnly />
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
