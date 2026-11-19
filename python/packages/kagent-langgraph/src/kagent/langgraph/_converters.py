@@ -55,12 +55,13 @@ async def _convert_langgraph_event_to_a2a(
             # Deduplicate using content hash (message.id is often None). A tool
             # call has empty content and a tool result is often the same text as
             # an earlier one, so the hash must also cover which tool call it is.
-            msg_content = f"{type(message).__name__}:{message.content}"
+            key_parts = [type(message).__name__, ":", str(message.content)]
             if hasattr(message, "tool_calls") and message.tool_calls:
-                msg_content += f":tools:{json.dumps(message.tool_calls, sort_keys=True, default=str)}"
+                tool_calls = json.dumps(message.tool_calls, sort_keys=True, separators=(",", ":"), default=str)
+                key_parts += [":tools:", tool_calls]
             if getattr(message, "tool_call_id", None):
-                msg_content += f":tool_call_id:{message.tool_call_id}"
-            msg_id = hashlib.md5(msg_content.encode()).hexdigest()
+                key_parts += [":tool_call_id:", str(message.tool_call_id)]
+            msg_id = hashlib.md5("".join(key_parts).encode()).hexdigest()
 
             if msg_id in sent_message_ids:
                 continue
