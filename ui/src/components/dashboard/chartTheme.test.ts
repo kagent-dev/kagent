@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TooltipItem } from "chart.js";
+import { themeFor } from "@/theme/theme";
 import { horizontalBarOptions } from "./chartTheme";
 
 /**
@@ -9,10 +10,10 @@ import { horizontalBarOptions } from "./chartTheme";
  * reported exactly one — the commonest non-zero case there is.
  */
 function tooltipFor(value: number): string {
-  const options = horizontalBarOptions({
-    one: "tool reported",
-    many: "tools reported",
-  });
+  const options = horizontalBarOptions(
+    { one: "tool reported", many: "tools reported" },
+    themeFor("dark"),
+  );
   const label = options.plugins?.tooltip?.callbacks?.label;
   if (typeof label !== "function") throw new Error("no label callback");
 
@@ -32,5 +33,17 @@ describe("horizontalBarOptions — the tooltip's unit", () => {
 
   it("uses the plural for none, which is what English does", () => {
     expect(tooltipFor(0)).toBe("0 tools reported");
+  });
+});
+
+describe("horizontalBarOptions — the active theme's ink", () => {
+  it("draws light-mode labels and rules with the light tokens", () => {
+    const light = themeFor("light");
+    const options = horizontalBarOptions({ one: "x", many: "xs" }, light);
+
+    expect(options.scales?.y?.ticks?.color).toBe(light.color.text);
+    expect(options.scales?.x?.ticks?.color).toBe(light.color.textMuted);
+    expect(options.scales?.x?.grid?.color).toBe(light.color.border);
+    expect(options.plugins?.barValueLabels?.color).toBe(light.color.textMuted);
   });
 });

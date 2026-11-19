@@ -272,13 +272,18 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
        * about 2.2:1. The border is a component boundary (3:1) and the placeholder is text
        * somebody has to read to know what the field is for.
        */
+      // Focus lands on the field's frame: a readable purple edge and a soft ring, in both themes.
       Input: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        activeBorderColor: color.primaryText,
+        activeShadow: `0 0 0 3px ${color.primary}40`,
       },
       Select: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        activeBorderColor: color.primaryText,
+        activeOutlineColor: `${color.primary}40`,
         /*
          * The chevron, which antd paints from its quaternary text token — a quarter
          * opacity, measured at 2.2:1. It is the only mark saying the control opens, so it
@@ -289,10 +294,14 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       DatePicker: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        activeBorderColor: color.primaryText,
+        activeShadow: `0 0 0 3px ${color.primary}40`,
       },
       InputNumber: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        activeBorderColor: color.primaryText,
+        activeShadow: `0 0 0 3px ${color.primary}40`,
       },
       /*
        * The segmented control, which on the dark theme had no visible edge anywhere.

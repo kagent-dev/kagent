@@ -20,20 +20,30 @@ import {
   LinearScale,
   Tooltip,
   type ChartOptions,
+  type ChartType,
   type Plugin,
 } from "chart.js";
-import { tokens } from "@/theme/theme";
+import type { AppTheme } from "@/theme/theme";
 
 Chart.register(CategoryScale, LinearScale, BarElement, Tooltip);
+
+interface BarValueLabelOptions {
+  color: string;
+  font: string;
+}
+
+declare module "chart.js" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface PluginOptionsByType<TType extends ChartType> {
+    barValueLabels?: BarValueLabelOptions;
+  }
+}
 
 /** The one series hue, validated against the card surface in dark mode. */
 export const SERIES_COLOR = "#9085e9";
 
-/** The surface charts are drawn on — the card, which labels are measured against. */
-export const CHART_SURFACE = tokens.color.bgElevated;
-
-const AXIS_TEXT = tokens.color.textMuted;
-const GRID_LINE = tokens.color.border;
+/** Ink and rules for a chart, from the active theme so light mode is not drawn with dark tokens. */
+export type ChartTheme = Pick<AppTheme, "color" | "font">;
 
 /**
  * Horizontal bars for comparing magnitude across a handful of long-named things.
@@ -46,10 +56,11 @@ const GRID_LINE = tokens.color.border;
  * explicitly instead of suffixed with an "s": the caller knows its own noun, and a
  * helper that guessed would be wrong the first time something irregular is counted.
  */
-export function horizontalBarOptions(valueLabel: {
-  one: string;
-  many: string;
-}): ChartOptions<"bar"> {
+export function horizontalBarOptions(
+  valueLabel: { one: string; many: string },
+  theme: ChartTheme,
+): ChartOptions<"bar"> {
+  const { color } = theme;
   return {
     indexAxis: "y",
     responsive: true,
@@ -66,12 +77,14 @@ export function horizontalBarOptions(valueLabel: {
       // One series, so there is nothing for a legend to disambiguate — the
       // card's own heading already says what is plotted.
       legend: { display: false },
+      // In options rather than the plugin, because react-chartjs-2 only re-reads options on a theme change.
+      barValueLabels: { color: color.textMuted, font: `12px ${theme.font.body}` },
       tooltip: {
-        backgroundColor: tokens.color.bg,
-        borderColor: GRID_LINE,
+        backgroundColor: color.bgElevated,
+        borderColor: color.borderStrong,
         borderWidth: 1,
-        titleColor: tokens.color.text,
-        bodyColor: tokens.color.textMuted,
+        titleColor: color.text,
+        bodyColor: color.textMuted,
         padding: 10,
         displayColors: false,
         callbacks: {
@@ -86,14 +99,15 @@ export function horizontalBarOptions(valueLabel: {
     scales: {
       x: {
         beginAtZero: true,
-        border: { color: GRID_LINE },
+        border: { color: color.border },
         // Whole things are being counted, so a "2.5" tick would be a lie.
-        ticks: { color: AXIS_TEXT, precision: 0, font: { size: 12 } },
-        grid: { color: GRID_LINE, lineWidth: 1, tickLength: 0 },
+        ticks: { color: color.textMuted, precision: 0, font: { size: 12 } },
+        grid: { color: color.border, lineWidth: 1, tickLength: 0 },
       },
       y: {
-        border: { color: GRID_LINE },
-        ticks: { color: AXIS_TEXT, font: { size: 12 } },
+        border: { color: color.border },
+        // Category names are what the reader scans for, so they take full-strength text.
+        ticks: { color: color.text, font: { size: 12 } },
         // A gridline per category would draw a line through every bar.
         grid: { display: false },
       },
@@ -109,16 +123,16 @@ export function horizontalBarOptions(valueLabel: {
  * Drawn here instead of with a plugin dependency: it is a dozen lines of canvas
  * and the alternative is another package in a shared tree.
  */
-export const barValueLabels: Plugin<"bar"> = {
+export const barValueLabels: Plugin<"bar", BarValueLabelOptions> = {
   id: "barValueLabels",
-  afterDatasetsDraw(chart) {
+  afterDatasetsDraw(chart, _args, options) {
     const { ctx } = chart;
     const meta = chart.getDatasetMeta(0);
     if (!meta) return;
 
     ctx.save();
-    ctx.fillStyle = AXIS_TEXT;
-    ctx.font = `12px ${tokens.font.body}`;
+    ctx.fillStyle = options.color;
+    ctx.font = options.font;
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
 

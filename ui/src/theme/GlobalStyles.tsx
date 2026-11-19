@@ -2,6 +2,14 @@ import { Global, css, useTheme } from "@emotion/react";
 
 export function GlobalStyles() {
   const theme = useTheme();
+  const c = theme.color;
+  // Status tags wear the theme's pill triples: antd's filled variant has no border and inks with the mid foreground.
+  const statusTag = (status: string, bg: string, border: string, text: string) => `
+    .ant-tag.ant-tag.ant-tag-${status}:not(.ant-tag-disabled):not(.ant-tag-solid) {
+      background-color: ${bg};
+      border: 1px solid ${border};
+      color: ${text};
+    }`;
   return (
     <Global
       styles={css`
@@ -50,6 +58,12 @@ export function GlobalStyles() {
         .ant-layout-header {
           background: ${theme.color.surfaceNav};
         }
+
+        ${statusTag("success", c.successBg, c.successBorder, c.successText)}
+        ${statusTag("processing", c.infoBg, c.infoBorder, c.infoText)}
+        ${statusTag("warning", c.warningBg, c.warningBorder, c.warningText)}
+        ${statusTag("error", c.dangerBg, c.dangerBorder, c.dangerText)}
+        ${statusTag("default", c.bg, c.borderStrong, c.textMuted)}
 
         /*
          * Table rows are not assumed interactive. Hover treatment and pointer cursor
@@ -148,6 +162,19 @@ export function GlobalStyles() {
           border-color: ${theme.color.border};
           background: transparent;
           box-shadow: none;
+          outline: none;
+        }
+
+        /* Focus shows on the field's frame (antd's border and glow), never as a browser ring on the bare input inside it. */
+        .ant-input-affix-wrapper input:focus,
+        .ant-input-number input:focus,
+        .ant-input-number-affix-wrapper input:focus,
+        .ant-input-textarea-affix-wrapper textarea:focus,
+        .ant-select input:focus,
+        .ant-picker input:focus,
+        .ant-input-outlined:focus,
+        .ant-input-filled:focus,
+        .ant-input-borderless:focus {
           outline: none;
         }
 
