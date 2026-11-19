@@ -425,17 +425,18 @@ test("chat agent rail: several conversations can be picked and deleted together"
      * The row is always drawn and only the menu's enabled state changes, so ticking the
      * first conversation moves nothing under the reader's pointer.
      */
-    const bar = page.getByTestId("chat-bulk-bar");
-    await expect(bar).toContainText("Chats");
+    await expect(page.getByTestId("chat-sessions-heading")).toHaveText("Chats");
     await expect(page.getByTestId("chat-selection-count")).toHaveText("Select all");
     await expect(page.getByTestId("chat-bulk-menu")).toBeDisabled();
 
-    // The heading lines up with the row checkboxes below it.
-    const headingLeft = await bar.locator(".ant-typography").first().evaluate((n) => n.getBoundingClientRect().left);
+    // The heading and select-all both line up with the row checkboxes below them.
+    const left = (selector: string) =>
+      page.locator(selector).first().evaluate((n) => n.getBoundingClientRect().left);
     const rowBoxLeft = await boxes.first().evaluate((n) => n.closest(".ant-checkbox-wrapper")!.getBoundingClientRect().left);
-    expect(Math.abs(headingLeft - rowBoxLeft), "Chats should align with the row checkboxes").toBeLessThanOrEqual(1);
+    expect(Math.abs((await left('[data-testid="chat-sessions-heading"]')) - rowBoxLeft), "Chats should align with the row checkboxes").toBeLessThanOrEqual(1);
+    expect(Math.abs((await left('[data-testid="chat-bulk-bar"] .ant-checkbox-wrapper')) - rowBoxLeft), "select-all should align with the row checkboxes").toBeLessThanOrEqual(1);
 
-    // Its text sits evenly between the search box and the first conversation's title.
+    // The heading sits close under the search; select-all sits evenly between it and the first title.
     const textEdges = (selector: string) =>
       page.locator(selector).first().evaluate((el) => {
         const range = document.createRange();
@@ -444,11 +445,14 @@ test("chat agent rail: several conversations can be picked and deleted together"
         return { top: box.top, bottom: box.bottom };
       });
     const searchBottom = await page.getByTestId("chat-search").evaluate((n) => n.getBoundingClientRect().bottom);
-    const heading = await textEdges('[data-testid="chat-bulk-bar"] > .ant-typography');
+    const heading = await textEdges('[data-testid="chat-sessions-heading"]');
+    const selectAllText = await textEdges('[data-testid="chat-selection-count"]');
     const firstTitle = await textEdges('a[data-testid^="chat-session-"] .ant-typography');
-    const above = heading.top - searchBottom;
-    const below = firstTitle.top - heading.bottom;
-    expect(Math.abs(above - below), `Chats should be evenly spaced (${above} above, ${below} below)`).toBeLessThanOrEqual(2);
+    const underSearch = heading.top - searchBottom;
+    const above = selectAllText.top - heading.bottom;
+    const below = firstTitle.top - selectAllText.bottom;
+    expect(underSearch, `Chats should sit close under the search (${underSearch})`).toBeLessThan(above);
+    expect(Math.abs(above - below), `select-all should be evenly spaced (${above} above, ${below} below)`).toBeLessThanOrEqual(2);
 
     // The property the row exists for: neither the list nor select-all moves when one is ticked.
     const firstRow = rail.locator('a[data-testid^="chat-session-"]').first();

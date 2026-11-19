@@ -23,6 +23,7 @@ import {
   Copy,
   FileText,
   Folder,
+  MessageSquareText,
   MoreVertical,
   PanelLeftClose,
   PanelLeftOpen,
@@ -1024,8 +1025,28 @@ export function AgentRail({
           }}
         />
 
-        {/* "Chats" on the left; select-all and the bulk menu on the right. The menu is always
-            drawn (disabled until something is picked), so a selection moves nothing. */}
+        {/* Heads the search's section, so it sits close under it; flush left with the row checkboxes. */}
+        <Text
+          data-testid="chat-sessions-heading"
+          css={{
+            display: "flex",
+            alignItems: "center",
+            gap: theme.space(2),
+            color: theme.color.textMuted,
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: 0.6,
+            marginTop: -9,
+          }}
+        >
+          {/* The sidebar's chat icon, in the rows' 16px checkbox column. */}
+          <MessageSquareText size={14} aria-hidden css={{ width: 16, flexShrink: 0 }} />
+          Chats
+        </Text>
+
+        {/* Select-all on the rows' checkbox column, the bulk menu on their menu column. The menu
+            is always drawn (disabled until something is picked), so a selection moves nothing. */}
+        {chats.length > 0 || conversations.isLoading ? (
           <div
             css={{
               display: "flex",
@@ -1033,28 +1054,14 @@ export function AgentRail({
               gap: theme.space(2),
               // The menu button's height, so the row is the same size with or without a selection.
               minHeight: 28,
-              // Pulls the list up by the rows' own padding, so the heading's text sits evenly between the search and the first title.
-              marginBottom: -10,
+              // Pulls the list up by the rows' own padding, so this row sits evenly between the heading and the first title.
+              marginBlock: "-6px -18px",
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
             data-testid="chat-bulk-bar"
           >
-            {/* Flush left, so it lines up with the row checkboxes below. */}
-            <Text
-              css={{
-                color: theme.color.textMuted,
-                fontSize: 11,
-                textTransform: "uppercase",
-                letterSpacing: 0.6,
-                whiteSpace: "nowrap",
-              }}
-            >
-              Chats
-            </Text>
-
-            {chats.length > 0 || conversations.isLoading ? (
-              <>
+            <>
                 <Checkbox
                   checked={allVisibleSelected}
                   indeterminate={selected.size > 0 && !allVisibleSelected}
@@ -1063,18 +1070,11 @@ export function AgentRail({
                   // reader's pointer, but there is nothing to select until it lands.
                   disabled={conversations.isLoading}
                   data-testid="chat-select-all"
-                  css={{ ...checkboxStyles(theme), marginInlineStart: "auto" }}
+                  css={checkboxStyles(theme)}
                 >
-                  {/* A fixed width, so the box stays put as the label changes. */}
                   <Text
                     data-testid="chat-selection-count"
-                    css={{
-                      display: "inline-block",
-                      minWidth: 76,
-                      fontSize: 12,
-                      color: theme.color.textMuted,
-                      whiteSpace: "nowrap",
-                    }}
+                    css={{ fontSize: 12, color: theme.color.textMuted, whiteSpace: "nowrap" }}
                   >
                     {allVisibleSelected
                       ? "Select none"
@@ -1114,11 +1114,10 @@ export function AgentRail({
                     aria-label="Actions for the selected conversations"
                     data-testid="chat-bulk-menu"
                     // As wide as the row menus below, so the columns line up; shorter, so the row stays tight.
-                    css={{ ...menuButtonStyles(theme, isBulkMenuOpen), height: 28 }}
+                    css={{ ...menuButtonStyles(theme, isBulkMenuOpen), height: 28, marginInlineStart: "auto" }}
                   />
                 </Dropdown>
-              </>
-            ) : null}
+            </>
 
             <Modal
               open={isConfirmingBulk}
@@ -1139,6 +1138,7 @@ export function AgentRail({
               </Checkbox></div>
             </Modal>
           </div>
+        ) : null}
 
         {actionError ? (
           <Alert
