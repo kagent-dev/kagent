@@ -262,7 +262,11 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
          * per mode.
          */
         rowHoverBg: `${color.text}33`,
+        // The "No … found" line, which antd paints in its disabled grey (about 1.9:1).
+        colorTextDisabled: color.textMuted,
       },
+      // Empty states in selects, lists and panels: muted, but readable.
+      Empty: { colorTextDescription: color.textMuted },
       /*
        * Inputs, selects and pickers: a stronger edge and a legible placeholder.
        *
