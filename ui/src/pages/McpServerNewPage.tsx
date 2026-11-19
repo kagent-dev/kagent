@@ -142,7 +142,7 @@ export function McpServerNewPage() {
             label="Name"
             required
             {...validation.field("name")}
-            help="Filled in from the URL. You can change it."
+            help="Pick a name to refer to this MCP server."
           >
             <Input
               data-testid="mcp-name"
