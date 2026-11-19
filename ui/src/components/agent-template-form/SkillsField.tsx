@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { ExternalLink, Plus, Trash } from "lucide-react";
 import { runtimeConfig } from "@/api/runtimeConfig";
 import { inlineLink } from "@/components/common/linkStyles";
+import { halfway } from "@/theme/theme";
 import {
   builtinSkillDraft,
   emptySkillDraft,
@@ -61,9 +62,12 @@ export function SkillsField({
             // Theme reds, so the icon keeps 3:1 against its hover and pressed fills too.
             css={{
               marginLeft: "auto",
-              "&&": { color: theme.color.danger },
-              "&&:hover:not(:disabled), &&:focus-visible": { color: theme.color.dangerText, background: theme.color.dangerBg },
-              "&&:active:not(:disabled)": { color: theme.color.dangerText, background: theme.color.dangerBg, transform: "scale(0.9)" },
+              "&&": { color: theme.color.danger, transition: "none" },
+              "&&:hover:not(:disabled), &&:focus-visible": {
+                color: theme.color.dangerText,
+                background: halfway("transparent", theme.color.dangerBg),
+              },
+              "&&:active:not(:disabled)": { color: theme.color.dangerText, background: theme.color.dangerBg },
             }}
             aria-label={name.trim() ? `Remove skill ${name.trim()}` : `Remove skill ${index + 1}`}
             data-testid={`template-form-skill-remove-${index}`}

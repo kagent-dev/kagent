@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import { Button, Popconfirm, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
+import { halfway } from "@/theme/theme";
 import { useThemeMode } from "@/theme/useThemeMode";
 import type { Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
@@ -66,10 +67,12 @@ export function CheckpointDivider({
 
   // One shape for all three, so the row reads as a set of controls rather than as one
   // button with others bolted beside it.
+  // Hover is halfway to the pressed fill, and both are instant.
   const control = {
     height: 24,
     fontSize: 12,
     paddingInline: theme.space(2),
+    transition: "none",
   } as const;
 
   const filled = {
@@ -78,11 +81,15 @@ export function CheckpointDivider({
     color: theme.color.textOnPrimary,
     borderColor: theme.color.primary,
     "&:hover, &:focus-visible": {
+      background: halfway(theme.color.primary, theme.color.primaryHover),
+      borderColor: halfway(theme.color.primary, theme.color.primaryHover),
+      color: theme.color.textOnPrimary,
+    },
+    "&:active": {
       background: theme.color.primaryHover,
       borderColor: theme.color.primaryHover,
       color: theme.color.textOnPrimary,
     },
-    "&:active": { background: theme.color.primaryHover, opacity: 0.85 },
   } as const;
 
   /*
@@ -101,11 +108,16 @@ export function CheckpointDivider({
     color: outlinePurple,
     borderColor: outlinePurple,
     "&:hover, &:focus-visible": {
-      background: theme.color.accentBg,
+      // Its own purple as a wash: the band is `accentBg`, so that fill would not show.
+      background: `color-mix(in srgb, ${outlinePurple} 10%, transparent)`,
       borderColor: outlinePurple,
       color: outlinePurple,
     },
-    "&:active": { background: theme.color.accentBg, opacity: 0.85 },
+    "&:active": {
+      background: `color-mix(in srgb, ${outlinePurple} 20%, transparent)`,
+      borderColor: outlinePurple,
+      color: outlinePurple,
+    },
   } as const;
 
   function openOnKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -175,12 +187,10 @@ export function CheckpointDivider({
             ...(onOpen
               ? {
                   cursor: "pointer",
-                  transition: "background 120ms ease",
-                  // Lifted with the foreground rather than with `accentBg`, which the
-                  // band already uses — a hover painted in the band's own colour is a
-                  // hover you cannot see.
+                  transition: "none",
+                  // Tinted with the foreground: the band itself is `accentBg`, so that would not show.
                   "&:hover, &:focus-visible": {
-                    background: "color-mix(in srgb, currentColor 12%, transparent)",
+                    background: "color-mix(in srgb, currentColor 10%, transparent)",
                     "[data-checkpoint-heading]": { textDecoration: "underline" },
                   },
                   "&:active": {
@@ -313,13 +323,14 @@ export function CheckpointDivider({
                   color: theme.color.danger,
                   borderColor: theme.color.danger,
                   "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
-                    color: theme.color.danger,
-                    background: theme.color.dangerBg,
+                    color: theme.color.dangerText,
+                    background: halfway("transparent", theme.color.dangerBg),
                     borderColor: theme.color.dangerBorder,
                   },
                   "&:active:not(:disabled)": {
+                    color: theme.color.dangerText,
                     background: theme.color.dangerBg,
-                    opacity: 0.85,
+                    borderColor: theme.color.dangerBorder,
                   },
                 }}
               >

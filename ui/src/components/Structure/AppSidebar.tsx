@@ -57,6 +57,7 @@ function navRailStyles(theme: Theme) {
     },
     "& .ant-menu-item-selected": { fontWeight: 500 },
     "& .ant-menu-item-selected .ant-menu-item-icon": { color: theme.color.navActiveIcon },
+    "& .ant-menu-item-selected:hover": { background: theme.color.navActiveHoverBg },
     "& .ant-menu-item-selected:active": { background: theme.color.navActivePressBg },
     "& .ant-menu-item:has(a:focus-visible)": {
       outline: `2px solid ${theme.color.navFocus}`,

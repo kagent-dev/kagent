@@ -157,19 +157,17 @@ function Box({
           borderRadius: theme.radius.md,
           border: `1px solid ${theme.color.border}`,
           background: theme.color.bg,
-          transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
           cursor: interactive ? "pointer" : "default",
           ...(interactive
             ? {
+                // Hover is halfway to pressed: the same purple tint and edge at half strength.
                 "&:hover": {
-                  borderColor: `${theme.color.primary}A6`,
-                  background: theme.color.bgElevated,
+                  borderColor: `${theme.color.primary}53`,
+                  background: `${theme.color.primary}1A`,
                 },
-                // Pressed, and distinct from hovered: a press that looks like a hover
-                // reads as a click that did not register.
                 "&:active": {
+                  borderColor: `${theme.color.primary}A6`,
                   background: `${theme.color.primary}33`,
-                  transform: "translateY(1px)",
                 },
                 "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
               }
