@@ -1,14 +1,12 @@
 /**
- * Small inline SVG brand icons for each model provider.
- *
- * These are used in the provider `Select` dropdown to give each option a
- * recognisable visual mark without pulling in an external icon dependency.
- * Each icon is designed to look clear at 16 × 16 px.
+ * Small inline SVG brand icons for each model provider, shown on a tile in the
+ * provider's colour. A provider without an icon gets its initial instead.
  */
 
-import { GlobeIcon } from "lucide-react";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import { useExtensionProviderIcons } from "@/appExtensions";
+import { useThemeMode } from "@/theme/useThemeMode";
+import type { ThemeMode } from "@/theme/theme";
 
 // region Icon components
 
@@ -118,15 +116,6 @@ function BedrockIcon() {
   );
 }
 
-/** SAP blue square mark. */
-function SAPIcon() {
-  return (
-    <>
-      <GlobeIcon size={16} />
-    </>
-  );
-}
-
 /** Mistral pixel-mosaic mark in the brand's orange-to-red gradient. */
 function MistralIcon() {
   return (
@@ -138,7 +127,7 @@ function MistralIcon() {
       fill="none"
       aria-hidden
     >
-      <rect x="3" y="3" width="3" height="3" fill="#000000" />
+      <rect x="3" y="3" width="3" height="3" fill="currentColor" />
       <rect x="3" y="6" width="3" height="3" fill="#FFAA00" />
       <rect x="6" y="6" width="3" height="3" fill="#FFAA00" />
       <rect x="3" y="9" width="3" height="3" fill="#FF7A00" />
@@ -166,7 +155,6 @@ export const PROVIDER_ICONS: Record<string, ComponentType> = {
   AzureOpenAI: AzureOpenAIIcon,
   Ollama: OllamaIcon,
   Bedrock: BedrockIcon,
-  SAPAICore: SAPIcon,
   Mistral: MistralIcon,
   Foundry: AzureOpenAIIcon,
 };
@@ -186,6 +174,54 @@ export function getProviderIcon(
   return <Icon />;
 }
 
+/** Brand-like colours per mode, each at least 4.4:1 against its own tile. */
+const PROVIDER_COLORS: Record<string, Record<ThemeMode, string>> = {
+  Gemini: { light: "#1a5fd6", dark: "#8ab4f8" },
+  GeminiVertexAI: { light: "#1a5fd6", dark: "#8ab4f8" },
+  OpenAI: { light: "#0b7a5e", dark: "#3ccf9e" },
+  Anthropic: { light: "#b4532f", dark: "#e8987a" },
+  AnthropicVertexAI: { light: "#b4532f", dark: "#e8987a" },
+  AzureOpenAI: { light: "#0063b1", dark: "#5aaeff" },
+  Foundry: { light: "#0063b1", dark: "#5aaeff" },
+  Ollama: { light: "#3f3f46", dark: "#e4e4e7" },
+  Bedrock: { light: "#a65800", dark: "#ffa733" },
+  SAPAICore: { light: "#0a5bb5", dark: "#6cb6ff" },
+  Mistral: { light: "#c2410c", dark: "#ff8a3d" },
+};
+const NEUTRAL: Record<ThemeMode, string> = { light: "#57534e", dark: "#d6d3d1" };
+
+/** The provider's icon, or its initial, on a tile tinted with its colour. */
+export function ProviderBadge({ type }: { type: string }) {
+  const providerIcons = useExtensionProviderIcons();
+  const { mode } = useThemeMode();
+  const color = (PROVIDER_COLORS[type] ?? NEUTRAL)[mode];
+  return (
+    <span
+      aria-hidden
+      data-testid="provider-badge"
+      css={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        width: 20,
+        height: 20,
+        borderRadius: 5,
+        color,
+        background: `${color}24`,
+        border: `1px solid ${color}59`,
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: 1,
+        "& svg": { width: 13, height: 13 },
+      }}
+    >
+      {getProviderIcon(type, providerIcons) ?? type.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+/** The provider's badge, then its name, so colour is never the only cue. */
 export function ProviderIconWithLabel({
   type,
   label,
@@ -193,7 +229,6 @@ export function ProviderIconWithLabel({
   type: string;
   label: ReactNode;
 }) {
-  const providerIcons = useExtensionProviderIcons();
   return (
     <span
       css={{
@@ -202,7 +237,7 @@ export function ProviderIconWithLabel({
         gap: 8,
       }}
     >
-      {getProviderIcon(type, providerIcons)}
+      {type ? <ProviderBadge type={type} /> : null}
       {label}
     </span>
   );
