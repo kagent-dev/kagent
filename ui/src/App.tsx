@@ -54,6 +54,11 @@ function ThemedApp() {
   // application's own components, so this has to wrap everything that renders.
   const resolvedTheme = resolveAppTheme(themes, mode);
   const resolvedAntd = resolveAntdTheme(themes, mode);
+  // A step above the elevated surface on dark, where the card colour sits too close to the page.
+  const toastSurface =
+    mode === "light"
+      ? resolvedTheme.color.bgElevated
+      : `color-mix(in srgb, ${resolvedTheme.color.text} 7%, ${resolvedTheme.color.bgElevated})`;
 
   return (
     <AppExtensionsProvider
@@ -95,22 +100,29 @@ function ThemedApp() {
                 position="bottom-right"
                 toastOptions={{
                   style: {
-                    background: resolvedTheme.color.bgElevated,
+                    // Dark lifts the toast off the page with a lighter surface, a visible edge and a deep shadow.
+                    background: toastSurface,
                     color: resolvedTheme.color.text,
-                    border: `1px solid ${resolvedTheme.color.border}`,
+                    border: `1px solid ${mode === "light" ? resolvedTheme.color.border : `color-mix(in srgb, ${resolvedTheme.color.borderStrong} 70%, ${toastSurface})`}`,
                     borderRadius: resolvedTheme.radius.md,
+                    boxShadow:
+                      mode === "light"
+                        ? "0 6px 20px rgba(21, 25, 39, 0.12)"
+                        : "0 12px 32px rgba(0, 0, 0, 0.6)",
+                    padding: "10px 14px",
                     fontFamily: resolvedTheme.font.body,
+                    fontSize: 14,
                   },
                   success: {
                     iconTheme: {
-                      primary: resolvedTheme.color.success,
-                      secondary: resolvedTheme.color.bgElevated,
+                      primary: mode === "light" ? resolvedTheme.color.success : resolvedTheme.color.successText,
+                      secondary: toastSurface,
                     },
                   },
                   error: {
                     iconTheme: {
-                      primary: resolvedTheme.color.danger,
-                      secondary: resolvedTheme.color.bgElevated,
+                      primary: mode === "light" ? resolvedTheme.color.danger : resolvedTheme.color.dangerText,
+                      secondary: toastSurface,
                     },
                   },
                 }}
