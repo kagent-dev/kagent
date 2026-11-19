@@ -21,7 +21,6 @@ export interface MarkdownPalette {
   muted: string;
   link: string;
   rule: string;
-  ruleAccent: string;
   quoteBg: string;
   quoteBar: string;
   quoteText: string;
@@ -54,7 +53,6 @@ export function markdownPalette(theme: Theme, mode: ThemeMode): MarkdownPalette 
       muted: mix(mix(color.text, surface, 0.38), color.primaryText, 0.12),
       link: color.primaryText,
       rule: mix(surface, color.primaryText, 0.28),
-      ruleAccent: color.primaryText,
       quoteBg: mix(surface, color.primaryText, 0.09),
       quoteBar: color.primaryText,
       quoteText: mix(color.text, surface, 0.16),
@@ -80,7 +78,6 @@ export function markdownPalette(theme: Theme, mode: ThemeMode): MarkdownPalette 
     muted: color.textMuted,
     link: color.primaryText,
     rule: color.border,
-    ruleAccent: color.primaryText,
     quoteBg: color.accentBg,
     quoteBar: color.primary,
     quoteText: mix(color.text, surface, 0.12),

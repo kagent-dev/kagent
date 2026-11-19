@@ -364,23 +364,11 @@ function markdownStyles(theme: Theme, p: MarkdownPalette) {
 
     /* A break in thought: a rule fading out at both ends around a small diamond. */
     & hr {
-      position: relative;
-      height: 1px;
+      height: 2px;
+      border-radius: 1px;
       margin: 2em 0;
       border: none;
-      overflow: visible;
-      background: linear-gradient(90deg, transparent, ${p.rule} 25%, ${p.rule} 75%, transparent);
-    }
-    & hr::after {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 7px;
-      height: 7px;
-      background: ${p.ruleAccent};
-      transform: translate(-50%, -50%) rotate(45deg);
-      box-shadow: 0 0 0 6px ${color.bgElevated};
+      background: ${p.rule};
     }
 
     & img {
