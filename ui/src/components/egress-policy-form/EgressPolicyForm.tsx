@@ -116,7 +116,7 @@ export function EgressPolicyForm({
           label={egressCopy.form.name}
           required
           {...validation.field("name")}
-          help={editing ? egressCopy.form.identityLocked : undefined}
+          help={editing ? egressCopy.form.nameLocked : egressCopy.form.nameHelp}
         >
           <Input
             id="egress-form-name-input"
@@ -134,7 +134,7 @@ export function EgressPolicyForm({
           label={egressCopy.form.namespace}
           required
           {...validation.field("namespace")}
-          help={editing ? egressCopy.form.identityLocked : undefined}
+          help={editing ? egressCopy.form.identityLocked : egressCopy.form.namespaceHelp}
         >
           <NamespaceSelect
             id="egress-form-namespace-input"

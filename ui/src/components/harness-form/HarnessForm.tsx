@@ -139,7 +139,7 @@ export function HarnessForm({
         required
         htmlFor="harness-name"
         {...validation.field("name")}
-        extra={harness ? "A Kubernetes name, so it cannot be changed." : undefined}
+        help={harness ? "You can't change the name." : "Pick a name to refer to this harness."}
       >
         <Input
           id="harness-name"

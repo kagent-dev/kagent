@@ -150,7 +150,8 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
             })} />
         </FormField>
       </>}
-      <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}>
+      <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}
+        help="Pick a name to refer to this schedule.">
         <Input id="schedule-name-input" data-testid="schedule-name" placeholder="e.g. Morning health summary" maxLength={200} status={status("name")}
           value={draft.name} onChange={(event) => update({ name: event.target.value })} />
       </FormField>

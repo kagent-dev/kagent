@@ -201,7 +201,7 @@ export function AgentTemplateForm({
             label="Name"
             required
             {...fieldFor("name")}
-            extra="A Kubernetes object name, so it cannot be changed afterwards."
+            help="Pick a name to refer to this agent template."
           >
             <Input
               data-testid="template-form-name"

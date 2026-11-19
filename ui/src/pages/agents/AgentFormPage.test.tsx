@@ -102,7 +102,7 @@ describe("agent create form", () => {
     expect(screen.queryByText("A name is required.")).not.toBeInTheDocument();
 
     fireEvent.blur(screen.getByTestId("agent-form-name"));
-    expect(screen.getByTestId("agent-form-name")).toHaveAccessibleDescription("A name is required.");
+    expect(screen.getByTestId("agent-form-name")).toHaveAccessibleDescription(/A name is required\.$/);
     expect(screen.queryByText("Choose an agent template.")).not.toBeInTheDocument();
 
     type("agent-form-name", "helper");

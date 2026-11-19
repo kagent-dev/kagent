@@ -534,8 +534,8 @@ export function ModelForm({
           {...fieldFor("name")}
           help={
             identityLocked
-              ? "A configuration cannot be renamed; create a new one instead."
-              : "Defaults to the model's own name."
+              ? "You can't change the name."
+              : "Pick a name to refer to this model configuration. Defaults to the model's own name."
           }
         >
           <Input

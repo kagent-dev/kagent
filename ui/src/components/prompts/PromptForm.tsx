@@ -120,7 +120,7 @@ export function PromptForm({
           label="Name"
           required
           {...validation.field("name")}
-          help={identityLocked ? "You cannot change a library's name." : undefined}
+          help={identityLocked ? "You can't change the name." : "Pick a name to refer to this prompt library."}
         >
           <Input
             data-testid="prompt-name"

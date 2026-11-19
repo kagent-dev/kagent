@@ -196,7 +196,8 @@ describe("edit egress policy page", () => {
     renderAt("/policies/egress/kagent/github/edit");
     expect(screen.getByTestId("egress-form-name")).toHaveAttribute("readonly");
     expect(screen.getByTestId("egress-destination-1-origin")).toHaveValue("https://uploads.github.com");
-    expect(screen.getAllByText("Fixed once the policy exists.")).toHaveLength(2);
+    expect(screen.getByText("You can't change the name.")).toBeInTheDocument();
+    expect(screen.getByText("Fixed once the policy exists.")).toBeInTheDocument();
   });
 
   it("saves, shows the toast and returns to the detail page", async () => {

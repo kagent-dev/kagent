@@ -252,7 +252,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           required
           htmlFor="agent-form-name"
           {...validation.field("name")}
-          extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}
+          help={agent ? "You can't change the name." : "Pick a name to refer to this agent."}
         >
           <Input
             id="agent-form-name"
@@ -268,7 +268,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           required
           htmlFor="agent-form-namespace"
           {...validation.field("namespace")}
-          extra={agent ? "Fixed once the agent exists." : undefined}
+          help={agent ? "Fixed once the agent exists." : "Pick the namespace to create the agent in."}
         >
           <NamespaceSelect
             id="agent-form-namespace"
