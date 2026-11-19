@@ -5,6 +5,7 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { useHarnesses } from "@/api";
 import { BackLink } from "@/components/form/BackLink";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
+import { HarnessIntro } from "@/components/harness-form/HarnessFields";
 import { copySource, useMountedBlank } from "@/components/table/copyFrom";
 import { CopyNotice } from "@/components/table/CopyNotice";
 import { paths } from "@/router/routes";
@@ -23,11 +24,9 @@ export function HarnessNewPage() {
   return (
     <>
       <BackLink to={harnessesTab} resource="Harnesses" />
-      <PageFrame
-        title="New harness"
-        description="A harness is the runtime an agent runs on. It sets the adapter, the image and where Substrate schedules the agent. Agents pick a harness by name, so many agents can share one. A worker pool is a set of Substrate machines that runs them."
-      >
+      <PageFrame title="New harness">
         <div css={{ maxWidth: 720 }}>
+          <HarnessIntro />
           {/* A source that cannot be had still leaves a form to fill in: the alert says why it is blank. */}
           {from && <CopyNotice kind="harness" from={from} error={source.error?.message} notFound={Boolean(source.data) && !copyOf} loaded={Boolean(copyOf)} mountedBlank={mountedBlank} testId="harness-copy" />}
           {waiting ? (

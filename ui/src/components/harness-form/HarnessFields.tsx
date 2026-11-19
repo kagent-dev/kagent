@@ -1,4 +1,4 @@
-import { Input, Select, Typography } from "antd";
+import { Alert, Input, Select } from "antd";
 import { useTheme } from "@emotion/react";
 import { DEFAULT_HARNESS_WORKER_POOL, HARNESS_ADAPTERS, type HarnessAdapter } from "@/api/domain/harnesses";
 import { FormField } from "@/components/form/FormField";
@@ -6,19 +6,18 @@ import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { HARNESS_ADAPTER_LABELS, adapterSupportsCommand, type HarnessDraft, type HarnessDraftField } from "./harnessDraft";
 
-/** What a Harness and a WorkerPool are, for the pages and dialogs that create one. */
+/** What a Harness is, for the pages and dialogs that create one. */
 export function HarnessIntro() {
   const theme = useTheme();
   return (
-    <Typography.Paragraph
+    <Alert
+      type="info"
+      showIcon
       data-testid="harness-intro"
-      css={{ color: theme.color.textMuted, marginBottom: theme.space(4) }}
-    >
-      A harness is the runtime an agent runs on: which adapter compiles its template, which
-      image runs it, and where Substrate schedules it. Agents reference a harness by name, so
-      many agents can share one. A worker pool is a set of Substrate machines that runs those
-      agents.
-    </Typography.Paragraph>
+      title="A harness is where an agent runs — not what it does"
+      description="It sets the adapter, the image and the worker pool. Many agents can share one."
+      css={{ marginBottom: theme.space(4) }}
+    />
   );
 }
 

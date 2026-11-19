@@ -74,7 +74,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 
     await expect(page.getByTestId("form-back-link")).toHaveText("Harnesses");
-    await expect(page.getByText("A worker pool is a set of Substrate machines that runs them.")).toBeVisible();
+    await expect(page.getByTestId("harness-intro")).toContainText("A harness is where an agent runs");
     await expectRequired(page, {
       marked: ["Namespace", "Name", "Runtime adapter", "Worker pool", "Snapshot location"],
       // The release ships an image for every built-in adapter; only bring-your-own needs one.
