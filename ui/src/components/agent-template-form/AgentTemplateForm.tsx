@@ -242,7 +242,7 @@ export function AgentTemplateForm({
         <Field readOnly={readOnly}
           label="System prompt"
           required={false}
-          extra={readOnly ? undefined : "Inline, or read from a ConfigMap. The CRD rejects a template that has both."}
+          extra={readOnly ? undefined : "Write it here, or read it from a ConfigMap."}
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             <div data-testid="template-form-prompt-source">
