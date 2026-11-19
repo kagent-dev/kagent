@@ -75,11 +75,12 @@ function defineTheme(mode: ThemeMode, palette: MarkdownPalette): string {
     { token: "operators", foreground: hex(syntax.punctuation) },
   ];
   const colors: Record<string, string> = {
-    "editor.background": palette.codeBg,
+    // Transparent, so the frame's `codeBg` shows through whatever form that colour takes.
+    "editor.background": "#00000000",
     "editor.foreground": palette.body,
     "editorLineNumber.foreground": palette.muted,
     "editorLineNumber.activeForeground": palette.muted,
-    "editorCursor.foreground": palette.codeBg,
+    "editorCursor.foreground": "#00000000",
     "editor.selectionBackground": mix40(palette.link),
     "editor.inactiveSelectionBackground": mix40(palette.link),
     "scrollbarSlider.background": `${palette.muted}40`,
