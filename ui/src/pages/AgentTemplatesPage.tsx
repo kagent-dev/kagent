@@ -223,7 +223,7 @@ export function AgentTemplatesTab() {
               {/* Beside the controls that narrow this list, and it refreshes this list:
                   a control in a table's own filter row that quietly re-read two other
                   tabs would be doing more than it appears to. */}
-              <RefreshButton onRefresh={refreshThisTab} what="Templates" />
+              <RefreshButton onRefresh={refreshThisTab} what="Templates" iconOnly />
             </Space>
           }
         />

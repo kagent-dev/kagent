@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button } from "antd";
+import { Button, Tooltip } from "antd";
 import { RotateCw } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -64,8 +64,11 @@ export function RefreshButton({
   what,
   loading = false,
   disabled = false,
+  iconOnly = false,
   "data-testid": testId = "refresh-button",
 }: {
+  /** Just the icon, named by a tooltip: for a filter row where a labelled button crowds the controls. */
+  iconOnly?: boolean;
   /** Refetches, and rejects if the refetch failed. */
   onRefresh: () => Promise<unknown>;
   /** What was refreshed, as it should read in the message: "Agents", "Models". */
@@ -77,6 +80,22 @@ export function RefreshButton({
   "data-testid"?: string;
 }) {
   const { refresh, refreshing } = useRefreshToast(onRefresh, what);
+
+  if (iconOnly) {
+    const label = `Refresh ${what.toLowerCase()}`;
+    return (
+      <Tooltip title={label}>
+        <Button
+          onClick={refresh}
+          loading={loading || refreshing}
+          disabled={disabled}
+          data-testid={testId}
+          aria-label={label}
+          icon={<RotateCw size={14} aria-hidden />}
+        />
+      </Tooltip>
+    );
+  }
 
   return (
     <Button
