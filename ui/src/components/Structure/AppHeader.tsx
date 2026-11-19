@@ -6,7 +6,7 @@ import { KagentLogoWithText } from "@/components/branding/KagentLogo";
 import { paths } from "@/router/routes";
 import { ExtensionSlot, useExtensionBranding } from "@/appExtensions";
 import { useAuth } from "@/auth";
-import { NAV_INSET } from "./AppSidebar";
+import { NAV_INSET } from "./navItems";
 
 const { Text } = Typography;
 

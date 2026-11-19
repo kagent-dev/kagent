@@ -3,7 +3,7 @@ import { Layout, Menu } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { SidebarFooter } from "./SidebarFooter";
-import { coreNavItems } from "./navItems";
+import { coreNavItems, NAV_INSET } from "./navItems";
 import type { NavItem } from "./navItems";
 import {
   ExtensionSlot,
@@ -26,10 +26,6 @@ function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
     .sort((a, b) => b.path.length - a.path.length)[0];
   return match ? [match.key] : [];
 }
-
-
-/** Where every rail icon's left edge sits, from the row's inset: the same expanded and collapsed. */
-export const NAV_INSET = 18;
 
 function navEntry(item: NavItem) {
   const Icon = item.icon;

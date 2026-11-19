@@ -154,7 +154,7 @@ it has to line up, and then it has to reproduce the row height, the inset pill,
 the icon column and the collapsed layout, and drift from all four the next time
 the library changes any of them. `useThemeMode()` is re-exported from the barrel
 for the light/dark choice the `Menu` takes, since no design token stands in for
-it.
+it. Pass `inlineIndent={navInlineIndent}` so the icon lines up with the core rows.
 
 ## The agent rail
 

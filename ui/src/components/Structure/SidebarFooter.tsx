@@ -9,7 +9,7 @@ import {
   Sun,
 } from "lucide-react";
 import { useThemeMode } from "@/theme/useThemeMode";
-import { NAV_INSET } from "./AppSidebar";
+import { NAV_INSET } from "./navItems";
 
 /** Where the docs link points. The project's own documentation, not a deployment's. */
 const DOCS_URL = "https://kagent.dev/docs/kagent";
