@@ -1,4 +1,5 @@
 import { Global, css, useTheme } from "@emotion/react";
+import { pillBorder } from "./theme";
 
 export function GlobalStyles() {
   const theme = useTheme();
@@ -7,7 +8,7 @@ export function GlobalStyles() {
   const statusTag = (status: string, bg: string, border: string, text: string) => `
     .ant-tag.ant-tag.ant-tag-${status}:not(.ant-tag-disabled):not(.ant-tag-solid) {
       background-color: ${bg};
-      border: 1px solid color-mix(in srgb, ${border} 55%, ${bg});
+      border: 1px solid ${pillBorder(border, bg)};
       color: ${text};
     }`;
   return (

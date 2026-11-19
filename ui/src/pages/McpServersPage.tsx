@@ -1,4 +1,5 @@
 import { ReadError } from "@/components/common/ReadError";
+import { pillBorder } from "@/theme/theme";
 import { useMemo } from "react";
 import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -187,7 +188,7 @@ export function McpServersPage() {
           const kind = shortKind(row.server.groupKind);
           const pill = {
             background: theme.color.infoBg,
-            borderColor: theme.color.infoBorder,
+            borderColor: pillBorder(theme.color.infoBorder, theme.color.infoBg),
             color: theme.color.infoText,
           };
           return <Tag css={pill}>{kind}</Tag>;

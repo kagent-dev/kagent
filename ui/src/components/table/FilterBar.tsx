@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { pillBorder } from "@/theme/theme";
 import { Select, Tag } from "antd";
 import { useTheme } from "@emotion/react";
 import { X } from "lucide-react";
@@ -189,7 +190,7 @@ export function FilterBar({
                 cursor: "pointer",
                 marginInlineEnd: 0,
                 background: theme.color.infoBg,
-                borderColor: theme.color.infoBorder,
+                borderColor: pillBorder(theme.color.infoBorder, theme.color.infoBg),
                 color: theme.color.infoText,
               }}
             >

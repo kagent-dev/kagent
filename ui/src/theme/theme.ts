@@ -203,6 +203,11 @@ export function themeFor(mode: ThemeMode): AppTheme {
 
 export const appTheme: AppTheme = themeFor("dark");
 
+/** A pill's edge: its border token blended halfway into its fill, so the outline stays soft (about 2:1). */
+export function pillBorder(border: string, fill: string): string {
+  return `color-mix(in srgb, ${border} 55%, ${fill})`;
+}
+
 /**
  * The component library's config for one mode.
  *
