@@ -113,7 +113,7 @@ export function validateMcpServerForm(
   if (values.headersJson.trim() && parseHeaders(values.headersJson) === undefined) {
     issues.push({
       field: "headersJson",
-      message: "Headers must be a JSON object, for example {\"Authorization\": \"...\"}.",
+      message: "Headers must be a JSON object, for example {\"X-Environment\": \"development\"}.",
     });
   }
 

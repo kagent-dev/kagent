@@ -728,14 +728,14 @@ export function ModelForm({
                               <Input
                                 data-testid="model-header-name"
                                 aria-label={`Header ${index + 1} name`}
-                                placeholder="Header-Name"
+                                placeholder="X-Environment"
                                 value={row.key}
                                 onChange={(event) => setHeader(row.id, "key", event.target.value)}
                               />
                               <Input
                                 data-testid="model-header-value"
                                 aria-label={`Header ${index + 1} value`}
-                                placeholder="value"
+                                placeholder="development"
                                 value={row.value}
                                 onChange={(event) => setHeader(row.id, "value", event.target.value)}
                               />

@@ -239,7 +239,7 @@ export function McpServerNewPage() {
           >
             <Input.TextArea
               data-testid="mcp-headers"
-              placeholder='{"Authorization": "Bearer …"}'
+              placeholder='{"X-Environment": "development"}'
               value={values.headersJson}
               onChange={(event) => set("headersJson", event.target.value)}
               autoSize={{ minRows: 2, maxRows: 8 }}
