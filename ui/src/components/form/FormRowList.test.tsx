@@ -9,11 +9,12 @@ import { FormRow, FormRowList } from "./FormRowList";
 const render = (ui: ReactElement) =>
   rtlRender(<ThemeProvider theme={themeFor("dark")}>{ui}</ThemeProvider>);
 
-function Rows({ manageFocus, canAdd = true }: { manageFocus?: boolean; canAdd?: boolean }) {
+function Rows({ manageFocus, canAdd = true, card }: { manageFocus?: boolean; canAdd?: boolean; card?: boolean }) {
   const [rows, setRows] = useState(["first", "second"]);
   return (
     <FormRowList
       data-testid="rows"
+      variant={card ? "card" : undefined}
       addLabel="Add header"
       onAdd={canAdd ? () => setRows((current) => [...current, `row-${current.length + 1}`]) : undefined}
       empty="No headers"
@@ -46,6 +47,19 @@ describe("FormRowList", () => {
     expect(getComputedStyle(list).borderTopStyle).toBe("solid");
     for (const row of screen.getAllByRole("listitem")) {
       expect(getComputedStyle(row).borderBottomStyle).toBe("solid");
+    }
+  });
+
+  it("sets each row on its own bordered, rounded card when asked", () => {
+    render(<Rows card />);
+    const list = within(screen.getByTestId("rows")).getByRole("list");
+    expect(getComputedStyle(list).borderTopStyle).not.toBe("solid");
+    for (const row of screen.getAllByRole("listitem")) {
+      const style = getComputedStyle(row);
+      expect([style.borderTopStyle, style.borderLeftStyle, style.borderRightStyle, style.borderBottomStyle]).toEqual([
+        "solid", "solid", "solid", "solid",
+      ]);
+      expect(style.borderRadius).toBe("10px");
     }
   });
 

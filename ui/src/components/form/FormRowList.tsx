@@ -15,6 +15,8 @@ interface FormRowListProps {
   actions?: ReactNode;
   /** Focuses the first control of an added row. A remove always moves focus. */
   manageFocus?: boolean;
+  /** "card" sets each row on its own bordered surface, with a gap between rows. */
+  variant?: "divided" | "card";
   "data-testid"?: string;
 }
 
@@ -23,7 +25,7 @@ const RowRemovedContext = createContext<((previous: Element | null) => void) | u
 
 const FOCUSABLE = "input:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
-/** Repeated rows as a divided list: hairlines between rows, add button below. */
+/** Repeated rows, divided by hairlines or set apart as cards, with the add button below. */
 export function FormRowList({
   children,
   addLabel = "Add",
@@ -32,6 +34,7 @@ export function FormRowList({
   empty,
   actions,
   manageFocus,
+  variant = "divided",
   "data-testid": testId,
 }: FormRowListProps) {
   const theme = useTheme();
@@ -67,12 +70,24 @@ export function FormRowList({
       ) : (
         <ul
           ref={list}
-          css={{
-            margin: 0,
-            padding: 0,
-            listStyle: "none",
-            borderTop: `1px solid ${theme.color.borderStrong}`,
-          }}
+          css={[
+            { margin: 0, padding: 0, listStyle: "none" },
+            variant === "card"
+              ? {
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: theme.space(3),
+                  "& > li": {
+                    padding: theme.space(3),
+                    border: `1px solid ${theme.color.border}`,
+                    borderRadius: theme.radius.md,
+                    background: theme.color.bgElevated,
+                    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.08)",
+                  },
+                  "& > li:hover": { background: theme.color.bgElevated, borderColor: theme.color.borderStrong },
+                }
+              : { borderTop: `1px solid ${theme.color.borderStrong}` },
+          ]}
         >
           <RowRemovedContext.Provider value={rowRemoved}>{children}</RowRemovedContext.Provider>
         </ul>
