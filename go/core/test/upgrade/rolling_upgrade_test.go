@@ -61,11 +61,8 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	defer cancel()
 	done := make(chan upgradeResult, 1)
 	cmd := helmUpgradeCommand(ctx, env)
-	// Keep 2 replicas through the upgrade, as an operator running a rolling
-	// upgrade would. Without this the chart falls back to 1 replica, which also
-	// turns leader election off and deletes its Role. The old leader then cannot
-	// renew its lease and exits about 10s later, and the scale-down removes the
-	// other old pod, so no old pod is left once a slow-starting new pod migrates.
+	// At 1 replica the chart deletes the leader-election Role, so the old
+	// leader loses its lease and exits before the new schema lands.
 	cmd.Env = append(cmd.Env, "KAGENT_HELM_EXTRA_ARGS="+
 		strings.TrimSpace(os.Getenv("KAGENT_HELM_EXTRA_ARGS")+" --set controller.replicas=2"))
 	go func() {
