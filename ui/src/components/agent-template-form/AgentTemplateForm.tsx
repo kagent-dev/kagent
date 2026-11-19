@@ -408,6 +408,7 @@ export function AgentTemplateForm({
               <FormRow
                 key={index}
                 data-testid={`template-form-mcp-${index}`}
+                title={`MCP server ${index + 1}`}
                 onRemove={readOnly ? undefined : () =>
                   set("mcpTools", draft.mcpTools.filter((_, at) => at !== index))
                 }
@@ -494,6 +495,7 @@ export function AgentTemplateForm({
               <FormRow
                 key={index}
                 data-testid={`template-form-sub-agent-${index}`}
+                title={`Agent tool ${index + 1}`}
                 onRemove={readOnly ? undefined : () =>
                   set("subAgentTools", draft.subAgentTools.filter((_, at) => at !== index))
                 }
@@ -576,6 +578,7 @@ export function AgentTemplateForm({
                   <FormRow
                     key={index}
                     data-testid={`template-form-label-${index}`}
+                    title={`Label ${index + 1}`}
                     onRemove={() => set("labels", draft.labels.filter((_, at) => at !== index))}
                     removeLabel={`Remove label ${label.key.trim() || index + 1}`}
                   >

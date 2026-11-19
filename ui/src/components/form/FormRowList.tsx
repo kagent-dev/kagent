@@ -23,6 +23,10 @@ const RowRemovedContext = createContext<((previous: Element | null) => void) | u
 
 const FOCUSABLE = "input:not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
+/** A row's first field, skipping the delete button in its header. */
+const firstField = (row: Element | null | undefined): HTMLElement | undefined =>
+  row ? Array.from(row.querySelectorAll<HTMLElement>(FOCUSABLE)).find((el) => !el.closest("[data-row-header]")) : undefined;
+
 /** Repeated rows, each on its own card with a gap between, and the add button below. */
 export function FormRowList({
   children,
@@ -45,11 +49,11 @@ export function FormRowList({
   useEffect(() => {
     const target = pending.current;
     pending.current = undefined;
-    if (target === "row") list.current?.lastElementChild?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
+    if (target === "row") firstField(list.current?.lastElementChild)?.focus();
     else if (target) {
       // The removed row took focus with it: go to "Add", else a neighbouring row, else the list.
       const row = target.removedAfter?.isConnected ? target.removedAfter : list.current?.firstElementChild;
-      const next = addButton.current && !addButton.current.disabled ? addButton.current : row?.querySelector<HTMLElement>(FOCUSABLE);
+      const next = addButton.current && !addButton.current.disabled ? addButton.current : firstField(row);
       (next ?? container.current)?.focus();
     }
   }, [count]);
@@ -101,6 +105,8 @@ export function FormRowList({
 
 interface FormRowProps {
   children: ReactNode;
+  /** Names the item in the card's header, e.g. "Header 2". */
+  title?: ReactNode;
   onRemove?: () => void;
   /** Accessible name for the delete button, e.g. "Remove header X-Team". */
   removeLabel?: string;
@@ -108,17 +114,21 @@ interface FormRowProps {
   "data-testid"?: string;
 }
 
-/** One row of a FormRowList: its fields, then a delete button. */
-export function FormRow({ children, onRemove, removeLabel = "Remove row", removeDisabled, "data-testid": testId }: FormRowProps) {
+/** One item of a FormRowList: a card with a header (title, then delete button) over its fields. */
+export function FormRow({
+  children,
+  title,
+  onRemove,
+  removeLabel = "Remove row",
+  removeDisabled,
+  "data-testid": testId,
+}: FormRowProps) {
   const theme = useTheme();
   const rowRemoved = useContext(RowRemovedContext);
   return (
     <li
       data-testid={testId}
       css={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: theme.space(2),
         padding: theme.space(3),
         border: `1px solid ${theme.color.border}`,
         borderRadius: theme.radius.md,
@@ -127,25 +137,52 @@ export function FormRow({ children, onRemove, removeLabel = "Remove row", remove
         "&:hover": { borderColor: theme.color.borderStrong },
       }}
     >
-      <div css={{ flex: 1, minWidth: 0 }}>{children}</div>
-      {onRemove ? (
-        <Button
-          type="text"
-          danger
-          aria-label={removeLabel}
-          icon={<Trash2 size={14} aria-hidden />}
-          onClick={(event) => {
-            rowRemoved?.(event.currentTarget.closest("li")?.previousElementSibling ?? null);
-            onRemove();
-          }}
-          disabled={removeDisabled}
+      {title !== undefined || onRemove ? (
+        <div
+          data-row-header
           css={{
-            flexShrink: 0,
-            "&&:not(:disabled):hover": { background: theme.color.dangerBg },
-            "&&:not(:disabled):active": { background: theme.color.dangerBg, borderColor: theme.color.dangerBorder },
+            display: "flex",
+            alignItems: "center",
+            gap: theme.space(2),
+            minHeight: 24,
+            marginBottom: theme.space(2),
           }}
-        />
+        >
+          <div
+            css={{
+              flex: 1,
+              minWidth: 0,
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: theme.space(2),
+              fontWeight: 600,
+            }}
+          >
+            {title}
+          </div>
+          {onRemove ? (
+            <Button
+              type="text"
+              size="small"
+              danger
+              aria-label={removeLabel}
+              icon={<Trash2 size={14} aria-hidden />}
+              onClick={(event) => {
+                rowRemoved?.(event.currentTarget.closest("li")?.previousElementSibling ?? null);
+                onRemove();
+              }}
+              disabled={removeDisabled}
+              css={{
+                flexShrink: 0,
+                "&&:not(:disabled):hover": { background: theme.color.dangerBg },
+                "&&:not(:disabled):active": { background: theme.color.dangerBg, borderColor: theme.color.dangerBorder },
+              }}
+            />
+          ) : null}
+        </div>
       ) : null}
+      <div css={{ minWidth: 0 }}>{children}</div>
     </li>
   );
 }

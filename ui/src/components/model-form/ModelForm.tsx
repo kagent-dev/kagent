@@ -720,6 +720,7 @@ export function ModelForm({
                         {draft.defaultHeaders.map((row, index) => (
                           <FormRow
                             key={row.id}
+                            title={`Header ${index + 1}`}
                             onRemove={() => removeHeader(row.id)}
                             removeLabel={`Remove header ${index + 1}`}
                           >

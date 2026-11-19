@@ -49,7 +49,6 @@ export function DestinationEditor({
 
   return (
     <Form layout="vertical" component="div">
-      <div css={{ fontWeight: 600, marginBottom: theme.space(2) }}>{egressCopy.form.destinationTitle(index + 1)}</div>
       <FormField
         htmlFor={fieldId("origin")}
         label={egressCopy.form.origin}

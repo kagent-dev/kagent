@@ -51,6 +51,20 @@ describe("FormRowList", () => {
     }
   });
 
+  it("puts each card's title and delete button in one header above its fields", () => {
+    render(
+      <FormRowList>
+        <FormRow title="Header 1" removeLabel="Remove header 1" onRemove={() => undefined}>
+          <input aria-label="Header 1 name" />
+        </FormRow>
+      </FormRowList>,
+    );
+    const remove = screen.getByRole("button", { name: "Remove header 1" });
+    const header = remove.parentElement!;
+    expect(header).toHaveTextContent("Header 1");
+    expect(header.compareDocumentPosition(screen.getByRole("textbox"))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("shows the empty content once the last row is removed", () => {
     render(<Rows />);
     fireEvent.click(screen.getByRole("button", { name: "Remove first" }));

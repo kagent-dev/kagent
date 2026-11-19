@@ -163,6 +163,7 @@ export function EgressPolicyForm({
           <FormRow
             key={row.id}
             data-testid={`egress-destination-${index}`}
+            title={egressCopy.form.destinationTitle(index + 1)}
             removeLabel={egressCopy.form.removeDestination(index + 1)}
             removeDisabled={saving}
             onRemove={draft.destinations.length > 1 ? () => removeDestination(index) : undefined}

@@ -38,6 +38,7 @@ export function FragmentEditor({ rows, onChange, library, disabled }: FragmentEd
         <FormRow
           key={row.id}
           data-testid="fragment-row"
+          title={`Fragment ${index + 1}`}
           onRemove={() => remove(row.id)}
           removeLabel={`Remove fragment ${index + 1}`}
           removeDisabled={disabled || (rows.length === 1 && !row.key && !row.value)}

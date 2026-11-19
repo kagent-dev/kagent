@@ -62,19 +62,16 @@ export function SkillsField({
     ) : null;
   };
 
-  const row = (index: number, name: string, children: ReactNode) => (
+  const row = (index: number, name: string, title: ReactNode, children: ReactNode) => (
     <FormRow
       key={index}
       data-testid={`template-form-skill-${index}`}
+      title={title}
       onRemove={readOnly ? undefined : () => onChange(skills.filter((_, at) => at !== index))}
       removeLabel={name.trim() ? `Remove skill ${name.trim()}` : `Remove skill ${index + 1}`}
     >
       <div css={{ display: "flex", flexDirection: "column", gap: 6 }}>{children}</div>
     </FormRow>
-  );
-
-  const header = (children: ReactNode) => (
-    <div css={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minHeight: 24 }}>{children}</div>
   );
 
   const details = (entries: Array<[string, ReactNode]>) => (
@@ -192,31 +189,29 @@ export function SkillsField({
               index,
               skill.name,
               <>
-                {header(
-                  <>
-                    <DataPill>kagent</DataPill>
-                    <Text strong>{skill.name}</Text>
-                    {builtin.current ? null : (
-                      <Tag
-                        color="warning"
-                        css={{ marginInlineEnd: 0 }}
-                        data-testid={`template-form-skill-outdated-${index}`}
-                        title="Saved from an earlier kagent-tools image than this install ships."
-                      >
-                        Older version
-                      </Tag>
-                    )}
-                    {builtin.current || readOnly ? null : (
-                      <Button
-                        size="small"
-                        data-testid={`template-form-skill-update-${index}`}
-                        onClick={() => setSkill(index, { oci: catalog.image })}
-                      >
-                        Update
-                      </Button>
-                    )}
-                  </>,
+                <DataPill>kagent</DataPill>
+                <Text strong>{skill.name}</Text>
+                {builtin.current ? null : (
+                  <Tag
+                    color="warning"
+                    css={{ marginInlineEnd: 0 }}
+                    data-testid={`template-form-skill-outdated-${index}`}
+                    title="Saved from an earlier kagent-tools image than this install ships."
+                  >
+                    Older version
+                  </Tag>
                 )}
+                {builtin.current || readOnly ? null : (
+                  <Button
+                    size="small"
+                    data-testid={`template-form-skill-update-${index}`}
+                    onClick={() => setSkill(index, { oci: catalog.image })}
+                  >
+                    Update
+                  </Button>
+                )}
+              </>,
+              <>
                 <Text css={muted}>{builtin.skill.description}</Text>
                 {rowErrors(index)}
               </>,
@@ -228,16 +223,12 @@ export function SkillsField({
               index,
               skill.name,
               <>
-                {header(
-                  <>
-                    <DataPill data-testid={`template-form-skill-kind-${index}`}>{SOURCE_LABEL[skill.sourceKind]}</DataPill>
-                    <Text strong data-testid={`template-form-skill-name-${index}`}>
-                      {skill.name || "Not set"}
-                    </Text>
-                  </>,
-                )}
-                {details(readOnlySource(skill, index))}
+                <DataPill data-testid={`template-form-skill-kind-${index}`}>{SOURCE_LABEL[skill.sourceKind]}</DataPill>
+                <Text strong data-testid={`template-form-skill-name-${index}`}>
+                  {skill.name || "Not set"}
+                </Text>
               </>,
+              details(readOnlySource(skill, index)),
             );
           }
 
@@ -287,6 +278,7 @@ export function SkillsField({
           return row(
             index,
             skill.name,
+            `Custom skill ${index + 1}`,
             <Form layout="vertical" component="div">
               <div css={{ display: "flex", flexWrap: "wrap", gap: "8px 12px" }}>
                 {input("name", "Skill name", "name", "", 200)}
