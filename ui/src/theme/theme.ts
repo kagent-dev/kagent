@@ -391,6 +391,14 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       Menu: {
         itemBg: "transparent",
         subMenuItemBg: "transparent",
+        // Extension menus may still pass theme="dark"; give them the same rows.
+        darkItemBg: "transparent",
+        darkSubMenuItemBg: "transparent",
+        darkItemColor: color.navText,
+        darkItemHoverColor: color.navHoverText,
+        darkItemHoverBg: color.navHoverBg,
+        darkItemSelectedBg: color.navActiveBg,
+        darkItemSelectedColor: color.navActiveText,
         itemColor: color.navText,
         itemHoverColor: color.navHoverText,
         itemHoverBg: color.navHoverBg,
