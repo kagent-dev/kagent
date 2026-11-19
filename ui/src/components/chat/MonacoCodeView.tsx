@@ -4,7 +4,7 @@ import * as monaco from "monaco-editor/editor/editor.api";
 import "monaco-editor/basic-languages/monaco.contribution";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import type { ThemeMode } from "@/theme/theme";
-import type { MarkdownPalette } from "./markdownPalette";
+import { isHexColor, type MarkdownPalette } from "./markdownPalette";
 import { CODE_METRICS } from "./codeMetrics";
 
 // The bundled Monaco and its one worker, never the loader's CDN copy.
@@ -58,36 +58,39 @@ function defineTheme(mode: ThemeMode, palette: MarkdownPalette): string {
   const name = `kagent-markdown-${mode}`;
   const hex = (value: string) => value.replace("#", "");
   const { syntax } = palette;
+  // Monaco throws on a non-hex colour (an extension may set `rgb()`), so those fall back to the base theme.
+  const rules: monaco.editor.ITokenThemeRule[] = [
+    { token: "", foreground: hex(palette.body) },
+    { token: "keyword", foreground: hex(syntax.keyword) },
+    { token: "tag", foreground: hex(syntax.keyword) },
+    { token: "type", foreground: hex(syntax.key) },
+    { token: "attribute.name", foreground: hex(syntax.key) },
+    { token: "string", foreground: hex(syntax.string) },
+    { token: "attribute.value", foreground: hex(syntax.string) },
+    { token: "number", foreground: hex(syntax.number) },
+    { token: "comment", foreground: hex(syntax.comment), fontStyle: "italic" },
+    { token: "variable", foreground: hex(syntax.variable) },
+    { token: "delimiter", foreground: hex(syntax.punctuation) },
+    { token: "operator", foreground: hex(syntax.punctuation) },
+    { token: "operators", foreground: hex(syntax.punctuation) },
+  ];
+  const colors: Record<string, string> = {
+    "editor.background": palette.codeBg,
+    "editor.foreground": palette.body,
+    "editorLineNumber.foreground": palette.muted,
+    "editorLineNumber.activeForeground": palette.muted,
+    "editorCursor.foreground": palette.codeBg,
+    "editor.selectionBackground": mix40(palette.link),
+    "editor.inactiveSelectionBackground": mix40(palette.link),
+    "scrollbarSlider.background": `${palette.muted}40`,
+    "scrollbarSlider.hoverBackground": `${palette.muted}88`,
+    "scrollbarSlider.activeBackground": `${palette.muted}aa`,
+  };
   monaco.editor.defineTheme(name, {
     base: mode === "dark" ? "vs-dark" : "vs",
     inherit: true,
-    rules: [
-      { token: "", foreground: hex(palette.body) },
-      { token: "keyword", foreground: hex(syntax.keyword) },
-      { token: "tag", foreground: hex(syntax.keyword) },
-      { token: "type", foreground: hex(syntax.key) },
-      { token: "attribute.name", foreground: hex(syntax.key) },
-      { token: "string", foreground: hex(syntax.string) },
-      { token: "attribute.value", foreground: hex(syntax.string) },
-      { token: "number", foreground: hex(syntax.number) },
-      { token: "comment", foreground: hex(syntax.comment), fontStyle: "italic" },
-      { token: "variable", foreground: hex(syntax.variable) },
-      { token: "delimiter", foreground: hex(syntax.punctuation) },
-      { token: "operator", foreground: hex(syntax.punctuation) },
-      { token: "operators", foreground: hex(syntax.punctuation) },
-    ],
-    colors: {
-      "editor.background": palette.codeBg,
-      "editor.foreground": palette.body,
-      "editorLineNumber.foreground": palette.muted,
-      "editorLineNumber.activeForeground": palette.muted,
-      "editorCursor.foreground": palette.codeBg,
-      "editor.selectionBackground": mix40(palette.link),
-      "editor.inactiveSelectionBackground": mix40(palette.link),
-      "scrollbarSlider.background": `${palette.muted}40`,
-      "scrollbarSlider.hoverBackground": `${palette.muted}88`,
-      "scrollbarSlider.activeBackground": `${palette.muted}aa`,
-    },
+    rules: rules.filter((rule) => isHexColor(`#${rule.foreground}`)),
+    colors: Object.fromEntries(Object.entries(colors).filter(([, value]) => isHexColor(value))),
   });
   return name;
 }

@@ -1,8 +1,14 @@
 import type { Theme } from "@emotion/react";
 import type { ThemeMode } from "@/theme/theme";
 
-/** `a` blended toward `b` by `amount` (0–1), as `#rrggbb`. */
+const RGB_HEX = /^#[0-9a-f]{6}$/i;
+
+/** `#rrggbb` or `#rrggbbaa`: the only colour forms Monaco's theme accepts. */
+export const isHexColor = (value: string) => /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value);
+
+/** `a` blended toward `b` by `amount` (0–1), as `#rrggbb`; `a` unchanged if either isn't `#rrggbb`. */
 export function mix(a: string, b: string, amount: number): string {
+  if (!RGB_HEX.test(a) || !RGB_HEX.test(b)) return a;
   const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const [x, y] = [channels(a), channels(b)];
   return `#${x.map((v, i) => Math.round(v + (y[i] - v) * amount).toString(16).padStart(2, "0")).join("")}`;
