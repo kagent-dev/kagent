@@ -1063,6 +1063,8 @@ export function AgentRail({
                * but the same jump, at the same moment.
                */
               minHeight: 38,
+              // Tucked between the heading and the list: the 38px is for the button, not for space around it.
+              marginBlock: -8,
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
@@ -1456,7 +1458,7 @@ function ChatEntry({
     /* Room between the three things on a row. At 2px the checkbox, the name and the
        menu were one undifferentiated strip, and the open conversation's outline ran
        straight into the button beside it. */
-    <li css={{ display: "flex", alignItems: "center", gap: theme.space(2), minWidth: 0 }}>
+    <li css={{ display: "flex", alignItems: "center", gap: theme.space(1), minWidth: 0 }}>
       <Modal
         open={isConfirming}
         onCancel={() => { setConfirming(false); setForceDelete(false); }}
