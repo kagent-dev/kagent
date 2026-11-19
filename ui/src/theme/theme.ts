@@ -399,6 +399,7 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         darkItemHoverBg: color.navHoverBg,
         darkItemSelectedBg: color.navActiveBg,
         darkItemSelectedColor: color.navActiveText,
+        darkPopupBg: color.bgElevated,
         itemColor: color.navText,
         itemHoverColor: color.navHoverText,
         itemHoverBg: color.navHoverBg,

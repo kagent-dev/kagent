@@ -59,6 +59,10 @@ function navRailStyles(theme: Theme) {
     "& .ant-menu-item-selected .ant-menu-item-icon": { color: theme.color.navActiveIcon },
     "& .ant-menu-item-selected:hover": { background: theme.color.navActiveHoverBg },
     "& .ant-menu-item-selected:active": { background: theme.color.navActivePressBg },
+    // antd's dark menu clears the press fill and no token reaches it.
+    "& .ant-menu-dark:not(.ant-menu-horizontal) .ant-menu-item:not(.ant-menu-item-selected):active": {
+      background: theme.color.navPressBg,
+    },
     "& .ant-menu-item:has(a:focus-visible)": {
       outline: `2px solid ${theme.color.navFocus}`,
       outlineOffset: 0,
