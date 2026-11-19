@@ -85,6 +85,25 @@ test("agents: one agent lists its own conversations, and only its own", async ({
   });
 });
 
+test("agents: the conversations table lists newest first, as the rail does", async ({
+  page,
+}) => {
+  await loadPage(page, agentPage(agents.k8s));
+  await expectSettled(page);
+
+  // The fixtures list these oldest-ish first, so only a sort puts them in this order.
+  const newestFirst = [
+    "8e5f2b09-6c14-4a7d-83b0-9d1c7e40f5a6",
+    "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44",
+    "b28e4f13-5c66-4d90-8f2b-77a1e9c34d05",
+    "3c9a1e64-8d47-4f22-b71a-05e2d8c96b18",
+  ];
+  const keys = await dataRows(page).evaluateAll((rows) =>
+    rows.map((row) => row.getAttribute("data-row-key")),
+  );
+  expect(keys).toEqual(newestFirst);
+});
+
 test("agents: a conversation is named by the reader, and never renders as a bare UUID", async ({
   page,
 }) => {

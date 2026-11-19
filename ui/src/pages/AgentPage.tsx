@@ -29,6 +29,8 @@ import {
   type AgentInstance,
 } from "@/api";
 import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
+import { useConversationTitles } from "@/api/hooks/useConversationTitles";
+import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import {
   conversationTitle,
@@ -86,7 +88,13 @@ export function AgentPage() {
    * filter, the state options and the columns would all rebuild continuously, and
    * antd rebuilds a table's internal column state whenever its columns change.
    */
-  const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
+  // Newest first, the order the rail lists the same conversations in.
+  const rows = useMemo(
+    () => [...(conversations.data?.all ?? [])].sort(byNewestFirst),
+    [conversations.data],
+  );
+  // The rail's title for each unnamed conversation, so the two lists name them alike.
+  const derivedTitles = useConversationTitles(rows);
   const openableIds = useMemo(
     () => conversations.data && new Set(conversations.data.own.map((row) => row.id)),
     [conversations.data],
@@ -110,12 +118,12 @@ export function AgentPage() {
         // The id as well as the title: an id is what a bug report or a log line
         // carries, and it is the only handle an untitled conversation has.
         return matchesQuery(view.query, [
-          conversationTitle(row),
+          conversationTitle(row, derivedTitles[row.id]),
           row.id,
           row.creator,
         ]);
       }),
-    [rows, selectedStates, view.query],
+    [rows, derivedTitles, selectedStates, view.query],
   );
 
   /**
@@ -192,10 +200,10 @@ export function AgentPage() {
       {
         title: "Conversation",
         key: "name",
-        sorter: byText<AgentInstance>((row) => conversationTitle(row)),
+        sorter: byText<AgentInstance>((row) => conversationTitle(row, derivedTitles[row.id])),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => {
-          const title = conversationTitle(row);
+          const title = conversationTitle(row, derivedTitles[row.id]);
           // Until the read lands nothing is known about who may open what, so
           // nothing is claimed: treating an unread answer as "not yours" would
           // strip the links off a list that is about to be perfectly openable.
@@ -298,7 +306,7 @@ export function AgentPage() {
               <RenameConversationButton instance={row} disabled={!mine} />
               <DeleteResourceButton
                 kind="conversation"
-                name={conversationTitle(row)}
+                name={conversationTitle(row, derivedTitles[row.id])}
                 disabled={!mine}
                 forceLabel="Stop active turns and delete"
                 onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
@@ -313,7 +321,7 @@ export function AgentPage() {
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations.refresh, openableIds, theme, extensionColumns, view],
+    [conversations.refresh, openableIds, derivedTitles, theme, extensionColumns, view],
   );
 
   const othersCount = rows.filter(
