@@ -1212,7 +1212,7 @@ export function SubstratePage() {
             </Tooltip>
           ) : null}
 
-          <RefreshButton onRefresh={refreshAll} what="Substrate" loading={isRefreshing} />
+          <RefreshButton onRefresh={refreshAll} what="Substrate" loading={isRefreshing} iconOnly />
         </Space>
       }
     >

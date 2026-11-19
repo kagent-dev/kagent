@@ -186,7 +186,6 @@ export function ModelsPage() {
       description="Model configurations available to agents."
       actions={
         <Space size={8}>
-          <RefreshButton onRefresh={refresh} what="Models" loading={isLoading} />
           {/* The same page-level create the tool server and prompt lists carry. It
               matters more than it looks: the header's create menu is part of the default
               shell, and a distribution that supplies its own layout does not inherit it —
@@ -197,6 +196,7 @@ export function ModelsPage() {
               New Model
             </Button>
           </Link>
+          <RefreshButton onRefresh={refresh} what="Models" loading={isLoading} iconOnly />
         </Space>
       }
     >

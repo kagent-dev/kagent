@@ -239,11 +239,6 @@ export function McpServersPage() {
       description="Tool servers agents can call. Expand a server to see the tools it exposes."
       actions={
         <Space size={8}>
-          <RefreshButton
-            onRefresh={refresh}
-            what="Tool servers"
-            loading={isLoading}
-          />
           <Link to={paths.mcpServerNew}>
             <Button
               type="primary"
@@ -253,6 +248,12 @@ export function McpServersPage() {
               New Server
             </Button>
           </Link>
+          <RefreshButton
+            onRefresh={refresh}
+            what="Tool servers"
+            loading={isLoading}
+            iconOnly
+          />
         </Space>
       }
     >
