@@ -41,10 +41,8 @@ export function FieldLabel({ children, required, id }: FieldLabelProps) {
 type FormFieldProps = Omit<FormItemProps, "label" | "required" | "requiredMark"> & {
   label: ReactNode;
   required: boolean;
-  /** Message shown under the field and marks it invalid. */
+  /** Message shown under the control and marks it invalid. */
   error?: string;
-  /** "above" puts the hint between label and control, for sections of repeated rows. */
-  hintPlacement?: "below" | "above";
   /** Called when the user leaves the field or types a value into it; from `validation.field`. */
   onTouch?: () => void;
 };
@@ -76,47 +74,46 @@ export function FormField({
   validateStatus,
   help,
   extra,
-  hintPlacement = "below",
   onTouch,
   children,
   ...rest
 }: FormFieldProps) {
   const theme = useTheme();
   const autoId = useId();
-  // A hint above stays visible with an error, which still shows below the control.
-  const above = hintPlacement === "above" && help !== undefined;
-  const hintBelow = !above && help !== undefined && !error;
+  // `help` and `extra` are both supporting text: it sits between label and control, and the error below.
+  const hasHint = help !== undefined || extra !== undefined;
 
-  // A lone control gets the label's id and points at its error or hint. Fragments, plain wrapper
+  // A lone control gets the label's id and points at its hint and error. Fragments, plain wrapper
   // elements and children whose id differs from the caller's htmlFor are left as they are.
-  const control = !above && isValidElement<ControlProps>(children) && isControl(children, rest.htmlFor)
-    ? children
-    : undefined;
+  const control = isValidElement<ControlProps>(children) && isControl(children, rest.htmlFor) ? children : undefined;
   const controlId = rest.htmlFor ?? control?.props.id ?? autoId;
   const isGroup = control !== undefined && GROUP_TYPES.includes(control.type);
   const labelId = `${controlId}-label`;
   const errorId = `${controlId}-error`;
   const hintId = `${controlId}-hint`;
-  const describedBy = [control?.props["aria-describedby"], error ? errorId : hintBelow ? hintId : undefined]
+  const describedBy = [control?.props["aria-describedby"], hasHint ? hintId : undefined, error ? errorId : undefined]
     .filter(Boolean)
     .join(" ");
 
-  const body = control ? (
-    cloneElement(control, {
-      id: control.props.id ?? controlId,
-      "aria-invalid": error ? true : control.props["aria-invalid"],
-      "aria-describedby": describedBy || undefined,
-      ...(isGroup ? { "aria-labelledby": labelId } : {}),
-    })
-  ) : above ? (
+  const field = control
+    ? cloneElement(control, {
+        id: control.props.id ?? controlId,
+        "aria-invalid": error ? true : control.props["aria-invalid"],
+        "aria-describedby": describedBy || undefined,
+        ...(isGroup ? { "aria-labelledby": labelId } : {}),
+      })
+    : children;
+  const body = hasHint && typeof field !== "function" ? (
     <>
-      <div className="ant-form-item-extra" css={{ marginBottom: theme.space(2) }}>
+      <div id={hintId} className="ant-form-item-extra" css={{ marginBottom: theme.space(2) }}>
         {help}
+        {help !== undefined && extra !== undefined ? " " : null}
+        {extra}
       </div>
-      {children}
+      {field}
     </>
   ) : (
-    children
+    field
   );
 
   return (
@@ -134,18 +131,7 @@ export function FormField({
         </FieldLabel>
       }
       validateStatus={error ? "error" : validateStatus}
-      // A hint goes in `extra`: antd's `help` grows in from zero height and shifts the controls below.
       help={error ? <span id={errorId}>{error}</span> : undefined}
-      extra={
-        hintBelow ? (
-          <>
-            <span id={hintId}>{help}</span>
-            {extra}
-          </>
-        ) : (
-          extra
-        )
-      }
     >
       {onTouch && typeof body !== "function" ? (
         <div

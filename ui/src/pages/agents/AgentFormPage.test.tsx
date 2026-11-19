@@ -120,7 +120,7 @@ describe("agent create form", () => {
     const model = within(screen.getByTestId("template-form-model")).getByRole("combobox");
     fireEvent.blur(model);
     expect(model).toHaveAttribute("aria-invalid", "true");
-    expect(model).toHaveAccessibleDescription("Choose a model configuration.");
+    expect(model).toHaveAccessibleDescription(/Choose a model configuration\.$/);
     expect(mocks.create).not.toHaveBeenCalled();
   });
 

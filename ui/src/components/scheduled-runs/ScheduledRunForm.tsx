@@ -186,7 +186,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
           options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({ value, label: weekdays[value] }))} />
       </FormField>}
       {draft.frequency === "monthly" && <FormField htmlFor="schedule-month-day-input" label="Day of the month"
-        required {...validation.field("monthDay")} help={error("monthDay") ?? "Months without this day are skipped."}>
+        required {...validation.field("monthDay")} help="Months without this day are skipped.">
         <InputNumber id="schedule-month-day-input" data-testid="schedule-month-day" placeholder="Day, e.g. 1" min={1} max={31} precision={0}
           status={status("monthDay")} value={draft.monthDay} onChange={(monthDay) => update({ monthDay })} />
       </FormField>}
@@ -196,7 +196,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
           value={draft.time} onChange={(event) => update({ time: event.target.value })} />
       </FormField>}
       {draft.frequency === "custom" && <FormField htmlFor="schedule-cron-input" label="Cron expression" required
-        {...validation.field("cron")} help={error("cron") ?? "Five fields: minute, hour, day of month, month, day of week."}>
+        {...validation.field("cron")} help="Five fields: minute, hour, day of month, month, day of week.">
         <Input id="schedule-cron-input" data-testid="schedule-cron" placeholder="e.g. 0 9 * * *" status={status("cron")}
           value={draft.cron} onChange={(event) => update({ cron: event.target.value })} />
       </FormField>}
@@ -205,7 +205,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
           value={draft.prompt} onChange={(event) => update({ prompt: event.target.value })} />
       </FormField>
       <FormField htmlFor="schedule-timeout-input" label="Execution timeout" required {...validation.field("timeoutSeconds")}
-        help={error("timeoutSeconds") ?? "Time limit in seconds. It covers queueing and agent startup."}>
+        help="Time limit in seconds. It covers queueing and agent startup.">
         <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" placeholder="Seconds, e.g. 900" min={0.000001} max={TIMEOUT_MAX_SECONDS}
           status={status("timeoutSeconds")} value={draft.timeoutSeconds}
           onChange={(timeoutSeconds) => update({ timeoutSeconds })} />

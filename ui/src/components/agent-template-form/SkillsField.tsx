@@ -341,7 +341,6 @@ function SkillsItem({ readOnly, validation, children }: { readOnly: boolean; val
     <FormField
       label="Skills"
       required={false}
-      hintPlacement="above"
       help="A skill is a set of instructions the agent loads when a task matches it. Its source must not change: an OCI image pinned by digest, a full Git commit, or an S3 object version. The path selects the skill's directory inside the source."
       {...validation}
     >

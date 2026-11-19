@@ -151,7 +151,6 @@ export function PromptForm({
           label="Fragments"
           required
           {...validation.field("fragments")}
-          hintPlacement="above"
           help={
             <span data-testid="prompt-fragments-note">
               {identityLocked

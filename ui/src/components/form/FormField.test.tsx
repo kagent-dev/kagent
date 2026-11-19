@@ -39,42 +39,33 @@ describe("FormField", () => {
     expect(container.querySelector(".ant-form-item-has-error")).not.toBeNull();
   });
 
-  // antd grows its help area from zero height on mount, which moves every control below it.
-  it("shows a hint in the static extra area, not the animated help area", () => {
+  it("puts the hint between the label and the control, outside antd's help area", () => {
     const { container } = render(
       <Form layout="vertical">
         <FormField label="Origin" required help="Scheme and host.">
-          <Input />
-        </FormField>
-      </Form>,
-    );
-    expect(container.querySelector(".ant-form-item-extra")).toHaveTextContent("Scheme and host.");
-    expect(container.querySelector(".ant-form-item-explain")).toBeNull();
-  });
-
-  it("shows the error instead of the hint once there is one", () => {
-    const { container } = render(
-      <Form layout="vertical">
-        <FormField label="Origin" required help="Scheme and host." error="Enter an origin.">
-          <Input />
-        </FormField>
-      </Form>,
-    );
-    expect(container.querySelector(".ant-form-item-explain")).toHaveTextContent("Enter an origin.");
-    expect(screen.queryByText("Scheme and host.")).not.toBeInTheDocument();
-  });
-
-  it("puts an above hint before the control and keeps it beside an error", () => {
-    render(
-      <Form layout="vertical">
-        <FormField label="Rows" required hintPlacement="above" help="One row each." error="Add a row.">
           <Input data-testid="control" />
         </FormField>
       </Form>,
     );
-    const hint = screen.getByText("One row each.");
+    const hint = screen.getByText("Scheme and host.");
+    expect(container.querySelector("label")!.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(hint.compareDocumentPosition(screen.getByTestId("control")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByText("Add a row.")).toBeInTheDocument();
+    expect(container.querySelector(".ant-form-item-explain")).toBeNull();
+  });
+
+  it("keeps the hint above and shows the error below the control", () => {
+    const { container } = render(
+      <Form layout="vertical">
+        <FormField label="Origin" required help="Scheme and host." error="Enter an origin.">
+          <Input data-testid="control" />
+        </FormField>
+      </Form>,
+    );
+    const explain = container.querySelector(".ant-form-item-explain")!;
+    expect(explain).toHaveTextContent("Enter an origin.");
+    expect(screen.getByText("Scheme and host.")).toBeInTheDocument();
+    expect(screen.getByTestId("control").compareDocumentPosition(explain) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByLabelText(/Origin/)).toHaveAccessibleDescription("Scheme and host. Enter an origin.");
   });
 
   it.each([
@@ -106,7 +97,7 @@ describe("FormField", () => {
     expect(field).toHaveAccessibleDescription("A name is required.");
   });
 
-  it("points the control at a hint below it", () => {
+  it("points the control at its hint", () => {
     render(
       <Form layout="vertical">
         <FormField label="Origin" required help="Scheme and host.">
@@ -175,7 +166,7 @@ describe("FormField", () => {
     expect(container.querySelector("label[for]")).toBeNull();
   });
 
-  it("shows both a hint and the caller's extra", () => {
+  it("shows a hint and the caller's extra together above the control", () => {
     render(
       <Form layout="vertical">
         <FormField label="Time" required help="Local time." extra={<span>Runs daily.</span>}>

@@ -710,7 +710,6 @@ export function ModelForm({
                     <FormField
                       label="Default headers"
                       required={false}
-                      hintPlacement="above"
                       help="Sent on every request to the provider — for API versioning, tracing, or provider-specific needs."
                     >
                       <FormRowList

@@ -394,7 +394,6 @@ export function AgentTemplateForm({
         <Field readOnly={readOnly}
           label="MCP server tools"
           required={false}
-          hintPlacement="above"
           help={readOnly ? undefined : "Each binding names one server and optionally limits which tools to expose. An empty selection exposes every tool from that server. Require approval pauses before each of those tools runs."}
         >
           <FormRowList
@@ -481,7 +480,6 @@ export function AgentTemplateForm({
         <Field readOnly={readOnly}
           label="Agent templates as tools"
           required={false}
-          hintPlacement="above"
           help={readOnly ? undefined : "Each row turns an agent template in this namespace into a tool. The description says when to call it."}
         >
           <FormRowList
@@ -560,7 +558,6 @@ export function AgentTemplateForm({
           <Field readOnly={readOnly}
             label="Labels"
             required={false}
-            hintPlacement="above"
             help={readOnly ? undefined : "Optional metadata. An Agent explicitly pairs this template with a Harness."}
           >
             {readOnly ? (
@@ -624,6 +621,6 @@ export function AgentTemplateForm({
 }
 
 /** A FormField while editing; reading is not a form, so labels drop the required and optional marks. */
-function Field({ readOnly, required, error, hintPlacement, onTouch, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
-  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} hintPlacement={hintPlacement} onTouch={onTouch} {...props} />;
+function Field({ readOnly, required, error, onTouch, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
+  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} onTouch={onTouch} {...props} />;
 }

@@ -54,7 +54,7 @@ export function DestinationEditor({
         htmlFor={fieldId("origin")}
         label={egressCopy.form.origin}
         required
-        help={error("origin") ?? egressCopy.form.originHelp}
+        help={egressCopy.form.originHelp}
         {...field("origin")}
       >
         <Input
@@ -75,7 +75,7 @@ export function DestinationEditor({
         label={egressCopy.form.authentication}
         required={false}
         {...field("auth")}
-        help={error("auth") ?? (wildcard ? egressCopy.form.wildcardNoAuth : egressCopy.form.authenticationHelp)}
+        help={wildcard ? egressCopy.form.wildcardNoAuth : egressCopy.form.authenticationHelp}
       >
         <Radio.Group
           optionType="button"
@@ -112,7 +112,7 @@ export function DestinationEditor({
             label={egressCopy.form.prefix}
             required={false}
             {...field("prefix")}
-            help={error("prefix") ?? egressCopy.form.prefixHelp}
+            help={egressCopy.form.prefixHelp}
           >
             <Input
               id={fieldId("prefix")}
@@ -132,7 +132,7 @@ export function DestinationEditor({
                 label={egressCopy.form.secretName}
                 required
                 {...field("secretName")}
-                help={error("secretName") ?? egressCopy.form.secretHelp}
+                help={egressCopy.form.secretHelp}
               >
                 <Input
                   id={fieldId("secret-name")}
@@ -163,7 +163,7 @@ export function DestinationEditor({
                 label={egressCopy.form.audiences}
                 required
                 {...field("audiences")}
-                help={error("audiences") ?? egressCopy.form.audiencesHelp}
+                help={egressCopy.form.audiencesHelp}
               >
                 <Input
                   id={fieldId("audiences")}
@@ -190,7 +190,7 @@ export function DestinationEditor({
                 label={egressCopy.form.lifetime}
                 required={false}
                 {...field("lifetime")}
-                help={error("lifetime") ?? egressCopy.form.lifetimeHelp}
+                help={egressCopy.form.lifetimeHelp}
               >
                 <Input
                   id={fieldId("lifetime")}
