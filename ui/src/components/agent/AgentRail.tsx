@@ -1004,22 +1004,8 @@ export function AgentRail({
           }}
         />
 
-        <Text
-          css={{
-            color: theme.color.textMuted,
-            fontSize: 11,
-            textTransform: "uppercase",
-            letterSpacing: 0.6,
-            paddingInline: theme.space(2),
-            // A little more room above the heading than the rail's gap, so it reads as a section start.
-            marginTop: 4,
-          }}
-        >
-          Chats
-        </Text>
-
         {/*
-          Select-all and the bulk action, inside the Chats section because they act on what the
+          Select-all and the bulk action, under the search because they act on what the
           search left behind.
 
           The row is always here; only the actions button comes and goes. It used to be
@@ -1129,6 +1115,20 @@ export function AgentRail({
             </Modal>
           </div>
         ) : null}
+
+        <Text
+          css={{
+            color: theme.color.textMuted,
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: 0.6,
+            paddingInline: theme.space(2),
+            // A little more room above the heading than the rail's gap, so it reads as a section start.
+            marginTop: 4,
+          }}
+        >
+          Chats
+        </Text>
 
         {actionError ? (
           <Alert
