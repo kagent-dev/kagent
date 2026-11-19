@@ -104,8 +104,8 @@ export function ChatMessageItem({
         data-testid="chat-message-content"
         css={{
           maxWidth: "min(80ch, 100%)",
-          // A reply holding a table or code block takes the column's full width; prose keeps its own measure inside.
-          "&:has([data-md-table-frame], [data-md-code])": { maxWidth: "100%" },
+          // A reply holding a table or code block grows to 1120px; past that, wide tables scroll in their frame.
+          "&:has([data-md-table-frame], [data-md-code])": { maxWidth: "min(1120px, 100%)" },
           display: "grid",
           gap: theme.space(2),
           width: isUser && !isQuestionRecord ? "auto" : "100%",
