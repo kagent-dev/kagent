@@ -439,14 +439,14 @@ export function ModelForm({
               {...fieldFor("provider")}
               help="Choose where the model runs."
             >
-              <Space.Compact css={{ display: "flex" }}>
+              <div css={{ display: "flex", gap: theme.space(2) }}>
                 <Select
                   data-testid="model-provider"
                   placeholder="Select a provider"
                   value={draft.provider}
                   loading={providers.isLoading}
                   disabled={identityLocked && !allowProviderSelectionWhenIdentityLocked}
-                  css={{ flex: 1 }}
+                  css={{ flex: 1, minWidth: 0 }}
                   options={providerSelectOptions}
                   onChange={changeProvider}
                   optionRender={(o) => (
@@ -459,6 +459,7 @@ export function ModelForm({
                 {/* A refresh, so a provider configured after this page loaded is reachable without a reload. */}
                 <Button
                   data-testid="model-fetch"
+                  css={{ flexShrink: 0 }}
                   icon={<RefreshCw size={14} aria-hidden />}
                   loading={providers.isLoading || providerModels.isLoading}
                   onClick={() => {
@@ -468,7 +469,7 @@ export function ModelForm({
                 >
                   Refresh models
                 </Button>
-              </Space.Compact>
+              </div>
             </FormField>
           </Col>
 
