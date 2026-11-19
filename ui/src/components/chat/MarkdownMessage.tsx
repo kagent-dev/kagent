@@ -6,6 +6,7 @@ import remarkBreaks from "remark-breaks";
 import { css, useTheme } from "@emotion/react";
 import type { Theme } from "@emotion/react";
 import { useThemeMode } from "@/theme/useThemeMode";
+import { inlineLink } from "@/components/common/linkStyles";
 import { MermaidDiagram } from "./MermaidDiagram";
 import { CodeBlock } from "./CodeBlock";
 import { markdownPalette, type MarkdownPalette } from "./markdownPalette";
@@ -258,18 +259,8 @@ function markdownStyles(theme: Theme, p: MarkdownPalette) {
     ${checkboxStyles(theme)}
 
     & a {
-      color: ${p.link};
-      text-decoration: underline;
-      text-decoration-thickness: 1px;
+      ${inlineLink(theme)};
       text-underline-offset: 3px;
-      border-radius: 3px;
-      transition: none;
-    }
-    & a:hover {
-      text-decoration-thickness: 2px;
-    }
-    & a:active {
-      background: ${p.quoteBg};
     }
 
     /* A tinted panel with a brand bar: unmistakably a quote. */
