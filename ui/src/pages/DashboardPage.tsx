@@ -1,4 +1,3 @@
-import { Bot, Cpu, Server, Wrench } from "lucide-react";
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
@@ -155,7 +154,6 @@ export function DashboardPage() {
 
           <StatTile
             label="Agents"
-            icon={Bot}
             testId="stat-agents"
             value={agentList?.length}
             isLoading={namespaces.isLoading || definitions.isLoading}
@@ -163,7 +161,6 @@ export function DashboardPage() {
           />
           <StatTile
             label="Model configurations"
-            icon={Cpu}
             testId="stat-models"
             value={models.error ? undefined : models.data?.length}
             isLoading={models.isLoading}
@@ -171,7 +168,6 @@ export function DashboardPage() {
           />
           <StatTile
             label="MCP servers"
-            icon={Server}
             testId="stat-mcp-servers"
             value={servers.error ? undefined : servers.data?.length}
             isLoading={servers.isLoading}
@@ -179,7 +175,6 @@ export function DashboardPage() {
           />
           <StatTile
             label="Tools discovered"
-            icon={Wrench}
             testId="stat-tools"
             value={tools.error ? undefined : tools.data?.length}
             isLoading={tools.isLoading}
