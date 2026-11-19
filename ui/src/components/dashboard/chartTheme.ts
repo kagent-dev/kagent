@@ -106,8 +106,8 @@ export function horizontalBarOptions(
       },
       y: {
         border: { color: color.border },
-        // Category names are what the reader scans for, so they take full-strength text.
-        ticks: { color: color.text, font: { size: 12 } },
+        // Category names are what the reader scans for: page text at 80%, strong but not glaring on dark.
+        ticks: { color: `${color.text}cc`, font: { size: 12 } },
         // A gridline per category would draw a line through every bar.
         grid: { display: false },
       },

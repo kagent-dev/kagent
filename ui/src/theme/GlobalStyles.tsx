@@ -7,7 +7,7 @@ export function GlobalStyles() {
   const statusTag = (status: string, bg: string, border: string, text: string) => `
     .ant-tag.ant-tag.ant-tag-${status}:not(.ant-tag-disabled):not(.ant-tag-solid) {
       background-color: ${bg};
-      border: 1px solid ${border};
+      border: 1px solid color-mix(in srgb, ${border} 55%, ${bg});
       color: ${text};
     }`;
   return (

@@ -41,7 +41,7 @@ describe("horizontalBarOptions — the active theme's ink", () => {
     const light = themeFor("light");
     const options = horizontalBarOptions({ one: "x", many: "xs" }, light);
 
-    expect(options.scales?.y?.ticks?.color).toBe(light.color.text);
+    expect(options.scales?.y?.ticks?.color).toBe(`${light.color.text}cc`);
     expect(options.scales?.x?.ticks?.color).toBe(light.color.textMuted);
     expect(options.scales?.x?.grid?.color).toBe(light.color.border);
     expect(options.plugins?.barValueLabels?.color).toBe(light.color.textMuted);
