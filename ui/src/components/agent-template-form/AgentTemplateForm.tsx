@@ -480,7 +480,7 @@ export function AgentTemplateForm({
         <Field readOnly={readOnly}
           label="Agent templates as tools"
           required={false}
-          help={readOnly ? undefined : "Each row turns an agent template in this namespace into a tool. The description says when to call it."}
+          help={readOnly ? undefined : "Each row lets this agent call another agent template. The description tells it when."}
         >
           <FormRowList
             data-testid="template-form-sub-agents"
