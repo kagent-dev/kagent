@@ -555,7 +555,7 @@ export function ModelForm({
           label="Namespace"
           required
           {...fieldFor("namespace")}
-          help="Pick the namespace to create the model in."
+          help={identityLocked ? "Fixed once the model exists." : "Pick the namespace to create the model in."}
         >
           <NamespaceSelect
             data-testid="model-namespace"
