@@ -170,8 +170,7 @@ export function GlobalStyles() {
         .ant-select input:focus,
         .ant-picker input:focus,
         .ant-input-outlined:focus,
-        .ant-input-filled:focus,
-        .ant-input-borderless:focus {
+        .ant-input-filled:focus {
           outline: none;
         }
 
