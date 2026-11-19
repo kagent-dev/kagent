@@ -303,7 +303,7 @@ export function AgentTemplateForm({
         <Field readOnly={readOnly}
           label="Output format"
           required
-          extra={readOnly ? undefined : "Structured output constrains only the successful final answer when this template runs as a root agent. It currently requires a kagent harness."}
+          extra={readOnly ? undefined : "A schema sets the final answer's shape. Only kagent harnesses support it."}
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             <div data-testid="template-form-output-source">
