@@ -51,11 +51,11 @@ function navRailStyles(theme: Theme) {
   return {
     "& .ant-menu-inline, & .ant-menu-vertical": { background: "transparent", borderInlineEnd: "none" },
     "& .ant-menu-item": {
-      fontWeight: 500,
+      fontWeight: 400,
       lineHeight: "20px",
       userSelect: "none" as const,
     },
-    "& .ant-menu-item-selected": { fontWeight: 600 },
+    "& .ant-menu-item-selected": { fontWeight: 500 },
     "& .ant-menu-item-selected .ant-menu-item-icon": { color: theme.color.navActiveIcon },
     "& .ant-menu-item-selected:active": { background: theme.color.navActivePressBg },
     "& .ant-menu-item:has(a:focus-visible)": {

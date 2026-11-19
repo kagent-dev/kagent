@@ -1024,97 +1024,106 @@ export function AgentRail({
           }}
         />
 
-        {/* Heads the search's section, so it sits close under it. */}
         <Text
-          data-testid="chat-sessions-heading"
           css={{
             color: theme.color.textMuted,
             fontSize: 11,
             textTransform: "uppercase",
             letterSpacing: 0.6,
             paddingInline: theme.space(2),
-            marginTop: -9,
           }}
         >
           Chats
         </Text>
 
-        {/* Select-all on the rows' checkbox column, the bulk menu on their menu column. The menu
-            is always drawn (disabled until something is picked), so a selection moves nothing. */}
+        {/*
+          Select-all and the bulk action, inside the Chats section because they act on what the
+          search left behind.
+
+          The row is always here; only the actions button comes and goes. It used to be
+          the whole bar, which meant ticking the first conversation inserted a line and
+          pushed the entire list down under the reader's pointer — a jump at the exact
+          moment they were aiming at something. Keeping the row costs one line and buys
+          a list that does not move, and select-all is worth reaching for before a
+          selection exists anyway. The button sits at the end of the row behind an auto
+          margin, so its arrival moves nothing.
+        */}
         {chats.length > 0 || conversations.isLoading ? (
           <div
             css={{
               display: "flex",
               alignItems: "center",
               gap: theme.space(2),
-              // The menu button's height, so the row is the same size with or without a selection.
-              minHeight: 28,
-              // Pulls the list up by the rows' own padding, so this row sits evenly between the heading and the first title.
-              marginBlock: "-6px -18px",
-              // Indented like the list, so its checkbox starts under the heading's first letter.
-              paddingInlineStart: theme.space(2),
+              /*
+               * Tall enough for the button before the button is there.
+               *
+               * A small antd button is a couple of pixels taller than the checkbox
+               * beside it, so without this the row grew when the actions appeared and
+               * the list still shifted — a smaller jump than the whole bar appearing,
+               * but the same jump, at the same moment.
+               */
+              minHeight: 38,
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
             data-testid="chat-bulk-bar"
           >
-            <>
-                <Checkbox
-                  checked={allVisibleSelected}
-                  indeterminate={selected.size > 0 && !allVisibleSelected}
-                  onChange={toggleAllVisible}
-                  // Drawn while the list is read so the bar does not arrive under the
-                  // reader's pointer, but there is nothing to select until it lands.
-                  disabled={conversations.isLoading}
-                  data-testid="chat-select-all"
-                  css={checkboxStyles(theme)}
-                >
-                  <Text
-                    data-testid="chat-selection-count"
-                    css={{ fontSize: 12, color: theme.color.textMuted, whiteSpace: "nowrap" }}
-                  >
-                    {allVisibleSelected
-                      ? "Select none"
-                      : selected.size > 0
-                        ? `${selected.size} selected`
-                        : "Select all"}
-                  </Text>
-                </Checkbox>
+            <Checkbox
+              checked={allVisibleSelected}
+              indeterminate={selected.size > 0 && !allVisibleSelected}
+              onChange={toggleAllVisible}
+              // Drawn while the list is read so the bar does not arrive under the
+              // reader's pointer, but there is nothing to select until it lands.
+              disabled={conversations.isLoading}
+              data-testid="chat-select-all"
+              css={checkboxStyles(theme)}
+            >
+              <Text
+                data-testid="chat-selection-count"
+                css={{ fontSize: 12, color: theme.color.textMuted }}
+              >
+                {/* The count once there is one, and what the box does before that.
+                    Never "Select none": that is what the box itself is for, and it
+                    already says all-or-some through its checked and indeterminate
+                    states — swapping the label hid the number at the moment it
+                    mattered most. */}
+                {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+              </Text>
+            </Checkbox>
 
-                <Dropdown
-                  trigger={["click"]}
-                  disabled={selected.size === 0}
-                  onOpenChange={setBulkMenuOpen}
-                  menu={{
-                    items: [
-                      {
-                        key: "delete",
-                        danger: true,
-                        icon: <Trash size={13} />,
-                        label: `Delete ${selected.size === 1 ? "chat" : `${selected.size} chats`}`,
-                        onClick: () => setConfirmingBulk(true),
-                      },
-                    ],
-                  }}
-                >
-                  <Button
-                    type="text"
-                    size="small"
-                    disabled={selected.size === 0}
-                    loading={isBulkDeleting}
-                    icon={
-                      <MoreVertical
-                        size={14}
-                        color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
-                      />
-                    }
-                    aria-label="Actions for the selected conversations"
-                    data-testid="chat-bulk-menu"
-                    // As wide as the row menus below, so the columns line up; shorter, so the row stays tight.
-                    css={{ ...menuButtonStyles(theme, isBulkMenuOpen), height: 28, marginInlineStart: "auto" }}
+            {selected.size > 0 ? (
+            <Dropdown
+              trigger={["click"]}
+              onOpenChange={setBulkMenuOpen}
+              menu={{
+                items: [
+                  {
+                    key: "delete",
+                    danger: true,
+                    icon: <Trash size={13} />,
+                    label: `Delete ${selected.size === 1 ? "chat" : "all selected"}`,
+                    onClick: () => setConfirmingBulk(true),
+                  },
+                ],
+              }}
+            >
+              <Button
+                type="text"
+                size="small"
+                loading={isBulkDeleting}
+                icon={
+                  <MoreVertical
+                    size={14}
+                    color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
                   />
-                </Dropdown>
-            </>
+                }
+                aria-label="Actions for the selected conversations"
+                data-testid="chat-bulk-menu"
+                // The same square as the menu on each row below it.
+                css={{ ...menuButtonStyles(theme, isBulkMenuOpen), marginInlineStart: "auto" }}
+              />
+            </Dropdown>
+            ) : null}
 
             <Modal
               open={isConfirmingBulk}
@@ -1218,9 +1227,8 @@ export function AgentRail({
               /* The list clips its own overflow, and a checkbox's ring is drawn just
                  outside the box it belongs to — so the clip box is widened to the left
                  and pulled back by the same amount. The rail's own left padding is
-                 what this then has room to reach into. A further 8px starts the rows under the
-                 "Chats" heading's first letter. */
-              paddingInlineStart: theme.space(4),
+                 what this then has room to reach into. */
+              paddingInlineStart: theme.space(2),
               marginInlineStart: `-${theme.space(2)}`,
               // The conversation's scrollbar, a few hundred pixels away: two that do
               // not match read as two applications.

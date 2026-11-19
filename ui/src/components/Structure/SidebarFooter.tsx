@@ -72,7 +72,7 @@ export function SidebarFooter({
     color: theme.color.navMuted,
     font: "inherit",
     fontSize: 14,
-    fontWeight: 500,
+    fontWeight: 400,
     lineHeight: "20px",
     textAlign: "left" as const,
     cursor: "pointer",
