@@ -1,4 +1,3 @@
-import { useLayoutEffect, useRef } from "react";
 import { Tooltip } from "antd";
 import { useTheme } from "@emotion/react";
 import {
@@ -11,9 +10,6 @@ import {
 } from "lucide-react";
 import { useThemeMode } from "@/theme/useThemeMode";
 import { NAV_INSET } from "./AppSidebar";
-
-/** The footer's height, as a CSS custom property on the document element. */
-export const SIDEBAR_FOOTER_HEIGHT_VAR = "--kagent-sidebar-footer-height";
 
 /** Where the docs link points. The project's own documentation, not a deployment's. */
 const DOCS_URL = "https://kagent.dev/docs/kagent";
@@ -38,22 +34,6 @@ export function SidebarFooter({
 }) {
   const theme = useTheme();
   const { mode, toggle, canToggle } = useThemeMode();
-  const footerRef = useRef<HTMLDivElement>(null);
-
-  // Published so the bottom-left toasts can sit above these controls rather than on them.
-  useLayoutEffect(() => {
-    const el = footerRef.current;
-    if (!el) return;
-    const root = document.documentElement.style;
-    const publish = () => root.setProperty(SIDEBAR_FOOTER_HEIGHT_VAR, `${el.offsetHeight}px`);
-    publish();
-    const observer = new ResizeObserver(publish);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      root.removeProperty(SIDEBAR_FOOTER_HEIGHT_VAR);
-    };
-  }, []);
 
   // Same height and icon column as the nav rows above, in the muted text role.
   const row = {
@@ -92,7 +72,6 @@ export function SidebarFooter({
 
   return (
     <div
-      ref={footerRef}
       data-testid="sidebar-footer"
       css={{
         marginTop: "auto",

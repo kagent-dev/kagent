@@ -5,7 +5,6 @@ import { RouterProvider } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { SWRConfig } from "swr";
 import { GlobalStyles } from "./theme/GlobalStyles";
-import { SIDEBAR_FOOTER_HEIGHT_VAR } from "./components/Structure/SidebarFooter";
 import { ThemeModeProvider } from "./theme/themeMode";
 import { useThemeMode } from "./theme/useThemeMode";
 import {
@@ -92,11 +91,8 @@ function ThemedApp() {
               value={{ revalidateOnFocus: false, shouldRetryOnError: false }}
             >
               <AppRouter />
-              {/* Bottom left, since bottom-right covered the chat's Send button. Raised above
-                  the sidebar footer's controls; 16px when a custom shell has no footer. */}
               <Toaster
-                position="bottom-left"
-                containerStyle={{ bottom: `calc(var(${SIDEBAR_FOOTER_HEIGHT_VAR}, 0px) + 16px)` }}
+                position="bottom-right"
                 toastOptions={{
                   style: {
                     background: resolvedTheme.color.bgElevated,
