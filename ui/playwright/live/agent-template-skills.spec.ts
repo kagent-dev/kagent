@@ -128,7 +128,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await page.getByTestId("template-form-skill-s3-version-3").fill(S3.versionId);
     await page.getByTestId("template-form-skill-path-3").fill("skills/incident-review");
 
-    await expect(page.getByTestId("template-form-problems")).toHaveCount(0);
+    await expect(page.getByTestId("template-blocked")).toHaveCount(0);
     templates.add(name);
     await page.getByTestId("template-submit").click();
     await expect(page).toHaveURL(/\/agents\?tab=templates/, { timeout: 60_000 });
@@ -184,10 +184,12 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await page.getByTestId("template-form-skill-git-url-0").fill(GIT_URL);
     await page.getByTestId("template-form-skill-git-commit-0").fill("abc");
 
-    const problems = page.getByTestId("template-form-problems");
-    await expect(problems).toContainText('The skill "team/runbooks" needs a name that is one path segment');
-    await expect(problems).toContainText('The skill "team/runbooks" needs a full Git commit ID: 40 or 64 hex characters.');
-    await expect(page.getByTestId("template-submit")).toBeDisabled();
+    // Each field flags itself under the row, and the submit is held back with a note.
+    const skill = page.getByTestId("template-form-skill-0");
+    await expect(skill).toContainText('The skill "team/runbooks" needs a name that is one path segment');
+    await expect(skill).toContainText('The skill "team/runbooks" needs a full Git commit ID: 40 or 64 hex characters.');
+    await expect(page.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("template-blocked")).toBeVisible();
   });
 });
 
@@ -199,7 +201,7 @@ test("live: an agent built with a kagent skill loads it in chat", async ({ page 
     await loadLive(page, liveRoutes.agentNew);
     await expectNoLoadFailure(page);
     await page.getByTestId("agent-form-name").fill(name);
-    await page.getByTestId("agent-form-template-source").getByText("Inline", { exact: true }).click();
+    await page.getByTestId("agent-form-template-source").getByText("Define here", { exact: true }).click();
     await choose(page, "template-form-model", MODEL);
     await page.getByTestId("template-form-description").fill(`Live ${name}`);
     await page
