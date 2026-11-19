@@ -104,6 +104,8 @@ export function ChatMessageItem({
         data-testid="chat-message-content"
         css={{
           maxWidth: "min(80ch, 100%)",
+          // A reply holding a table or code block takes the column's full width; prose keeps its own measure inside.
+          "&:has([data-md-table-frame], [data-md-code])": { maxWidth: "100%" },
           display: "grid",
           gap: theme.space(2),
           width: isUser && !isQuestionRecord ? "auto" : "100%",
@@ -155,6 +157,8 @@ function TextPart({ part, role }: ChatPartRendererProps<"text">) {
       css={{
         // A rendered reply gets more room than a one-line user bubble.
         padding: isUser ? `${theme.space(2)} ${theme.space(3)}` : "12px 14px",
+        // More room around a reply once the screen is wide enough to spare it.
+        ...(isUser ? {} : { "@media (min-width: 1280px)": { padding: "20px 24px" } }),
         borderRadius: theme.radius.md,
         background: isUser ? theme.color.primary : theme.color.bgElevated,
         border: isUser ? "none" : `1px solid ${theme.color.border}`,
