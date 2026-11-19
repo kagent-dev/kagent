@@ -297,9 +297,7 @@ export function McpServerNewPage() {
           }
         />
 
-        <UnsavedChangesModal blocker={blocker} testIdPrefix="mcp">
-          This form has edits that have not been saved. Leaving throws them away.
-        </UnsavedChangesModal>
+        <UnsavedChangesModal blocker={blocker} testIdPrefix="mcp" />
       </Space>
     </PageFrame>
     </>

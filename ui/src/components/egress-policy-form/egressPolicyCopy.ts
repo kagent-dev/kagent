@@ -87,7 +87,6 @@ export const egressCopy = {
     destinations: "Destinations",
     destinationsHelp: (max: number) => `Each destination allows one origin and all its paths. You can add up to ${max}.`,
     destinationTitle: (n: number) => `Destination ${n}`,
-    discardBody: "Leaving discards your edits. The policy on the cluster stays unchanged.",
     removeDestination: (n: number) => `Remove destination ${n}`,
     addDestination: "Add destination",
     origin: "Origin",

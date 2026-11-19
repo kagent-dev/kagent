@@ -234,8 +234,6 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         onRetry={() => void submit()}
         data-testid="schedule-form-error" /> : undefined}
     />
-    <UnsavedChangesModal blocker={blocker} testIdPrefix="schedule">
-      Leaving discards your edits. The schedule stays unchanged.
-    </UnsavedChangesModal>
+    <UnsavedChangesModal blocker={blocker} testIdPrefix="schedule" />
   </div>;
 }

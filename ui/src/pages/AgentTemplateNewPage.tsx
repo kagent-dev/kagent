@@ -164,9 +164,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
           />
         </Space>
 
-        <UnsavedChangesModal blocker={blocker} testIdPrefix="template">
-          This template has not been created. Leaving throws away what you entered.
-        </UnsavedChangesModal>
+        <UnsavedChangesModal blocker={blocker} testIdPrefix="template" />
       </PageFrame>
     </>
   );

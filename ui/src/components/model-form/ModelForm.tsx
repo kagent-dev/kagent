@@ -790,10 +790,7 @@ export function ModelForm({
         }
       />
 
-      <UnsavedChangesModal blocker={blocker} testIdPrefix="model">
-        This form has edits that have not been saved. Leaving throws them away; the
-        configuration on the cluster is unchanged either way.
-      </UnsavedChangesModal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="model" />
     </Space>
   );
 }

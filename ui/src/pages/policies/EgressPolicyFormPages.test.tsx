@@ -157,7 +157,7 @@ describe("new egress policy page", () => {
     const router = renderAt("/policies/egress/new");
     type("egress-form-name", "github");
     fireEvent.click(screen.getByTestId("egress-form-cancel"));
-    expect(await screen.findByTestId("egress-form-discard-body")).toHaveTextContent("Leaving discards your edits.");
+    expect(await screen.findByTestId("egress-form-discard-body")).toHaveTextContent("This form has edits that have not been saved.");
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(router.state.location.pathname).toBe("/policies/egress/new");
     fireEvent.click(screen.getByTestId("egress-form-cancel"));

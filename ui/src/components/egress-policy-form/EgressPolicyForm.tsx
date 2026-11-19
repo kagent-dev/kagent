@@ -229,9 +229,7 @@ export function EgressPolicyForm({
         }
       />
 
-      <UnsavedChangesModal blocker={blocker} testIdPrefix="egress-form">
-        {egressCopy.form.discardBody}
-      </UnsavedChangesModal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="egress-form" />
     </div>
   );
 }

@@ -212,8 +212,6 @@ export function HarnessForm({
 function HarnessUnsavedGuard({ isDirty }: { isDirty: boolean }) {
   const { blocker } = useUnsavedChangesGuard(isDirty);
   return (
-    <UnsavedChangesModal blocker={blocker} testIdPrefix="harness">
-      Leaving now discards your edits. Nothing changes on the cluster.
-    </UnsavedChangesModal>
+    <UnsavedChangesModal blocker={blocker} testIdPrefix="harness" />
   );
 }

@@ -206,7 +206,7 @@ describe("new schedule page", () => {
     const router = renderAt("/schedules/new");
     type("schedule-prompt", "Draft");
     fireEvent.click(screen.getByTestId("schedule-cancel"));
-    expect(await screen.findByTestId("schedule-discard-body")).toHaveTextContent("Leaving discards your edits.");
+    expect(await screen.findByTestId("schedule-discard-body")).toHaveTextContent("This form has edits that have not been saved.");
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(router.state.location.pathname).toBe("/schedules/new");
     fireEvent.click(screen.getByTestId("schedule-cancel"));

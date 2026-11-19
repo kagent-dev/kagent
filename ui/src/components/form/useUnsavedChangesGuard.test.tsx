@@ -10,7 +10,7 @@ function Form({ dirty }: { dirty: boolean }) {
   return (
     <>
       <Link to="/list">Leave</Link>
-      <UnsavedChangesModal blocker={blocker} testIdPrefix="test">Edits are lost.</UnsavedChangesModal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="test" />
     </>
   );
 }
@@ -22,7 +22,7 @@ function SavingForm() {
   return (
     <>
       <button onClick={() => { release(); void navigate("/list"); }}>Save</button>
-      <UnsavedChangesModal blocker={blocker} testIdPrefix="test">Edits are lost.</UnsavedChangesModal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="test" />
     </>
   );
 }
@@ -54,7 +54,7 @@ describe("useUnsavedChangesGuard", () => {
   it("blocks a dirty form and stays when the user keeps editing", async () => {
     const router = renderAt(true);
     fireEvent.click(screen.getByText("Leave"));
-    expect(await screen.findByTestId("test-discard-body")).toHaveTextContent("Edits are lost.");
+    expect(await screen.findByTestId("test-discard-body")).toHaveTextContent("This form has edits that have not been saved.");
     expect(router.state.location.pathname).toBe("/form");
 
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));

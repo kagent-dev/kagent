@@ -448,9 +448,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         }
       />
 
-      <UnsavedChangesModal blocker={blocker} testIdPrefix="agent-form">
-        Leaving now discards your edits. Nothing changes on the cluster.
-      </UnsavedChangesModal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="agent-form" />
     </div>
   );
 }

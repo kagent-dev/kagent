@@ -495,10 +495,7 @@ export function AgentTemplateDetailsPage() {
         ) : null}
       </Space>
 
-      <UnsavedChangesModal blocker={discardBlocker} testIdPrefix="template">
-        This template has edits that have not been saved. Leaving throws them away; the
-        template on the cluster is unchanged either way.
-      </UnsavedChangesModal>
+      <UnsavedChangesModal blocker={discardBlocker} testIdPrefix="template" />
     </PageFrame>
     </>
   );

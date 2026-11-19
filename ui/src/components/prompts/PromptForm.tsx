@@ -190,10 +190,7 @@ export function PromptForm({
         }
       />
 
-      <UnsavedChangesModal blocker={blocker} testIdPrefix="prompt">
-        This form has edits that have not been saved. Leaving throws them away; the
-        library on the cluster is unchanged either way.
-      </UnsavedChangesModal>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="prompt" />
     </Space>
   );
 }
