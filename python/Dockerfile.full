@@ -52,7 +52,7 @@ RUN addgroup -g 1001 pythongroup \
 # Install the Anthropic sandbox runtime from a pinned revision. Replace its vulnerable locked
 # transitive deps, build, then prune dev deps.
 RUN --mount=type=cache,target=/root/.npm \
-    npm install -g --ignore-scripts npm@11.21.1 \
+    npm install -g --ignore-scripts npm@11.21.3 \
     && git clone -q --depth 1 --revision=ef4afdef4d711ba21a507d7f7369e305f7d3dbfa \
         https://github.com/anthropic-experimental/sandbox-runtime.git /opt/sandbox-runtime \
     && cd /opt/sandbox-runtime \
