@@ -11,9 +11,8 @@ import type { AgentTemplateDraft, OutputSource, TemplateField } from "./agentTem
 import { SkillsField } from "./SkillsField";
 
 import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
-import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 /** Picker values are strings; keep that representation at the form boundary. */
 function referenceFromPicker(value: string): ObjectReference {
@@ -620,14 +619,6 @@ export function AgentTemplateForm({
           />
         ) : null}
       </Form>
-
-      {embedded ? null : (
-        <Paragraph css={{ margin: 0, color: theme.color.textMuted, fontSize: 12 }}>
-          <code>AgentTemplate</code> is a <code>{KAGENT_API_VERSION}</code> custom resource.
-          Everything on this form writes one field of its <code>spec</code>, except the
-          labels, which are <code>metadata</code>.
-        </Paragraph>
-      )}
     </Space>
   );
 }
