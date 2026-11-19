@@ -120,10 +120,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
   return (
     <>
       <BackLink to={agentTemplatesTab} resource="Templates" />
-      <PageFrame
-        title="New agent template"
-        description="What an agent does. A harness supplies the runtime; an agent is one of each."
-      >
+      <PageFrame title="New agent template">
         <Space orientation="vertical" size="middle" css={{ display: "flex", maxWidth: 860 }}>
           {copyNotice}
           <AgentTemplateForm
