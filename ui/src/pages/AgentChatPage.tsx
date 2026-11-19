@@ -21,8 +21,8 @@ import {
   apiClient,
   canForkFrom,
   useAgentInstance,
-  useAgentInstances,
   useAgentTakesFiles,
+  useSiblingConversations,
   useChat,
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
@@ -135,13 +135,10 @@ export function AgentChatPage() {
 
   const instance = useAgentInstance(id);
   /*
-   * Every instance visible to the caller, for the rail's list of sibling conversations.
-   *
-   * Read here rather than in the rail because this page is the one that creates and
-   * deletes them, so it is the one that has to refresh the list afterwards — and a
-   * rail reading its own copy would show a conversation this page had just removed.
+   * The caller's conversations, for the rail's list of siblings.
+   * Read here because this page creates and deletes them, so it refreshes the list.
    */
-  const instances = useAgentInstances();
+  const instances = useSiblingConversations(id);
   const agent = instance.data?.agent;
   const canAttach = useAgentTakesFiles(agent);
   const contextId = instance.data?.contextId;

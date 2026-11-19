@@ -331,10 +331,9 @@ export function AgentPage() {
         conversation — its record, and the switcher — are withheld rather than pointed
         at an id that does not exist.
 
-        Its conversation list and the table below are the same rows twice, and that is
-        deliberate rather than overlooked: the rail is chrome that persists across every
-        agent surface, and the table is this page's content, carrying state, counts,
-        renaming and deletion that the rail does not.
+        Its list is the caller's own conversations, as on every agent surface, so opening
+        one keeps the same rows. The table also lists others' conversations, which only
+        their creators can open.
       */}
       <div
         data-testid="agent-surface"
@@ -363,7 +362,7 @@ export function AgentPage() {
             // Known from the URL here, so the switcher can leave this agent out of its
             // own list without waiting for a conversation that does not exist.
             agentRef={{ namespace: namespace ?? "", name }}
-            instances={{ ...conversations, data: rows }}
+            instances={{ ...conversations, data: conversations.data?.own }}
             onNewChat={startConversation}
           />
         ) : null}

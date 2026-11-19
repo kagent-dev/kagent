@@ -119,6 +119,7 @@ export {
   useAgentConversations,
   useAgentInstance,
   useAgentInstances,
+  useSiblingConversations,
 } from "./hooks/useAgentInstances";
 export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
 export { useInvalidatePrompts } from "./hooks/useInvalidatePrompts";

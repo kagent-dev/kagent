@@ -1,3 +1,4 @@
+import { type Cache, unstable_serialize, useSWRConfig } from "swr";
 import { isApiError } from "../ApiError";
 import { apiClient } from "../client";
 import type { AgentInstance } from "../domain/agentInstances";
@@ -91,6 +92,28 @@ export function useAgentConversations(
       };
     },
   );
+}
+
+const FOR_AGENT_PREFIX = unstable_serialize(["agentInstances.forAgent"]);
+
+/**
+ * The caller's conversations, for the rail beside an open one.
+ * Until that list lands, an agent page's cached rows holding `id` stand in, so opening a row keeps the list.
+ */
+export function useSiblingConversations(id: string | undefined): ApiResource<AgentInstance[]> {
+  const { cache } = useSWRConfig();
+  const own = useAgentInstances();
+  const cached = own.isLoading && id ? cachedOwnRowsWith(cache, id) : undefined;
+  return cached ? { ...own, data: cached, isLoading: false } : own;
+}
+
+function cachedOwnRowsWith(cache: Cache, id: string): AgentInstance[] | undefined {
+  for (const key of cache.keys()) {
+    if (!key.startsWith(FOR_AGENT_PREFIX)) continue;
+    const rows = (cache.get(key)?.data as AgentConversations | undefined)?.own;
+    if (rows?.some((row) => row.id === id)) return rows;
+  }
+  return undefined;
 }
 
 /** One agent instance. Held back until the route has given us its ID. */

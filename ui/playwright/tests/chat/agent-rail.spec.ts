@@ -362,19 +362,22 @@ test("chat agent rail: conversations are named", async ({ page }) => {
   });
 });
 
-/** Opening a row keeps its title on every frame until the transcript has loaded. */
+/** Opening a row keeps its title and the list's length on every frame until the transcript loads. */
 test("chat agent rail: opening a conversation never flashes its id", async ({ page }) => {
   await page.goto(agentPage(agents.sharedOnFastLane));
   const row = page.getByTestId(`chat-session-${AUTO_TITLED}`);
   await expect(row).toContainText("Summarise last night's deploy", { timeout: 30_000 });
+  const listed = await page.getByTestId("chat-sessions-list").locator(":scope > li").count();
 
   // Sampled per frame in the page, since a one-frame flash is gone before any poll.
   await page.evaluate((testId) => {
     const samples: string[] = [];
-    (window as unknown as { railSamples: string[] }).railSamples = samples;
+    const counts: number[] = [];
+    Object.assign(window, { railSamples: samples, railCounts: counts });
     const tick = () => {
       const text = document.querySelector(`[data-testid="${testId}"]`)?.textContent;
       if (text) samples.push(text);
+      counts.push(document.querySelectorAll('[data-testid="chat-sessions-list"] > li').length);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
@@ -391,6 +394,11 @@ test("chat agent rail: opening a conversation never flashes its id", async ({ pa
   expect(
     samples.filter((text) => text.includes("Untitled") || text.includes(AUTO_TITLED.slice(0, 8))),
     "no frame should show the row's id in place of its title",
+  ).toEqual([]);
+  const counts = await page.evaluate(() => (window as unknown as { railCounts: number[] }).railCounts);
+  expect(
+    counts.filter((count) => count !== listed),
+    `every frame should list all ${listed} conversations`,
   ).toEqual([]);
 });
 
