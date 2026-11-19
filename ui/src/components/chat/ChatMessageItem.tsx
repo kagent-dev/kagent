@@ -153,7 +153,8 @@ function TextPart({ part, role }: ChatPartRendererProps<"text">) {
     <div
       data-testid="chat-message-text"
       css={{
-        padding: `${theme.space(2)} ${theme.space(3)}`,
+        // A rendered reply gets more room than a one-line user bubble.
+        padding: isUser ? `${theme.space(2)} ${theme.space(3)}` : "12px 14px",
         borderRadius: theme.radius.md,
         background: isUser ? theme.color.primary : theme.color.bgElevated,
         border: isUser ? "none" : `1px solid ${theme.color.border}`,
