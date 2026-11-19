@@ -21,6 +21,7 @@ import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { ListInput } from "@/components/form/ListInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
@@ -643,13 +644,16 @@ export function ModelForm({
               label="Audiences"
               required
               {...fieldFor("actorAudiences")}
-              help="Services allowed to accept this Actor token."
+              help="Services that accept this Actor token. Commas or spaces split them."
+              htmlFor="model-actor-audiences"
             >
-              <Select
-                mode="tags"
+              <ListInput
+                id="model-actor-audiences"
+                data-testid="model-actor-audiences"
+                split="commasAndSpaces"
+                unique
                 value={draft.actorAudiences}
                 onChange={(value) => set("actorAudiences", value)}
-                tokenSeparators={[","]}
               />
             </FormField>
             <FormField

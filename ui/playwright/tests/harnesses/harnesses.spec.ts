@@ -116,6 +116,20 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
   });
 
+  await test.step("6c. command and arguments become pills: spaces split them, quotes keep them whole", async () => {
+    const command = page.getByTestId("harness-command");
+    await page.getByTestId("harness-command-input").pressSequentially("node server.js");
+    await page.getByTestId("harness-command-add").click();
+    await expect(command.getByTestId("harness-command-list").getByRole("listitem")).toHaveText(["node", "server.js"]);
+
+    const args = page.getByTestId("harness-args");
+    await page.getByTestId("harness-args-input").pressSequentially('--port=8080 --name "two words" extra');
+    await page.getByTestId("harness-args-input").press("Enter");
+    await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words", "extra"]);
+    await args.getByRole("button", { name: "Remove extra" }).click();
+    await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
+  });
+
   await test.step("7. with the release image and the defaults, it is created", async () => {
     await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent/");
     await expect(page.getByTestId("harness-blocked")).toHaveCount(0);
@@ -135,6 +149,8 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
 
     await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
     await expect(page.getByTestId("harness-name")).toBeDisabled();
+    await expect(page.getByTestId("harness-command").getByRole("listitem")).toHaveText(["node", "server.js"]);
+    await expect(page.getByTestId("harness-args").getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
     await page.getByTestId("harness-image").fill(PINNED);
     await page.getByTestId("harness-submit").click();
 

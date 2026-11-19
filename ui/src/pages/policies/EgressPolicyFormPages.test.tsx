@@ -180,7 +180,7 @@ describe("new egress policy page", () => {
     expect(screen.getByTestId("egress-destinations-add")).toHaveFocus();
 
     fireEvent.click(screen.getByTestId("egress-destination-0-auth").querySelectorAll("input")[2]);
-    const audiences = screen.getByTestId("egress-destination-0-audiences");
+    const audiences = screen.getByTestId("egress-destination-0-audiences-input");
     fireEvent.change(audiences, { target: { value: "tools, billing" } });
     fireEvent.keyDown(audiences, { key: "Enter", code: "Enter", keyCode: 13, charCode: 13 });
     const pills = screen.getByTestId("egress-destination-0-audiences-list");

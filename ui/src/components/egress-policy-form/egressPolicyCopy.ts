@@ -106,7 +106,7 @@ export const egressCopy = {
     secretNameRequired: "Enter the Secret name.",
     secretKeyRequired: "Enter the key in the Secret.",
     audiences: "Audiences",
-    audiencesHelp: "The services that accept the token. Press Enter after each one.",
+    audiencesHelp: "Services that accept the token. Commas or spaces split them.",
     lifetime: "Token lifetime",
     lifetimeHelp: "In seconds, 300 to 3600. Leave blank for 900.",
     create: "Create",

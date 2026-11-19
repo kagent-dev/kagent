@@ -1,17 +1,12 @@
-import { useState, type Ref } from "react";
+import type { Ref } from "react";
 import { Form, Input, Radio, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
 import { isWildcardOrigin } from "@/api";
-import { DataPillList } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
+import { ListInput } from "@/components/form/ListInput";
 import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { egressCopy } from "./egressPolicyCopy";
 import { destinationFieldKey, type AuthChoice, type DestinationDraft, type DestinationField } from "./egressPolicyDraft";
-
-/** Splits typed text into audiences on commas and whitespace. */
-function splitAudiences(text: string): string[] {
-  return text.split(/[,\s]+/).filter(Boolean);
-}
 
 /** The fields of one destination: an origin and optional authentication. */
 export function DestinationEditor({
@@ -31,7 +26,6 @@ export function DestinationEditor({
   originRef?: Ref<InputRef>;
 }) {
   const theme = useTheme();
-  const [audienceText, setAudienceText] = useState("");
   const update = (patch: Partial<DestinationDraft>) => onChange({ ...row, ...patch });
   const wildcard = isWildcardOrigin(row.origin);
   const testId = (field: string) => `egress-destination-${index}-${field}`;
@@ -40,12 +34,6 @@ export function DestinationEditor({
   const field = (name: DestinationField) => fieldFor(destinationFieldKey(row.id, name));
   const error = (name: DestinationField) => field(name).error;
   const mono = { fontFamily: theme.font.mono };
-
-  const addAudiences = (text: string) => {
-    const added = splitAudiences(text).filter((entry) => !row.audiences.includes(entry));
-    if (added.length > 0) update({ audiences: [...row.audiences, ...added] });
-    setAudienceText("");
-  };
 
   return (
     <Form layout="vertical" component="div">
@@ -164,25 +152,16 @@ export function DestinationEditor({
                 {...field("audiences")}
                 help={egressCopy.form.audiencesHelp}
               >
-                <Input
+                <ListInput
                   id={fieldId("audiences")}
                   data-testid={testId("audiences")}
-                  value={audienceText}
+                  split="commasAndSpaces"
+                  unique
+                  value={row.audiences}
                   disabled={disabled}
                   placeholder="https://api.example.com"
-                  status={error("audiences") ? "error" : undefined}
-                  onChange={(event) => setAudienceText(event.target.value)}
-                  onPressEnter={() => addAudiences(audienceText)}
-                  onBlur={() => addAudiences(audienceText)}
-                  css={mono}
+                  onChange={(audiences) => update({ audiences })}
                 />
-                <div css={{ marginTop: theme.space(2) }}>
-                  <DataPillList
-                    data-testid={testId("audiences-list")}
-                    items={row.audiences}
-                    onRemove={disabled ? undefined : (item) => update({ audiences: row.audiences.filter((entry) => entry !== item) })}
-                  />
-                </div>
               </FormField>
               <FormField
                 htmlFor={fieldId("lifetime")}

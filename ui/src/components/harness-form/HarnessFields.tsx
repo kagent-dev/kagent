@@ -2,6 +2,7 @@ import { Alert, Input, Select } from "antd";
 import { useTheme } from "@emotion/react";
 import { DEFAULT_HARNESS_WORKER_POOL, HARNESS_ADAPTERS, type HarnessAdapter } from "@/api/domain/harnesses";
 import { FormField } from "@/components/form/FormField";
+import { ListInput } from "@/components/form/ListInput";
 import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { HARNESS_ADAPTER_LABELS, adapterSupportsCommand, type HarnessDraft, type HarnessDraftField } from "./harnessDraft";
@@ -93,18 +94,16 @@ export function HarnessFields({
             {...fieldFor("command")}
             extra={
               byo
-                ? "Required for bring-your-own images. Press Enter after each part."
-                : "Overrides the image entrypoint. Press Enter after each part."
+                ? "Required for bring-your-own images. Spaces split parts. Quote a part with spaces."
+                : "Overrides the image entrypoint. Spaces split parts. Quotes keep spaces."
             }
           >
-            <Select
+            <ListInput
               id="harness-command"
-              mode="tags"
+              split="spaces"
               data-testid="harness-command"
               value={draft.command}
               onChange={(value) => set("command", value)}
-              open={false}
-              suffixIcon={null}
               placeholder="/app/server"
             />
           </FormField>
@@ -113,16 +112,14 @@ export function HarnessFields({
             label="Arguments"
             required={false}
             htmlFor="harness-args"
-            extra="Overrides the image arguments. Press Enter after each one."
+            extra="Replaces the image arguments. Spaces split arguments. Quotes keep spaces."
           >
-            <Select
+            <ListInput
               id="harness-args"
-              mode="tags"
+              split="spaces"
               data-testid="harness-args"
               value={draft.args}
               onChange={(value) => set("args", value)}
-              open={false}
-              suffixIcon={null}
               placeholder="--port=8080"
             />
           </FormField>
