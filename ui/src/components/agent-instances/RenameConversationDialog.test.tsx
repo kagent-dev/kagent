@@ -48,16 +48,15 @@ describe("RenameConversationDialog", () => {
     expect(screen.getByTestId("field-optional")).toBeInTheDocument();
   });
 
-  it("shows an inline error on an invalid submit and sends nothing", async () => {
+  it("shows an inline error as soon as an invalid name is typed and sends nothing", async () => {
     renderDialog();
     await userEvent.type(screen.getByLabelText(/^Conversation name/), " padded");
-    expect(screen.getByLabelText(/^Conversation name/)).not.toHaveAccessibleDescription();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const field = screen.getByLabelText(/^Conversation name/);
     expect(field).toHaveAttribute("aria-invalid", "true");
     expect(field).toHaveAccessibleDescription(/cannot start or end with a space/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(rename).not.toHaveBeenCalled();
   });
 

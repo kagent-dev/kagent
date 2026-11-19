@@ -7,7 +7,7 @@ import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import { themeFor } from "@/theme/theme";
 import { AgentTemplateNewPage } from "./AgentTemplateNewPage";
 import { AgentTemplateDetailsPage } from "./AgentTemplateDetailsPage";
-import { FIX_FIELDS_MESSAGE, FIX_FIELDS_TITLE } from "@/components/form/useSubmitValidation";
+import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
 
 const api = vi.hoisted(() => ({
   createAgentTemplate: vi.fn(),
@@ -91,8 +91,9 @@ function renderAt(entry: string) {
   return router;
 }
 
+// An input event, as typing sends: it also marks the field touched.
 const fill = (testId: string, value: string) =>
-  fireEvent.change(screen.getByTestId(testId), { target: { value } });
+  fireEvent.input(screen.getByTestId(testId), { target: { value } });
 
 /** Opens a select by test id and picks the option with this title. */
 function choose(testId: string, title: string) {
@@ -137,20 +138,22 @@ describe("new agent template page", () => {
     }
   });
 
-  it("shows inline errors and a submit error on an invalid submit, and sends nothing", () => {
+  it("holds Create back, and flags each field of a new row only once it is left", () => {
     renderAt("/agent-templates/new");
     fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
 
     const submit = screen.getByTestId("template-submit");
-    expect(submit).toBeEnabled();
-    fireEvent.click(submit);
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("template-blocked")).toHaveTextContent(FIX_FIELDS_MESSAGE);
+    expect(screen.queryByText("Enter a tool name.")).not.toBeInTheDocument();
 
+    fireEvent.blur(screen.getByTestId("template-form-name"));
+    fireEvent.blur(screen.getByTestId("template-form-sub-agent-name-0"));
     expect(screen.getByText("A name is required.")).toBeInTheDocument();
-    expect(screen.getByText("Choose an agent template.")).toBeInTheDocument();
     expect(screen.getByText("Enter a tool name.")).toBeInTheDocument();
-    expect(screen.getByText("Say when to use this tool.")).toBeInTheDocument();
-    expect(screen.getByTestId("template-create-error")).toHaveTextContent(FIX_FIELDS_TITLE);
-    expect(screen.getByTestId("template-create-error")).toHaveTextContent(FIX_FIELDS_MESSAGE);
+    expect(screen.queryByText("Say when to use this tool.")).not.toBeInTheDocument();
+
+    fireEvent.click(submit);
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
     expect(api.createAgentTemplate).not.toHaveBeenCalled();
   });
@@ -194,15 +197,19 @@ describe("new agent template page", () => {
     api.createAgentTemplate.mockResolvedValue({ name: "helper" });
     const router = renderAt("/agent-templates/new");
     fill("template-form-name", "helper");
-    const box = within(screen.getByTestId("template-form-namespace")).getByRole("textbox");
+    const box = screen.getByTestId("template-form-namespace");
 
-    fireEvent.change(box, { target: { value: "" } });
+    fireEvent.input(box, { target: { value: "" } });
     expect(box).toHaveValue("");
+    fireEvent.blur(box);
+    expect(box).toHaveAccessibleDescription(/^A namespace is required\./);
+    fireEvent.input(box, { target: { value: "Team A" } });
+    expect(box).toHaveAccessibleDescription(/^The namespace must be a valid Kubernetes name\./);
+    expect(screen.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByTestId("template-submit"));
-    expect(screen.getByText("A namespace is required.")).toBeInTheDocument();
     expect(api.createAgentTemplate).not.toHaveBeenCalled();
 
-    fireEvent.change(box, { target: { value: "team-b" } });
+    fireEvent.input(box, { target: { value: "team-b" } });
     expect(box).toHaveValue("team-b");
     fireEvent.click(screen.getByTestId("template-submit"));
     await waitFor(() => expect(router.state.location.pathname).toBe("/agents"));
@@ -290,19 +297,22 @@ describe("agent template details page, edit mode", () => {
     startEditing();
     fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
     fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
-    fireEvent.click(screen.getByTestId("template-submit"));
+    for (const row of [0, 1]) fireEvent.blur(screen.getByTestId(`template-form-sub-agent-name-${row}`));
+    expect(screen.getAllByText("Enter a tool name.")).toHaveLength(2);
     // antd gives its own unnamed selects a fixed "test-id" under test, so those are skipped.
     const ids = [...document.body.querySelectorAll("[id]")].map((node) => node.id).filter((id) => id !== "test-id");
     expect(ids.filter((id, at) => ids.indexOf(id) !== at)).toEqual([]);
   });
 
-  it("shows inline errors on an invalid save and sends nothing", () => {
+  it("holds Save back while a new row is incomplete and sends nothing", () => {
     startEditing();
     fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
+    expect(screen.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByTestId("template-submit"));
 
+    fireEvent.blur(within(screen.getByTestId("template-form-sub-agent-template-0")).getByRole("combobox"));
     expect(screen.getByText("Choose an agent template.")).toBeInTheDocument();
-    expect(screen.getByTestId("template-save-error")).toHaveTextContent(FIX_FIELDS_TITLE);
+    expect(screen.getByTestId("template-blocked")).toHaveTextContent(FIX_FIELDS_MESSAGE);
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
     expect(api.updateAgentTemplate).not.toHaveBeenCalled();
   });

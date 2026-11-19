@@ -34,8 +34,9 @@ function renderPage() {
   return router;
 }
 
+// An input event, as typing sends: it also marks the field touched.
 const type = (testId: string, value: string) =>
-  fireEvent.change(screen.getByTestId(testId), { target: { value } });
+  fireEvent.input(screen.getByTestId(testId), { target: { value } });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -54,21 +55,30 @@ describe("MCP server create form", () => {
     expect(screen.getByTestId("mcp-namespace")).toHaveClass("ant-select");
   });
 
-  it("flags the empty fields on submit and sends nothing", () => {
+  it("holds Create back until the required fields are filled, and flags a field once left", () => {
     renderPage();
-    fireEvent.click(screen.getByTestId("mcp-submit"));
-    expect(screen.getByText("A server name is required.")).toBeInTheDocument();
-    expect(screen.getByText("A server URL is required.")).toBeInTheDocument();
+    const submit = screen.getByTestId("mcp-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(submit);
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.queryByText("A server name is required.")).not.toBeInTheDocument();
+
+    fireEvent.blur(screen.getByTestId("mcp-url"));
+    expect(screen.getByText("A server URL is required.")).toBeInTheDocument();
+    expect(screen.queryByText("A server name is required.")).not.toBeInTheDocument();
+
+    type("mcp-name", "tools");
+    type("mcp-url", "mcp.example.com/mcp");
+    expect(submit).not.toHaveAttribute("aria-disabled");
   });
 
-  it("flags headers that are not a JSON object", () => {
+  it("flags headers that are not a JSON object as they are typed", () => {
     renderPage();
     type("mcp-name", "tools");
     type("mcp-url", "mcp.example.com/mcp");
     type("mcp-headers", "not json");
-    fireEvent.click(screen.getByTestId("mcp-submit"));
     expect(screen.getByText(/Headers must be a JSON object/)).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-submit")).toHaveAttribute("aria-disabled", "true");
   });
 
   it("explains a failed create above the buttons", async () => {

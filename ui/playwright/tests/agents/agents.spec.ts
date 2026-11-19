@@ -21,10 +21,12 @@ test("agents: an empty Harness selector offers Harness creation in place", async
   await page.getByRole("button", { name: "Create a harness" }).click();
   await expect(dialog(page)).toBeVisible();
   await expect(dialog(page).getByTestId("harness-intro")).toBeVisible();
-  // Submit stays enabled; pressing it marks what is missing instead.
-  await pressOnce(dialog(page).getByTestId("harness-submit"));
+  // Create is held back beside a note until the required fields are filled.
+  await expect(dialog(page).getByTestId("harness-submit")).toHaveAttribute("aria-disabled", "true");
+  await expect(dialog(page).getByTestId("harness-blocked")).toBeVisible();
+  await dialog(page).getByTestId("harness-name").focus();
+  await dialog(page).getByTestId("harness-name").blur();
   await expect(dialog(page).getByText("A name is required.")).toBeVisible();
-  await expect(dialog(page).getByTestId("harness-error")).toBeVisible();
 });
 
 test("agents: a harness made from the agent form is selected for the agent", async ({ page }) => {

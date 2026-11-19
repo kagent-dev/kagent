@@ -13,7 +13,6 @@ import { useNavigate } from "react-router-dom";
 import { Info } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
@@ -142,7 +141,7 @@ export function McpServerNewPage() {
           <FormField
             label="Name"
             required
-            error={validation.errorFor("name")}
+            {...validation.field("name")}
             help="Filled in from the URL. You can change it."
           >
             <Input
@@ -156,7 +155,7 @@ export function McpServerNewPage() {
           <FormField
             label="Namespace"
             required
-            error={validation.errorFor("namespace")}
+            {...validation.field("namespace")}
             help="Pick the namespace to register the server in."
           >
             <NamespaceSelect
@@ -169,7 +168,7 @@ export function McpServerNewPage() {
           <FormField
             label="Server URL"
             required
-            error={validation.errorFor("url")}
+            {...validation.field("url")}
             help="The MCP endpoint the controller will connect to. The scheme comes from the TLS setting below."
           >
             {/* The scheme is a fixed prefix the TLS toggle writes, so what is on screen
@@ -235,7 +234,7 @@ export function McpServerNewPage() {
           <FormField
             label="Headers sent to the server"
             required={false}
-            error={validation.errorFor("headersJson")}
+            {...validation.field("headersJson")}
             help="A JSON object. Leave empty to send none."
           >
             <Input.TextArea
@@ -285,6 +284,7 @@ export function McpServerNewPage() {
           submitting={saving}
           cancel={{ to: paths.mcpServers }}
           testIdPrefix="mcp"
+          blocked={!validation.valid}
           error={
             failure !== undefined ? (
               <SubmitError
@@ -293,7 +293,7 @@ export function McpServerNewPage() {
                 what="MCP server"
                 onRetry={() => void submit()}
               />
-            ) : validation.issues.length > 0 ? <ValidationNotice data-testid="mcp-submit-error" /> : null
+            ) : null
           }
         />
 

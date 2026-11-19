@@ -28,7 +28,6 @@ import {
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { toastSaved } from "@/components/form/saveToast";
@@ -430,7 +429,7 @@ export function AgentTemplateDetailsPage() {
                           isCreate={false}
                           namespace={template.data.namespace}
                           readOnly={!isEditing}
-                          errorFor={validation.errorFor}
+                          fieldFor={validation.field}
                           hasUnshownFields={hasUnshownSpecFields(
                             template.data.resource.spec,
                           )}
@@ -444,6 +443,7 @@ export function AgentTemplateDetailsPage() {
                           submitting={isSubmitting}
                           cancel={{ onClick: stopEditing }}
                           testIdPrefix="template"
+                          blocked={!validation.valid}
                           error={
                             failure !== undefined ? (
                               <SubmitError
@@ -453,7 +453,7 @@ export function AgentTemplateDetailsPage() {
                                 onRetry={() => void save()}
                                 data-testid="template-save-error"
                               />
-                            ) : validation.issues.length > 0 ? <ValidationNotice data-testid="template-save-error" /> : null
+                            ) : null
                           }
                         />
                       ) : null}

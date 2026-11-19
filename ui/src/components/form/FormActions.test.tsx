@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { BackLink } from "./BackLink";
 import { FormActions } from "./FormActions";
+import { FIX_FIELDS_MESSAGE } from "./useSubmitValidation";
 
 const render = (ui: ReactElement) =>
   rtlRender(<ThemeProvider theme={themeFor("dark")}>{ui}</ThemeProvider>);
@@ -23,6 +24,21 @@ describe("FormActions", () => {
     expect(error.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(submit);
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds a blocked submit back and points the button at the reason", () => {
+    const onSubmit = vi.fn();
+    render(
+      <MemoryRouter>
+        <FormActions submitLabel="Create" onSubmit={onSubmit} cancel={{ onClick: () => {} }} blocked testIdPrefix="model" />
+      </MemoryRouter>,
+    );
+    const submit = screen.getByTestId("model-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    expect(submit).toHaveAccessibleDescription(FIX_FIELDS_MESSAGE);
+    expect(screen.getByTestId("model-blocked")).toHaveTextContent(FIX_FIELDS_MESSAGE);
+    fireEvent.click(submit);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("navigates to the cancel route", () => {

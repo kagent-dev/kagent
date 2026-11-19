@@ -90,21 +90,21 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(page.getByTestId("harness-snapshot")).toHaveValue("s3://ate-snapshots/kagent/");
   });
 
-  await test.step("5. an image that is not pinned is flagged on submit", async () => {
+  await test.step("5. an image that is not pinned is flagged as typed, and Create is held back", async () => {
     await page.getByTestId("harness-image").fill("ghcr.io/example/runtime:latest");
-    await page.getByTestId("harness-submit").click();
     // A tag can move under a running agent, and the CRD refuses one.
     await expect(page.getByText("The workload image must be pinned by sha256 digest.")).toBeVisible();
-    await expect(page.getByTestId("harness-error")).toContainText("Nothing was sent yet");
-    await expect(page.getByTestId("harness-error").getByRole("button", { name: "Try again" })).toHaveCount(0);
+    await expect(page.getByTestId("harness-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("harness-blocked")).toHaveText("Fill in the required (*) fields. Fix any errors.");
     await expect(page).toHaveURL(/\/harnesses\/new(\?|$)/);
     await page.getByTestId("harness-image").fill("");
   });
 
-  await test.step("6. so is a missing snapshot location", async () => {
+  await test.step("6. so is a missing snapshot location, once the field is left", async () => {
     // The CRD requires it, and the controller's answer to a missing one is "Invalid
     // Harness" — naming neither the field nor what was wrong with it.
     await page.getByTestId("harness-snapshot").fill("");
+    await page.getByTestId("harness-snapshot").blur();
     await expect(page.getByText("A snapshot location is required.")).toBeVisible();
   });
 
@@ -118,7 +118,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
 
   await test.step("7. with the release image and the defaults, it is created", async () => {
     await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent/");
-    await expect(page.getByTestId("harness-error")).toHaveCount(0);
+    await expect(page.getByTestId("harness-blocked")).toHaveCount(0);
     await page.getByTestId("harness-submit").click();
 
     // Back to the tab it came from, with the new harness in the list. Read back off the

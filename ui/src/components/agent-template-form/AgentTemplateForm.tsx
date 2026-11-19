@@ -5,6 +5,7 @@ import { useAgentTemplates, useMcpServers, useModels, useTools } from "@/api";
 import { DataPill, DataPillList } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import type { AgentTemplateDraft, OutputSource, TemplateField } from "./agentTemplateDraft";
 import { SkillsField } from "./SkillsField";
@@ -71,7 +72,8 @@ export function AgentTemplateForm({
   readOnly = false,
   embedded = false,
   namespaceField,
-  errorFor = () => undefined,
+  modelRequired = false,
+  fieldFor = noValidation,
 }: {
   draft: AgentTemplateDraft;
   onChange: (next: AgentTemplateDraft) => void;
@@ -86,8 +88,10 @@ export function AgentTemplateForm({
   embedded?: boolean;
   /** Rendered right after Name, so create forms read name then namespace. */
   namespaceField?: ReactNode;
-  /** The inline message for a field, from `useSubmitValidation`. */
-  errorFor?: (field: TemplateField) => string | undefined;
+  /** Marks the model required, as an Agent on a harness other than bring-your-own needs one. */
+  modelRequired?: boolean;
+  /** A field's message and touch callback, from `useSubmitValidation`. */
+  fieldFor?: (field: TemplateField) => FieldValidation;
 }) {
   const theme = useTheme();
   const models = useModels();
@@ -197,7 +201,7 @@ export function AgentTemplateForm({
           <Field readOnly={readOnly}
             label="Name"
             required
-            error={errorFor("name")}
+            {...fieldFor("name")}
             extra="A Kubernetes object name, so it cannot be changed afterwards."
           >
             <Input
@@ -212,19 +216,18 @@ export function AgentTemplateForm({
 
         {namespaceField}
 
-        <Field readOnly={readOnly} label="Model configuration" required={false} extra={modelHelp}>
-          <div data-testid="template-form-model">
-            <Select
-              css={{ minWidth: 320 }}
-              value={referenceLabel(draft.modelConfig, namespace) || undefined}
-              loading={models.isLoading}
-              placeholder={placeholder("Choose a model configuration")}
-              popupMatchSelectWidth={false}
-              onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
-              options={modelOptions}
-              {...readOnlySelect}
-            />
-          </div>
+        <Field readOnly={readOnly} label="Model configuration" required={modelRequired} extra={modelHelp} {...fieldFor("model")}>
+          <Select
+            data-testid="template-form-model"
+            css={{ minWidth: 320 }}
+            value={referenceLabel(draft.modelConfig, namespace) || undefined}
+            loading={models.isLoading}
+            placeholder={placeholder("Choose a model configuration")}
+            popupMatchSelectWidth={false}
+            onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
+            options={modelOptions}
+            {...readOnlySelect}
+          />
         </Field>
 
         <Field readOnly={readOnly} label="Description" required={false}>
@@ -275,7 +278,7 @@ export function AgentTemplateForm({
               />
             ) : (
               <div css={rowFields}>
-                <Field readOnly={readOnly} label="ConfigMap name" required error={errorFor("promptConfigMap")} css={rowField}>
+                <Field readOnly={readOnly} label="ConfigMap name" required {...fieldFor("promptConfigMap")} css={rowField}>
                   <Input
                     data-testid="template-form-prompt-configmap"
                     value={draft.systemPromptConfigMap}
@@ -284,7 +287,7 @@ export function AgentTemplateForm({
                     {...readOnlyInput}
                   />
                 </Field>
-                <Field readOnly={readOnly} label="Key" required error={errorFor("promptKey")} css={rowField}>
+                <Field readOnly={readOnly} label="Key" required {...fieldFor("promptKey")} css={rowField}>
                   <Input
                     data-testid="template-form-prompt-key"
                     value={draft.systemPromptKey}
@@ -327,7 +330,7 @@ export function AgentTemplateForm({
             </div>
 
             {draft.outputSource === "inline" ? (
-              <Field readOnly={readOnly} label="Output schema" required error={errorFor("outputSchema")} css={rowField}>
+              <Field readOnly={readOnly} label="Output schema" required {...fieldFor("outputSchema")} css={rowField}>
                 <Input.TextArea
                   data-testid="template-form-output-schema"
                   value={draft.outputSchema}
@@ -342,7 +345,7 @@ export function AgentTemplateForm({
               </Field>
             ) : draft.outputSource === "configMap" ? (
               <div css={rowFields}>
-                <Field readOnly={readOnly} label="ConfigMap name" required error={errorFor("outputConfigMap")} css={rowField}>
+                <Field readOnly={readOnly} label="ConfigMap name" required {...fieldFor("outputConfigMap")} css={rowField}>
                   <Input
                     data-testid="template-form-output-configmap"
                     value={draft.outputSchemaConfigMap}
@@ -351,7 +354,7 @@ export function AgentTemplateForm({
                     {...readOnlyInput}
                   />
                 </Field>
-                <Field readOnly={readOnly} label="Key" required error={errorFor("outputKey")} css={rowField}>
+                <Field readOnly={readOnly} label="Key" required {...fieldFor("outputKey")} css={rowField}>
                   <Input
                     data-testid="template-form-output-key"
                     value={draft.outputSchemaKey}
@@ -413,7 +416,7 @@ export function AgentTemplateForm({
                 removeLabel={`Remove MCP server ${tool.serverRef.name || index + 1}`}
               >
                 <div css={{ ...rowFields, alignItems: "flex-start" }}>
-                  <Field readOnly={readOnly} label="MCP server" required error={errorFor(`mcp:${index}:server`)} css={rowField}>
+                  <Field readOnly={readOnly} label="MCP server" required {...fieldFor(`mcp:${index}:server`)} css={rowField}>
                     <Select
                       css={{ minWidth: 220 }}
                       data-testid={`template-form-mcp-server-${index}`}
@@ -500,7 +503,7 @@ export function AgentTemplateForm({
                 removeLabel={`Remove agent template tool ${tool.name.trim() || index + 1}`}
               >
                 <div css={{ ...rowFields, alignItems: "flex-start" }}>
-                  <Field readOnly={readOnly} label="Agent template" required error={errorFor(`subAgent:${index}:template`)} css={rowField}>
+                  <Field readOnly={readOnly} label="Agent template" required {...fieldFor(`subAgent:${index}:template`)} css={rowField}>
                     {readOnly ? (
                       <Input value={tool.refName} data-testid={`template-form-sub-agent-template-${index}`} {...readOnlyInput} />
                     ) : templates.error ? (
@@ -526,7 +529,7 @@ export function AgentTemplateForm({
                       </div>
                     )}
                   </Field>
-                  <Field readOnly={readOnly} label="Tool name" required error={errorFor(`subAgent:${index}:name`)} css={rowField}>
+                  <Field readOnly={readOnly} label="Tool name" required {...fieldFor(`subAgent:${index}:name`)} css={rowField}>
                     <Input
                       css={{ width: 160 }}
                       data-testid={`template-form-sub-agent-name-${index}`}
@@ -536,7 +539,7 @@ export function AgentTemplateForm({
                       {...readOnlyInput}
                     />
                   </Field>
-                  <Field readOnly={readOnly} label="When to use it" required error={errorFor(`subAgent:${index}:description`)} css={rowField}>
+                  <Field readOnly={readOnly} label="When to use it" required {...fieldFor(`subAgent:${index}:description`)} css={rowField}>
                     <Input
                       css={{ width: 260 }}
                       data-testid={`template-form-sub-agent-description-${index}`}
@@ -552,7 +555,7 @@ export function AgentTemplateForm({
           </FormRowList>
         </Field>
 
-        <SkillsField skills={draft.skills} onChange={(next) => set("skills", next)} readOnly={readOnly} errorFor={errorFor} />
+        <SkillsField skills={draft.skills} onChange={(next) => set("skills", next)} readOnly={readOnly} fieldFor={fieldFor} />
 
         {embedded ? null : (
           <Field readOnly={readOnly}
@@ -581,7 +584,7 @@ export function AgentTemplateForm({
                     removeLabel={`Remove label ${label.key.trim() || index + 1}`}
                   >
                     <div css={{ ...rowFields, alignItems: "flex-start" }}>
-                      <FormField label="Key" required error={errorFor(`label:${index}:key`)} css={rowField}>
+                      <FormField label="Key" required {...fieldFor(`label:${index}:key`)} css={rowField}>
                         <Input
                           css={{ width: 260, fontFamily: theme.font.mono }}
                           value={label.key}
@@ -630,6 +633,6 @@ export function AgentTemplateForm({
 }
 
 /** A FormField while editing; reading is not a form, so labels drop the required and optional marks. */
-function Field({ readOnly, required, error, hintPlacement, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
-  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} hintPlacement={hintPlacement} {...props} />;
+function Field({ readOnly, required, error, hintPlacement, onTouch, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
+  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} hintPlacement={hintPlacement} onTouch={onTouch} {...props} />;
 }

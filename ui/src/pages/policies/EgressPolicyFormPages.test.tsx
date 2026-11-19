@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { themeFor } from "@/theme/theme";
 import { EgressPolicyEditPage, EgressPolicyNewPage } from "./EgressPolicyFormPages";
-import { FIX_FIELDS_MESSAGE, FIX_FIELDS_TITLE } from "@/components/form/useSubmitValidation";
+import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -53,7 +53,8 @@ function renderAt(entry: string) {
   return router;
 }
 
-const type = (testId: string, value: string) => fireEvent.change(screen.getByTestId(testId), { target: { value } });
+// An input event, as typing sends: it also marks the field touched.
+const type = (testId: string, value: string) => fireEvent.input(screen.getByTestId(testId), { target: { value } });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -73,25 +74,20 @@ describe("new egress policy page", () => {
     expect([required, optional]).toEqual([5, 3]);
   });
 
-  it("shows inline errors and a submit error, and sends nothing, on an invalid submit", () => {
+  it("holds Create back beside a note, and flags a field once it is left", () => {
     renderAt("/policies/egress/new");
-    expect(screen.queryByTestId("egress-form-submit-error")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("egress-form-submit"));
-    expect(screen.getByText("Enter a name.")).toBeInTheDocument();
-    expect(screen.getByText("Enter an origin.")).toBeInTheDocument();
-    const error = screen.getByTestId("egress-form-submit-error");
-    expect(error).toHaveTextContent(FIX_FIELDS_TITLE);
-    expect(error).toHaveTextContent(FIX_FIELDS_MESSAGE);
-    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
-    expect(
-      error.compareDocumentPosition(screen.getByTestId("egress-form-submit")) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    const submit = screen.getByTestId("egress-form-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    const note = screen.getByTestId("egress-form-blocked");
+    expect(note).toHaveTextContent(FIX_FIELDS_MESSAGE);
+    expect(submit).toHaveAccessibleDescription(FIX_FIELDS_MESSAGE);
+    fireEvent.click(submit);
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.queryByText("Enter a name.")).not.toBeInTheDocument();
 
-    // The message animates out, so the field's invalid state is what is checked.
-    expect(screen.getByTestId("egress-form-name")).toHaveClass("ant-input-status-error");
-    type("egress-form-name", "github");
-    expect(screen.getByTestId("egress-form-name")).not.toHaveClass("ant-input-status-error");
+    fireEvent.blur(screen.getByTestId("egress-destination-0-origin"));
+    expect(screen.getByText("Enter an origin.")).toBeInTheDocument();
+    expect(screen.queryByText("Enter a name.")).not.toBeInTheDocument();
   });
 
   it("files credential problems under their own fields", () => {
@@ -99,7 +95,8 @@ describe("new egress policy page", () => {
     type("egress-form-name", "github");
     type("egress-destination-0-origin", "https://api.example.com");
     fireEvent.click(screen.getByTestId("egress-destination-0-auth").querySelectorAll("input")[1]);
-    fireEvent.click(screen.getByTestId("egress-form-submit"));
+    expect(screen.getByTestId("egress-form-submit")).toHaveAttribute("aria-disabled", "true");
+    for (const label of [/^Header/, /^Secret name/, /^Key in secret/]) fireEvent.blur(screen.getByLabelText(label));
     expect(screen.getByText("Enter a header name.")).toBeInTheDocument();
     expect(screen.getByText("Enter the Secret name.")).toBeInTheDocument();
     expect(screen.getByText("Enter the key in the Secret.")).toBeInTheDocument();

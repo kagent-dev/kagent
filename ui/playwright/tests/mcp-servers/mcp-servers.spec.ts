@@ -159,14 +159,16 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(page.getByTestId("mcp-namespace")).toHaveClass(/ant-select/);
     await expect(page.getByTestId("form-back-link")).toContainText("MCP servers");
 
-    // Empty required fields are flagged inline on submit.
-    await page.getByTestId("mcp-submit").click();
+    // Create is held back; an empty required field is flagged once it is left.
+    await expect(page.getByTestId("mcp-submit")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("mcp-name").focus();
+    await page.getByTestId("mcp-url").focus();
+    await page.getByTestId("mcp-url").blur();
     await expect(page.getByText("A server name is required.")).toBeVisible();
     await expect(page.getByText("A server URL is required.")).toBeVisible();
 
-    // A host with spaces is rejected, and no name is guessed from it.
+    // A host with spaces is rejected as typed, and no name is guessed from it.
     await page.getByTestId("mcp-url").fill("not a url");
-    await page.getByTestId("mcp-submit").click();
     await expect(page.getByText("Enter a valid host and path, for example api.example.com/mcp.")).toBeVisible();
     await expect(page.getByTestId("mcp-name")).toHaveValue("");
   });

@@ -3,7 +3,6 @@ import { Alert, Button, Form, Input, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
 import { EGRESS_LIMITS, isApiError, type EgressPolicy, type EgressPolicyResource } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
@@ -105,8 +104,6 @@ export function EgressPolicyForm({
     container.current?.querySelector<HTMLElement>('[data-testid="egress-destinations-add"]')?.focus();
   }, [draft.destinations]);
 
-  const invalid = validation.submitted && issues.length > 0;
-
   return (
     <div ref={container} css={{ display: "flex", flexDirection: "column", gap: theme.space(4), maxWidth: 860 }}>
       <Form
@@ -118,7 +115,7 @@ export function EgressPolicyForm({
           htmlFor="egress-form-name-input"
           label={egressCopy.form.name}
           required
-          error={validation.errorFor("name")}
+          {...validation.field("name")}
           help={editing ? egressCopy.form.identityLocked : undefined}
         >
           <Input
@@ -136,7 +133,7 @@ export function EgressPolicyForm({
           htmlFor="egress-form-namespace-input"
           label={egressCopy.form.namespace}
           required
-          error={validation.errorFor("namespace")}
+          {...validation.field("namespace")}
           help={editing ? egressCopy.form.identityLocked : undefined}
         >
           <NamespaceSelect
@@ -174,7 +171,7 @@ export function EgressPolicyForm({
               index={index}
               row={row}
               disabled={saving}
-              errorFor={validation.errorFor}
+              fieldFor={validation.field}
               onChange={(next) =>
                 update({ destinations: draft.destinations.map((entry) => (entry.id === row.id ? next : entry)) })
               }
@@ -199,6 +196,7 @@ export function EgressPolicyForm({
 
       <FormActions
         testIdPrefix="egress-form"
+        blocked={!validation.valid}
         submitLabel={editing ? egressCopy.form.save : egressCopy.form.create}
         onSubmit={() => void submit()}
         submitting={saving}
@@ -227,7 +225,7 @@ export function EgressPolicyForm({
               onRetry={() => void submit()}
               data-testid="egress-form-submit-error"
             />
-          ) : invalid ? <ValidationNotice data-testid="egress-form-submit-error" /> : undefined
+          ) : undefined
         }
       />
 

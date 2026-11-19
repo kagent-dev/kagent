@@ -43,8 +43,9 @@ function renderAt(path: string) {
   return router;
 }
 
+// An input event, as typing sends: it also marks the field touched.
 const type = (testId: string, value: string) =>
-  fireEvent.change(screen.getByTestId(testId), { target: { value } });
+  fireEvent.input(screen.getByTestId(testId), { target: { value } });
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -62,13 +63,21 @@ describe("prompt library create form", () => {
     expect(screen.getByTestId("prompt-namespace")).toHaveClass("ant-select");
   });
 
-  it("flags every empty field on submit and sends nothing", () => {
+  it("holds Create back until the required fields are filled, and flags a field once left", () => {
     renderAt("/prompts/new");
-    expect(screen.queryByText("A library name is required.")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("prompt-submit"));
-    expect(screen.getByText("A library name is required.")).toBeInTheDocument();
-    expect(screen.getByText("Add at least one fragment key.")).toBeInTheDocument();
+    const submit = screen.getByTestId("prompt-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(submit);
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.queryByText("A library name is required.")).not.toBeInTheDocument();
+
+    fireEvent.blur(screen.getByTestId("prompt-name"));
+    expect(screen.getByText("A library name is required.")).toBeInTheDocument();
+    expect(screen.queryByText("Add at least one fragment key.")).not.toBeInTheDocument();
+
+    type("prompt-name", "team-prompts");
+    type("fragment-key", "tone");
+    expect(submit).not.toHaveAttribute("aria-disabled");
   });
 
   it("explains a failed save above the buttons and keeps the form", async () => {

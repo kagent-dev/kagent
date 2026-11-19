@@ -8,7 +8,7 @@ import { ScheduledRunSchema } from "@/generated/kagent/api/v1/scheduled_runs_pb"
 import { themeFor } from "@/theme/theme";
 import { ScheduledRunNewPage } from "@/pages/ScheduledRunNewPage";
 import { ScheduledRunEditPage } from "@/pages/ScheduledRunEditPage";
-import { FIX_FIELDS_MESSAGE, FIX_FIELDS_TITLE } from "@/components/form/useSubmitValidation";
+import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), toastSaved: vi.fn() }));
 
@@ -82,15 +82,18 @@ describe("new schedule page", () => {
     expect(screen.queryByText("Schedule Name")).not.toBeInTheDocument();
   });
 
-  it("shows inline errors and a submit error on an invalid submit", () => {
+  it("holds Create back, and Enter in a field flags every problem without sending", () => {
     renderAt("/schedules/new");
-    expect(screen.queryByTestId("schedule-form-error")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("schedule-submit"));
+    const submit = screen.getByTestId("schedule-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    expect(submit).toHaveAccessibleDescription(FIX_FIELDS_MESSAGE);
+    fireEvent.click(submit);
+    expect(screen.queryByText("Choose an agent.")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByLabelText(/^Schedule name/), { key: "Enter" });
     expect(screen.getByText("Choose an agent.")).toBeInTheDocument();
     expect(screen.getByText("Enter a prompt.")).toBeInTheDocument();
-    expect(screen.getByTestId("schedule-form-error")).toHaveTextContent(FIX_FIELDS_TITLE);
-    expect(screen.getByTestId("schedule-form-error")).toHaveTextContent(FIX_FIELDS_MESSAGE);
-    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("schedule-form-error")).not.toBeInTheDocument();
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
 

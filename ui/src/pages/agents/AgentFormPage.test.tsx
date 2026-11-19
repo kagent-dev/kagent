@@ -5,7 +5,7 @@ import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { themeFor } from "@/theme/theme";
 import { AgentFormPage } from "./AgentFormPage";
-import { FIX_FIELDS_MESSAGE, FIX_FIELDS_TITLE } from "@/components/form/useSubmitValidation";
+import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
@@ -59,8 +59,9 @@ function renderAt(path: string) {
   return router;
 }
 
+// An input event, as typing sends: it also marks the field touched.
 const type = (testId: string, value: string) =>
-  fireEvent.change(screen.getByTestId(testId), { target: { value } });
+  fireEvent.input(screen.getByTestId(testId), { target: { value } });
 
 function choose(testId: string, option: string) {
   fireEvent.mouseDown(within(screen.getByTestId(testId)).getByRole("combobox"));
@@ -89,28 +90,37 @@ describe("agent create form", () => {
     expect(screen.getByTestId("agent-form-harness-ref")).toHaveTextContent("kagent-default");
   });
 
-  it("flags each problem on submit, explains above the buttons and sends nothing", () => {
+  it("holds Create back until the form is valid, and flags a field once it is left", () => {
     renderAt("/agents/new");
+    const submit = screen.getByTestId("agent-form-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    expect(submit).toHaveAccessibleDescription(FIX_FIELDS_MESSAGE);
     expect(screen.queryByText("A name is required.")).not.toBeInTheDocument();
-    expect(screen.getByTestId("agent-form-submit")).toBeEnabled();
 
-    fireEvent.click(screen.getByTestId("agent-form-submit"));
-    expect(screen.getByText("A name is required.")).toBeInTheDocument();
-    expect(screen.getByText("Choose an agent template.")).toBeInTheDocument();
-    expect(screen.getByTestId("agent-form-error")).toHaveTextContent(FIX_FIELDS_TITLE);
-    expect(screen.getByTestId("agent-form-error")).toHaveTextContent(FIX_FIELDS_MESSAGE);
-    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    fireEvent.click(submit);
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.queryByText("A name is required.")).not.toBeInTheDocument();
+
+    fireEvent.blur(screen.getByTestId("agent-form-name"));
+    expect(screen.getByTestId("agent-form-name")).toHaveAccessibleDescription("A name is required.");
+    expect(screen.queryByText("Choose an agent template.")).not.toBeInTheDocument();
+
+    type("agent-form-name", "helper");
+    choose("agent-form-template-ref", "shared-brain");
+    expect(submit).not.toHaveAttribute("aria-disabled");
+    expect(screen.queryByTestId("agent-form-blocked")).not.toBeInTheDocument();
   });
 
-  it("asks for a model when the template is defined here", () => {
+  it("requires a model under the template defined here, and flags it on that field", () => {
     renderAt("/agents/new");
     type("agent-form-name", "helper");
     fireEvent.click(screen.getByText("Define here"));
-    fireEvent.click(screen.getByTestId("agent-form-submit"));
-    expect(screen.getByTestId("agent-form-template-error")).toHaveTextContent(
-      "Choose a model configuration for the inline template.",
-    );
+    expect(screen.getByTestId("agent-form-submit")).toHaveAttribute("aria-disabled", "true");
+
+    const model = within(screen.getByTestId("template-form-model")).getByRole("combobox");
+    fireEvent.blur(model);
+    expect(model).toHaveAttribute("aria-invalid", "true");
+    expect(model).toHaveAccessibleDescription("Choose a model configuration.");
     expect(mocks.create).not.toHaveBeenCalled();
   });
 
@@ -138,8 +148,8 @@ describe("agent create form", () => {
     renderAt("/agents/new");
     choose("agent-form-template-ref", "shared-brain");
     type("agent-form-name", "Team.Helper");
-    fireEvent.click(screen.getByTestId("agent-form-submit"));
     expect(screen.getByText(/lowercase letters, numbers, hyphens and dots/)).toBeInTheDocument();
+    expect(screen.getByTestId("agent-form-submit")).toHaveAttribute("aria-disabled", "true");
 
     type("agent-form-name", "team.helper");
     fireEvent.click(screen.getByTestId("agent-form-submit"));

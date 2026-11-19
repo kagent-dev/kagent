@@ -46,16 +46,15 @@ describe("SnapshotRenameDialog", () => {
     expect(screen.getByTestId("field-optional")).toBeInTheDocument();
   });
 
-  it("shows an inline error on an invalid submit and sends nothing", async () => {
+  it("shows an inline error as soon as an invalid name is typed and sends nothing", async () => {
     renderDialog();
     await userEvent.type(screen.getByLabelText(/^Snapshot name/), " padded");
-    expect(screen.getByLabelText(/^Snapshot name/)).not.toHaveAccessibleDescription();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const field = screen.getByLabelText(/^Snapshot name/);
     expect(field).toHaveAttribute("aria-invalid", "true");
     expect(field).toHaveAccessibleDescription(/cannot start or end with a space/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(rename).not.toHaveBeenCalled();
   });
 

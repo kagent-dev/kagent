@@ -124,7 +124,7 @@ export function RenameConversationDialog({
         A conversation is named by you. Leave this empty to clear the name and go
         back to being identified by its id, {shortInstanceId(instance.id)}.
       </Paragraph>
-      <FormField label="Conversation name" required={false} error={validation.errorFor("name")}>
+      <FormField label="Conversation name" required={false} {...validation.field("name")}>
         <Input
           value={draft}
           id="conversation-rename-field"

@@ -28,15 +28,13 @@ for (const template of CASES) {
       const submit = page.getByTestId("agent-form-submit");
       const error = (text: string) => page.locator(".ant-form-item-explain-error").getByText(text, { exact: true });
 
-      // Nothing is flagged until the first submit, which is never disabled for validation.
-      await expect(page.getByTestId("agent-form-error")).toHaveCount(0);
-      await expect(submit).toBeEnabled();
-      await submit.click();
-      // Every problem at once, beside its field; the harness is not among them because the
-      // namespace's default one is preselected.
+      // Create is held back beside a note; a field is flagged once it is left.
+      await expect(submit).toHaveAttribute("aria-disabled", "true");
+      await expect(page.getByTestId("agent-form-blocked")).toContainText("Fill in the required (*) fields.");
+      await expect(error("A name is required.")).toHaveCount(0);
+      await page.getByTestId("agent-form-name").focus();
+      await page.getByTestId("agent-form-name").blur();
       await expect(error("A name is required.")).toBeVisible();
-      await expect(error("Choose an agent template.")).toBeVisible();
-      await expect(page.getByTestId("agent-form-error")).toContainText("Fix the highlighted fields");
       await expect(page).toHaveURL(/\/agents\/new$/);
       await expect(page.getByTestId("agent-form-harness-ref")).toContainText("kagent-default");
       await expectRequired(page, {
@@ -48,18 +46,17 @@ for (const template of CASES) {
 
       if (template === "inline") {
         await chooseTemplateSource(page, "inline");
-        await expect(page.getByTestId("agent-form-template-error")).toHaveText(
-          "Choose a model configuration for the inline template.",
-        );
+        // Only a bring-your-own harness runs without a model, so the inline model is required.
+        await expectRequired(page, { marked: ["Model configuration"], unmarked: [] });
+        await expect(submit).toHaveAttribute("aria-disabled", "true");
         await selectOption(page, "template-form-model", "kagent/default-model-config");
         await page.getByTestId("template-form-description").fill("Inline before edit");
         await page.getByTestId("template-form-prompt").fill("You answer briefly.");
-        await expect(page.getByTestId("agent-form-template-error")).toHaveCount(0);
       } else {
         await selectOption(page, "agent-form-template-ref", "shared-brain");
       }
       await selectOption(page, "agent-form-harness-ref", "k8s-agent");
-      await expect(page.getByTestId("agent-form-error")).toHaveCount(0);
+      await expect(page.getByTestId("agent-form-blocked")).toHaveCount(0);
       await submit.click();
     });
 

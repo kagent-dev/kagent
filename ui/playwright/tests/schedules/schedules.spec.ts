@@ -251,11 +251,14 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     ).toBeVisible();
     await expect(page.getByTestId("schedule-history")).toHaveCount(0);
 
-    await page.getByTestId("schedule-submit").click();
+    // Create is held back beside a note; Enter in a field flags every problem instead.
+    await expect(page.getByTestId("schedule-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("schedule-blocked")).toContainText("Fill in the required (*) fields.");
+    await page.getByTestId("schedule-name").press("Enter");
     await expect(page.getByText("Choose an agent.", { exact: true })).toBeVisible();
     await expect(page.getByText("Enter a prompt.", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("schedule-form-error")).toContainText("Nothing was sent yet");
-    await expect(page.getByTestId("schedule-form-error").getByRole("button", { name: "Try again" })).toHaveCount(0);
+    await expect(page.getByTestId("schedule-form-error")).toHaveCount(0);
+    await expect(page).toHaveURL("/schedules/new");
 
     // Leaving a dirty form asks first; Keep editing stays.
     await page.getByTestId("schedule-prompt").fill("Draft");

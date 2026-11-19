@@ -4,8 +4,7 @@ import { Form, Input } from "antd";
 import { apiClient, useInvalidateHarnesses, useNamespaces, useWorkerPools, type Harness, type HarnessSpec } from "@/api";
 import { DEFAULT_HARNESS_WORKER_POOL } from "@/api/domain/harnesses";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
-import { isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
+import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
@@ -95,6 +94,9 @@ export function HarnessForm({
         list.push({ field: "name", message: OBJECT_NAME_HINT });
       }
       if (!namespace) list.push({ field: "namespace", message: "A namespace is required." });
+      else if (!isValidNamespace(namespace)) {
+        list.push({ field: "namespace", message: "The namespace must be a valid Kubernetes name." });
+      }
     }
     return [...list, ...harnessDraftIssues(draft)];
   }, [draft, harness, name, namespace]);
@@ -130,15 +132,13 @@ export function HarnessForm({
     }
   }
 
-  const blockedByFields = validation.issues.length > 0;
-
   return (
     <Form layout="vertical" component="div">
       <FormField
         label="Name"
         required
         htmlFor="harness-name"
-        error={validation.errorFor("name")}
+        {...validation.field("name")}
         extra={harness ? "A Kubernetes name, so it cannot be changed." : undefined}
       >
         <Input
@@ -155,7 +155,7 @@ export function HarnessForm({
         label="Namespace"
         required
         htmlFor="harness-namespace"
-        error={validation.errorFor("namespace")}
+        {...validation.field("namespace")}
         extra={
           harness
             ? "Fixed once the harness exists."
@@ -181,7 +181,7 @@ export function HarnessForm({
           setFailure(undefined);
         }}
         pools={{ names: poolNames, loading: pools.isLoading, error: pools.error?.message }}
-        errorFor={validation.errorFor}
+        fieldFor={validation.field}
       />
 
       <FormActions
@@ -190,6 +190,7 @@ export function HarnessForm({
         submitting={saving}
         cancel={cancel}
         testIdPrefix="harness"
+        blocked={!validation.valid}
         error={
           failure !== undefined ? (
             <SubmitError
@@ -199,7 +200,7 @@ export function HarnessForm({
               onRetry={() => void save()}
               data-testid="harness-error"
             />
-          ) : blockedByFields ? <ValidationNotice data-testid="harness-error" /> : null
+          ) : null
         }
       />
 

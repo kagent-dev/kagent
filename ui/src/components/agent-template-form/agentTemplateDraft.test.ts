@@ -284,6 +284,19 @@ describe("the agent template draft", () => {
     expect(draftProblems(draft, { isCreate: true })).toHaveLength(1);
   });
 
+  it("files a missing model and a malformed namespace under their own fields", () => {
+    const draft = { ...emptyDraft("Team A"), name: "t" };
+    expect(templateDraftIssues(draft, { isCreate: true })).toEqual([
+      { field: "namespace", message: "The namespace must be a valid Kubernetes name." },
+    ]);
+    draft.namespace = "team-a";
+    expect(templateDraftIssues(draft, { isCreate: true, modelRequired: true })).toEqual([
+      { field: "model", message: "Choose a model configuration." },
+    ]);
+    draft.modelConfig = { name: "gpt" };
+    expect(templateDraftIssues(draft, { isCreate: true, modelRequired: true })).toEqual([]);
+  });
+
   it("reports incomplete or malformed structured-output configuration", () => {
     const draft = emptyDraft("kagent");
     draft.name = "t";

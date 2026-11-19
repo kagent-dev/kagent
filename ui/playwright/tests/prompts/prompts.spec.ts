@@ -162,7 +162,10 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page.getByTestId("prompt-namespace")).toHaveClass(/ant-select/);
     await expect(page.getByTestId("prompt-namespace")).not.toHaveClass(/ant-select-disabled/);
 
-    await page.getByTestId("prompt-submit").click();
+    // Create is held back; an empty required field is flagged once it is left.
+    await expect(page.getByTestId("prompt-submit")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("prompt-name").focus();
+    await page.getByTestId("prompt-name").blur();
     await expect(page.getByText("A library name is required.")).toBeVisible();
 
     // Half-typed counts as work to lose too: the baseline is the empty draft rather
@@ -237,8 +240,8 @@ test("prompts: a library is created, read, changed and deleted", async ({
     // The controller rejects an empty map — "at least one template key is required" —
     // so this is its own rule stated before the request rather than a second opinion.
     for (const index of [0, 1, 2]) await fragmentKey(page, index).fill("");
-    await page.getByTestId("prompt-submit").click();
     await expect(page.getByText("Add at least one fragment key.")).toBeVisible();
+    await expect(page.getByTestId("prompt-submit")).toHaveAttribute("aria-disabled", "true");
     // Still on the form, with the text intact: a refused save must not read as a save,
     // and must not navigate as one either.
     await expect(page).toHaveURL(/\/edit$/);
@@ -248,7 +251,6 @@ test("prompts: a library is created, read, changed and deleted", async ({
     // vanish without a word.
     await fragmentKey(page, 0).fill("tone");
     await fragmentKey(page, 1).fill("tone");
-    await page.getByTestId("prompt-submit").click();
     await expect(page.getByText('Two fragments share the key "tone".')).toBeVisible();
 
     // Put back, so the save in step 9 is a save of the library rather than of a wreck.

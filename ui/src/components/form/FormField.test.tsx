@@ -1,9 +1,9 @@
 import { ThemeProvider } from "@emotion/react";
 import type { ReactElement } from "react";
 import { themeFor } from "@/theme/theme";
-import { render as rtlRender, screen } from "@testing-library/react";
+import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import { Checkbox, Form, Input, InputNumber, Radio, Select } from "antd";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FieldLabel, FormField } from "./FormField";
 import { ResourceSelect } from "./ResourceSelect";
 
@@ -185,6 +185,22 @@ describe("FormField", () => {
     );
     expect(screen.getByText("Local time.")).toBeInTheDocument();
     expect(screen.getByText("Runs daily.")).toBeInTheDocument();
+  });
+
+  it("reports a touch when the user leaves the field or types a value, not for an emptied box", () => {
+    const onTouch = vi.fn();
+    render(
+      <FormField label="Name" required onTouch={onTouch}>
+        <Input />
+      </FormField>,
+    );
+    const box = screen.getByLabelText(/^Name/);
+    fireEvent.input(box, { target: { value: " " } });
+    expect(onTouch).not.toHaveBeenCalled();
+    fireEvent.input(box, { target: { value: "a" } });
+    expect(onTouch).toHaveBeenCalledTimes(1);
+    fireEvent.blur(box);
+    expect(onTouch).toHaveBeenCalledTimes(2);
   });
 
   it("lays out vertically with no colon outside an antd Form", () => {

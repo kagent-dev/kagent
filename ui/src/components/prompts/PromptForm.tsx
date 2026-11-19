@@ -3,7 +3,6 @@ import { Form, Input, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import type { CreatePromptTemplateRequest } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
@@ -120,7 +119,7 @@ export function PromptForm({
         <FormField
           label="Name"
           required
-          error={validation.errorFor("name")}
+          {...validation.field("name")}
           help={identityLocked ? "You cannot change a library's name." : undefined}
         >
           <Input
@@ -137,7 +136,7 @@ export function PromptForm({
         <FormField
           label="Namespace"
           required
-          error={validation.errorFor("namespace")}
+          {...validation.field("namespace")}
           help={identityLocked ? "Libraries stay in the namespace they were created in." : undefined}
         >
           <NamespaceSelect
@@ -151,7 +150,7 @@ export function PromptForm({
         <FormField
           label="Fragments"
           required
-          error={validation.errorFor("fragments")}
+          {...validation.field("fragments")}
           hintPlacement="above"
           help={
             <span data-testid="prompt-fragments-note">
@@ -177,6 +176,7 @@ export function PromptForm({
         submitting={saving}
         cancel={onCancel ? { onClick: onCancel } : { to: paths.prompts }}
         testIdPrefix="prompt"
+        blocked={!validation.valid}
         error={
           failure !== undefined ? (
             <SubmitError
@@ -186,7 +186,7 @@ export function PromptForm({
               onRetry={() => void submit()}
               data-testid="prompt-submit-error"
             />
-          ) : validation.issues.length > 0 ? <ValidationNotice data-testid="prompt-submit-error" /> : null
+          ) : null
         }
       />
 

@@ -12,7 +12,6 @@ import {
   templateDraftIssues,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
@@ -132,16 +131,15 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
             onChange={update}
             isCreate
             namespace={draft.namespace}
-            errorFor={validation.errorFor}
+            fieldFor={validation.field}
             namespaceField={
-              <FormField label="Namespace" required error={validation.errorFor("namespace")}>
-                <div data-testid="template-form-namespace">
-                  <NamespaceSelect
-                    value={draft.namespace}
-                    // Local references resolve in the new namespace, so the model and sub-agents are cleared.
-                    onChange={(value) => update({ ...draft, namespace: value, modelConfig: undefined, subAgentTools: [] })}
-                  />
-                </div>
+              <FormField label="Namespace" required {...validation.field("namespace")}>
+                <NamespaceSelect
+                  data-testid="template-form-namespace"
+                  value={draft.namespace}
+                  // Local references resolve in the new namespace, so the model and sub-agents are cleared.
+                  onChange={(value) => update({ ...draft, namespace: value, modelConfig: undefined, subAgentTools: [] })}
+                />
               </FormField>
             }
           />
@@ -152,6 +150,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
             submitting={isSubmitting}
             cancel={{ to: agentTemplatesTab }}
             testIdPrefix="template"
+            blocked={!validation.valid}
             error={
               failure !== undefined ? (
                 <SubmitError
@@ -160,7 +159,7 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
                   onRetry={() => void create()}
                   data-testid="template-create-error"
                 />
-              ) : validation.issues.length > 0 ? <ValidationNotice data-testid="template-create-error" /> : null
+              ) : null
             }
           />
         </Space>

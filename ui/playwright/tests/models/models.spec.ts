@@ -165,9 +165,11 @@ test("models: a configuration is created, read, changed and deleted", async ({
     });
     await expect(page.getByTestId("model-namespace")).toHaveClass(/ant-select/);
 
-    // Empty required fields are flagged inline on submit.
-    await page.getByTestId("model-submit").click();
-    await expect(page.getByText("Choose a model.")).toBeVisible();
+    // Create is held back; an empty required field is flagged once it is left.
+    await expect(page.getByTestId("model-submit")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("model-name").focus();
+    await page.getByTestId("model-name").blur();
+    await expect(page.getByText("A name is required.")).toBeVisible();
   });
 
   await test.step("6. a filled-in configuration is created and appears on the list", async () => {

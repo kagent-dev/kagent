@@ -6,6 +6,7 @@ import { runtimeConfig } from "@/api/runtimeConfig";
 import { DataPill } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
 import {
   builtinSkillDraft,
   emptySkillDraft,
@@ -28,13 +29,13 @@ export function SkillsField({
   skills,
   onChange,
   readOnly,
-  errorFor = () => undefined,
+  fieldFor = noValidation,
 }: {
   skills: SkillDraft[];
   onChange: (next: SkillDraft[]) => void;
   readOnly: boolean;
-  /** The inline message for a field, from `useSubmitValidation`. */
-  errorFor?: (field: TemplateField) => string | undefined;
+  /** A field's message and touch callback, from `useSubmitValidation`. */
+  fieldFor?: (field: TemplateField) => FieldValidation;
 }) {
   const theme = useTheme();
   const catalog = useMemo(() => runtimeConfig().builtinSkills, []);
@@ -52,7 +53,7 @@ export function SkillsField({
   const rowErrors = (index: number) => {
     const messages = (Object.keys(emptySkillDraft()) as Array<keyof SkillDraft>)
       .filter((key): key is SkillTextField => key !== "sourceKind")
-      .map((field) => errorFor(`skill:${index}:${field}`))
+      .map((field) => fieldFor(`skill:${index}:${field}`).error)
       .filter((message): message is string => message !== undefined);
     return messages.length > 0 ? (
       <Text css={{ color: theme.color.dangerText, fontSize: 12 }} data-testid={`template-form-skill-error-${index}`}>
@@ -148,7 +149,7 @@ export function SkillsField({
   };
 
   return (
-    <SkillsItem readOnly={readOnly} error={errorFor("skills")}>
+    <SkillsItem readOnly={readOnly} validation={fieldFor("skills")}>
       <FormRowList
         data-testid="template-form-skills"
         empty={readOnly ? "No skills." : undefined}
@@ -249,12 +250,12 @@ export function SkillsField({
             width: number,
             control: ReactNode,
             required = true,
-            error?: string,
+            validation?: FieldValidation,
           ) => (
             <FormField
               label={label}
               required={required}
-              error={error}
+              {...validation}
               htmlFor={fieldId(testId)}
               css={{ flex: `1 1 ${width}px`, minWidth: Math.min(width, 160), maxWidth: "100%", margin: 0 }}
             >
@@ -281,7 +282,7 @@ export function SkillsField({
                 onChange={(event) => setSkill(index, { [name]: event.target.value })}
               />,
               required,
-              errorFor(`skill:${index}:${name}`),
+              fieldFor(`skill:${index}:${name}`),
             );
           return row(
             index,
@@ -333,7 +334,7 @@ export function SkillsField({
 }
 
 /** The "Skills" label; read-only marks nothing as required or optional, like the rest of the form. */
-function SkillsItem({ readOnly, error, children }: { readOnly: boolean; error?: string; children: ReactNode }) {
+function SkillsItem({ readOnly, validation, children }: { readOnly: boolean; validation: FieldValidation; children: ReactNode }) {
   return readOnly ? (
     <Form.Item label="Skills">{children}</Form.Item>
   ) : (
@@ -342,7 +343,7 @@ function SkillsItem({ readOnly, error, children }: { readOnly: boolean; error?: 
       required={false}
       hintPlacement="above"
       help="A skill is a set of instructions the agent loads when a task matches it. Its source must not change: an OCI image pinned by digest, a full Git commit, or an S3 object version. The path selects the skill's directory inside the source."
-      error={error}
+      {...validation}
     >
       {children}
     </FormField>

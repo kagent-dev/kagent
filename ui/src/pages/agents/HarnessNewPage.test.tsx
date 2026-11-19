@@ -5,7 +5,7 @@ import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { themeFor } from "@/theme/theme";
 import { HarnessEditPage, HarnessNewPage } from "./HarnessNewPage";
-import { FIX_FIELDS_MESSAGE, FIX_FIELDS_TITLE } from "@/components/form/useSubmitValidation";
+import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
 
 const IMAGE = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
 
@@ -54,8 +54,9 @@ function renderAt(path: string) {
   return router;
 }
 
+// An input event, as typing sends: it also marks the field touched.
 const type = (testId: string, value: string) =>
-  fireEvent.change(screen.getByTestId(testId), { target: { value } });
+  fireEvent.input(screen.getByTestId(testId), { target: { value } });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -80,19 +81,21 @@ describe("harness create form", () => {
     expect(screen.getByTestId("harness-worker-pool")).toHaveTextContent("kagent-default");
   });
 
-  it("flags each problem on submit, explains above the buttons and sends nothing", () => {
+  it("flags a typed problem at once, an emptied field once left, and holds Create back", () => {
     renderAt("/harnesses/new");
-    type("harness-image", "ghcr.io/example/runtime:latest");
-    type("harness-snapshot", "");
-    expect(screen.queryByText("A name is required.")).not.toBeInTheDocument();
-    expect(screen.getByTestId("harness-submit")).toBeEnabled();
+    const submit = screen.getByTestId("harness-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByTestId("harness-blocked")).toHaveTextContent(FIX_FIELDS_MESSAGE);
 
-    fireEvent.click(screen.getByTestId("harness-submit"));
-    expect(screen.getByText("A name is required.")).toBeInTheDocument();
+    type("harness-image", "ghcr.io/example/runtime:latest");
     expect(screen.getByText("The workload image must be pinned by sha256 digest.")).toBeInTheDocument();
+    type("harness-snapshot", "");
+    expect(screen.queryByText("A snapshot location is required.")).not.toBeInTheDocument();
+    fireEvent.blur(screen.getByTestId("harness-snapshot"));
     expect(screen.getByText("A snapshot location is required.")).toBeInTheDocument();
-    expect(screen.getByTestId("harness-error")).toHaveTextContent(FIX_FIELDS_TITLE);
-    expect(screen.getByTestId("harness-error")).toHaveTextContent(FIX_FIELDS_MESSAGE);
+    expect(screen.queryByText("A name is required.")).not.toBeInTheDocument();
+
+    fireEvent.click(submit);
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
     expect(mocks.create).not.toHaveBeenCalled();
   });

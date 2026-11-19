@@ -73,10 +73,13 @@ test("egress policies: a policy is created, attached, edited and deleted", async
   await test.step("5. the form checks the CRD's rules before saving", async () => {
     await page.getByRole("button", { name: "Create egress policy" }).click();
     await expectPageTitle(page, "New egress policy");
-    await page.getByTestId("egress-form-submit").click();
+    // Create is held back beside a note; a field is flagged once it is left.
+    await expect(page.getByTestId("egress-form-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("egress-form-blocked")).toContainText("Fill in the required (*) fields.");
+    await page.getByTestId("egress-form-name").focus();
+    await page.getByTestId("egress-form-name").blur();
     await expect(page.getByText("Enter a name.")).toBeVisible();
-    await expect(page.getByTestId("egress-form-submit-error")).toContainText("Nothing was sent yet");
-    await expect(page.getByTestId("egress-form-submit-error").getByRole("button", { name: "Try again" })).toHaveCount(0);
+    await expect(page.getByTestId("egress-form-submit-error")).toHaveCount(0);
 
     // Leaving a dirty form asks first; Keep editing stays.
     await page.getByTestId("egress-form-name").fill(CREATED);
@@ -93,8 +96,8 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await page.getByTestId("egress-destination-0-header").fill("Cookie");
     await page.getByTestId("egress-destination-0-secret-name").fill("example-credentials");
     await page.getByTestId("egress-destination-0-secret-key").fill("token");
-    await page.getByTestId("egress-form-submit").click();
     await expect(page.getByText("The Cookie header can't carry a credential.")).toBeVisible();
+    await expect(page.getByTestId("egress-form-submit")).toHaveAttribute("aria-disabled", "true");
     await expect(page).toHaveURL(/\/policies\/egress\/new$/);
 
     // A wildcard origin offers no credential source.

@@ -2,6 +2,7 @@ import { Input, Select, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { DEFAULT_HARNESS_WORKER_POOL, HARNESS_ADAPTERS, type HarnessAdapter } from "@/api/domain/harnesses";
 import { FormField } from "@/components/form/FormField";
+import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { HARNESS_ADAPTER_LABELS, adapterSupportsCommand, type HarnessDraft, type HarnessDraftField } from "./harnessDraft";
 
@@ -36,12 +37,12 @@ export function HarnessFields({
   draft,
   onChange,
   pools,
-  errorFor,
+  fieldFor,
 }: {
   draft: HarnessDraft;
   onChange: (next: HarnessDraft) => void;
   pools: WorkerPoolChoices;
-  errorFor: (field: HarnessDraftField) => string | undefined;
+  fieldFor: (field: HarnessDraftField) => FieldValidation;
 }) {
   const set = <K extends keyof HarnessDraft>(field: K, value: HarnessDraft[K]) =>
     onChange({ ...draft, [field]: value });
@@ -68,7 +69,7 @@ export function HarnessFields({
         label="Workload image"
         required={byo}
         htmlFor="harness-image"
-        error={errorFor("image")}
+        {...fieldFor("image")}
         extra={
           byo
             ? "Required for bring-your-own. Pinned by sha256 digest, for example ghcr.io/example/runtime@sha256:…"
@@ -90,7 +91,7 @@ export function HarnessFields({
             label="Command"
             required={byo}
             htmlFor="harness-command"
-            error={errorFor("command")}
+            {...fieldFor("command")}
             extra={
               byo
                 ? "Required for bring-your-own images. Press Enter after each part."
@@ -133,7 +134,7 @@ export function HarnessFields({
         label="Worker pool"
         required
         htmlFor="harness-worker-pool"
-        error={errorFor("workerPool")}
+        {...fieldFor("workerPool")}
         extra={
           pools.error
             ? `Could not list worker pools (${pools.error}). Type the name of one in this namespace.`
@@ -167,7 +168,7 @@ export function HarnessFields({
         label="Snapshot location"
         required
         htmlFor="harness-snapshot"
-        error={errorFor("snapshotLocation")}
+        {...fieldFor("snapshotLocation")}
         extra="Object-store path where Substrate saves agent snapshots so agents can resume after restarts."
       >
         <Input

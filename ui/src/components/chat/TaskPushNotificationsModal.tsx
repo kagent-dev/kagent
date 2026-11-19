@@ -156,7 +156,7 @@ export function TaskPushNotificationsModal({
           label="Callback URL"
           htmlFor="task-push-url"
           required
-          error={validation.errorFor("url")}
+          {...validation.field("url")}
           css={{ marginBottom: 0 }}
         >
           <Input

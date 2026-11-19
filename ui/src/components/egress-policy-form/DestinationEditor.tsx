@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { isWildcardOrigin } from "@/api";
 import { DataPillList } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
+import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { egressCopy } from "./egressPolicyCopy";
 import { destinationFieldKey, type AuthChoice, type DestinationDraft, type DestinationField } from "./egressPolicyDraft";
 
@@ -16,7 +17,7 @@ function splitAudiences(text: string): string[] {
 export function DestinationEditor({
   index,
   row,
-  errorFor,
+  fieldFor,
   onChange,
   disabled,
   originRef,
@@ -24,7 +25,7 @@ export function DestinationEditor({
   index: number;
   row: DestinationDraft;
   /** The inline message for one of this row's fields, once the form was submitted. */
-  errorFor: (key: string) => string | undefined;
+  fieldFor: (key: string) => FieldValidation;
   onChange: (next: DestinationDraft) => void;
   disabled?: boolean;
   originRef?: Ref<InputRef>;
@@ -36,7 +37,8 @@ export function DestinationEditor({
   const testId = (field: string) => `egress-destination-${index}-${field}`;
   // Keyed on the row id, not the index, so an id stays with its row after a removal.
   const fieldId = (field: string) => `egress-destination-${row.id}-${field}-input`;
-  const error = (field: DestinationField) => errorFor(destinationFieldKey(row.id, field));
+  const field = (name: DestinationField) => fieldFor(destinationFieldKey(row.id, name));
+  const error = (name: DestinationField) => field(name).error;
   const mono = { fontFamily: theme.font.mono };
 
   const addAudiences = (text: string) => {
@@ -53,7 +55,7 @@ export function DestinationEditor({
         label={egressCopy.form.origin}
         required
         help={error("origin") ?? egressCopy.form.originHelp}
-        error={error("origin")}
+        {...field("origin")}
       >
         <Input
           id={fieldId("origin")}
@@ -72,7 +74,7 @@ export function DestinationEditor({
         htmlFor={fieldId("auth")}
         label={egressCopy.form.authentication}
         required={false}
-        error={error("auth")}
+        {...field("auth")}
         help={error("auth") ?? (wildcard ? egressCopy.form.wildcardNoAuth : egressCopy.form.authenticationHelp)}
       >
         <Radio.Group
@@ -93,7 +95,7 @@ export function DestinationEditor({
 
       {row.auth !== "none" ? (
         <div css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", columnGap: theme.space(4) }}>
-          <FormField htmlFor={fieldId("header")} label={egressCopy.form.header} required error={error("header")}>
+          <FormField htmlFor={fieldId("header")} label={egressCopy.form.header} required {...field("header")}>
             <Input
               id={fieldId("header")}
               data-testid={testId("header")}
@@ -109,7 +111,7 @@ export function DestinationEditor({
             htmlFor={fieldId("prefix")}
             label={egressCopy.form.prefix}
             required={false}
-            error={error("prefix")}
+            {...field("prefix")}
             help={error("prefix") ?? egressCopy.form.prefixHelp}
           >
             <Input
@@ -129,7 +131,7 @@ export function DestinationEditor({
                 htmlFor={fieldId("secret-name")}
                 label={egressCopy.form.secretName}
                 required
-                error={error("secretName")}
+                {...field("secretName")}
                 help={error("secretName") ?? egressCopy.form.secretHelp}
               >
                 <Input
@@ -142,7 +144,7 @@ export function DestinationEditor({
                   onChange={(event) => update({ secretName: event.target.value })}
                 />
               </FormField>
-              <FormField htmlFor={fieldId("secret-key")} label={egressCopy.form.secretKey} required error={error("secretKey")}>
+              <FormField htmlFor={fieldId("secret-key")} label={egressCopy.form.secretKey} required {...field("secretKey")}>
                 <Input
                   id={fieldId("secret-key")}
                   data-testid={testId("secret-key")}
@@ -160,7 +162,7 @@ export function DestinationEditor({
                 htmlFor={fieldId("audiences")}
                 label={egressCopy.form.audiences}
                 required
-                error={error("audiences")}
+                {...field("audiences")}
                 help={error("audiences") ?? egressCopy.form.audiencesHelp}
               >
                 <Input
@@ -187,7 +189,7 @@ export function DestinationEditor({
                 htmlFor={fieldId("lifetime")}
                 label={egressCopy.form.lifetime}
                 required={false}
-                error={error("lifetime")}
+                {...field("lifetime")}
                 help={error("lifetime") ?? egressCopy.form.lifetimeHelp}
               >
                 <Input

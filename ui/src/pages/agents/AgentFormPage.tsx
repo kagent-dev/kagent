@@ -1,21 +1,20 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ReadError } from "@/components/common/ReadError";
-import { Alert, Button, Form, Input, Modal, Radio, Select, Skeleton, Typography } from "antd";
+import { Alert, Button, Form, Input, Modal, Radio, Select, Skeleton } from "antd";
 import { useTheme } from "@emotion/react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
 import {
   draftFromSpec,
-  draftProblems,
   emptyDraft,
   specFromDraft,
   templateDraftIssues,
+  type TemplateField,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
-import { isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
+import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
@@ -24,7 +23,7 @@ import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { SectionHeader } from "@/components/form/SectionHeader";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
-import { issueFor, useSubmitValidation, type FieldIssue } from "@/components/form/useSubmitValidation";
+import { useSubmitValidation, type FieldIssue, type FieldValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import {
   apiClient,
@@ -45,8 +44,6 @@ import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
 import { harnessModelConflict, preferredHarness } from "@/components/harness-form/harnessChoice";
-
-const { Text } = Typography;
 
 type Source = "reference" | "inline";
 
@@ -114,7 +111,7 @@ export function AgentFormPage() {
   );
 }
 
-type AgentField = "name" | "namespace" | "harness" | "template";
+type AgentField = "name" | "namespace" | "harness" | "template" | `inline:${TemplateField}`;
 
 function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const theme = useTheme();
@@ -165,7 +162,11 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const conflict = harnessModelConflict(adapter, model.data?.spec);
 
   const issues: FieldIssue<AgentField>[] = [
-    ...(namespace ? [] : [{ field: "namespace" as const, message: "A namespace is required." }]),
+    ...(!namespace
+      ? [{ field: "namespace" as const, message: "A namespace is required." }]
+      : !isValidNamespace(namespace)
+        ? [{ field: "namespace" as const, message: "The namespace must be a valid Kubernetes name." }]
+        : []),
     ...(!name.trim()
       ? [{ field: "name" as const, message: "A name is required." }]
       : !agent && !isValidObjectName(name)
@@ -175,12 +176,12 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
     ...(templateSource === "reference" && !templateRef
       ? [{ field: "template" as const, message: "Choose an agent template." }]
       : []),
-    ...(templateSource === "inline"
-      ? draftProblems(inlineTemplate, { isCreate: false }).map((message) => ({ field: "template" as const, message }))
-      : []),
     // The compiler's rule, not the CRD's: only a bring-your-own harness runs without a model.
-    ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig?.name.trim()
-      ? [{ field: "template" as const, message: "Choose a model configuration for the inline template." }]
+    // The inline template's namespace is the agent's, so its namespace issue is the agent's own.
+    ...(templateSource === "inline"
+      ? templateDraftIssues(inlineTemplate, { isCreate: false, modelRequired: adapter !== "byo" })
+          .filter((issue) => issue.field !== "namespace")
+          .map((issue) => ({ field: `inline:${issue.field}` as const, message: issue.message }))
       : []),
   ];
   const validation = useSubmitValidation(issues);
@@ -225,8 +226,6 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
     }
   }
 
-  const templateError = validation.errorFor("template");
-
   return (
     <div
       css={{
@@ -252,7 +251,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           label="Name"
           required
           htmlFor="agent-form-name"
-          error={validation.errorFor("name")}
+          {...validation.field("name")}
           extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}
         >
           <Input
@@ -268,7 +267,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           label="Namespace"
           required
           htmlFor="agent-form-namespace"
-          error={validation.errorFor("namespace")}
+          {...validation.field("namespace")}
           extra={agent ? "Fixed once the agent exists." : undefined}
         >
           <NamespaceSelect
@@ -311,7 +310,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           onChange={setHarnessRef}
           loading={harnesses.isLoading}
           loadError={harnesses.error?.message}
-          error={validation.errorFor("harness")}
+          {...validation.field("harness")}
           names={harnessNames}
           empty={
             <span>
@@ -386,33 +385,20 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
             onChange={setTemplateRef}
             loading={templates.isLoading}
             loadError={templates.error?.message}
-            error={templateError}
+            {...validation.field("template")}
             names={(templates.data ?? []).map((row) => row.name)}
           />
         ) : (
-          <>
-            <AgentTemplateForm
-              embedded
-              draft={inlineTemplate}
-              onChange={setTemplateDraft}
-              isCreate={false}
-              namespace={namespace}
-              hasUnshownFields={spec?.template.inline ? hasUnshownSpecFields(spec.template.inline) : false}
-              // Marks the inline rows once submitted, as the template's own page does.
-              errorFor={(field) =>
-                validation.submitted ? issueFor(templateDraftIssues(inlineTemplate, { isCreate: false }), field) : undefined
-              }
-            />
-            {templateError ? (
-              <Text
-                role="alert"
-                data-testid="agent-form-template-error"
-                css={{ display: "block", marginTop: theme.space(2), color: theme.color.dangerText }}
-              >
-                {templateError}
-              </Text>
-            ) : null}
-          </>
+          <AgentTemplateForm
+            embedded
+            draft={inlineTemplate}
+            onChange={setTemplateDraft}
+            isCreate={false}
+            namespace={namespace}
+            hasUnshownFields={spec?.template.inline ? hasUnshownSpecFields(spec.template.inline) : false}
+            modelRequired={adapter !== "byo"}
+            fieldFor={(field) => validation.field(`inline:${field}`)}
+          />
         )}
       </section>
 
@@ -448,6 +434,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         submitting={saving}
         cancel={{ to: agentsTab }}
         testIdPrefix="agent-form"
+        blocked={!validation.valid}
         error={
           failure !== undefined ? (
             <SubmitError
@@ -457,7 +444,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
               onRetry={() => void save()}
               data-testid="agent-form-error"
             />
-          ) : validation.issues.length > 0 ? <ValidationNotice data-testid="agent-form-error" /> : null
+          ) : null
         }
       />
 
@@ -483,6 +470,7 @@ function RefSelect({
   loading,
   loadError,
   error,
+  onTouch,
   names,
   empty,
 }: {
@@ -494,8 +482,9 @@ function RefSelect({
   loading: boolean;
   /** A failed read of the list. */
   loadError?: string;
-  /** A submit-time problem with the choice. */
+  /** A problem with the choice, from `validation.field`. */
   error?: string;
+  onTouch?: FieldValidation["onTouch"];
   names: string[];
   empty?: ReactNode;
 }) {
@@ -506,6 +495,7 @@ function RefSelect({
         required
         htmlFor={`agent-form-${kind}-ref`}
         error={error ?? loadError}
+        onTouch={onTouch}
         extra={help}
       >
         <ResourceSelect

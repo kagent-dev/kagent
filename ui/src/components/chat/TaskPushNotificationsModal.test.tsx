@@ -53,14 +53,14 @@ describe("TaskPushNotificationsModal", () => {
     expect(screen.getAllByTestId("field-optional")).toHaveLength(1);
   });
 
-  it("flags an invalid URL inline on submit and sends nothing", async () => {
+  it("flags an invalid URL inline as it is typed and sends nothing", async () => {
     renderModal();
-    await userEvent.type(await screen.findByLabelText(/^Callback URL/), "not a url");
-    expect(screen.queryByText(/absolute HTTP or HTTPS/)).toBeNull();
+    const field = await screen.findByLabelText(/^Callback URL/);
+    expect(field).not.toHaveAttribute("aria-invalid");
+    await userEvent.type(field, "not a url");
+    expect(screen.getByText(/absolute HTTP or HTTPS/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add callback" }));
-
-    expect(await screen.findByText(/absolute HTTP or HTTPS/)).toBeInTheDocument();
     expect(saveTaskPushConfig).not.toHaveBeenCalled();
   });
 

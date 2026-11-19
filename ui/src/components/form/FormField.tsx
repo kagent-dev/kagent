@@ -45,6 +45,8 @@ type FormFieldProps = Omit<FormItemProps, "label" | "required" | "requiredMark">
   error?: string;
   /** "above" puts the hint between label and control, for sections of repeated rows. */
   hintPlacement?: "below" | "above";
+  /** Called when the user leaves the field or types a value into it; from `validation.field`. */
+  onTouch?: () => void;
 };
 
 type ControlProps = {
@@ -75,6 +77,7 @@ export function FormField({
   help,
   extra,
   hintPlacement = "below",
+  onTouch,
   children,
   ...rest
 }: FormFieldProps) {
@@ -97,6 +100,24 @@ export function FormField({
   const describedBy = [control?.props["aria-describedby"], error ? errorId : hintBelow ? hintId : undefined]
     .filter(Boolean)
     .join(" ");
+
+  const body = control ? (
+    cloneElement(control, {
+      id: control.props.id ?? controlId,
+      "aria-invalid": error ? true : control.props["aria-invalid"],
+      "aria-describedby": describedBy || undefined,
+      ...(isGroup ? { "aria-labelledby": labelId } : {}),
+    })
+  ) : above ? (
+    <>
+      <div className="ant-form-item-extra" css={{ marginBottom: theme.space(2) }}>
+        {help}
+      </div>
+      {children}
+    </>
+  ) : (
+    children
+  );
 
   return (
     <Form.Item
@@ -126,22 +147,19 @@ export function FormField({
         )
       }
     >
-      {control ? (
-        cloneElement(control, {
-          id: control.props.id ?? controlId,
-          "aria-invalid": error ? true : control.props["aria-invalid"],
-          "aria-describedby": describedBy || undefined,
-          ...(isGroup ? { "aria-labelledby": labelId } : {}),
-        })
-      ) : above ? (
-        <>
-          <div className="ant-form-item-extra" css={{ marginBottom: theme.space(2) }}>
-            {help}
-          </div>
-          {children}
-        </>
+      {onTouch && typeof body !== "function" ? (
+        <div
+          css={{ display: "contents" }}
+          onBlur={onTouch}
+          onInput={(event) => {
+            const value = (event.target as Partial<HTMLInputElement>).value;
+            if (typeof value === "string" && value.trim() !== "") onTouch();
+          }}
+        >
+          {body}
+        </div>
       ) : (
-        children
+        body
       )}
     </Form.Item>
   );

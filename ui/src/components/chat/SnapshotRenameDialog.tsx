@@ -80,7 +80,7 @@ export function SnapshotRenameDialog({
         A fork taken from this snapshot is given its name. Leave this empty to go back
         to the generated one.
       </Paragraph>
-      <FormField label="Snapshot name" required={false} error={validation.errorFor("name")}>
+      <FormField label="Snapshot name" required={false} {...validation.field("name")}>
         <Input
           value={draft}
           id="snapshot-rename-field"

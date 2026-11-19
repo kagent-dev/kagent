@@ -18,13 +18,12 @@ import {
 import { useTheme } from "@emotion/react";
 import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { SubmitError } from "@/components/common/SubmitError";
-import { ValidationNotice } from "@/components/form/ValidationNotice";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
-import { issueFor, useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import {
   RESOURCE_NAME_HINT,
@@ -291,7 +290,7 @@ export function ModelForm({
     [effective, requiredKeys, isEdit],
   );
   const validation = useSubmitValidation(issues);
-  const { errorFor } = validation;
+  const fieldFor = validation.field;
 
   const isDirty = draftContents(effective) !== baseline;
   const { blocker, release } = useUnsavedChangesGuard(isDirty);
@@ -302,7 +301,7 @@ export function ModelForm({
       <FormField
         label="Existing secret"
         required
-        error={errorFor("apiKeySecret")}
+        {...fieldFor("apiKeySecret")}
         help="The Secret to read the API key from."
       >
         <Input
@@ -350,16 +349,11 @@ export function ModelForm({
     onProviderChange?.(type);
   };
 
+  const optionalError = optionalKeys.some((key) => fieldFor(`param:${key}`).error !== undefined);
+
   const submit = async () => {
     setFailure(undefined);
-    if (!validation.attempt()) {
-      // An error inside the collapsed optional parameters would otherwise stay out of sight.
-      // Read from `issues`: `errorFor` shows nothing until the render after attempt().
-      if (optionalKeys.some((key) => issueFor(issues, `param:${key}`) !== undefined)) {
-        setOptionalOpen(true);
-      }
-      return;
-    }
+    if (!validation.attempt()) return;
 
     setSaving(true);
     try {
@@ -381,7 +375,7 @@ export function ModelForm({
         key={key}
         label={label}
         required={required}
-        error={errorFor(`param:${key}`)}
+        {...fieldFor(`param:${key}`)}
         help={ENUM_PARAMS[key]?.help}
       >
         {ENUM_PARAMS[key] ? (
@@ -442,7 +436,7 @@ export function ModelForm({
                 </Space>
               }
               required
-              error={errorFor("provider")}
+              {...fieldFor("provider")}
               help="Choose where the model runs."
             >
               <Space.Compact css={{ display: "flex" }}>
@@ -482,7 +476,7 @@ export function ModelForm({
             <FormField
               label="Provider model"
               required
-              error={errorFor("model")}
+              {...fieldFor("model")}
               help="Pick from the list, or type a model name."
             >
               <AutoComplete
@@ -536,7 +530,7 @@ export function ModelForm({
         <FormField
           label="Name"
           required
-          error={errorFor("name")}
+          {...fieldFor("name")}
           help={
             identityLocked
               ? "A configuration cannot be renamed; create a new one instead."
@@ -559,7 +553,7 @@ export function ModelForm({
         <FormField
           label="Namespace"
           required
-          error={errorFor("namespace")}
+          {...fieldFor("namespace")}
           help="Pick the namespace to create the model in."
         >
           <NamespaceSelect
@@ -592,7 +586,7 @@ export function ModelForm({
           </>
         ) : (
           <>
-            <FormField label="Authentication" required error={errorFor("authType")}>
+            <FormField label="Authentication" required {...fieldFor("authType")}>
               <Radio.Group
                 data-testid="model-auth-type"
                 value={draft.authType}
@@ -615,7 +609,7 @@ export function ModelForm({
                 }
                 // Required to create and not to edit: a blank edit keeps the stored key.
                 required={!isEdit}
-                error={errorFor("apiKey")}
+                {...fieldFor("apiKey")}
                 help="Typed once and stored in a Kubernetes Secret the controller creates and owns."
               >
                 <Input.Password
@@ -646,7 +640,7 @@ export function ModelForm({
             <FormField
               label="Audiences"
               required
-              error={errorFor("actorAudiences")}
+              {...fieldFor("actorAudiences")}
               help="Services allowed to accept this Actor token."
             >
               <Select
@@ -659,7 +653,7 @@ export function ModelForm({
             <FormField
               label="Token lifetime (seconds)"
               required
-              error={errorFor("actorExpirationSeconds")}
+              {...fieldFor("actorExpirationSeconds")}
             >
               <InputNumber
                 min={300}
@@ -687,8 +681,9 @@ export function ModelForm({
           <Collapse
             ghost
             data-testid="model-optional-params"
-            activeKey={optionalOpen ? ["optional"] : []}
-            onChange={(keys) => setOptionalOpen(keys.length > 0)}
+            // Stays open while a parameter inside shows an error, so the error stays in sight.
+            activeKey={optionalOpen || optionalError ? ["optional"] : []}
+            onChange={(keys) => setOptionalOpen(keys.length > 0 || optionalError)}
             items={[
               {
                 key: "optional",
@@ -780,6 +775,7 @@ export function ModelForm({
         submitting={saving}
         cancel={{ to: paths.models }}
         testIdPrefix="model"
+        blocked={!validation.valid}
         error={
           failure !== undefined ? (
             <SubmitError
@@ -789,7 +785,7 @@ export function ModelForm({
               onRetry={() => void submit()}
               data-testid="model-submit-error"
             />
-          ) : validation.issues.length > 0 ? <ValidationNotice data-testid="model-submit-error" /> : null
+          ) : null
         }
       />
 

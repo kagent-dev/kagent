@@ -66,9 +66,10 @@ function chooseProvider() {
 }
 
 // The auto-complete and password fields carry their test id on a wrapper around the input.
+// An input event, as typing sends: it also marks the field touched.
 const type = (testId: string, value: string) => {
   const target = screen.getByTestId(testId);
-  fireEvent.change(target.matches("input,textarea") ? target : target.querySelector("input")!, { target: { value } });
+  fireEvent.input(target.matches("input,textarea") ? target : target.querySelector("input")!, { target: { value } });
 };
 
 beforeEach(() => vi.clearAllMocks());
@@ -93,13 +94,17 @@ describe("model create form", () => {
     expect(screen.getByText("Key in secret")).toBeInTheDocument();
   });
 
-  it("flags every missing field on submit and sends nothing", () => {
+  it("holds Create back until the required fields are filled, and flags a field once left", () => {
     renderAt("/models/new");
-    fireEvent.click(screen.getByTestId("model-submit"));
-    expect(screen.getByText("Choose a provider.")).toBeInTheDocument();
-    expect(screen.getByText("Choose a model.")).toBeInTheDocument();
-    expect(screen.getByText("A name is required.")).toBeInTheDocument();
+    const submit = screen.getByTestId("model-submit");
+    expect(submit).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(submit);
     expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.queryByText("Choose a provider.")).not.toBeInTheDocument();
+
+    fireEvent.blur(within(screen.getByTestId("model-provider")).getByRole("combobox"));
+    expect(screen.getByText("Choose a provider.")).toBeInTheDocument();
+    expect(screen.queryByText("A name is required.")).not.toBeInTheDocument();
   });
 
   it("names the secret when the credential is an existing one", () => {
@@ -107,11 +112,12 @@ describe("model create form", () => {
     chooseProvider();
     type("model-model", "gpt-4o");
     fireEvent.click(screen.getByText("Existing secret"));
-    fireEvent.click(screen.getByTestId("model-submit"));
+    expect(screen.getByTestId("model-submit")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.blur(screen.getByTestId("model-api-key-secret"));
     expect(screen.getByText("Enter the name of the secret.")).toBeInTheDocument();
   });
 
-  it("opens the optional parameters on the first submit when one is invalid", () => {
+  it("keeps the optional parameters open while one shows an error", () => {
     renderAt("/models/new");
     chooseProvider();
     type("model-model", "gpt-4o");
@@ -120,11 +126,12 @@ describe("model create form", () => {
     fireEvent.click(within(optional).getByText(/Optional parameters/));
     type("model-param-maxTokens", "lots");
     fireEvent.click(within(optional).getByText(/Optional parameters/));
-    expect(within(optional).getByRole("button", { expanded: false })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("model-submit"));
     expect(within(optional).getByRole("button", { expanded: true })).toBeInTheDocument();
-    expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.getByTestId("model-submit")).toHaveAttribute("aria-disabled", "true");
+
+    type("model-param-maxTokens", "100");
+    fireEvent.click(within(optional).getByText(/Optional parameters/));
+    expect(within(optional).getByRole("button", { expanded: false })).toBeInTheDocument();
   });
 
   it("explains a failed create above the buttons", async () => {

@@ -125,7 +125,8 @@ test("agent templates: a template is created, read, edited and deleted", async (
       // A branch name, which the CRD refuses; flagged on submit below.
       await own.getByLabel("Commit").fill("main");
       await own.getByLabel("Path").fill("skills/incident-review");
-      await expect(own.locator(".ant-form-item-explain-error")).toHaveCount(0);
+      // A typed value is checked at once: a branch name is not a commit.
+      await expect(own.locator(".ant-form-item-explain-error")).toHaveCount(1);
     });
 
     await test.step("a namespace can select a visible model from another namespace", async () => {
@@ -144,10 +145,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
       unmarked: ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Skills", "Labels"],
     });
 
-    // Submit stays enabled; an invalid one marks the field and says nothing was created.
-    await page.getByTestId("template-submit").click();
+    // Create is held back beside a note; a field is flagged once it is left.
+    await expect(page.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("template-blocked")).toContainText("Fill in the required (*) fields.");
+    await page.getByTestId("template-form-name").focus();
+    await page.getByTestId("template-form-name").blur();
     await expect(page.getByText("A name is required.")).toBeVisible();
-    await expect(page.getByTestId("template-create-error")).toContainText("Fix the highlighted fields");
     await expect(page).toHaveURL(/\/agent-templates\/new/);
     // The message sits under the skill field that needs it, and clears once fixed.
     const commit = page.getByTestId("template-form-skill-1").locator(".ant-form-item").filter({ hasText: "Commit" });
@@ -160,7 +163,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await page.getByTestId("template-form-name").fill(CREATED);
     await selectOption(page, "template-form-model", "kagent/default-model-config");
 
-    await expect(page.getByTestId("template-submit")).toBeEnabled();
+    await expect(page.getByTestId("template-submit")).not.toHaveAttribute("aria-disabled");
     await page.getByTestId("template-submit").click();
     await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 30_000 });
 

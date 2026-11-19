@@ -25,6 +25,7 @@ import type {
   ObjectReference,
 } from "@/api/domain/agentTemplates";
 import type { BuiltinSkill, BuiltinSkillsCatalog } from "@/api/runtimeConfig";
+import { isValidNamespace } from "@/components/common/resourceName";
 import type { FieldIssue } from "@/components/form/useSubmitValidation";
 
 /** One MCP tool selection, flattened for a form to hold. */
@@ -349,6 +350,7 @@ export function labelsFromDraft(draft: AgentTemplateDraft): Record<string, strin
 export type TemplateField =
   | "name"
   | "namespace"
+  | "model"
   | "promptConfigMap"
   | "promptKey"
   | "outputSchema"
@@ -368,13 +370,15 @@ export type TemplateField =
  */
 export function templateDraftIssues(
   draft: AgentTemplateDraft,
-  options: { isCreate: boolean },
+  options: { isCreate: boolean; modelRequired?: boolean },
 ): FieldIssue<TemplateField>[] {
   const issues: FieldIssue<TemplateField>[] = [];
   const add = (field: TemplateField, message: string) => issues.push({ field, message });
 
   if (options.isCreate && draft.name.trim() === "") add("name", "A name is required.");
   if (draft.namespace.trim() === "") add("namespace", "A namespace is required.");
+  else if (!isValidNamespace(draft.namespace)) add("namespace", "The namespace must be a valid Kubernetes name.");
+  if (options.modelRequired && !draft.modelConfig?.name.trim()) add("model", "Choose a model configuration.");
   if (draft.promptSource === "configMap") {
     if (draft.systemPromptConfigMap.trim() === "") add("promptConfigMap", "Enter the ConfigMap name.");
     if (draft.systemPromptKey.trim() === "") add("promptKey", "Enter the key that holds the prompt.");
