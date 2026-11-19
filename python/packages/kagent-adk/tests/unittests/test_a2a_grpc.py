@@ -180,6 +180,12 @@ async def test_cli_serves_grpc_and_exits_cleanly_on_sigterm(tmp_path, unused_tcp
         "run",
         "sample",
         "--local",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8080",
+        "--workers",
+        "1",
         cwd=tmp_path,
     )
     try:

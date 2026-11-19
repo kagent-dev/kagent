@@ -68,12 +68,32 @@ def _load_revision(filepath: str) -> tuple[Config, AgentCard]:
     return _load_agent_files(Path(filepath))
 
 
+_DEPRECATED = "[DEPRECATED] Ignored; A2A gRPC listens on runtime.host and runtime.port."
+_Host = Annotated[Optional[str], typer.Option(help=_DEPRECATED)]
+_Port = Annotated[Optional[int], typer.Option(help=_DEPRECATED)]
+_Workers = Annotated[Optional[int], typer.Option(help=_DEPRECATED)]
+_Reload = Annotated[bool, typer.Option("--reload", help=_DEPRECATED)]
+
+
+def _warn_ignored_flags(**flags) -> None:
+    for name, value in flags.items():
+        if value:
+            logger.warning("--%s is deprecated and ignored; A2A gRPC listens on runtime.host and runtime.port", name)
+
+
 @app.command()
-def static(filepath: str = "/config"):
+def static(
+    filepath: str = "/config",
+    host: _Host = None,
+    port: _Port = None,
+    workers: _Workers = None,
+    reload: _Reload = False,
+):
     config, agent_card = _load_revision(filepath)
     runtime = config.runtime
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
+    _warn_ignored_flags(host=host, port=port, workers=workers, reload=reload)
     plugins = None
     sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
@@ -138,6 +158,9 @@ def run(
     local: Annotated[
         bool, typer.Option("--local", help="Run with in-memory session service (for local development)")
     ] = False,
+    host: _Host = None,
+    port: _Port = None,
+    workers: _Workers = None,
 ):
     if local:
         agent_dir = Path(working_dir) / name
@@ -154,6 +177,7 @@ def run(
     runtime = config.runtime
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
+    _warn_ignored_flags(host=host, port=port, workers=workers)
 
     plugins = None
     sts_integration = create_sts_integration(runtime.token_propagation)

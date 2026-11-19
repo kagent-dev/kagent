@@ -86,6 +86,6 @@ Its setup runs before the runtime binds its listeners. Its cleanup runs after th
 Move HTTP health checks to `GET /readyz` on port `8081`. Send JSON-RPC requests
 and fetch agent cards through the [controller gateway](../docs/architecture/a2a-transports.md).
 
-Remove the Uvicorn flags `--host`, `--port`, `--workers`, and `--reload` from
-Python ADK workload commands. The gRPC listener reads `runtime.host` and
-`runtime.port` from the runtime configuration.
+The Uvicorn flags `--host`, `--port`, `--workers`, and `--reload` on Python ADK
+workload commands are deprecated and ignored; remove them. The gRPC listener reads
+`runtime.host` and `runtime.port` from the runtime configuration.
