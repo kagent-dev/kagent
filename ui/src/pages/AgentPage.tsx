@@ -34,7 +34,6 @@ import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import {
   conversationTitle,
-  hasConversationName,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
@@ -216,10 +215,7 @@ export function AgentPage() {
                   to={chatPath(row)}
                   aria-label={`Open conversation ${title}`}
                   data-testid={`conversation-link-${row.id}`}
-                  css={{
-                    color: theme.color.primaryText,
-                    fontStyle: hasConversationName(row) ? undefined : "italic",
-                  }}
+                  css={{ color: theme.color.primaryText }}
                 >
                   {title}
                 </Link>
@@ -233,7 +229,7 @@ export function AgentPage() {
                 >
                   <Text
                     data-testid={`conversation-unopenable-${row.id}`}
-                    css={{ color: theme.color.textMuted, fontStyle: "italic" }}
+                    css={{ color: theme.color.textMuted }}
                   >
                     {title}
                   </Text>
