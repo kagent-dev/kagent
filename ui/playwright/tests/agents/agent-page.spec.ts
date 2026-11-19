@@ -62,7 +62,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
     // here and the page would look perfectly reasonable.
     await expect(dataRows(page)).toHaveCount(1);
     await expect(rowNamed(page, "Drafting the runbook")).toHaveCount(1);
-    await expect(page.getByTestId("conversations-table")).not.toContainText("2b6e0c45");
+    await expect(page.getByTestId("conversation-link-2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0")).toHaveCount(0);
   });
 
   await test.step("4. the other agent cut from the same template has the other one", async () => {
@@ -70,7 +70,8 @@ test("agents: one agent lists its own conversations, and only its own", async ({
     await expectSettled(page);
 
     await expect(dataRows(page)).toHaveCount(1);
-    await expect(page.getByTestId("conversations-table")).toContainText("2b6e0c45");
+    // By id, not text: the row's title becomes its first message once that is read.
+    await expect(page.getByTestId("conversation-link-2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0")).toHaveCount(1);
     await expect(page.getByTestId("conversations-table")).not.toContainText(
       "Drafting the runbook",
     );
@@ -182,6 +183,24 @@ test("agents: a conversation is named by the reader, and never renders as a bare
     await expect(
       page.getByTestId(`conversation-link-${instances.idle}`),
     ).toContainText("Untitled");
+  });
+});
+
+test("agents: an unnamed conversation is named by its first message, as the rail names it", async ({
+  page,
+}) => {
+  // Unnamed, with a seeded first message; `instances.idle` has none, so it stays "Untitled".
+  const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+  const title = "Summarise last night's deploy for the incident channel, and…";
+  await loadPage(page, agentPage(agents.sharedOnFastLane));
+  await expectSettled(page);
+
+  await test.step("1. the table names it by its first message", async () => {
+    await expect(page.getByTestId(`conversation-link-${autoTitled}`)).toHaveText(title);
+  });
+
+  await test.step("2. and the rail shows the same title", async () => {
+    await expect(page.getByTestId(`chat-session-${autoTitled}`)).toContainText(title);
   });
 });
 
@@ -646,6 +665,32 @@ test("agents: the page shows the agent's structure, and sub-agents expand in pla
     await page.getByRole("tab", { name: "Schedules (0)" }).click();
     await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
     await expect(page).toHaveURL(/[?&]tab=schedules/);
+  });
+});
+
+test("agents: the header labels its fields, and the revision's tooltip is on its text only", async ({ page }) => {
+  await loadPage(page, agentPage(agents.sharedOnK8s));
+  await expectSettled(page);
+  const header = page.getByTestId("agent-header");
+  const revision = page.getByTestId("agent-revision");
+  const fullRevision = page.getByRole("tooltip").filter({ hasText: "rev-shared-brain" });
+
+  await test.step("1. status, namespace and revision are labelled", async () => {
+    for (const label of ["Status", "Namespace", "Revision"]) {
+      await expect(header.getByText(label, { exact: true })).toBeVisible();
+    }
+  });
+
+  await test.step("2. hovering the shortened revision shows it in full", async () => {
+    await revision.getByText("rev-shared-b…").hover();
+    await expect(fullRevision).toBeVisible();
+  });
+
+  await test.step("3. hovering the copy button shows only its own tooltip", async () => {
+    await revision.getByRole("button").hover();
+    // The copy tooltip appearing first means the hover landed before the absence is checked.
+    await expect(page.getByRole("tooltip").filter({ hasText: "Copy" })).toBeVisible();
+    await expect(fullRevision).toBeHidden();
   });
 });
 
