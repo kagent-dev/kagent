@@ -153,8 +153,9 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   // A new agent starts on the obvious harness until one is chosen; an edit keeps its own.
   const harnessRef = chosenHarness ?? (agent ? undefined : preferredHarness(harnessNames));
   const adapter = harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
+  const referencedTemplate = templates.data?.find((row) => row.name === templateRef);
   const modelRef = templateSource === "reference"
-    ? splitRef(templates.data?.find((row) => row.name === templateRef)?.modelConfigRef)
+    ? splitRef(referencedTemplate?.modelConfigRef)
     : inlineTemplate.modelConfig?.name.trim()
       ? { namespace: inlineTemplate.modelConfig.namespace || namespace, name: inlineTemplate.modelConfig.name.trim() }
       : undefined;
@@ -173,10 +174,12 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         ? [{ field: "name" as const, message: OBJECT_NAME_HINT }]
         : []),
     ...(!harnessRef ? [{ field: "harness" as const, message: "Choose a harness." }] : []),
+    // The compiler's rule, not the CRD's: only a bring-your-own harness runs without a model.
     ...(templateSource === "reference" && !templateRef
       ? [{ field: "template" as const, message: "Choose an agent template." }]
-      : []),
-    // The compiler's rule, not the CRD's: only a bring-your-own harness runs without a model.
+      : templateSource === "reference" && adapter && adapter !== "byo" && referencedTemplate && !referencedTemplate.modelConfigRef
+        ? [{ field: "template" as const, message: "This template has no model. Built-in harnesses need one." }]
+        : []),
     // The inline template's namespace is the agent's, so its namespace issue is the agent's own.
     ...(templateSource === "inline"
       ? templateDraftIssues(inlineTemplate, { isCreate: false, modelRequired: adapter !== "byo" })

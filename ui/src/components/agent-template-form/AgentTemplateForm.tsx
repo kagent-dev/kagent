@@ -134,18 +134,18 @@ export function AgentTemplateForm({
   // may mean none exist or access hides them, so the hint names both.
   const modelHelp =
     !readOnly && models.error && (!models.data || modelOptions.length === 0) ? (
-    "Model configurations could not be loaded. Bring-your-own (BYO) harnesses do not need one. If you need one, refresh the page."
+    "Model configurations could not be loaded. BYO harnesses bring their own. If you need one, refresh the page."
   ) : !readOnly && !models.isLoading && modelOptions.length === 0 ? (
     <span data-testid="template-form-model-availability">
       No accessible model configurations found.{" "}
-      Bring-your-own (BYO) harnesses do not need one.{" "}
+      BYO harnesses bring their own.{" "}
       {isCreate
         ? "If you need one, create it or choose another namespace."
         : "If you need one, create it."} If
       one should be listed, check your access.
     </span>
   ) : readOnly ? undefined : (
-    "Pick the ModelConfig to use. Shared ones must allow this namespace. Bring-your-own (BYO) harnesses skip this."
+    "Built-in harnesses need this. BYO harnesses bring their own."
   );
 
   /** The tools each server exposes, so the tool picker offers real names. */

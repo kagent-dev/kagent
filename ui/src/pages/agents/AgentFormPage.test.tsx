@@ -111,6 +111,16 @@ describe("agent create form", () => {
     expect(screen.queryByTestId("agent-form-blocked")).not.toBeInTheDocument();
   });
 
+  it("holds Create back for a chosen template with no model on a built-in harness", () => {
+    renderAt("/agents/new");
+    type("agent-form-name", "helper");
+    choose("agent-form-template-ref", "other");
+    const template = within(screen.getByTestId("agent-form-template-ref")).getByRole("combobox");
+    fireEvent.blur(template);
+    expect(template).toHaveAccessibleDescription(/This template has no model\. Built-in harnesses need one\.$/);
+    expect(screen.getByTestId("agent-form-submit")).toHaveAttribute("aria-disabled", "true");
+  });
+
   it("requires a model under the template defined here, and flags it on that field", () => {
     renderAt("/agents/new");
     type("agent-form-name", "helper");
