@@ -39,6 +39,8 @@ const OPTIONS: monaco.editor.IStandaloneEditorConstructionOptions = {
     vertical: "hidden",
     horizontal: "auto",
     horizontalScrollbarSize: 6,
+    // The bar sits in the bottom padding, so the fixed height still fits.
+    ignoreHorizontalScrollbarInContentHeight: true,
     alwaysConsumeMouseWheel: false,
     useShadows: false,
   },
