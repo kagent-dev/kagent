@@ -1011,6 +1011,8 @@ export function AgentRail({
             textTransform: "uppercase",
             letterSpacing: 0.6,
             paddingInline: theme.space(2),
+            // A little more room above the heading than the rail's gap, so it reads as a section start.
+            marginTop: 4,
           }}
         >
           Chats
