@@ -2,10 +2,13 @@ import { ThemeProvider } from "@emotion/react";
 import type { ReactElement } from "react";
 import { themeFor } from "@/theme/theme";
 import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { Checkbox, Form, Input, InputNumber, Radio, Select } from "antd";
 import { describe, expect, it, vi } from "vitest";
 import { FieldLabel, FormField } from "./FormField";
 import { ResourceSelect } from "./ResourceSelect";
+import { useSubmitValidation } from "./useSubmitValidation";
 
 const render = (ui: ReactElement) =>
   rtlRender(<ThemeProvider theme={themeFor("dark")}>{ui}</ThemeProvider>);
@@ -202,5 +205,35 @@ describe("FormField", () => {
     );
     expect(container.querySelector(".ant-form-item-vertical, .ant-form-vertical")).not.toBeNull();
     expect(container.querySelector(".ant-form-item-no-colon")).not.toBeNull();
+  });
+});
+
+describe("FormField with a picker", () => {
+  function Picker() {
+    const [value, setValue] = useState<string>();
+    const validation = useSubmitValidation(value ? [] : [{ field: "template", message: "Choose a template." }]);
+    return (
+      <>
+        <FormField label="Template" required {...validation.field("template")}>
+          <ResourceSelect kind="template" names={["alpha", "beta"]} loading={false} value={value} onChange={setValue} />
+        </FormField>
+        <button>Next</button>
+      </>
+    );
+  }
+
+  it("shows no error while typing in the search, one on blur with no value, and clears it on pick", async () => {
+    render(<Picker />);
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.keyboard("alp");
+    expect(screen.queryByText("Choose a template.")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Choose a template.")).toBeInTheDocument();
+    expect(screen.getByRole("combobox")).toHaveAttribute("aria-invalid", "true");
+
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.click(screen.getByTitle("alpha"));
+    expect(screen.getByRole("combobox")).not.toHaveAttribute("aria-invalid", "true");
   });
 });

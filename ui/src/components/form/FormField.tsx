@@ -43,7 +43,7 @@ type FormFieldProps = Omit<FormItemProps, "label" | "required" | "requiredMark">
   required: boolean;
   /** Message shown under the control and marks it invalid. */
   error?: string;
-  /** Called when the user leaves the field or types a value into it; from `validation.field`. */
+  /** Called when the user leaves the field or types a value into it (a picker's search box does not count); from `validation.field`. */
   onTouch?: () => void;
 };
 
@@ -138,7 +138,10 @@ export function FormField({
           css={{ display: "contents" }}
           onBlur={onTouch}
           onInput={(event) => {
-            const value = (event.target as Partial<HTMLInputElement>).value;
+            const target = event.target as Partial<HTMLInputElement>;
+            // Typing in a picker's search box filters its list; it does not touch the field.
+            if (target.getAttribute?.("role") === "combobox") return;
+            const value = target.value;
             if (typeof value === "string" && value.trim() !== "") onTouch();
           }}
         >
