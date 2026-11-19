@@ -9,6 +9,7 @@ import type { ToolServerCreateRequest, ValueRef } from "@/api";
 import {
   DEFAULT_NAMESPACE,
   RESOURCE_NAME_HINT,
+  isValidNamespace,
   isValidResourceName,
   slugifyResourceName,
 } from "@/components/common/resourceName";
@@ -95,6 +96,8 @@ export function validateMcpServerForm(
 
   if (!values.namespace.trim()) {
     issues.push({ field: "namespace", message: "A namespace is required." });
+  } else if (!isValidNamespace(values.namespace)) {
+    issues.push({ field: "namespace", message: "The namespace must be a valid Kubernetes name." });
   }
 
   // The scheme lives on the TLS toggle, so the field holds only the host and path.

@@ -69,6 +69,14 @@ describe("validateMcpServerForm — scheme-less URL", () => {
   });
 });
 
+describe("validateMcpServerForm — namespace", () => {
+  it("rejects a typed namespace the cluster would refuse", () => {
+    const issues = validateMcpServerForm(urlForm({ namespace: "Team A" }));
+    expect(issues.find((i) => i.field === "namespace")?.message).toBe("The namespace must be a valid Kubernetes name.");
+    expect(validateMcpServerForm(urlForm({ namespace: "team-a" }))).toEqual([]);
+  });
+});
+
 describe("suggestName", () => {
   it("derives a name from the host", () => {
     expect(suggestName(urlForm({ name: "", url: "mcp.example.com/sse" }))).toBe(

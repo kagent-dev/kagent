@@ -14,7 +14,7 @@ import {
   type ModelConfigSpec,
   type TLSConfig,
 } from "@/api";
-import { DEFAULT_NAMESPACE } from "@/components/common/resourceName";
+import { DEFAULT_NAMESPACE, isValidNamespace } from "@/components/common/resourceName";
 import type { FieldIssue } from "@/components/form/useSubmitValidation";
 import {
   OLLAMA_DEFAULT_TAG,
@@ -396,6 +396,7 @@ export function modelDraftIssues(
   if (!name) add("name", "A name is required.");
   else if (!opts.isValidName(name)) add("name", opts.nameHint);
   if (!draft.namespace.trim()) add("namespace", "A namespace is required.");
+  else if (!isValidNamespace(draft.namespace)) add("namespace", "The namespace must be a valid Kubernetes name.");
   if (!draft.provider) add("provider", "Choose a provider.");
   if (!draft.model) add("model", "Choose a model.");
 
