@@ -1024,96 +1024,100 @@ export function AgentRail({
           }}
         />
 
-        {/* "Chats" (or the count) on the left; select-all and the bulk menu on the right. The
-            menu's slot is held while it's hidden, so ticking a chat moves nothing. */}
+        {/* "Chats" on the left; select-all and the bulk menu on the right. The menu is always
+            drawn (disabled until something is picked), so a selection moves nothing. */}
           <div
             css={{
               display: "flex",
               alignItems: "center",
               gap: theme.space(2),
-              /*
-               * Tall enough for the button before the button is there.
-               *
-               * A small antd button is a couple of pixels taller than the checkbox
-               * beside it, so without this the row grew when the actions appeared and
-               * the list still shifted — a smaller jump than the whole bar appearing,
-               * but the same jump, at the same moment.
-               */
-              minHeight: 38,
+              // The menu button's height, so the row is the same size with or without a selection.
+              minHeight: 28,
+              // Pulls the list up by the rows' own padding, so the heading's text sits evenly between the search and the first title.
+              marginBottom: -10,
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
             data-testid="chat-bulk-bar"
           >
+            {/* Flush left, so it lines up with the row checkboxes below. */}
             <Text
               css={{
                 color: theme.color.textMuted,
                 fontSize: 11,
                 textTransform: "uppercase",
                 letterSpacing: 0.6,
-                paddingInlineStart: theme.space(2),
                 whiteSpace: "nowrap",
               }}
             >
-              {/* The heading becomes the count: the rail is too narrow for both beside select-all. */}
-              {selected.size > 0 ? (
-                <span data-testid="chat-selection-count">{selected.size} selected</span>
-              ) : (
-                "Chats"
-              )}
+              Chats
             </Text>
 
             {chats.length > 0 || conversations.isLoading ? (
-              <Checkbox
-                checked={allVisibleSelected}
-                indeterminate={selected.size > 0 && !allVisibleSelected}
-                onChange={toggleAllVisible}
-                // Drawn while the list is read so the bar does not arrive under the
-                // reader's pointer, but there is nothing to select until it lands.
-                disabled={conversations.isLoading}
-                data-testid="chat-select-all"
-                css={{ ...checkboxStyles(theme), marginInlineStart: "auto" }}
-              >
-                <Text css={{ fontSize: 12, color: theme.color.textMuted, whiteSpace: "nowrap" }}>
-                  Select all
-                </Text>
-              </Checkbox>
-            ) : null}
+              <>
+                <Checkbox
+                  checked={allVisibleSelected}
+                  indeterminate={selected.size > 0 && !allVisibleSelected}
+                  onChange={toggleAllVisible}
+                  // Drawn while the list is read so the bar does not arrive under the
+                  // reader's pointer, but there is nothing to select until it lands.
+                  disabled={conversations.isLoading}
+                  data-testid="chat-select-all"
+                  css={{ ...checkboxStyles(theme), marginInlineStart: "auto" }}
+                >
+                  {/* A fixed width, so the box stays put as the label changes. */}
+                  <Text
+                    data-testid="chat-selection-count"
+                    css={{
+                      display: "inline-block",
+                      minWidth: 76,
+                      fontSize: 12,
+                      color: theme.color.textMuted,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {allVisibleSelected
+                      ? "Select none"
+                      : selected.size > 0
+                        ? `${selected.size} selected`
+                        : "Select all"}
+                  </Text>
+                </Checkbox>
 
-            {selected.size > 0 ? (
-            <Dropdown
-              trigger={["click"]}
-              onOpenChange={setBulkMenuOpen}
-              menu={{
-                items: [
-                  {
-                    key: "delete",
-                    danger: true,
-                    icon: <Trash size={13} />,
-                    label: `Delete ${selected.size === 1 ? "chat" : "all selected"}`,
-                    onClick: () => setConfirmingBulk(true),
-                  },
-                ],
-              }}
-            >
-              <Button
-                type="text"
-                size="small"
-                loading={isBulkDeleting}
-                icon={
-                  <MoreVertical
-                    size={14}
-                    color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
+                <Dropdown
+                  trigger={["click"]}
+                  disabled={selected.size === 0}
+                  onOpenChange={setBulkMenuOpen}
+                  menu={{
+                    items: [
+                      {
+                        key: "delete",
+                        danger: true,
+                        icon: <Trash size={13} />,
+                        label: `Delete ${selected.size === 1 ? "chat" : `${selected.size} chats`}`,
+                        onClick: () => setConfirmingBulk(true),
+                      },
+                    ],
+                  }}
+                >
+                  <Button
+                    type="text"
+                    size="small"
+                    disabled={selected.size === 0}
+                    loading={isBulkDeleting}
+                    icon={
+                      <MoreVertical
+                        size={14}
+                        color={isBulkMenuOpen ? theme.color.primaryText : theme.color.textMuted}
+                      />
+                    }
+                    aria-label="Actions for the selected conversations"
+                    data-testid="chat-bulk-menu"
+                    // As wide as the row menus below, so the columns line up; shorter, so the row stays tight.
+                    css={{ ...menuButtonStyles(theme, isBulkMenuOpen), height: 28 }}
                   />
-                }
-                aria-label="Actions for the selected conversations"
-                data-testid="chat-bulk-menu"
-                // The same square as the menu on each row below it.
-                css={menuButtonStyles(theme, isBulkMenuOpen)}
-              />
-            </Dropdown>
-            ) : chats.length > 0 || conversations.isLoading ? (
-              <span aria-hidden css={{ width: 38, flexShrink: 0 }} />
+                </Dropdown>
+              </>
             ) : null}
 
             <Modal

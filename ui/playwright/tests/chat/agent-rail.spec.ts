@@ -422,18 +422,33 @@ test("chat agent rail: several conversations can be picked and deleted together"
 
   await test.step("1. the row is there before a selection, but the actions are not", async () => {
     /*
-     * The row stays and only the actions button comes and goes.
-     *
-     * It used to be the whole bar that appeared, which meant ticking the first
-     * conversation inserted a line and pushed the list down under the reader's pointer
-     * — a jump at the exact moment they were aiming at something. So what this asserts
-     * is a layout that does not move: select-all is present with nothing selected, and
-     * the button that has nothing to act on yet is the only part missing.
+     * The row is always drawn and only the menu's enabled state changes, so ticking the
+     * first conversation moves nothing under the reader's pointer.
      */
-    await expect(page.getByTestId("chat-bulk-bar")).toBeVisible();
-    await expect(page.getByTestId("chat-bulk-bar")).toContainText("Select all");
-    await expect(page.getByTestId("chat-selection-count")).toHaveCount(0);
-    await expect(page.getByTestId("chat-bulk-menu")).toHaveCount(0);
+    const bar = page.getByTestId("chat-bulk-bar");
+    await expect(bar).toContainText("Chats");
+    await expect(page.getByTestId("chat-selection-count")).toHaveText("Select all");
+    await expect(page.getByTestId("chat-bulk-menu")).toBeDisabled();
+
+    // The heading lines up with the row checkboxes below it.
+    const headingLeft = await bar.locator(".ant-typography").first().evaluate((n) => n.getBoundingClientRect().left);
+    const rowBoxLeft = await boxes.first().evaluate((n) => n.closest(".ant-checkbox-wrapper")!.getBoundingClientRect().left);
+    expect(Math.abs(headingLeft - rowBoxLeft), "Chats should align with the row checkboxes").toBeLessThanOrEqual(1);
+
+    // Its text sits evenly between the search box and the first conversation's title.
+    const textEdges = (selector: string) =>
+      page.locator(selector).first().evaluate((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const box = range.getBoundingClientRect();
+        return { top: box.top, bottom: box.bottom };
+      });
+    const searchBottom = await page.getByTestId("chat-search").evaluate((n) => n.getBoundingClientRect().bottom);
+    const heading = await textEdges('[data-testid="chat-bulk-bar"] > .ant-typography');
+    const firstTitle = await textEdges('a[data-testid^="chat-session-"] .ant-typography');
+    const above = heading.top - searchBottom;
+    const below = firstTitle.top - heading.bottom;
+    expect(Math.abs(above - below), `Chats should be evenly spaced (${above} above, ${below} below)`).toBeLessThanOrEqual(2);
 
     // The property the row exists for: neither the list nor select-all moves when one is ticked.
     const firstRow = rail.locator('a[data-testid^="chat-session-"]').first();
@@ -442,8 +457,8 @@ test("chat agent rail: several conversations can be picked and deleted together"
     const selectAllLeft = await selectAll.evaluate((node) => node.getBoundingClientRect().left);
     await rows.first().hover();
     await boxes.first().click();
-    await expect(page.getByTestId("chat-bulk-menu")).toBeVisible();
-    await expect(page.getByTestId("chat-selection-count")).toContainText("1 selected");
+    await expect(page.getByTestId("chat-bulk-menu")).toBeEnabled();
+    await expect(page.getByTestId("chat-selection-count")).toHaveText("1 selected");
     const listTopAfter = await firstRow.evaluate((node) => node.getBoundingClientRect().top);
     const selectAllLeftAfter = await selectAll.evaluate((node) => node.getBoundingClientRect().left);
     expect(
@@ -468,9 +483,8 @@ test("chat agent rail: several conversations can be picked and deleted together"
     await boxes.nth(before - 1).click({ modifiers: ["Shift"] });
     // Everything between the two ends, not just the two clicked — which is the whole
     // difference between shift-selecting and clicking twice.
-    await expect(page.getByTestId("chat-selection-count")).toContainText(
-      `${before} selected`,
-    );
+    // All of them, so select-all now offers to clear.
+    await expect(page.getByTestId("chat-selection-count")).toHaveText("Select none");
   });
 
   await test.step("3. the same control clears, then selects everything again", async () => {
@@ -478,11 +492,9 @@ test("chat agent rail: several conversations can be picked and deleted together"
     // it clears — a select-all that only ever adds gives no way back out of a big
     // selection.
     await page.getByTestId("chat-select-all").click();
-    // The row stays put; what goes is the actions button and the count, because there
-    // is nothing left to act on. The row remaining is the whole point of it.
-    await expect(page.getByTestId("chat-bulk-bar")).toBeVisible();
-    await expect(page.getByTestId("chat-bulk-menu")).toHaveCount(0);
-    await expect(page.getByTestId("chat-selection-count")).toHaveCount(0);
+    // The row stays put; the menu disables, since there is nothing left to act on.
+    await expect(page.getByTestId("chat-bulk-menu")).toBeDisabled();
+    await expect(page.getByTestId("chat-selection-count")).toHaveText("Select all");
   });
 
   await test.step("4. deleting the set asks once, and takes all of them", async () => {
@@ -507,7 +519,7 @@ test("chat agent rail: several conversations can be picked and deleted together"
     await chooseFromRowMenu(
       page,
       page.getByTestId("chat-bulk-menu"),
-      "Delete all selected",
+      "Delete 2 chats",
       dialog(page),
     );
     // One question for the set, naming how many — not one per conversation, which is
