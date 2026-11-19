@@ -308,6 +308,11 @@ function markdownStyles(theme: Theme, p: MarkdownPalette) {
       overflow: hidden;
       background: ${p.codeBg};
     }
+    /* The editor hides its caret, so focus shows on the frame. */
+    & [data-md-code]:focus-within {
+      outline: 2px solid ${theme.color.primaryText};
+      outline-offset: 2px;
+    }
     & [data-md-code-head] {
       padding: 6px 16px 0;
       font: 600 11px/16px ${theme.font.mono};
