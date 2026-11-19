@@ -87,15 +87,22 @@ function defineTheme(mode: ThemeMode, palette: MarkdownPalette): string {
     "scrollbarSlider.hoverBackground": `${palette.muted}88`,
     "scrollbarSlider.activeBackground": `${palette.muted}aa`,
   };
-  monaco.editor.defineTheme(name, {
+  const data: monaco.editor.IStandaloneThemeData = {
     base: mode === "dark" ? "vs-dark" : "vs",
     inherit: true,
     rules: rules.filter((rule) => isHexColor(`#${rule.foreground}`)),
     colors: Object.fromEntries(Object.entries(colors).filter(([, value]) => isHexColor(value))),
-  });
+  };
+  // Redefining the active theme restyles every editor, so only do it when the colours change.
+  const key = JSON.stringify(data);
+  if (definedThemes.get(name) !== key) {
+    monaco.editor.defineTheme(name, data);
+    definedThemes.set(name, key);
+  }
   return name;
 }
 
+const definedThemes = new Map<string, string>();
 const mix40 = (value: string) => `${value}40`;
 
 interface MonacoCodeViewProps {
