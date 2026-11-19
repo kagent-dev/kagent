@@ -155,7 +155,6 @@ export function EgressPolicyForm({
 
       <FormRowList
         data-testid="egress-destinations"
-        variant="card"
         addLabel={egressCopy.form.addDestination}
         onAdd={addDestination}
         addDisabled={full || saving}
