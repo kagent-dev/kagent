@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { ResourceSelect, SEARCH_MIN_OPTIONS, type ResourceSelectProps } from "./ResourceSelect";
+import { ResourceSelect, type ResourceSelectProps } from "./ResourceSelect";
 
 function open(props: Partial<ResourceSelectProps>) {
   render(
@@ -44,17 +45,16 @@ describe("ResourceSelect", () => {
     expect(screen.getByText("Choose a harness")).toBeInTheDocument();
   });
 
-  it("offers type-to-search only once the list is long", () => {
-    const names = (count: number) => Array.from({ length: count }, (_, at) => `ns-${at}`);
-    const { unmount } = render(
-      <ResourceSelect kind="namespace" names={names(SEARCH_MIN_OPTIONS)} loading={false} onChange={() => {}} data-testid="short" />,
-    );
-    expect(screen.getByTestId("short")).not.toHaveClass("ant-select-show-search");
-    unmount();
-    render(
-      <ResourceSelect kind="namespace" names={names(SEARCH_MIN_OPTIONS + 1)} loading={false} onChange={() => {}} data-testid="long" />,
-    );
-    expect(screen.getByTestId("long")).toHaveClass("ant-select-show-search");
+  it("filters the list as the user types", async () => {
+    const onChange = vi.fn();
+    render(<ResourceSelect kind="harness" names={["default", "gpu", "gpu-large"]} loading={false} onChange={onChange} data-testid="pick" />);
+    expect(screen.getByTestId("pick")).toHaveClass("ant-select-show-search");
+    await userEvent.click(screen.getByRole("combobox"));
+    await userEvent.keyboard("large");
+    expect(screen.queryByTitle("default")).toBeNull();
+    expect(screen.getByTitle("gpu-large")).toBeInTheDocument();
+    await userEvent.click(screen.getByTitle("gpu-large"));
+    expect(onChange).toHaveBeenCalledWith("gpu-large");
   });
 
   it("offers a typed name that is not in the list when allowed, and shows it once chosen", () => {
@@ -72,7 +72,7 @@ describe("ResourceSelect", () => {
   });
 
   it("offers no typed name unless allowed", () => {
-    open({ names: Array.from({ length: SEARCH_MIN_OPTIONS + 1 }, (_, at) => `ns-${at}`) });
+    open({ names: ["default", "gpu"] });
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "other" } });
     expect(screen.queryByText('Use "other"')).toBeNull();
   });

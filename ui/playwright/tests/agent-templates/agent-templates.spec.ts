@@ -266,7 +266,10 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await expect(optionNamed(page, "note-taker")).toBeVisible();
     // A template cannot call itself.
     await expect(optionNamed(page, CREATED)).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    // Typing filters the list, and Enter picks the match.
+    await page.keyboard.type("note");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("template-form-sub-agent-template-0")).toContainText("note-taker");
     await page.getByRole("button", { name: "Remove agent template tool 1" }).click();
     await expect(page.getByTestId("template-form-sub-agent-0")).toHaveCount(0);
   });

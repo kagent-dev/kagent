@@ -1,9 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Select } from "antd";
 
-/** Lists longer than this (antd's open list shows about eight rows) offer type-to-search. */
-export const SEARCH_MIN_OPTIONS = 8;
-
 export interface ResourceSelectProps {
   /** Singular noun for placeholder and messages: "harness". */
   kind: string;
@@ -30,7 +27,7 @@ export interface ResourceSelectProps {
 /** "a harness", "an agent template": the article by the noun's first letter. */
 const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
 
-/** Picks one resource by name from a list the caller has read. */
+/** Picks one resource by name from a list the caller has read; typing filters the list. */
 export function ResourceSelect({
   kind,
   plural = `${kind}s`,
@@ -76,7 +73,7 @@ export function ResourceSelect({
       status={error ? "error" : undefined}
       aria-invalid={error ? true : ariaInvalid}
       aria-describedby={ariaDescribedBy}
-      showSearch={allowTyped ? { onSearch: setSearch } : names.length > SEARCH_MIN_OPTIONS}
+      showSearch={allowTyped ? { onSearch: setSearch } : true}
       options={options}
       notFoundContent={
         loading ? `Loading ${plural}…` : error ? `Could not load ${plural}: ${error}` : (empty ?? `No ${plural} found`)

@@ -1224,6 +1224,7 @@ export function SubstratePage() {
           <div data-testid="substrate-namespace">
             <Select
               css={{ minWidth: 240 }}
+              showSearch={{ optionFilterProp: "label" }}
               value={namespace}
               loading={namespaces.isLoading}
               onChange={(value: string) => {

@@ -448,6 +448,7 @@ export function ModelForm({
                   disabled={identityLocked && !allowProviderSelectionWhenIdentityLocked}
                   css={{ flex: 1, minWidth: 0 }}
                   options={providerSelectOptions}
+                  showSearch={{ optionFilterProp: "label" }}
                   onChange={changeProvider}
                   optionRender={(o) => (
                     <ProviderIconWithLabel type={String(o.value ?? "")} label={o.label} />

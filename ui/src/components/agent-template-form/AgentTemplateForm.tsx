@@ -223,6 +223,7 @@ export function AgentTemplateForm({
             loading={models.isLoading}
             placeholder={placeholder("Choose a model configuration")}
             popupMatchSelectWidth={false}
+            showSearch={!readOnly && { optionFilterProp: "title" }}
             onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
             options={modelOptions}
             {...readOnlySelect}
@@ -423,6 +424,7 @@ export function AgentTemplateForm({
                       loading={servers.isLoading}
                       placeholder={placeholder("Choose an MCP server")}
                       popupMatchSelectWidth={false}
+                      showSearch={!readOnly && { optionFilterProp: "title" }}
                       // The tools belong to the server, so changing it clears them.
                       onChange={(value: string) =>
                         updateMcp(index, { serverRef: referenceFromPicker(value), tools: [] })

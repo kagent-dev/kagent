@@ -162,6 +162,7 @@ export function SkillsField({
                 aria-label="Add a kagent skill"
                 placeholder="Add a kagent skill"
                 popupMatchSelectWidth={false}
+                showSearch={{ optionFilterProp: "title" }}
                 onChange={(name: string) => {
                   const skill = catalog.skills.find((entry) => entry.name === name);
                   if (skill) onChange([...skills, builtinSkillDraft(catalog, skill)]);

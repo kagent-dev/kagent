@@ -11,7 +11,6 @@ import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRu
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
-import { SEARCH_MIN_OPTIONS } from "@/components/form/ResourceSelect";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
@@ -139,7 +138,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
           title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
         <FormField htmlFor="schedule-agent-input" label="Agent" required {...validation.field("agent")}>
-          <Select id="schedule-agent-input" data-testid="schedule-agent" showSearch={agents.length > SEARCH_MIN_OPTIONS && { optionFilterProp: "label" }}
+          <Select id="schedule-agent-input" data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }}
             loading={namespaces.isLoading || definitions.isLoading} status={status("agent")}
             placeholder="Choose an agent" value={draft.agent || undefined}
             onChange={(agent: string) => update({ agent })}
