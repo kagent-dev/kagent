@@ -25,7 +25,7 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import { useTheme, type CSSObject, type Theme } from "@emotion/react";
 import { useThemeMode } from "@/theme/useThemeMode";
-import { Radio, Search } from "lucide-react";
+import { Activity, Cpu, Filter, Layers, LayoutTemplate, Radio, Search } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { RefreshButton } from "@/components/table/RefreshButton";
@@ -1312,6 +1312,7 @@ export function SubstratePage() {
         >
           <StatTile
             label="Worker pools"
+            icon={Layers}
             testId="substrate-stat-pools"
             value={inventory?.workerPools.length}
             isLoading={summary.isLoading}
@@ -1322,6 +1323,7 @@ export function SubstratePage() {
               them came up. */}
           <StatTile
             label="Templates ready"
+            icon={LayoutTemplate}
             testId="substrate-stat-templates"
             value={
               inventory
@@ -1333,6 +1335,7 @@ export function SubstratePage() {
           />
           <StatTile
             label="Actors running"
+            icon={Activity}
             testId="substrate-stat-actors"
             value={
               inventory
@@ -1344,6 +1347,7 @@ export function SubstratePage() {
           />
           <StatTile
             label="Workers busy"
+            icon={Cpu}
             testId="substrate-stat-workers"
             value={
               inventory
@@ -1355,6 +1359,7 @@ export function SubstratePage() {
           />
           <StatTile
             label="Requested filters"
+            icon={Filter}
             testId="substrate-stat-scope"
             // Not read from the response — it is what this page asked for, which is
             // known even when the read failed, and is the thing that explains an empty

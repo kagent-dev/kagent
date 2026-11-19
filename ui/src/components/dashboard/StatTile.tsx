@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Card, Typography } from "antd";
 import { useTheme } from "@emotion/react";
+import type { LucideIcon } from "lucide-react";
 
 const { Text } = Typography;
 
@@ -20,6 +21,8 @@ interface StatTileProps {
   hint?: ReactNode;
   /** Dims the value while the first load is still in flight. */
   isLoading?: boolean;
+  /** What the count is of, matching the sidebar's icon for it where there is one. */
+  icon?: LucideIcon;
   testId?: string;
 }
 
@@ -39,6 +42,7 @@ export function StatTile({
   value,
   hint,
   isLoading = false,
+  icon: Icon,
   testId,
 }: StatTileProps) {
   const theme = useTheme();
@@ -46,7 +50,27 @@ export function StatTile({
 
   return (
     <Card size="small" data-testid={testId} css={{ height: "100%" }}>
-      <Text css={{ color: theme.color.textMuted }}>{label}</Text>
+      <div css={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: theme.space(2) }}>
+        <Text css={{ color: theme.color.textMuted }}>{label}</Text>
+        {Icon ? (
+          // A soft tinted square, so the icon marks the tile without competing with the number.
+          <span
+            aria-hidden
+            css={{
+              display: "grid",
+              placeItems: "center",
+              width: 28,
+              height: 28,
+              flexShrink: 0,
+              borderRadius: theme.radius.sm,
+              background: `color-mix(in srgb, ${theme.color.primary} 12%, transparent)`,
+              color: theme.color.primaryText,
+            }}
+          >
+            <Icon size={16} />
+          </span>
+        ) : null}
+      </div>
       <div
         data-testid={testId ? `${testId}-value` : undefined}
         css={{
