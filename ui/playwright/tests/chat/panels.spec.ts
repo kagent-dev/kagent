@@ -131,17 +131,17 @@ test("chat: the template opened from a conversation leads back to it", async ({ 
 
   await test.step("2. the template page offers the way back, across its tabs", async () => {
     await link.click();
-    const back = page.getByTestId("template-back");
+    const back = page.getByTestId("form-back-link");
     await expect(back).toBeVisible({ timeout: 30_000 });
     historyLength = await page.evaluate(() => window.history.length);
-    await expect(back).toHaveText("Back to conversation", { timeout: 30_000 });
+    await expect(back).toHaveText("Conversation", { timeout: 30_000 });
 
     await page.getByRole("tab", { name: /Agents/ }).click();
-    await expect(back).toHaveText("Back to conversation");
+    await expect(back).toHaveText("Conversation");
   });
 
   await test.step("3. and it returns to the same conversation", async () => {
-    await page.getByTestId("template-back").click();
+    await page.getByTestId("form-back-link").click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
   });

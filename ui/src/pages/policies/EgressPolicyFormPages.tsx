@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { Alert, Button, Card, Skeleton } from "antd";
-import toast from "react-hot-toast";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { ReadError } from "@/components/common/ReadError";
+import { Alert, Card, Skeleton } from "antd";
+import { useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { EgressPolicyForm } from "@/components/egress-policy-form/EgressPolicyForm";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
@@ -20,18 +22,22 @@ export function EgressPolicyNewPage() {
     const { name, namespace = "" } = resource.metadata;
     const created = await apiClient.egressPolicies.create({ namespace, name, resource });
     await invalidate().catch(() => {});
-    toast.success(egressCopy.form.created(created.name));
-    await navigate(buildPath(paths.egressPolicyDetail, { namespace: created.namespace, name: created.name }));
+    toastSaved("created", egressCopy.kind, created.name);
+    return created;
   }
 
   return (
-    <PageFrame title={egressCopy.form.newTitle} description={egressCopy.form.newDescription}>
-      <EgressPolicyForm
-        initial={emptyPolicyDraft(DEFAULT_NAMESPACE)}
-        onSubmit={create}
-        onCancel={() => void navigate(egressPoliciesTab)}
-      />
-    </PageFrame>
+    <>
+      <BackLink to={egressPoliciesTab} resource={egressCopy.page.title} />
+      <PageFrame title={egressCopy.form.newTitle} description={egressCopy.form.newDescription}>
+        <EgressPolicyForm
+          initial={emptyPolicyDraft(DEFAULT_NAMESPACE)}
+          onSubmit={create}
+          onSaved={(created) => void navigate(buildPath(paths.egressPolicyDetail, { namespace: created.namespace, name: created.name }))}
+          cancelTo={egressPoliciesTab}
+        />
+      </PageFrame>
+    </>
   );
 }
 
@@ -47,10 +53,10 @@ export function EgressPolicyEditPage() {
 
   async function save(resource: EgressPolicyResource) {
     if (!namespace || !name) throw new Error("An egress policy needs a namespace and a name.");
-    await apiClient.egressPolicies.update({ namespace, name, resource });
+    const updated = await apiClient.egressPolicies.update({ namespace, name, resource });
     await invalidate().catch(() => {});
-    toast.success(egressCopy.form.saved(name));
-    await navigate(detail);
+    toastSaved("saved", egressCopy.kind, name);
+    return updated;
   }
 
   async function reload() {
@@ -59,14 +65,11 @@ export function EgressPolicyEditPage() {
   }
 
   return (
+    <>
+    <BackLink to={egressPoliciesTab} resource={egressCopy.page.title} />
     <PageFrame
       title={egressCopy.form.editTitle(name ?? "")}
       description={missing ? undefined : egressCopy.form.editDescription}
-      actions={
-        <Link to={detail}>
-          <Button>{egressCopy.details.back}</Button>
-        </Link>
-      }
     >
       {missing ? (
         <Alert
@@ -77,13 +80,12 @@ export function EgressPolicyEditPage() {
           data-testid="egress-edit-not-found"
         />
       ) : policy.error ? (
-        <Alert
-          type="error"
-          showIcon
+        <ReadError
+          resource="this egress policy"
+          error={policy.error}
+          testId="egress-edit-load-error"
           title={egressCopy.details.loadError}
-          description={policy.error.message}
-          data-testid="egress-edit-load-error"
-          action={<Button size="small" onClick={() => void policy.refresh()}>Try again</Button>}
+          onRetry={policy.refresh}
         />
       ) : policy.data ? (
         <EgressPolicyForm
@@ -91,7 +93,8 @@ export function EgressPolicyEditPage() {
           initial={draftFromPolicy(policy.data)}
           existing={policy.data.resource}
           onSubmit={save}
-          onCancel={() => void navigate(detail)}
+          onSaved={() => void navigate(detail)}
+          cancelTo={detail}
           onReload={() => void reload()}
         />
       ) : (
@@ -100,5 +103,6 @@ export function EgressPolicyEditPage() {
         </Card>
       )}
     </PageFrame>
+    </>
   );
 }

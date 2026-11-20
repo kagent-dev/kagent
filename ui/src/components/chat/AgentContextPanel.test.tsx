@@ -98,7 +98,7 @@ describe("AgentContextPanel", () => {
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toEqual({
       from: "/agents/abc/chat?mock=ok",
-      fromLabel: "Back to conversation",
+      fromLabel: "Conversation",
     });
   });
 
@@ -106,7 +106,7 @@ describe("AgentContextPanel", () => {
     renderPanel([]);
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
-      fromLabel: "Back to agent",
+      fromLabel: "Agent",
     });
   });
 

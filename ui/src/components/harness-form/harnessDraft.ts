@@ -5,6 +5,7 @@ import {
   type HarnessAdapter,
   type HarnessSpec,
 } from "@/api/domain/harnesses";
+import type { FieldIssue } from "@/components/form/useSubmitValidation";
 
 export interface HarnessDraft {
   adapter: HarnessAdapter;
@@ -14,6 +15,14 @@ export interface HarnessDraft {
   workerPool: string;
   snapshotLocation: string;
 }
+
+/** What the adapter dropdown shows; the stored value stays the CRD's key. */
+export const HARNESS_ADAPTER_LABELS: Record<HarnessAdapter, string> = {
+  kagent: "kagent",
+  codex: "Codex",
+  claude: "Claude",
+  byo: "Bring your own image",
+};
 
 /** Whether the adapter honors workload command and args overrides. The CRD rejects them for the rest. */
 export function adapterSupportsCommand(adapter: HarnessAdapter): boolean {
@@ -76,14 +85,24 @@ export function harnessSpecFromDraft(draft: HarnessDraft, existing?: HarnessSpec
   };
 }
 
+export type HarnessDraftField = "image" | "command" | "workerPool" | "snapshotLocation";
+
 /** Only rules the CRD enforces, so the form never blocks a harness the cluster would accept. */
-export function harnessDraftProblems(draft: HarnessDraft): string[] {
-  const problems: string[] = [];
+export function harnessDraftIssues(draft: HarnessDraft): FieldIssue<HarnessDraftField>[] {
+  const issues: FieldIssue<HarnessDraftField>[] = [];
   const image = draft.image.trim();
-  if (image === "" && draft.adapter === "byo") problems.push("A bring-your-own harness needs a workload image.");
-  if (image !== "" && !HARNESS_IMAGE_PATTERN.test(image)) problems.push("The workload image must be pinned by sha256 digest.");
-  if (draft.adapter === "byo" && draft.command.length === 0) problems.push("A bring-your-own harness needs a command.");
-  if (draft.workerPool.trim() === "") problems.push("A worker pool is required.");
-  if (draft.snapshotLocation.trim() === "") problems.push("A snapshot location is required.");
-  return problems;
+  if (image === "" && draft.adapter === "byo") {
+    issues.push({ field: "image", message: "A bring-your-own harness needs a workload image." });
+  }
+  if (image !== "" && !HARNESS_IMAGE_PATTERN.test(image)) {
+    issues.push({ field: "image", message: "The workload image must be pinned by sha256 digest." });
+  }
+  if (draft.adapter === "byo" && draft.command.length === 0) {
+    issues.push({ field: "command", message: "A bring-your-own harness needs a command." });
+  }
+  if (draft.workerPool.trim() === "") issues.push({ field: "workerPool", message: "A worker pool is required." });
+  if (draft.snapshotLocation.trim() === "") {
+    issues.push({ field: "snapshotLocation", message: "A snapshot location is required." });
+  }
+  return issues;
 }

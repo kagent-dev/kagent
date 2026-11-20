@@ -11,7 +11,7 @@ test("live: schedule configuration persists through the browser and controller",
   try {
     await loadLive(page, "/schedules");
     await page.getByRole("button", { name: "New Schedule", exact: true }).click();
-    await page.getByLabel("Agent", { exact: true }).click();
+    await page.getByTestId("schedule-agent").click();
     // Whichever agent the fleet offers, rather than `kagent/smoke on kagent` by name:
     // #2422 split an agent into a template and a harness, and the form appends a
     // reason to the label of any whose revision is not ready, so an exact title cannot
@@ -22,20 +22,20 @@ test("live: schedule configuration persists through the browser and controller",
       .locator(".ant-select-item-option:not(.ant-select-item-option-disabled)")
       .first()
       .click();
-    await page.getByLabel("Schedule Name", { exact: true }).fill(name);
-    await page.getByLabel("Prompt", { exact: true }).fill("Report cluster health.");
-    await page.getByLabel("Repeat", { exact: true }).click();
+    await page.getByTestId("schedule-name").fill(name);
+    await page.getByTestId("schedule-prompt").fill("Report cluster health.");
+    await page.getByTestId("schedule-frequency").click();
     await page.getByTitle("Weekly", { exact: true }).click();
     for (const day of ["Tuesday", "Wednesday", "Thursday", "Friday"]) {
       // `tick` rather than `check()`, which double-toggles when the card re-renders
       // under it.
       await tick(page.getByLabel(day, { exact: true }));
     }
-    await page.getByLabel("At time", { exact: true }).fill("09:00");
-    await page.getByLabel("Time zone", { exact: true }).fill("America/New_York");
-    await page.getByLabel("Execution timeout (seconds)", { exact: true }).fill("90.001");
-    await page.getByLabel("Enable Schedule", { exact: true }).uncheck();
-    await page.getByRole("button", { name: "Create schedule", exact: true }).click();
+    await page.getByTestId("schedule-time").fill("09:00");
+    await page.getByTestId("schedule-timezone").getByRole("combobox").fill("America/New_York");
+    await page.getByTestId("schedule-timeout").fill("90.001");
+    await page.getByTestId("schedule-enabled").uncheck();
+    await page.getByTestId("schedule-submit").click();
     await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
     detailURL = page.url();
     await page.reload();
@@ -46,13 +46,13 @@ test("live: schedule configuration persists through the browser and controller",
     await expect(page.getByText("No executions yet", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    await expect(page.getByLabel("Enable Schedule", { exact: true })).not.toBeChecked();
+    await expect(page.getByTestId("schedule-enabled")).not.toBeChecked();
     await expect(page.getByText("This schedule will not run automatically after it is saved.")).toBeVisible();
-    await page.getByLabel("Time zone", { exact: true }).fill("");
-    await expect(page.getByRole("status")).toHaveText("Weekdays at 09:00 (UTC)");
-    await page.getByLabel("Time zone", { exact: true }).fill("America/New_York");
-    await page.getByLabel("Prompt", { exact: true }).fill("Report unhealthy workloads only.");
-    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await page.getByTestId("schedule-timezone").getByRole("combobox").fill("");
+    await expect(page.getByTestId("schedule-cadence")).toHaveText("Weekdays at 09:00 (UTC)");
+    await page.getByTestId("schedule-timezone").getByRole("combobox").fill("America/New_York");
+    await page.getByTestId("schedule-prompt").fill("Report unhealthy workloads only.");
+    await page.getByTestId("schedule-submit").click();
     // The form is its own page, so a save leaves it rather than closing it.
     await expect(page).toHaveURL(detailURL);
     await page.reload();

@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { tick } from "../../helpers/controls";
-import { LIFECYCLE_TIMEOUT, optionNamed, pressUntil } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, anyDialog, optionNamed, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * Schedules — the whole life of one, in a single journey.
@@ -251,8 +251,23 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     ).toBeVisible();
     await expect(page.getByTestId("schedule-history")).toHaveCount(0);
 
-    await page.getByTestId("schedule-submit").click();
+    // Create is held back beside a note; Enter in a field flags every problem instead.
+    await expect(page.getByTestId("schedule-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("schedule-blocked")).toContainText("Fill in the required (*) fields.");
+    await page.getByTestId("schedule-name").press("Enter");
     await expect(page.getByText("Choose an agent.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Enter a prompt.", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("schedule-form-error")).toHaveCount(0);
+    await expect(page).toHaveURL("/schedules/new");
+
+    // Leaving a dirty form asks first; Keep editing stays.
+    await page.getByTestId("schedule-prompt").fill("Draft");
+    await page.getByTestId("schedule-cancel").click();
+    await expect(page.getByTestId("schedule-discard-modal")).toBeVisible();
+    await pressOnce(page.getByRole("button", { name: "Keep editing" }));
+    // A closing modal still traps focus, so a fill before it is gone types into the dialog.
+    await expect(anyDialog(page)).toBeHidden();
+    await expect(page).toHaveURL("/schedules/new");
   });
 
   await test.step("11. a filled-in schedule is created and lands on its own page", async () => {

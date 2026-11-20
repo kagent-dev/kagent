@@ -100,6 +100,8 @@ const darkColor = {
    * boundary, which this clears.
    */
   borderStrong: "#6f6a83",
+  // A hovered field's edge: a hue shift from `borderStrong`, 4.7:1 on the page.
+  borderHover: "#8b5cf6",
   // Header and sidebar text and states; their surface is `surfaceNav`.
   navText: "#c2c0ca",
   navHoverText: "#f9fafb",
@@ -168,6 +170,8 @@ const lightColor: Record<keyof typeof darkColor, string> = {
    * clears it on both with room to spare (3.5:1 on white, 3.2:1 on a near-white panel).
    */
   borderStrong: "#8a86a0",
+  // 5.3:1 on the page, 5.7:1 on white.
+  borderHover: "#7c3aed",
   navText: "#383b49",
   navHoverText: "#151927",
   navHoverBg: "rgba(21, 25, 39, 0.05)",
@@ -296,14 +300,17 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       Input: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
-        activeBorderColor: color.primaryText,
-        activeShadow: `0 0 0 3px ${color.primary}40`,
+        ...fieldStates(color),
       },
       Select: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        hoverBorderColor: color.borderHover,
         activeBorderColor: color.primaryText,
         activeOutlineColor: `${color.primary}40`,
+        // Tag and multiple-mode values, drawn as data pills (see DataPill).
+        multipleItemBg: `${color.text}14`,
+        multipleItemBorderColor: color.borderStrong,
         /*
          * The chevron, which antd paints from its quaternary text token — a quarter
          * opacity, measured at 2.2:1. It is the only mark saying the control opens, so it
@@ -315,14 +322,12 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       DatePicker: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
-        activeBorderColor: color.primaryText,
-        activeShadow: `0 0 0 3px ${color.primary}40`,
+        ...fieldStates(color),
       },
       InputNumber: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
-        activeBorderColor: color.primaryText,
-        activeShadow: `0 0 0 3px ${color.primary}40`,
+        ...fieldStates(color),
       },
       /*
        * The segmented control, which on the dark theme had no visible edge anywhere.
@@ -419,6 +424,18 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         motionDurationSlow: "0s",
       },
     },
+  };
+}
+
+/**
+ * Hover and focus for text-entry controls. Hover turns the border `borderHover`
+ * violet; focus uses `primaryText` plus a ring (6.6:1, 7.1:1).
+ */
+function fieldStates(color: Record<keyof typeof darkColor, string>) {
+  return {
+    hoverBorderColor: color.borderHover,
+    activeBorderColor: color.primaryText,
+    activeShadow: `0 0 0 3px ${color.primary}40`,
   };
 }
 

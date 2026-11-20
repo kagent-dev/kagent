@@ -7,6 +7,8 @@
  * Refresh needs to hot-reload it.
  */
 
+import type { FieldIssue } from "@/components/form/useSubmitValidation";
+
 /**
  * A fragment being edited.
  *
@@ -85,12 +87,12 @@ export function rowsFromData(data: Record<string, string>): FragmentRow[] {
  * one template key is required" — exactly as `CreatePromptTemplate` does. Two copies
  * of that rule are two things to keep in step with it.
  */
-export function fragmentIssues(rows: FragmentRow[]): string[] {
-  const issues: string[] = [];
+export function fragmentIssues(rows: FragmentRow[]): FieldIssue<"fragments">[] {
+  const issues: FieldIssue<"fragments">[] = [];
   if (Object.keys(fragmentsToData(rows)).length === 0) {
-    issues.push("Add at least one fragment key.");
+    issues.push({ field: "fragments", message: "Add at least one fragment key." });
   }
   const duplicate = findDuplicateKey(rows);
-  if (duplicate) issues.push(`Two fragments share the key "${duplicate}".`);
+  if (duplicate) issues.push({ field: "fragments", message: `Two fragments share the key "${duplicate}".` });
   return issues;
 }

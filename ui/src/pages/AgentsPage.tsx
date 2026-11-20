@@ -218,7 +218,7 @@ export function AgentsTab() {
             editTo={buildPath(paths.agentEdit, { namespace: row.namespace, name: row.name })}
             copyTo={copyPath(paths.agentNew, row)}
             remove={{
-              description: "New conversations stop. Existing ones keep running. Shared templates and harnesses stay.",
+              description: "New conversations stop. Existing ones keep running. Agent templates and harnesses stay.",
               onDelete: () => apiClient.agentBuildingBlocks.removeAgent(row.namespace, row.name),
               onDeleted: invalidateAgents,
             }}

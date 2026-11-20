@@ -1,4 +1,5 @@
-import { Alert, Button, Card, Descriptions, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Space, Typography } from "antd";
+import { DataPill } from "@/components/form/DataPill";
 import { useTheme } from "@emotion/react";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
@@ -184,7 +185,7 @@ export function AppDetailPage() {
                   {
                     key: "kind",
                     label: "Server kind",
-                    children: <Tag>{match.server.groupKind.split(".")[0]}</Tag>,
+                    children: <DataPill>{match.server.groupKind.split(".")[0]}</DataPill>,
                   },
                 ]}
               />

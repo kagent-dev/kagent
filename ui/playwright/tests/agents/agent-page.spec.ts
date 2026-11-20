@@ -11,7 +11,7 @@ import {
   rowNamed,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
+import { confirmation, expectRequired, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * An agent's own page — the surface between the agents list and a chat.
@@ -117,14 +117,13 @@ test("agents: a conversation is named by the reader, and never renders as a bare
      * aimed at it mid-transition is dropped. That reports as "the list never showed the
      * new name", which points at the save rather than at the press that never landed.
      */
-    const rename = page.getByTestId("conversation-rename-input");
+    const field = page.getByTestId("conversation-rename-input");
     await pressUntil(page.getByTestId(`conversation-rename-${instances.idle}`), () =>
-      expect(rename).toBeVisible(),
+      expect(field).toBeVisible(),
     );
     // The box opens *empty* for an unnamed conversation rather than pre-filled with
     // the placeholder, or clearing a title would be impossible: saving would turn an
     // honest "Untitled" into a literal one.
-    const field = rename.locator("input");
     await expect(field).toHaveValue("");
 
     await field.fill("Rollback rehearsal");
@@ -140,23 +139,26 @@ test("agents: a conversation is named by the reader, and never renders as a bare
 
   await test.step("4. a name the controller would refuse is refused before the round trip", async () => {
     await page.getByTestId(`conversation-rename-${instances.idle}`).click();
-    const field = page.getByTestId("conversation-rename-input").locator("input");
+    const field = page.getByTestId("conversation-rename-input");
+    // An empty name is valid: it puts the conversation back to untitled.
+    await expectRequired(page, { marked: [], unmarked: ["Conversation name"] });
     await field.fill(" leading space");
+    // Validation runs on submit, like every form; the dialog stays open on the refusal.
+    await pressOnce(page.getByRole("button", { name: "Save" }));
 
     // Refused rather than trimmed, which is what the controller does — and the
     // reason matters: silently rewriting what somebody typed reads on screen as a
     // rename that did not take.
-    await expect(page.getByTestId("conversation-rename-problem")).toContainText(
-      "cannot start or end with a space",
-    );
-    await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(field).toHaveAccessibleDescription(/cannot start or end with a space/);
+    await expect(field).toHaveValue(" leading space");
     // Same arriving-box case as the Save below: the rename modal animates in.
     await pressOnce(page.getByRole("button", { name: "Cancel" }));
   });
 
   await test.step("5. clearing a name puts it back to being untitled", async () => {
     await page.getByTestId(`conversation-rename-${instances.idle}`).click();
-    const field = page.getByTestId("conversation-rename-input").locator("input");
+    const field = page.getByTestId("conversation-rename-input");
     await expect(field).toHaveValue("Rollback rehearsal");
     await field.fill("");
     // Once the box has stopped arriving, for the reason the delete step below gives.

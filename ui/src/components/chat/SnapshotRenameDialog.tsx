@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { Input, Modal, Typography } from "antd";
+import { SubmitError } from "@/components/common/SubmitError";
+import { FormField } from "@/components/form/FormField";
+import { toastSaved } from "@/components/form/saveToast";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useTheme } from "@emotion/react";
-import toast from "react-hot-toast";
 import {
   apiClient,
   conversationNameProblem,
@@ -9,7 +12,7 @@ import {
   type Checkpoint,
 } from "@/api";
 
-const { Paragraph, Text } = Typography;
+const { Paragraph } = Typography;
 
 /**
  * Names a snapshot, or puts the generated name back.
@@ -40,27 +43,23 @@ export function SnapshotRenameDialog({
   const theme = useTheme();
   const [draft, setDraft] = useState(checkpoint.name);
   const [isSaving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<unknown>();
   const problem = conversationNameProblem(draft);
+  const validation = useSubmitValidation(problem ? [{ field: "name", message: problem }] : []);
 
   async function save() {
-    if (problem) return;
+    if (isSaving || !validation.attempt()) return;
     setSaving(true);
+    setFailure(undefined);
     try {
       const renamed = await apiClient.agentInstances.checkpoints.rename(checkpoint.id, draft);
       // Awaited before the toast, so the line already shows the new name by the time
       // the reader is told it changed.
       await onRenamed(renamed);
       onClose();
-      toast.success(`Snapshot renamed to “${renamed.name}”`);
+      toastSaved("saved", "snapshot name", renamed.name);
     } catch (cause: unknown) {
-      // Deliberately not transient: the old name is still on screen, and a reader who
-      // missed the message would believe it changed.
-      toast.error(
-        `Could not rename the snapshot: ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`,
-        { duration: Infinity },
-      );
+      setFailure(cause);
     } finally {
       setSaving(false);
     }
@@ -71,7 +70,7 @@ export function SnapshotRenameDialog({
       open
       title="Name this snapshot"
       okText="Save"
-      okButtonProps={{ loading: isSaving, disabled: problem !== undefined }}
+      okButtonProps={{ loading: isSaving }}
       cancelText="Cancel"
       onOk={() => void save()}
       onCancel={onClose}
@@ -81,27 +80,26 @@ export function SnapshotRenameDialog({
         A fork taken from this snapshot is given its name. Leave this empty to go back
         to the generated one.
       </Paragraph>
-      {/* The id is on a wrapper this app owns: antd spreads unknown props onto its
-          inner `<input>`, which is not somewhere a test can reason about. */}
-      <div data-testid="snapshot-rename-input">
+      <FormField label="Snapshot name" required={false} {...validation.field("name")}>
         <Input
           value={draft}
+          id="snapshot-rename-field"
+          data-testid="snapshot-rename-input"
           autoFocus
           maxLength={MAX_CONVERSATION_NAME_LENGTH}
           showCount
-          status={problem ? "error" : undefined}
           onChange={(event) => setDraft(event.target.value)}
           onPressEnter={() => void save()}
-          aria-label="Snapshot name"
         />
-      </div>
-      {problem ? (
-        <Text
-          data-testid="snapshot-rename-problem"
-          css={{ color: theme.color.dangerText, fontSize: 12 }}
-        >
-          {problem}
-        </Text>
+      </FormField>
+      {failure !== undefined ? (
+        <SubmitError
+          error={failure}
+          what="snapshot name"
+          outcome="saved"
+          onRetry={() => void save()}
+          data-testid="snapshot-rename-error"
+        />
       ) : null}
     </Modal>
   );
