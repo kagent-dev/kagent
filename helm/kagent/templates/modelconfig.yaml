@@ -21,6 +21,9 @@ spec:
   {{- with $model }}
   provider: {{ .provider | quote }}
   model: {{ .model | quote }}
+  {{- if hasKey $model "stream" }}
+  stream: {{ $model.stream }}
+  {{- end }}
   {{- if $model.apiKeySecretRef }}
   apiKeySecret: {{.apiKeySecretRef}}
   {{- end }}
