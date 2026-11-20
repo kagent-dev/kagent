@@ -12,6 +12,10 @@ const { Text } = Typography;
 
 const { Header } = Layout;
 
+// Half the rail's 16px icon, and half the wordmark's mark at 26px tall (rounded to 15).
+const ICON_HALF_WIDTH = 8;
+const MARK_HALF_WIDTH = 15;
+
 /*
  * There is no Create menu here.
  *
@@ -79,8 +83,9 @@ export function AppHeader() {
         alignItems: "center",
         justifyContent: "space-between",
         height: theme.layout.headerHeight,
-        // The wordmark's mark lines up with the rail's icon column.
-        paddingInline: 8 + NAV_INSET,
+        // Centres the mark on the rail's icon column, expanded (34px) or collapsed (33.5px).
+        paddingInlineStart: 8 + NAV_INSET + ICON_HALF_WIDTH - MARK_HALF_WIDTH,
+        paddingInlineEnd: 8 + NAV_INSET,
         borderBottom: `1px solid ${theme.color.border}`,
         // Held at the top while the page scrolls under it. The wordmark is also the
         // link home, so scrolling away took the one always-available way back with it
