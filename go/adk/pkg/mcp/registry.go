@@ -276,6 +276,14 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 		}
 	}
 
+	// Retry read-only requests such as tools/list on 502, 503, and 504. The
+	// header layer runs again on each attempt.
+	httpTransport = &transientRetryRoundTripper{
+		base:    httpTransport,
+		retries: transientRetries,
+		backoff: transientRetryBackoff,
+	}
+
 	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
 	// OTEL_PROPAGATORS includes it, from the active span so MCP calls stay
 	// attached to the invocation trace (kagent-dev/kagent#2550).
