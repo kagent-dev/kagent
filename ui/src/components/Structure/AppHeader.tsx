@@ -70,7 +70,7 @@ function CurrentUserBadge() {
   );
 }
 
-export function AppHeader({ sidebarCollapsed = false }: { sidebarCollapsed?: boolean }) {
+export function AppHeader() {
   const theme = useTheme();
   const branding = useExtensionBranding();
   const AppIcon = branding?.AppIcon;
@@ -83,13 +83,9 @@ export function AppHeader({ sidebarCollapsed = false }: { sidebarCollapsed?: boo
         alignItems: "center",
         justifyContent: "space-between",
         height: theme.layout.headerHeight,
-        // Expanded, the mark's left edge lines up with the rail's icons; collapsed, it
-        // centres on their column. The shift is instant.
-        paddingInline: 8 + NAV_INSET,
-        paddingInlineStart: sidebarCollapsed
-          ? 8 + NAV_INSET + ICON_HALF_WIDTH - MARK_HALF_WIDTH
-          : 8 + NAV_INSET,
-        transition: "none",
+        // Centres the mark on the rail's icon column, expanded (34px) or collapsed (33.5px).
+        paddingInlineStart: 8 + NAV_INSET + ICON_HALF_WIDTH - MARK_HALF_WIDTH,
+        paddingInlineEnd: 8 + NAV_INSET,
         borderBottom: `1px solid ${theme.color.border}`,
         // Held at the top while the page scrolls under it. The wordmark is also the
         // link home, so scrolling away took the one always-available way back with it

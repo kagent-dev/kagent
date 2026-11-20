@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Layout } from "antd";
 import { useTheme } from "@emotion/react";
 import { Outlet } from "react-router-dom";
@@ -20,13 +19,12 @@ export function AppLayout() {
   const shell = useExtensionShell();
   const navOverrides = useExtensionNavOverrides();
   const extensionNavItems = useExtensionNavItems();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // A replacement owns the region outright, including rendering the app's own
   // navigation — which is why it is handed `coreNavItems` rather than having to
   // keep a copy that drifts as pages are added.
   const Sidebar = shell.Sidebar;
-  const Header = shell.Header;
+  const Header = shell.Header ?? AppHeader;
 
   return (
     /*
@@ -50,11 +48,7 @@ export function AppLayout() {
         backgroundImage: `radial-gradient(120% 90% at 100% 0%, ${theme.color.primary}22 0%, ${theme.color.primary}0D 35%, transparent 70%)`,
       }}
     >
-      {Header ? (
-        <Header />
-      ) : (
-        <AppHeader sidebarCollapsed={!Sidebar && sidebarCollapsed} />
-      )}
+      <Header />
       <Layout>
         {Sidebar ? (
           <Sidebar
@@ -62,10 +56,7 @@ export function AppLayout() {
             extensionNavItems={extensionNavItems}
           />
         ) : (
-          <AppSidebar
-            collapsed={sidebarCollapsed}
-            setCollapsed={setSidebarCollapsed}
-          />
+          <AppSidebar />
         )}
         {/* No `overflow: auto` here. It made the content area its own scroll box, so
             a long page scrolled *inside* the layout and left the sidebar pinned —
