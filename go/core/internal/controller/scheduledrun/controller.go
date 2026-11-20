@@ -15,6 +15,7 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -190,6 +191,11 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 		}
 		if task, ok := event.(*a2atype.Task); ok {
 			observeTask(execution, task)
+		}
+		if execution.GetTaskId() == "" && (errors.Is(err, sessionsvc.ErrSendNotAccepted) || errors.Is(err, sessionsvc.ErrRuntimeRecovering)) {
+			// A definitive refusal must be visible rather than waiting for a
+			// task that was never started. Uncertain sends retain their claim.
+			finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, err.Error())
 		}
 		return err
 	}
