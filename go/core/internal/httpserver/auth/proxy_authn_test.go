@@ -319,3 +319,31 @@ func TestProxyRejectsMalformedJWTHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyAcceptsBearerSchemeInAnyCase(t *testing.T) {
+	token := createTestJWT(map[string]any{"sub": "alice"})
+	for _, scheme := range []string{"Bearer", "bearer", "BEARER"} {
+		t.Run("Given a valid JWT, when a request uses the "+scheme+" scheme, assert that the user is authenticated", func(t *testing.T) {
+			session, err := authimpl.NewProxyAuthenticator("").Authenticate(t.Context(), http.Header{"Authorization": {scheme + " " + token}}, nil)
+			if err != nil {
+				t.Fatalf("Authenticate() error = %v", err)
+			}
+			if got, want := session.Principal().ID, pkgauth.PrincipalID("trusted-proxy:", "alice"); got != want {
+				t.Fatalf("principal ID = %q, want %q", got, want)
+			}
+		})
+	}
+	scenarios := []struct{ name, header string }{
+		{"a Basic credential", "Basic " + token},
+		{"the Bearer scheme with an empty token", "Bearer "},
+		{"the bearer scheme with no token", "bearer"},
+	}
+	for _, scenario := range scenarios {
+		t.Run("Given a valid JWT, when a request sends "+scenario.name+", assert that it is rejected", func(t *testing.T) {
+			session, err := authimpl.NewProxyAuthenticator("").Authenticate(t.Context(), http.Header{"Authorization": {scenario.header}}, nil)
+			if err == nil || session != nil {
+				t.Fatalf("Authenticate(%q) = %v, %v; want rejection", scenario.header, session, err)
+			}
+		})
+	}
+}
