@@ -10,6 +10,7 @@ import { randomId } from "@/api/randomId";
 import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
+import { FieldRow } from "@/components/form/FieldRow";
 import { FormField } from "@/components/form/FormField";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
@@ -137,7 +138,10 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         {loadError && <Alert type="error" showIcon title="Could not load agents" description={loadError.message} />}
         {definitions.data?.refused.map((entry) => <Alert key={entry.namespace} type="warning" showIcon
           title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
-        <FormField htmlFor="schedule-agent-input" label="Agent" required {...validation.field("agent")}>
+      </>}
+      <FieldRow>
+        {!schedule && <FormField htmlFor="schedule-agent-input" label="Agent" required {...validation.field("agent")}
+          help="The agent that runs on this schedule.">
           <Select id="schedule-agent-input" data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }}
             loading={namespaces.isLoading || definitions.isLoading} status={status("agent")}
             placeholder="Choose an agent" value={draft.agent || undefined}
@@ -147,78 +151,85 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
               return { value: agent.ref, disabled: !!blocked,
                 label: `${agent.namespace}/${agent.name}${blocked ? ` — ${blocked}` : ""}` };
             })} />
+        </FormField>}
+        <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}
+          help="Leave empty to show the schedule's ID.">
+          <Input id="schedule-name-input" data-testid="schedule-name" placeholder="e.g. Morning health summary" maxLength={200} status={status("name")}
+            value={draft.name} onChange={(event) => update({ name: event.target.value })} />
         </FormField>
-      </>}
-      <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}
-        help="Pick a name to refer to this schedule.">
-        <Input id="schedule-name-input" data-testid="schedule-name" placeholder="e.g. Morning health summary" maxLength={200} status={status("name")}
-          value={draft.name} onChange={(event) => update({ name: event.target.value })} />
-      </FormField>
-      <FormField htmlFor="schedule-timezone-input" label="Time zone" required={false} {...validation.field("timeZone")}
-        help="The schedule uses this time zone, including daylight-saving changes.">
-        <AutoComplete id="schedule-timezone-input" data-testid="schedule-timezone" options={timeZones} placeholder="e.g. Europe/London"
-          maxLength={253} status={status("timeZone")} value={draft.timeZone} onChange={(timeZone) => update({ timeZone })}
-          filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
-      </FormField>
-      <FormField htmlFor="schedule-frequency-input" label="Repeat" required>
-        <Select id="schedule-frequency-input" data-testid="schedule-frequency" value={draft.frequency} options={[
-          { value: "minutes", label: "Every few minutes" },
-          { value: "hourly", label: "Hourly" },
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-          { value: "custom", label: "Custom (advanced)" },
-        ]} onChange={(frequency) => update(frequency === "custom"
-          ? { frequency, cron: scheduleCron(timing) } : { frequency })} />
-      </FormField>
-      {draft.frequency === "minutes" && <FormField htmlFor="schedule-interval-input" label="Every" required extra={cadence}>
-        <Select id="schedule-interval-input" data-testid="schedule-interval" value={draft.interval}
-          onChange={(interval) => update({ interval })}
-          options={minuteIntervals.map((value) => ({ value, label: `${value} minute${value === 1 ? "" : "s"}` }))} />
-      </FormField>}
-      {draft.frequency === "hourly" && <FormField htmlFor="schedule-minute-input" label="Minute past the hour"
-        required {...validation.field("minute")} extra={cadence}>
-        <InputNumber id="schedule-minute-input" data-testid="schedule-minute" placeholder="Minute, e.g. 15" min={0} max={59} precision={0}
-          status={status("minute")} value={draft.minute} onChange={(minute) => update({ minute })} />
-      </FormField>}
+      </FieldRow>
+      <FieldRow>
+        <FormField htmlFor="schedule-frequency-input" label="Repeat" required help="How often the agent runs.">
+          <Select id="schedule-frequency-input" data-testid="schedule-frequency" value={draft.frequency} options={[
+            { value: "minutes", label: "Every few minutes" },
+            { value: "hourly", label: "Hourly" },
+            { value: "daily", label: "Daily" },
+            { value: "weekly", label: "Weekly" },
+            { value: "monthly", label: "Monthly" },
+            { value: "custom", label: "Custom (advanced)" },
+          ]} onChange={(frequency) => update(frequency === "custom"
+            ? { frequency, cron: scheduleCron(timing) } : { frequency })} />
+        </FormField>
+        <FormField htmlFor="schedule-timezone-input" label="Time zone" required={false} {...validation.field("timeZone")}
+          help="Includes daylight-saving changes.">
+          <AutoComplete id="schedule-timezone-input" data-testid="schedule-timezone" options={timeZones} placeholder="e.g. Europe/London"
+            maxLength={253} status={status("timeZone")} value={draft.timeZone} onChange={(timeZone) => update({ timeZone })}
+            filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
+        </FormField>
+      </FieldRow>
       {draft.frequency === "weekly" && <FormField label="On days" required {...validation.field("days")}>
         <Checkbox.Group data-testid="schedule-days" value={draft.days} onChange={(days) => update({ days: days as number[] })}
           options={[1, 2, 3, 4, 5, 6, 0].map((value) => ({ value, label: weekdays[value] }))} />
       </FormField>}
-      {draft.frequency === "monthly" && <FormField htmlFor="schedule-month-day-input" label="Day of the month"
-        required {...validation.field("monthDay")} help="Months without this day are skipped.">
-        <InputNumber id="schedule-month-day-input" data-testid="schedule-month-day" placeholder="Day, e.g. 1" min={1} max={31} precision={0}
-          status={status("monthDay")} value={draft.monthDay} onChange={(monthDay) => update({ monthDay })} />
-      </FormField>}
-      {["daily", "weekly", "monthly"].includes(draft.frequency) && <FormField htmlFor="schedule-time-input" label="At time"
-        required {...validation.field("time")} extra={cadence}>
-        <Input id="schedule-time-input" data-testid="schedule-time" type="time" step={60} status={status("time")}
-          value={draft.time} onChange={(event) => update({ time: event.target.value })} />
-      </FormField>}
-      {draft.frequency === "custom" && <FormField htmlFor="schedule-cron-input" label="Cron expression" required
-        {...validation.field("cron")} help="Five fields: minute, hour, day of month, month, day of week.">
-        <Input id="schedule-cron-input" data-testid="schedule-cron" placeholder="e.g. 0 9 * * *" status={status("cron")}
-          value={draft.cron} onChange={(event) => update({ cron: event.target.value })} />
-      </FormField>}
-      <FormField htmlFor="schedule-prompt-input" label="Prompt" required {...validation.field("prompt")}>
+      <FieldRow>
+        {draft.frequency === "minutes" && <FormField htmlFor="schedule-interval-input" label="Every" required extra={cadence}>
+          <Select id="schedule-interval-input" data-testid="schedule-interval" value={draft.interval}
+            onChange={(interval) => update({ interval })}
+            options={minuteIntervals.map((value) => ({ value, label: `${value} minute${value === 1 ? "" : "s"}` }))} />
+        </FormField>}
+        {draft.frequency === "hourly" && <FormField htmlFor="schedule-minute-input" label="Minute past the hour"
+          required {...validation.field("minute")} extra={cadence}>
+          <InputNumber id="schedule-minute-input" data-testid="schedule-minute" placeholder="Minute, e.g. 15" min={0} max={59} precision={0}
+            status={status("minute")} value={draft.minute} onChange={(minute) => update({ minute })} />
+        </FormField>}
+        {draft.frequency === "monthly" && <FormField htmlFor="schedule-month-day-input" label="Day of the month"
+          required {...validation.field("monthDay")} help="Months without this day are skipped.">
+          <InputNumber id="schedule-month-day-input" data-testid="schedule-month-day" placeholder="Day, e.g. 1" min={1} max={31} precision={0}
+            status={status("monthDay")} value={draft.monthDay} onChange={(monthDay) => update({ monthDay })} />
+        </FormField>}
+        {["daily", "weekly", "monthly"].includes(draft.frequency) && <FormField htmlFor="schedule-time-input" label="At time"
+          required {...validation.field("time")} extra={cadence}>
+          <Input id="schedule-time-input" data-testid="schedule-time" type="time" step={60} status={status("time")}
+            value={draft.time} onChange={(event) => update({ time: event.target.value })} />
+        </FormField>}
+        {draft.frequency === "custom" && <FormField htmlFor="schedule-cron-input" label="Cron expression" required
+          {...validation.field("cron")} help="Five fields: minute, hour, day of month, month, day of week.">
+          <Input id="schedule-cron-input" data-testid="schedule-cron" placeholder="e.g. 0 9 * * *" status={status("cron")}
+            value={draft.cron} onChange={(event) => update({ cron: event.target.value })} />
+        </FormField>}
+      </FieldRow>
+      <FormField htmlFor="schedule-prompt-input" label="Prompt" required {...validation.field("prompt")}
+        help="The agent gets this message on each run.">
         <Input.TextArea id="schedule-prompt-input" data-testid="schedule-prompt" rows={5} placeholder="Tell the agent what to do on each run" status={status("prompt")}
           value={draft.prompt} onChange={(event) => update({ prompt: event.target.value })} />
       </FormField>
-      <FormField htmlFor="schedule-timeout-input" label="Execution timeout" required {...validation.field("timeoutSeconds")}
-        help="Time limit in seconds. It covers queueing and agent startup.">
-        <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" placeholder="Seconds, e.g. 900" min={0.000001} max={TIMEOUT_MAX_SECONDS}
-          status={status("timeoutSeconds")} value={draft.timeoutSeconds}
-          onChange={(timeoutSeconds) => update({ timeoutSeconds })} />
-      </FormField>
-      <FormField htmlFor="schedule-enabled" label="Enabled" required={false}
-        /* The one thing on screen that says whether creating or saving starts it
-           running, so it carries an id of its own rather than being read as prose. */
-        help={<span data-testid="schedule-enabled-note">
-          {`This schedule will ${draft.enabled ? "run" : "not run"} automatically after it is ${schedule ? "saved" : "created"}.`}
-        </span>}>
-        <Switch id="schedule-enabled" data-testid="schedule-enabled" checked={draft.enabled}
-          onChange={(enabled) => update({ enabled })} />
-      </FormField>
+      <FieldRow>
+        <FormField htmlFor="schedule-timeout-input" label="Execution timeout" required {...validation.field("timeoutSeconds")}
+          help="Time limit in seconds. It covers queueing and agent startup.">
+          <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" placeholder="Seconds, e.g. 900" min={0.000001} max={TIMEOUT_MAX_SECONDS}
+            status={status("timeoutSeconds")} value={draft.timeoutSeconds}
+            onChange={(timeoutSeconds) => update({ timeoutSeconds })} />
+        </FormField>
+        <FormField htmlFor="schedule-enabled" label="Enabled" required={false}
+          /* The one thing on screen that says whether creating or saving starts it
+             running, so it carries an id of its own rather than being read as prose. */
+          help={<span data-testid="schedule-enabled-note">
+            {`This schedule will ${draft.enabled ? "run" : "not run"} automatically after it is ${schedule ? "saved" : "created"}.`}
+          </span>}>
+          <Switch id="schedule-enabled" data-testid="schedule-enabled" checked={draft.enabled}
+            onChange={(enabled) => update({ enabled })} />
+        </FormField>
+      </FieldRow>
     </Form>
     <FormActions
       testIdPrefix="schedule"
