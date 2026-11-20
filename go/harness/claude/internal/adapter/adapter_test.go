@@ -254,6 +254,18 @@ func TestMaterializeGoogleCredentials(t *testing.T) {
 	}
 }
 
+func TestChildEnvironmentAppendsToolImagePaths(t *testing.T) {
+	got := childEnvironment([]string{"PATH=/bin", "KAGENT_TOOL_PATHS=/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin"}, "/data/claude")
+	want := []string{"KAGENT_TOOL_PATHS=/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin", "PATH=/bin:/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin", "CLAUDE_CONFIG_DIR=/data/claude"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("childEnvironment() = %v, want %v", got, want)
+	}
+	got = childEnvironment([]string{"PATH=/bin"}, "/data/claude")
+	if !slices.Equal(got, []string{"PATH=/bin", "CLAUDE_CONFIG_DIR=/data/claude"}) {
+		t.Fatalf("childEnvironment() without tool images = %v", got)
+	}
+}
+
 func TestSetEnvironmentOverridesExistingValue(t *testing.T) {
 	got := setEnvironment([]string{"A=1", "A=2", "B=3"}, "A", "4")
 	want := []string{"B=3", "A=4"}

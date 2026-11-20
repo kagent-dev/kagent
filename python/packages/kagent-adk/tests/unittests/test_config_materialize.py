@@ -27,3 +27,30 @@ def test_requires_bootstrap_descriptor(tmp_path, monkeypatch):
     monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
     with pytest.raises(KeyError, match="KAGENT_BOOTSTRAP_JSON"):
         _config_materialize.materialize_from_bootstrap(str(tmp_path))
+
+
+def test_extends_path_with_tool_paths(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin")
+    monkeypatch.setenv("KAGENT_TOOL_PATHS", "/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin")
+
+    _config_materialize.extend_path_from_tool_images()
+
+    assert os.environ["PATH"] == "/usr/local/bin:/usr/bin:/opt/kagent/tools/go/bin:/opt/kagent/tools/kubectl/bin"
+
+
+def test_tool_paths_noop_when_unset(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    monkeypatch.delenv("KAGENT_TOOL_PATHS", raising=False)
+
+    _config_materialize.extend_path_from_tool_images()
+
+    assert os.environ["PATH"] == "/usr/bin"
+
+
+def test_tool_paths_skip_duplicates(monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin:/opt/kagent/tools/go/bin")
+    monkeypatch.setenv("KAGENT_TOOL_PATHS", ":/opt/kagent/tools/go/bin::/opt/kagent/tools/helm/bin:")
+
+    _config_materialize.extend_path_from_tool_images()
+
+    assert os.environ["PATH"] == "/usr/bin:/opt/kagent/tools/go/bin:/opt/kagent/tools/helm/bin"
