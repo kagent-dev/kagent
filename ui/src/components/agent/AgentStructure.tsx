@@ -174,7 +174,7 @@ function TemplateParts({
           testId="structure-instructions"
           kind="Instructions"
           name="System prompt"
-          description="What the agent is told before every conversation."
+          description="What the agent is told before every chat."
         >
           <Prompt text={spec.systemPrompt} />
         </StructureNode>
@@ -197,7 +197,7 @@ function TemplateParts({
           description={
             spec.systemPromptFrom
               ? "Read when the agent starts, so it is not shown here."
-              : "What the agent is told before every conversation."
+              : "What the agent is told before every chat."
           }
         />
       )}
@@ -407,7 +407,7 @@ function Prompt({ text }: { text: string }) {
 function TemplatePartsSkeleton({ compact }: { compact: boolean }) {
   const kinds: [string, string][] = [
     ["Model", "The language model that writes the answers."],
-    ["Instructions", "What the agent is told before every conversation."],
+    ["Instructions", "What the agent is told before every chat."],
     ["Tools", "Actions the agent can take through MCP servers."],
   ];
   return (

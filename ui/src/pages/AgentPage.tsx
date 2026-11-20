@@ -216,7 +216,7 @@ export function AgentPage() {
   const columns = useMemo<ColumnsType<AgentInstance>>(
     () => [
       {
-        title: "Conversation",
+        title: "Chat",
         key: "name",
         sorter: byText<AgentInstance>(titleOf),
         sortOrder: sortOrderFor(view, "name"),
@@ -237,7 +237,7 @@ export function AgentPage() {
               {openable ? (
                 <Link
                   to={chatPath(row)}
-                  aria-label={`Open conversation ${title}`}
+                  aria-label={`Open chat ${title}`}
                   data-testid={`conversation-link-${row.id}`}
                   css={{ color: theme.color.primaryText }}
                 >
@@ -249,7 +249,7 @@ export function AgentPage() {
                    conversation answers NotFound to everyone but the person who
                    started it. A link here would be an invitation to a 404. */
                 <Tooltip
-                  title="Only the conversation’s creator can open it. Other callers need a share link."
+                  title="Only the chat’s creator can open it. Other callers need a share link."
                 >
                   <Text
                     data-testid={`conversation-unopenable-${row.id}`}
@@ -327,7 +327,7 @@ export function AgentPage() {
             <Space size={0}>
               <RenameConversationButton instance={row} disabled={!mine} />
               <DeleteResourceButton
-                kind="conversation"
+                kind="chat"
                 name={titleOf(row)}
                 disabled={!mine}
                 forceLabel="Stop active turns and delete"
@@ -421,7 +421,7 @@ export function AgentPage() {
                       navigate(paths.agents);
                       void invalidateAgents().catch(() => {});
                     }}
-                    description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
+                    description="Stops new chats. Existing chats keep their prepared revisions. Shared templates and Harnesses are preserved."
                   />
                   {/* A wide gap and a rule keep the destructive action away from the other two. */}
                   <span
@@ -499,7 +499,7 @@ export function AgentPage() {
             type="warning"
             showIcon
             title="This Agent does not exist"
-            description={`No Agent ${name ?? ""} was found in ${namespace ?? "that namespace"}. Conversations cut from it keep running — an instance runs from the revision it was built against — but no new ones can be started and this page has nothing to describe.`}
+            description={`No Agent ${name ?? ""} was found in ${namespace ?? "that namespace"}. Existing chats keep running — an instance runs from the revision it was built against — but no new ones can be started and this page has nothing to describe.`}
             data-testid="agent-template-missing"
             action={
               <Link to={paths.agents}>
@@ -528,7 +528,7 @@ export function AgentPage() {
             showIcon
             data-testid="agent-cannot-start"
             data-blocked-reason={blockedReason}
-            title="No new conversation can be started with this agent"
+            title="No new chat can be started with this agent"
             // The controller's own words: an Agent with no successful revision answers
             // FailedPrecondition, and naming the reason is what tells a reader whether
             // to wait or to go and look at the template.
@@ -542,7 +542,7 @@ export function AgentPage() {
             showIcon
             data-testid="agent-update-failed"
             data-update-failed-reason={updateFailedReason}
-            title="The latest change to this agent failed. Conversations still use the last good revision."
+            title="The latest change to this agent failed. Chats still use the last good revision."
             // Nothing is blocked here, because conversations keep the last good revision, so
             // the status tag's tooltip was the only place this showed up. The message is
             // the controller's Ready condition, which is already redacted for status.
@@ -554,7 +554,7 @@ export function AgentPage() {
           <Alert
             type="error"
             showIcon
-            title="Could not load this agent's conversations"
+            title="Could not load this agent's chats"
             description={conversations.error.message}
             data-testid="conversations-error"
             action={
@@ -574,8 +574,8 @@ export function AgentPage() {
           <Alert
             type="info"
             showIcon
-            title="Showing only the conversations you started"
-            description={`Reading everyone's conversations is authorised separately from the list, and that request was refused: ${conversations.data.widerReadRefused}`}
+            title="Showing only the chats you started"
+            description={`Reading everyone's chats is authorised separately from the list, and that request was refused: ${conversations.data.widerReadRefused}`}
             data-testid="conversations-own-only"
           />
         ) : null}
@@ -597,7 +597,7 @@ export function AgentPage() {
             },
             {
               key: "conversations",
-              label: conversations.data ? `Conversations (${rows.length})` : "Conversations",
+              label: conversations.data ? `Chats (${rows.length})` : "Chats",
               children: (
                 <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
 
@@ -605,8 +605,8 @@ export function AgentPage() {
                   testId="conversations-filters"
                   view={view}
                   search={{
-                    label: "Search conversations by name, id or who started them",
-                    placeholder: "Search conversations",
+                    label: "Search chats by name, id or who started them",
+                    placeholder: "Search chats",
                   }}
                   filters={[
                     {
@@ -624,7 +624,7 @@ export function AgentPage() {
                         css={{ color: theme.color.textMuted }}
                       >
                         {filtered.length} of {rows.length}{" "}
-                        {rows.length === 1 ? "conversation" : "conversations"}
+                        {rows.length === 1 ? "chat" : "chats"}
                       </Text>
                     ) : null
                   }
@@ -635,7 +635,7 @@ export function AgentPage() {
                     type="info"
                     showIcon
                     data-testid="conversations-others-note"
-                    title={`${othersCount} of these ${othersCount === 1 ? "conversation was" : "conversations were"} started by somebody else`}
+                    title={`${othersCount} of these ${othersCount === 1 ? "chat was" : "chats were"} started by somebody else`}
                     description="They are listed because this is a shared agent and hiding them would understate what it is doing. They cannot be opened, renamed or deleted from here: the controller reads an instance as its creator, so it answers “not found” to anybody else. A share link from the person who started one is the only other way in."
                   />
                 ) : null}
@@ -656,10 +656,10 @@ export function AgentPage() {
                   >
                     <Text css={{ color: theme.color.textMuted }}>
                       {selectedIds.length}{" "}
-                      {selectedIds.length === 1 ? "conversation" : "conversations"} selected
+                      {selectedIds.length === 1 ? "chat" : "chats"} selected
                     </Text>
                     <DeleteResourceButton
-                      kind="conversations"
+                      kind="chats"
                       name={`${selectedIds.length} selected`}
                       label="Delete selected"
                       outlined
@@ -711,9 +711,9 @@ export function AgentPage() {
                     emptyText: conversations.error
                       ? " "
                       : view.isNarrowed
-                        ? "No conversations match those filters."
+                        ? "No chats match those filters."
                         : conversations.data
-                          ? "No conversations with this agent yet. Start one with “New chat”."
+                          ? "No chats with this agent yet. Start one with “New chat”."
                           : " ",
                   }}
                   onRow={(row) =>

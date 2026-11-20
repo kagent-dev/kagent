@@ -59,7 +59,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
   });
 
   await test.step("3. it lists this pair's conversation and not its twin's", async () => {
-    await page.getByRole("tab", { name: /Conversations/ }).click();
+    await page.getByRole("tab", { name: /Chats/ }).click();
     // The assertion the server-side filter exists for. `shared-brain` is two agents;
     // each has exactly one conversation, and they are indistinguishable on
     // everything but the harness. Narrowed on the template alone, both would appear
@@ -209,7 +209,7 @@ test("agents: a title still being read shows a placeholder, not Untitled", async
     await expect(railRow.getByTestId(`conversation-title-loading-${autoTitled}`)).toBeVisible();
     await expect(link).not.toContainText("Untitled");
     await expect(railRow).not.toContainText("Untitled");
-    await expect(link).toHaveAccessibleName(`Open conversation Conversation ${autoTitled.slice(0, 8)}`);
+    await expect(link).toHaveAccessibleName(`Open chat Conversation ${autoTitled.slice(0, 8)}`);
   });
 
   await test.step("2. once released, the real title replaces it", async () => {
@@ -360,7 +360,7 @@ test("agents: an agent links to its template, and a conversation links up to its
   });
 
   await test.step("2. a conversation opens its chat", async () => {
-    await page.getByRole("tab", { name: /Conversations/ }).click();
+    await page.getByRole("tab", { name: /Chats/ }).click();
     await page.getByTestId(`conversation-link-${instances.ready}`).click();
     await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
     // Arrived somewhere a message can be typed, which is what opening a conversation
@@ -372,7 +372,7 @@ test("agents: an agent links to its template, and a conversation links up to its
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expect(page).toHaveURL(new RegExp(`${agentPage(agents.k8s)}$`));
     await expectSettled(page);
-    await page.getByRole("tab", { name: /Conversations/ }).click();
+    await page.getByRole("tab", { name: /Chats/ }).click();
     await expect(dataRows(page)).toHaveCount(4);
   });
 
@@ -433,7 +433,7 @@ test("agents: a conversation is created by its first message, not by the click",
     // Back through the rail, which is how a reader who changed their mind leaves.
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expectSettled(page);
-    await page.getByRole("tab", { name: /Conversations/ }).click();
+    await page.getByRole("tab", { name: /Chats/ }).click();
     await expect(dataRows(page)).toHaveCount(before, { timeout: 30_000 });
   });
 
@@ -475,7 +475,7 @@ test("agents: a conversation is created by its first message, not by the click",
     // never heard of this conversation.
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expectSettled(page);
-    await page.getByRole("tab", { name: /Conversations/ }).click();
+    await page.getByRole("tab", { name: /Chats/ }).click();
     // One more, not "at least one more" — and one, not two, which is what a request id
     // minted per send rather than per draft would have produced.
     await expect(dataRows(page)).toHaveCount(before + 1, { timeout: 30_000 });
@@ -524,7 +524,7 @@ test("agents: deleting an Agent preserves shared resources and conversations", a
   await loadPage(page, conversationsTab(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
   await pressOnce(page.getByTestId(`delete-${agents.k8s.name}`));
-  await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
+  await expect(confirmation(page)).toContainText("Existing chats keep their prepared revisions");
   await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
   await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});
   await expect(rowNamed(page, agents.k8s.name)).toHaveCount(0);
@@ -559,7 +559,7 @@ test("agents: conversations can be picked and deleted together from the table to
       page.locator("tbody tr td.ant-table-selection-column input:not(:disabled)").first(),
     );
     await expect(page.getByTestId("conversations-bulk-bar")).toContainText(
-      "1 conversation selected",
+      "1 chat selected",
     );
   });
 
@@ -759,7 +759,7 @@ test("agents: overview is the default tab, and every tab is reachable by click a
   await test.step("1. the overview opens first and shows the structure, with counts on the others", async () => {
     await expect(tab("Overview")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("agent-structure")).toBeVisible();
-    await expect(tab("Conversations (1)")).toBeVisible();
+    await expect(tab("Chats (1)")).toBeVisible();
     await expect(tab("Schedules (0)")).toBeVisible();
     await expect(page.getByTestId("conversations-table")).toBeHidden();
     await expect(page).not.toHaveURL(/[?&]tab=/);
@@ -769,7 +769,7 @@ test("agents: overview is the default tab, and every tab is reachable by click a
     await tab("Schedules (0)").click();
     await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
     await expect(page).toHaveURL(/[?&]tab=schedules/);
-    await tab("Conversations (1)").click();
+    await tab("Chats (1)").click();
     await expect(page.getByTestId("conversations-table")).toBeVisible();
     await expect(page).toHaveURL(/[?&]tab=conversations/);
     await tab("Overview").click();
@@ -780,7 +780,7 @@ test("agents: overview is the default tab, and every tab is reachable by click a
   await test.step("3. each address opens its own tab", async () => {
     for (const [key, name] of [
       ["overview", "Overview"],
-      ["conversations", "Conversations (1)"],
+      ["conversations", "Chats (1)"],
       ["schedules", "Schedules (0)"],
     ] as const) {
       await loadPage(page, `${agentPage(agents.sharedOnK8s)}?tab=${key}`);
@@ -821,7 +821,7 @@ test("agents: the header puts New chat last, and keeps Delete well apart from Ed
 
   await test.step("3. Delete still asks first", async () => {
     await remove.click();
-    await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
+    await expect(confirmation(page)).toContainText("Existing chats keep their prepared revisions");
     await confirmation(page).getByRole("button", { name: "Keep" }).click();
     await expect(confirmation(page)).toBeHidden();
     await expect(remove).toBeVisible();
