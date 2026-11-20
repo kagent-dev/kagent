@@ -130,12 +130,16 @@ describe("new agent template page", () => {
     fireEvent.click(screen.getByTestId("template-form-sub-agents-add"));
     fireEvent.click(screen.getByTestId("template-form-labels-add"));
 
-    for (const field of ["Name", "Namespace", "Output format", "Agent template", "Tool name", "When to use it", "Key"]) {
+    for (const field of ["Name", "Namespace", "Output format", "Agent template", "Tool name", "When to use it"]) {
       expect(markOn(field), field).toBe("required");
     }
-    for (const field of ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Labels", "Value"]) {
+    for (const field of ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Labels"]) {
       expect(markOn(field), field).toBe("optional");
     }
+    // Label rows share one pair of column titles: Key is required, Value optional.
+    const labels = screen.getByTestId("template-form-labels");
+    expect(within(labels).getByText("Key").querySelector('[data-testid="field-required"]')).not.toBeNull();
+    expect(within(labels).getByText("Value").querySelector('[data-testid="field-optional"]')).not.toBeNull();
   });
 
   it("holds Create back, and flags each field of a new row only once it is left", () => {

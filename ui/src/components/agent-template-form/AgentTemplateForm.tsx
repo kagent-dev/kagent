@@ -7,6 +7,7 @@ import { FormField } from "@/components/form/FormField";
 import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { KeyValueList } from "@/components/form/KeyValueList";
 import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import type { AgentTemplateDraft, OutputSource, TemplateField } from "./agentTemplateDraft";
@@ -578,40 +579,22 @@ export function AgentTemplateForm({
                 empty={none("No labels.")}
               />
             ) : (
-              <FormRowList
+              <KeyValueList
                 data-testid="template-form-labels"
+                rows={draft.labels}
+                keyTitle="Key"
+                valueTitle="Value"
+                keyRequired
+                keyPlaceholder="kagent.dev/runtime"
+                valuePlaceholder="value"
+                mono
                 addLabel="Add a label"
                 onAdd={() => set("labels", [...draft.labels, { key: "", value: "" }])}
-              >
-                {draft.labels.map((label, index) => (
-                  <FormRow
-                    key={index}
-                    data-testid={`template-form-label-${index}`}
-                    title={`Label ${index + 1}`}
-                    onRemove={() => set("labels", draft.labels.filter((_, at) => at !== index))}
-                    removeLabel={`Remove label ${label.key.trim() || index + 1}`}
-                  >
-                    <div css={{ ...rowFields, alignItems: "flex-start" }}>
-                      <FormField label="Key" required {...fieldFor(`label:${index}:key`)} css={rowField}>
-                        <Input
-                          css={{ width: 260, fontFamily: theme.font.mono }}
-                          value={label.key}
-                          placeholder="kagent.dev/runtime"
-                          onChange={(event) => updateLabel(index, { key: event.target.value })}
-                        />
-                      </FormField>
-                      <FormField label="Value" required={false} css={rowField}>
-                        <Input
-                          css={{ width: 200, fontFamily: theme.font.mono }}
-                          value={label.value}
-                          placeholder="value"
-                          onChange={(event) => updateLabel(index, { value: event.target.value })}
-                        />
-                      </FormField>
-                    </div>
-                  </FormRow>
-                ))}
-              </FormRowList>
+                onChange={(index, patch) => updateLabel(index, patch)}
+                onRemove={(index) => set("labels", draft.labels.filter((_, at) => at !== index))}
+                removeLabel={(index) => `Remove label ${draft.labels[index].key.trim() || index + 1}`}
+                keyField={(index) => fieldFor(`label:${index}:key`)}
+              />
             )}
           </Field>
         )}
