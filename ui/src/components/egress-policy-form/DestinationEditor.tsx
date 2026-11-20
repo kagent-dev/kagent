@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { isWildcardOrigin } from "@/api";
 import { FormField } from "@/components/form/FormField";
 import { ListInput } from "@/components/form/ListInput";
+import { OptionPanel } from "@/components/form/OptionPanel";
 import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { egressCopy } from "./egressPolicyCopy";
 import { destinationFieldKey, type AuthChoice, type DestinationDraft, type DestinationField } from "./egressPolicyDraft";
@@ -81,8 +82,14 @@ export function DestinationEditor({
       </FormField>
 
       {row.auth !== "none" ? (
-        <div css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", columnGap: theme.space(4) }}>
-          <FormField htmlFor={fieldId("header")} label={egressCopy.form.header} required {...field("header")}>
+        <OptionPanel label={egressCopy.form.authSettings(egressCopy.auth[row.auth])} data-testid={testId("auth-panel")}>
+          <FormField
+            htmlFor={fieldId("header")}
+            label={egressCopy.form.header}
+            required
+            {...field("header")}
+            help={egressCopy.form.headerHelp}
+          >
             <Input
               id={fieldId("header")}
               data-testid={testId("header")}
@@ -131,7 +138,13 @@ export function DestinationEditor({
                   onChange={(event) => update({ secretName: event.target.value })}
                 />
               </FormField>
-              <FormField htmlFor={fieldId("secret-key")} label={egressCopy.form.secretKey} required {...field("secretKey")}>
+              <FormField
+                htmlFor={fieldId("secret-key")}
+                label={egressCopy.form.secretKey}
+                required
+                {...field("secretKey")}
+                help={egressCopy.form.secretKeyHelp}
+              >
                 <Input
                   id={fieldId("secret-key")}
                   data-testid={testId("secret-key")}
@@ -146,6 +159,7 @@ export function DestinationEditor({
           ) : (
             <>
               <FormField
+                css={{ gridColumn: "1 / -1" }}
                 htmlFor={fieldId("audiences")}
                 label={egressCopy.form.audiences}
                 required
@@ -183,7 +197,7 @@ export function DestinationEditor({
               </FormField>
             </>
           )}
-        </div>
+        </OptionPanel>
       ) : null}
     </Form>
   );

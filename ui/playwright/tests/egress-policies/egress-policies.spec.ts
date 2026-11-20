@@ -92,7 +92,15 @@ test("egress policies: a policy is created, attached, edited and deleted", async
 
     await page.getByTestId("egress-form-name").fill(CREATED);
     await page.getByTestId("egress-destination-0-origin").fill("https://api.example.com");
+    // Each option's fields sit on their own panel: Token lifetime belongs to Actor JWT only.
+    await page.getByTestId("egress-destination-0-auth").getByText("Actor JWT").click();
+    const jwt = page.getByRole("group", { name: "Actor JWT settings" });
+    await expect(jwt.getByLabel("Header name")).toBeVisible();
+    await expect(jwt.getByLabel("Token lifetime")).toBeVisible();
     await page.getByTestId("egress-destination-0-auth").getByText("Secret key").click();
+    const secret = page.getByRole("group", { name: "Secret key settings" });
+    await expect(secret.getByLabel("Key in secret")).toBeVisible();
+    await expect(page.getByLabel("Token lifetime")).toHaveCount(0);
     await page.getByTestId("egress-destination-0-header").fill("Cookie");
     await page.getByTestId("egress-destination-0-secret-name").fill("example-credentials");
     await page.getByTestId("egress-destination-0-secret-key").fill("token");
