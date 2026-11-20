@@ -23,7 +23,6 @@ from kagent.core.a2a import (
     attach_hitl_agent_extension,
     attach_usage_agent_extension,
 )
-from kagent.core.a2a._runtime import grpc_address
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
@@ -64,7 +63,7 @@ class KAgentApp:
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
         self.config = config if config is not None else Config()
-        self.a2a_grpc_address = a2a_grpc_address or grpc_address(self.config.runtime)
+        self.a2a_grpc_address = a2a_grpc_address
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan

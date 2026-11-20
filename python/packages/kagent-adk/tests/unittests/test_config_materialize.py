@@ -25,8 +25,16 @@ def test_materializes_bootstrap_bundle(tmp_path, monkeypatch):
 def test_requires_bootstrap_descriptor(tmp_path, monkeypatch):
     monkeypatch.delenv("KAGENT_BOOTSTRAP_JSON", raising=False)
     monkeypatch.setenv("KAGENT_CONFIG_JSON", "{}")
-    with pytest.raises(KeyError, match="KAGENT_BOOTSTRAP_JSON"):
+    with pytest.raises(RuntimeError, match="KAGENT_BOOTSTRAP_JSON is not set"):
         _config_materialize.materialize_from_bootstrap(str(tmp_path))
+
+
+def test_run_outside_substrate_points_to_local(monkeypatch):
+    from kagent.adk import cli
+
+    monkeypatch.delenv("KAGENT_BOOTSTRAP_JSON", raising=False)
+    with pytest.raises(SystemExit, match="Outside Substrate, run with --local"):
+        cli.run("sample")
 
 
 def test_named_byo_uses_revision_config_and_card(tmp_path, monkeypatch):

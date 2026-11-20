@@ -59,12 +59,12 @@ class A2AServer:
     async def _serve(self) -> None:
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
-        previous = signal.signal(signal.SIGTERM, lambda *_: loop.call_soon_threadsafe(stop.set))
+        loop.add_signal_handler(signal.SIGTERM, stop.set)
         try:
             async with self.listen():
                 await stop.wait()
         finally:
-            signal.signal(signal.SIGTERM, previous)
+            loop.remove_signal_handler(signal.SIGTERM)
 
     @asynccontextmanager
     async def listen(self) -> AsyncIterator[int]:

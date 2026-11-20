@@ -81,8 +81,17 @@ ID for subsequent turns. See [public A2A transports](../docs/architecture/a2a-tr
 ### Updating existing Python agents
 
 Replace `uvicorn.run(app.build(), ...)` with `app.build().run()` and launch the
-Python module directly. Replace OpenAI’s `build_local()` with `build()` and use a managed Agent for integration tests. An agent package can still export a custom ADK `lifespan(server)` async context manager.
-Its setup runs before the runtime binds its listeners. Its cleanup runs after the listeners and controller client close, including when listener startup fails.
+Python module directly. Replace OpenAI’s `build_local()` with `build()` and use a managed Agent for integration tests.
+
+A custom ADK `lifespan` hook now receives the `A2AServer`, not the FastAPI app.
+The server only exposes `run()` and `listen()`, so hooks that set `app.state` or
+add routes fail at startup; keep only setup and cleanup in the hook. Its setup runs
+before the runtime binds its listeners. Its cleanup runs after the listeners and
+controller client close, including when listener startup fails.
+
+Without `--local`, `kagent-adk run` loads `config.json` and `agent-card.json`
+from the controller's revision bundle in `/config` and ignores copies in the agent
+directory. Outside Substrate, run it with `--local` to use the agent directory's files.
 Move HTTP health checks to `GET /readyz` on port `8081`. Send JSON-RPC requests
 and fetch agent cards through the [controller gateway](../docs/architecture/a2a-transports.md).
 

@@ -173,7 +173,10 @@ def run(
         if not config.runtime.port:
             config.runtime.port = 8080
     else:
-        config, agent_card = _load_revision("/config")
+        try:
+            config, agent_card = _load_revision("/config")
+        except RuntimeError as e:
+            raise SystemExit(f"{e}. Outside Substrate, run with --local.") from e
     runtime = config.runtime
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")

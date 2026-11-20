@@ -46,7 +46,7 @@ def make_app(
 
 @pytest.mark.parametrize("port,expected", [(None, "[::]:80"), (9090, "[::]:9090")])
 def test_grpc_address_from_runtime_port(port, expected):
-    assert make_app(address=None, port=port).a2a_grpc_address == expected
+    assert _runtime.grpc_address(RuntimeConfig(port=port)) == expected
 
 
 @pytest.mark.asyncio
