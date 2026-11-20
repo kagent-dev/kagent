@@ -442,7 +442,7 @@ func responsesUsageToGenai(u responses.ResponseUsage) *genai.GenerateContentResp
 	return &genai.GenerateContentResponseUsageMetadata{
 		PromptTokenCount:        int32(u.InputTokens),
 		CandidatesTokenCount:    int32(u.OutputTokens - reasoning),
-		CachedContentTokenCount: int32(u.InputTokensDetails.CachedTokens),
+		CachedContentTokenCount: cachedTokenCount(u.InputTokensDetails.CachedTokens),
 		ThoughtsTokenCount:      int32(reasoning),
 		TotalTokenCount:         int32(u.TotalTokens),
 	}
