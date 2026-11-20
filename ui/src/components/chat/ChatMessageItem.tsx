@@ -72,6 +72,7 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
+        {/* TODO: show the message's sent time here once the backend sends one per message (see 432c174). */}
         {onManagePush ? (
           <Tooltip title="Task notifications">
             <Button
