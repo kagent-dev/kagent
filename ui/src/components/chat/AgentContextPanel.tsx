@@ -115,18 +115,14 @@ export function AgentContextPanel({
         css={{ borderTop: `1px solid ${theme.color.border}`, margin: `${theme.space(1)} 0` }}
       />
 
-      {/* Held at a typical template's height, so the actions below stay put when it loads. */}
-      <div
-        data-testid="chat-agent-context-details"
-        css={{
-          display: "grid",
-          gap: theme.space(4),
-          alignContent: "start",
-          minHeight: loading || error || spec ? DETAILS_MIN_HEIGHT : undefined,
-        }}
-      >
+      {/* Both held at a typical template's height, so the actions below stay put when it loads. */}
       {loading ? (
-        <Skeleton active paragraph={{ rows: 7 }} data-testid="chat-agent-context-loading" />
+        <Skeleton
+          active
+          paragraph={{ rows: 7 }}
+          data-testid="chat-agent-context-loading"
+          css={{ minHeight: DETAILS_MIN_HEIGHT }}
+        />
       ) : error ? (
         /* The conversation above is unaffected — it is read from the gateway, not from
            the template — so this is a note beside the transcript rather than a failure
@@ -139,7 +135,15 @@ export function AgentContextPanel({
           description={error.message}
         />
       ) : spec ? (
-        <>
+        <div
+          data-testid="chat-agent-context-details"
+          css={{
+            display: "grid",
+            gap: theme.space(4),
+            alignContent: "start",
+            minHeight: DETAILS_MIN_HEIGHT,
+          }}
+        >
           <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
             <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
               {referenceLabel(spec.modelConfig, templateNamespace) || "—"}
@@ -212,9 +216,8 @@ export function AgentContextPanel({
               </Text>
             </Field>
           ) : null}
-        </>
+        </div>
       ) : null}
-      </div>
 
       {instance?.preparedRevision ? (
         <Field

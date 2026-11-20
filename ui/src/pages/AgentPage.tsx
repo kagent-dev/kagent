@@ -741,62 +741,62 @@ function AgentIdentityFields({ agent }: { agent: Agent }) {
 
   return (
     <>
-        <IdentityField label="Agent template">
-          {spec.template.ref ? (
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: agent.namespace,
-                name: spec.template.ref.name,
-              })}
-              data-testid="agent-template-link"
-              css={{
-                fontFamily: theme.font.mono,
-                color: theme.color.primaryText,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: theme.space(2),
-                minWidth: 0,
-              }}
-            >
-              <Text
-                ellipsis={{ tooltip: spec.template.ref.name }}
-                css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
-              >
-                {spec.template.ref.name}
-              </Text>
-              <Pencil size={12} aria-hidden color={theme.color.textMuted} />
-            </Link>
-          ) : (
-            <Text data-testid="agent-template-inline">Inline</Text>
-          )}
-        </IdentityField>
-
-        <IdentityField label="Harness">
-          <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
-            {spec.harnessRef.name}
-          </Text>
-        </IdentityField>
-
-        <IdentityField label="Revision">
-          {status?.latestSuccessfulRevision ? (
-            // Truncated with a copy button: a revision is a long hash people copy, not read.
+      <IdentityField label="Agent template">
+        {spec.template.ref ? (
+          <Link
+            to={buildPath(paths.agentTemplateDetail, {
+              namespace: agent.namespace,
+              name: spec.template.ref.name,
+            })}
+            data-testid="agent-template-link"
+            css={{
+              fontFamily: theme.font.mono,
+              color: theme.color.primaryText,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: theme.space(2),
+              minWidth: 0,
+            }}
+          >
             <Text
-              ellipsis={{ tooltip: status.latestSuccessfulRevision }}
-              copyable={{ text: status.latestSuccessfulRevision }}
-              // One line before antd measures the ellipsis, or the first frame wraps the hash.
-              css={{ ...mono, whiteSpace: "nowrap" }}
-              data-testid="agent-revision"
+              ellipsis={{ tooltip: spec.template.ref.name }}
+              css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
             >
-              {status.latestSuccessfulRevision}
+              {spec.template.ref.name}
             </Text>
-          ) : (
-            <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None yet</Text>
-          )}
-        </IdentityField>
+            <Pencil size={12} aria-hidden color={theme.color.textMuted} />
+          </Link>
+        ) : (
+          <Text data-testid="agent-template-inline">Inline</Text>
+        )}
+      </IdentityField>
 
-        <IdentityField label="Status">
-          <AgentStatusTag agent={agent} testId="agent-revision-state" />
-        </IdentityField>
+      <IdentityField label="Harness">
+        <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+          {spec.harnessRef.name}
+        </Text>
+      </IdentityField>
+
+      <IdentityField label="Revision">
+        {status?.latestSuccessfulRevision ? (
+          // Truncated with a copy button: a revision is a long hash people copy, not read.
+          <Text
+            ellipsis={{ tooltip: status.latestSuccessfulRevision }}
+            copyable={{ text: status.latestSuccessfulRevision }}
+            // One line before antd measures the ellipsis, or the first frame wraps the hash.
+            css={{ ...mono, whiteSpace: "nowrap" }}
+            data-testid="agent-revision"
+          >
+            {status.latestSuccessfulRevision}
+          </Text>
+        ) : (
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None yet</Text>
+        )}
+      </IdentityField>
+
+      <IdentityField label="Status">
+        <AgentStatusTag agent={agent} testId="agent-revision-state" />
+      </IdentityField>
     </>
   );
 }
