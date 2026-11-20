@@ -8,7 +8,6 @@ import { AskUserPrompt } from "./AskUserPrompt";
 import { ChatMessageItem } from "./ChatMessageItem";
 import { CheckpointDivider } from "./CheckpointDivider";
 import { groupByCheckpoint } from "./messageCheckpoints";
-import { planMessageTimes } from "./messageTimes";
 import { scrollbarStyles } from "@/components/agent/controlStyles";
 
 /** Stable, so a transcript with no boundaries does not regroup on every render. */
@@ -121,7 +120,6 @@ export function ChatTranscript({
     () => groupByCheckpoint(chat.messages, checkpointByMessage ?? EMPTY_CHECKPOINTS),
     [chat.messages, checkpointByMessage],
   );
-  const times = useMemo(() => planMessageTimes(chat.messages, new Date()), [chat.messages]);
   const lastMessageByTask = useMemo(() => {
     const last = new Map<string, string>();
     for (const message of chat.messages) {
@@ -374,27 +372,21 @@ export function ChatTranscript({
          * render in local state.
          */
         groups.flatMap((group, index) => {
-          const drawn: ReactNode[] = group.messages.flatMap((message) => {
+          const drawn: ReactNode[] = group.messages.map((message) => {
             const taskId = message.taskId;
-            const time = times.get(message.id);
-            const day = time?.dayLabel && time.at ? (
-              <DaySeparator key={`day-${message.id}`} at={time.at} label={time.dayLabel} />
-            ) : null;
-            return [
-              day,
+            return (
               <ChatMessageItem
                 key={message.id}
                 message={message}
                 sessionId={sessionId}
                 isCheckpointed={Boolean(group.checkpointId)}
-                time={time}
                 onManagePush={
                   taskId && lastMessageByTask.get(taskId) === message.id && onManageTaskPush
                     ? () => onManageTaskPush(taskId)
                     : undefined
                 }
-              />,
-            ];
+              />
+            );
           });
           const checkpointId = group.checkpointId;
           if (checkpointId) {
@@ -613,27 +605,6 @@ export function ChatTranscript({
           </Tooltip>
         </div>
       )}
-    </div>
-  );
-}
-
-/** A centred day label above the first message sent that day, as a phone's messages app shows. */
-function DaySeparator({ at, label }: { at: Date; label: string }) {
-  const theme = useTheme();
-  return (
-    <div
-      data-testid="chat-day-separator"
-      css={{
-        justifySelf: "center",
-        marginBlockStart: theme.space(2),
-        color: theme.color.textMuted,
-        fontSize: 12,
-        fontWeight: 500,
-        lineHeight: "16px",
-        letterSpacing: "0.01em",
-      }}
-    >
-      <time dateTime={at.toISOString()}>{label}</time>
     </div>
   );
 }

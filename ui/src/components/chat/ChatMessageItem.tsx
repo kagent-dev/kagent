@@ -12,7 +12,6 @@ import { ToolApprovalRecord } from "./ToolApprovalRecord";
 import { AskUserRecord } from "./AskUserRecord";
 import { AttachmentChip } from "./AttachmentChip";
 import { isAwaitingContent, messageText } from "./messageText";
-import { fullTimeLabel, timeLabel, type MessageTime } from "./messageTimes";
 
 const { Text } = Typography;
 
@@ -30,12 +29,9 @@ export function ChatMessageItem({
   message,
   sessionId,
   isCheckpointed = false,
-  time,
   onManagePush,
 }: {
   message: ChatMessage;
-  /** When it was sent, and whether that shows at rest or only on hover. */
-  time?: MessageTime;
   /** The conversation this message belongs to, for the per-message extension point. */
   sessionId?: string;
   /** Whether this message is above the nearest saved boundary, for the browser suite. */
@@ -62,7 +58,6 @@ export function ChatMessageItem({
         display: "grid",
         gap: theme.space(2),
         justifyItems: isUser && !isQuestionRecord ? "end" : "start",
-        "&:hover [data-at-rest='hidden'], &:focus-within [data-at-rest='hidden']": { opacity: 1 },
       }}
     >
       <div
@@ -77,7 +72,6 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
-        {time?.at ? <MessageTimeLabel at={time.at} showAtRest={time.showTime} /> : null}
         {onManagePush ? (
           <Tooltip title="Task notifications">
             <Button
@@ -150,26 +144,6 @@ export function ChatMessageItem({
         ) : null}
       </div>
     </article>
-  );
-}
-
-/** The send time, kept in layout when hidden so hovering shifts nothing. */
-function MessageTimeLabel({ at, showAtRest }: { at: Date; showAtRest: boolean }) {
-  return (
-    <Tooltip title={fullTimeLabel(at)} mouseEnterDelay={0} styles={{ root: { maxWidth: "none" } }}>
-      <time
-        data-testid="chat-message-time"
-        data-at-rest={showAtRest ? "shown" : "hidden"}
-        dateTime={at.toISOString()}
-        css={{
-          fontVariantNumeric: "tabular-nums",
-          opacity: showAtRest ? 1 : 0,
-          cursor: "default",
-        }}
-      >
-        {timeLabel(at)}
-      </time>
-    </Tooltip>
   );
 }
 
