@@ -60,6 +60,13 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
   const panel = page.getByTestId("chat-agent-context");
   await expect(panel).toBeVisible({ timeout: 30_000 });
 
+  await test.step("0. the agent comes first, and links to its page", async () => {
+    const agent = page.getByTestId("chat-agent-context-agent");
+    await expect(agent).toHaveText("kagent/k8s-agent-7f3a91c");
+    await expect(agent).toHaveAttribute("href", "/agents/kagent/k8s-agent-7f3a91c");
+    await expect(panel.getByRole("link").first()).toHaveText("kagent/k8s-agent-7f3a91c");
+  });
+
   await test.step("1. it names the template, and the template is a link", async () => {
     // Not a dead label: every conversation with this agent reads the same template, and
     // the page behind this link is where that is said before anybody edits it.
@@ -69,6 +76,18 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
   await test.step("2. the model and the tools, read from that template", async () => {
     await expect(panel).toContainText("Model");
     await expect(panel).toContainText("Tools");
+  });
+
+  await test.step("2b. the chat's name and ID, and its details one click away", async () => {
+    await expect(panel.getByRole("group", { name: "Chat" })).toBeVisible();
+    await expect(page.getByTestId("chat-agent-context-session-name")).toHaveText("Tuesday cluster review");
+    await expect(page.getByTestId("chat-agent-context-session")).toContainText(instances.ready);
+    await expect(page.getByTestId("chat-agent-context-revision")).toContainText("rev-7f3a91c");
+    await expect(panel).not.toContainText("Conversation");
+    await page.getByTestId("chat-agent-context-details").click();
+    await expect(page.getByTestId("conversation-details-fields")).toContainText(instances.ready);
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("conversation-details-fields")).toBeHidden();
   });
 
   await test.step("3. and it can be put away, and stays away", async () => {
@@ -182,19 +201,19 @@ test("chat: the harness, an MCP server and the model open from a conversation an
     await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
   });
 
-  await test.step("3. a tool link opens its MCP server, with that tool marked", async () => {
+  await test.step("3. tools explain themselves on focus, and the server name opens the server", async () => {
     // Tools sit under their server, collapsed, with a selected-of-total count.
     const group = page.getByTestId("chat-agent-context-server-group").filter({ hasText: "kagent/kagent-tool-server" });
     await expect(group.getByTestId("chat-agent-context-server-count")).toHaveText(/^\d+\/3 tools$/);
     await group.getByTestId("chat-agent-context-server-toggle").click();
     const tool = group.getByTestId("chat-agent-context-tool").filter({ hasText: "k8s_get_events" });
-    await tool.hover();
+    await expect(group.getByRole("link")).toHaveCount(1);
+    await tool.focus();
     await expect(page.getByRole("tooltip")).toContainText("Read recent events for a resource.");
-    await tool.click();
-    await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-k8s_get_events$/);
+    await group.getByTestId("chat-agent-context-server").click();
+    await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev$/);
     const tools = page.getByTestId("mcp-server-tools");
     await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
-    await expect(tools.locator("[data-current]")).toContainText("k8s_get_events");
     await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
     await expect(page.getByTestId("mcp-server-users")).toContainText("k8s_get_pods");
     await page.getByTestId("mcp-server-user-tool").filter({ hasText: "k8s_get_pods" }).focus();

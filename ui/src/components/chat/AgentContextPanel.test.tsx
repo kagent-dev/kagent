@@ -36,6 +36,7 @@ function renderPanel(
   instance?: AgentInstance,
   template: unknown = { ref: { name: "helper-template" } },
   servers: unknown[] = [],
+  onShowDetails?: () => void,
 ) {
   useMcpServers.mockReturnValue({ data: servers });
   useAgent.mockReturnValue({data: {resource: {spec: {template, harnessRef: {name: "runner"}}}}});
@@ -62,9 +63,11 @@ function renderPanel(
               <AgentContextPanel
                 instance={instance}
                 agentRef={{ namespace: "kagent", name: "assistant" }}
+                onShowDetails={onShowDetails}
               />
             }
           />
+          <Route path="/agents/:namespace/:name" element={<LocationState />} />
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
           <Route path="/harnesses/:namespace/:name" element={<LocationState />} />
           <Route path="/models/:namespace/:name/edit" element={<LocationState />} />
@@ -77,7 +80,7 @@ function renderPanel(
 
 describe("AgentContextPanel", () => {
   it("names the agent template and the harness", () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     expect(screen.getByTestId("chat-agent-context-template").textContent).toBe("kagent/helper-template");
     expect(screen.getByTestId("chat-agent-context-harness").textContent).toBe("kagent/runner");
     expect(screen.getByText("Agent template")).toBeTruthy();
@@ -86,7 +89,7 @@ describe("AgentContextPanel", () => {
   });
 
   it("says an inline agent has no template, and why", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance, {
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance, {
       inline: { modelConfig: { name: "gpt" }, tools: [] },
     });
     expect(screen.queryByTestId("chat-agent-context-template")).toBeNull();
@@ -96,20 +99,44 @@ describe("AgentContextPanel", () => {
   });
 
   it("explains each label in a tooltip", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     await userEvent.hover(screen.getByTestId("chat-agent-context-hint-harness"));
     expect(await screen.findByText(/runtime that executes this agent/)).toBeTruthy();
   });
 
-  it("shortens the prepared revision but copies all of it", () => {
+  it("puts the agent first, as a link to its page", async () => {
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
+    const agent = screen.getByTestId("chat-agent-context-agent");
+    expect(screen.getByTestId("chat-agent-context").querySelector("a")).toBe(agent);
+    expect(agent.textContent).toBe("kagent/assistant");
+    expect(screen.getAllByText("kagent/assistant")).toHaveLength(1);
+    await userEvent.click(agent);
+    expect(screen.getByTestId("location-path").textContent).toBe("/agents/kagent/assistant");
+  });
+
+  it("shows the chat's name, ID and short revision, and opens its details", async () => {
     const revision = "d825540fbe9fbbb38259ace153f7712286baa762bf097b3ca8cc7097c119847b";
-    renderPanel([], undefined, { agent: "kagent/assistant", preparedRevision: revision } as AgentInstance);
+    const onShowDetails = vi.fn();
+    renderPanel(
+      [],
+      undefined,
+      { id: "6f1c9d20-1b7a", name: "Cluster review", agent: "kagent/assistant", preparedRevision: revision } as AgentInstance,
+      undefined,
+      undefined,
+      onShowDetails,
+    );
+    expect(screen.getByRole("group", { name: "Chat" })).toBeTruthy();
+    expect(screen.queryByText(/conversation/i)).toBeNull();
+    expect(screen.getByTestId("chat-agent-context-session-name").textContent).toBe("Cluster review");
+    expect(screen.getByTestId("chat-agent-context-session").textContent).toContain("6f1c9d20-1b7a");
     expect(screen.getByTestId("chat-agent-context-revision").textContent).toContain("d825540fbe9f");
     expect(screen.getByTestId("chat-agent-context-revision").textContent).not.toContain(revision);
+    await userEvent.click(screen.getByRole("button", { name: /Chat details/ }));
+    expect(onShowDetails).toHaveBeenCalledOnce();
   });
 
   it("opens the template with a way back to this conversation", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toEqual({
       from: "/agents/abc/chat?mock=ok",
@@ -129,12 +156,11 @@ describe("AgentContextPanel", () => {
     ["chat-agent-context-harness", "/harnesses/kagent/runner"],
     ["chat-agent-context-model", "/models/shared/gpt/edit"],
     ["chat-agent-context-server", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev"],
-    ["chat-agent-context-tool", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev#tool-list_pods"],
   ])("opens %s at %s with a way back to this conversation", async (testId, path) => {
     renderPanel(
       [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],
       "shared",
-      { agent: "kagent/assistant" } as AgentInstance,
+      { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance,
     );
     await userEvent.click(screen.getByTestId("chat-agent-context-server-toggle"));
     await userEvent.click(screen.getByTestId(testId));
@@ -184,7 +210,10 @@ describe("AgentContextPanel", () => {
       "get_logs",
     ]);
 
-    await userEvent.hover(screen.getAllByTestId("chat-agent-context-tool")[1]);
+    // Tools are not links; focus shows what each one does.
+    const tool = screen.getAllByTestId("chat-agent-context-tool")[1];
+    expect(tool.closest("a")).toBeNull();
+    tool.focus();
     expect(await screen.findByText("Does get_logs")).toBeTruthy();
   });
 });

@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { Tooltip } from "antd";
+import { Tooltip, type TooltipProps } from "antd";
 import { useTheme } from "@emotion/react";
 
 /** Shows a tool's name and description on hover and keyboard focus of `children`. */
@@ -7,16 +7,19 @@ export function ToolTooltip({
   name,
   description,
   children,
+  placement,
 }: {
   name: string;
   /** Undefined when the server has not reported the tool. */
   description?: string;
   children: ReactElement;
+  placement?: TooltipProps["placement"];
 }) {
   const theme = useTheme();
   return (
     <Tooltip
       trigger={["hover", "focus"]}
+      placement={placement}
       styles={{ root: { maxWidth: 320 } }}
       title={
         <div data-testid="tool-tooltip" css={{ display: "grid", gap: 2 }}>
