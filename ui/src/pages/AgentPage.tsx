@@ -1,15 +1,17 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Card, Skeleton, Space, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Skeleton, Space, Table, Tabs, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Pencil } from "lucide-react";
+import { MessageSquarePlus, Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { AgentSchedules } from "@/components/agent/AgentSchedules";
-import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
+import { useAgentSchedules } from "@/components/agent/useAgentSchedules";
+import { AgentStructure, AgentStructureSkeleton } from "@/components/agent/AgentStructure";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
+import { useUrlState } from "@/router/useUrlState";
 import {
   ExtensionSlot,
   useExtensionAgentLinks,
@@ -24,15 +26,14 @@ import {
   useAgentConversations,
   useAgent,
   useInvalidateAgents,
-  type Agent,
   type AgentInstance,
 } from "@/api";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
+import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import {
   conversationTitle,
-  hasConversationName,
   isConversationTitlePending,
   relativeAge,
   shortInstanceId,
@@ -51,8 +52,22 @@ import {
   sortOrderFor,
 } from "@/components/table/listTable";
 
-const { Paragraph, Text } = Typography;
+const { Text, Title } = Typography;
 
+/** A muted field name with its value below it, for the row under the page title. */
+function MetaField({ label, children }: { label: string; children: ReactNode }) {
+  const theme = useTheme();
+  return (
+    <span css={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: theme.space(1), minWidth: 0 }}>
+      <span>{label}</span>
+      {/* One height and font size for every value, so a tag and plain text share a centre line. */}
+      <span css={{ color: theme.color.text, display: "inline-flex", alignItems: "center", height: 24, fontSize: 12, lineHeight: 1 }}>{children}</span>
+    </span>
+  );
+}
+
+const TAB_KEYS = ["overview", "conversations", "schedules"] as const;
+type TabKey = (typeof TAB_KEYS)[number];
 const FILTER_IDS: readonly string[] = ["state"];
 const PAGE_SIZE = 25;
 // Most recently active first until the reader picks another order.
@@ -68,6 +83,10 @@ export function AgentPage() {
   const invalidateAgents = useInvalidateAgents();
   const conversations = useAgentConversations(namespace, name);
   const agent = definition.data;
+  const [tab, setTab] = useUrlState("tab", "overview");
+  // An unknown `?tab=` shows the default tab.
+  const activeTab: TabKey = TAB_KEYS.find((key) => key === tab) ?? "overview";
+  const schedules = useAgentSchedules({ namespace: namespace ?? "", name: name ?? "" });
   const agentMissing = definition.error !== undefined && isNotFound(definition.error);
 
   /*
@@ -76,7 +95,11 @@ export function AgentPage() {
    * filter, the state options and the columns would all rebuild continuously, and
    * antd rebuilds a table's internal column state whenever its columns change.
    */
-  const rows = useMemo(() => conversations.data?.all ?? [], [conversations.data]);
+  // Newest first, the order the rail lists the same conversations in.
+  const rows = useMemo(
+    () => [...(conversations.data?.all ?? [])].sort(byNewestFirst),
+    [conversations.data],
+  );
   const openableIds = useMemo(
     () => conversations.data && new Set(conversations.data.own.map((row) => row.id)),
     [conversations.data],
@@ -193,7 +216,7 @@ export function AgentPage() {
   const columns = useMemo<ColumnsType<AgentInstance>>(
     () => [
       {
-        title: "Conversation",
+        title: "Chat",
         key: "name",
         sorter: byText<AgentInstance>(titleOf),
         sortOrder: sortOrderFor(view, "name"),
@@ -214,12 +237,9 @@ export function AgentPage() {
               {openable ? (
                 <Link
                   to={chatPath(row)}
-                  aria-label={`Open conversation ${title}`}
+                  aria-label={`Open chat ${title}`}
                   data-testid={`conversation-link-${row.id}`}
-                  css={{
-                    color: theme.color.primaryText,
-                    fontStyle: hasConversationName(row) ? undefined : "italic",
-                  }}
+                  css={{ color: theme.color.primaryText }}
                 >
                   {shown}
                 </Link>
@@ -229,11 +249,11 @@ export function AgentPage() {
                    conversation answers NotFound to everyone but the person who
                    started it. A link here would be an invitation to a 404. */
                 <Tooltip
-                  title="Only the conversation’s creator can open it. Other callers need a share link."
+                  title="Only the chat’s creator can open it. Other callers need a share link."
                 >
                   <Text
                     data-testid={`conversation-unopenable-${row.id}`}
-                    css={{ color: theme.color.textMuted, fontStyle: "italic" }}
+                    css={{ color: theme.color.textMuted }}
                   >
                     {shown}
                   </Text>
@@ -307,7 +327,7 @@ export function AgentPage() {
             <Space size={0}>
               <RenameConversationButton instance={row} disabled={!mine} />
               <DeleteResourceButton
-                kind="conversation"
+                kind="chat"
                 name={titleOf(row)}
                 disabled={!mine}
                 forceLabel="Stop active turns and delete"
@@ -331,48 +351,15 @@ export function AgentPage() {
   ).length;
 
   return (
-    // No heading and no actions row.
-    //
-    // The rail beside this page names the agent and carries both the way back to the
-    // agents list and New chat, so a title repeating the name, a subtitle repeating the
-    // harness, and three buttons duplicating rail entries cost a band across the top and
-    // said nothing new.
-    //
-    // The one thing that row carried alone was *why* a new conversation cannot be
-    // started, which was a tooltip on its disabled button. That is an alert on the page
-    // now: a reason attached to a control the reader may never hover is a reason they
-    // never read.
     <PageFrame>
-      {/*
-        The same rail as the conversation surfaces.
-
-        This page was the one agent surface without it, so arriving here from a chat
-        took the navigation away — and arriving from the agents list gave a reader no
-        way onward except back. The rail is the navigation *within* an agent, so a
-        surface that drops it is a dead end.
-
-        Mounted with no conversation selected, which is what this page is: nothing is
-        current, so the rail highlights nothing, and the two entries that are about one
-        conversation — its record, and the switcher — are withheld rather than pointed
-        at an id that does not exist.
-
-        Its list is the caller's own conversations, as on every agent surface, so opening
-        one keeps the same rows. The table also lists others' conversations, which only
-        their creators can open.
-      */}
+      {/* The rail is the navigation within an agent, so this page keeps it like every other
+          agent surface. Nothing is current here, so it highlights nothing. */}
       <div
         data-testid="agent-surface"
         css={{
           display: "flex",
           gap: theme.space(6),
-          /*
-           * `flex-start`, not `stretch`.
-           *
-           * Stretched, each sidebar is as tall as the whole conversation — and a sticky
-           * element as tall as its scroll container has nowhere to stick, so on a long
-           * chat both rails scrolled away with the page. At `flex-start` they keep
-           * their own height and stay put, which is the entire reason they are sticky.
-           */
+          // `flex-start` so the sticky rail keeps its own height and stays put on scroll.
           alignItems: "flex-start",
         }}
       >
@@ -394,15 +381,125 @@ export function AgentPage() {
 
       <Space
         orientation="vertical"
-        size="middle"
+        size="large"
         css={{ display: "flex", flex: 1, minWidth: 0 }}
       >
+        <header
+          data-testid="agent-header"
+          css={{
+            display: "grid",
+            gap: theme.space(3),
+            padding: `${theme.space(4)} ${theme.space(5)}`,
+            background: theme.color.surfaceCard,
+            border: `1px solid ${theme.color.border}`,
+            borderRadius: theme.radius.lg,
+          }}
+        >
+          <div
+            css={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              columnGap: theme.space(4),
+              rowGap: theme.space(3),
+            }}
+          >
+            <Title level={4} css={{ margin: 0, minWidth: 0, wordBreak: "break-word" }} data-testid="agent-name">
+              {name}
+            </Title>
+            <div
+              data-testid="agent-actions"
+              css={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: theme.space(2) }}
+            >
+              {agent ? (
+                <>
+                  <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
+                    onDelete={removeAgent}
+                    // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
+                    onDeleted={() => {
+                      navigate(paths.agents);
+                      void invalidateAgents().catch(() => {});
+                    }}
+                    description="Stops new chats. Existing chats keep their prepared revisions. Shared templates and Harnesses are preserved."
+                  />
+                  {/* A wide gap and a rule keep the destructive action away from the other two. */}
+                  <span
+                    aria-hidden
+                    css={{
+                      width: 1,
+                      height: 24,
+                      background: theme.color.borderStrong,
+                      marginInline: theme.space(3),
+                      // When the buttons wrap, a lone rule reads as a stray mark; the gap stays.
+                      "@media (max-width: 900px)": { background: "transparent" },
+                    }}
+                  />
+                  <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
+                    <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
+                  </Link>
+                </>
+              ) : null}
+              <Button
+                type="primary"
+                icon={<MessageSquarePlus size={14} />}
+                onClick={startConversation}
+                data-testid="agent-new-chat"
+              >
+                New chat
+              </Button>
+            </div>
+          </div>
+            <div
+              css={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                columnGap: theme.space(3),
+                rowGap: theme.space(1),
+                color: theme.color.textMuted,
+                fontSize: 12,
+              }}
+            >
+              <MetaField label="Status">
+                {agent ? (
+                  <AgentStatusTag agent={agent} testId="agent-revision-state" />
+                ) : (
+                  <Skeleton.Button active size="small" css={{ width: 56, height: 22 }} />
+                )}
+              </MetaField>
+              <MetaField label="Namespace">{namespace}</MetaField>
+              {agent ? (
+                <MetaField label="Revision">
+                  {agent.resource.status?.latestSuccessfulRevision ? (
+                    // Shortened, with the full value in a tooltip on the text only and one copy away.
+                    <Text
+                      copyable={{ text: agent.resource.status.latestSuccessfulRevision }}
+                      css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+                      data-testid="agent-revision"
+                    >
+                      <Tooltip title={agent.resource.status.latestSuccessfulRevision}>
+                        <span>
+                          {agent.resource.status.latestSuccessfulRevision.length > 12
+                            ? `${agent.resource.status.latestSuccessfulRevision.slice(0, 12)}…`
+                            : agent.resource.status.latestSuccessfulRevision}
+                        </span>
+                      </Tooltip>
+                    </Text>
+                  ) : (
+                    <span>None yet</span>
+                  )}
+                </MetaField>
+              ) : null}
+            </div>
+        </header>
+
         {agentMissing ? (
           <Alert
             type="warning"
             showIcon
             title="This Agent does not exist"
-            description={`No Agent ${name ?? ""} was found in ${namespace ?? "that namespace"}. Conversations cut from it keep running — an instance runs from the revision it was built against — but no new ones can be started and this page has nothing to describe.`}
+            description={`No Agent ${name ?? ""} was found in ${namespace ?? "that namespace"}. Existing chats keep running — an instance runs from the revision it was built against — but no new ones can be started and this page has nothing to describe.`}
             data-testid="agent-template-missing"
             action={
               <Link to={paths.agents}>
@@ -431,7 +528,7 @@ export function AgentPage() {
             showIcon
             data-testid="agent-cannot-start"
             data-blocked-reason={blockedReason}
-            title="No new conversation can be started with this agent"
+            title="No new chat can be started with this agent"
             // The controller's own words: an Agent with no successful revision answers
             // FailedPrecondition, and naming the reason is what tells a reader whether
             // to wait or to go and look at the template.
@@ -445,7 +542,7 @@ export function AgentPage() {
             showIcon
             data-testid="agent-update-failed"
             data-update-failed-reason={updateFailedReason}
-            title="The latest change to this agent failed. Conversations still use the last good revision."
+            title="The latest change to this agent failed. Chats still use the last good revision."
             // Nothing is blocked here, because conversations keep the last good revision, so
             // the status tag's tooltip was the only place this showed up. The message is
             // the controller's Ready condition, which is already redacted for status.
@@ -457,7 +554,7 @@ export function AgentPage() {
           <Alert
             type="error"
             showIcon
-            title="Could not load this agent's conversations"
+            title="Could not load this agent's chats"
             description={conversations.error.message}
             data-testid="conversations-error"
             action={
@@ -477,326 +574,168 @@ export function AgentPage() {
           <Alert
             type="info"
             showIcon
-            title="Showing only the conversations you started"
-            description={`Reading everyone's conversations is authorised separately from the list, and that request was refused: ${conversations.data.widerReadRefused}`}
+            title="Showing only the chats you started"
+            description={`Reading everyone's chats is authorised separately from the list, and that request was refused: ${conversations.data.widerReadRefused}`}
             data-testid="conversations-own-only"
           />
         ) : null}
 
-        {agent || definition.isLoading ? <AgentIdentityCard agent={agent} /> : null}
 
-        <FilterBar
-          testId="conversations-filters"
-          view={view}
-          search={{
-            label: "Search conversations by name, id or who started them",
-            placeholder: "Search conversations",
-          }}
-          filters={[
+        <Tabs
+          data-testid="agent-activity-tabs"
+          activeKey={activeTab}
+          onChange={setTab}
+          items={[
             {
-              id: "state",
-              label: "State",
-              allLabel: "Any state",
-              options: stateOptions,
-              minWidth: 180,
+              key: "overview",
+              label: "Overview",
+              children: agent ? (
+                <AgentStructure agent={agent} />
+              ) : definition.isLoading ? (
+                <AgentStructureSkeleton />
+              ) : null,
+            },
+            {
+              key: "conversations",
+              label: conversations.data ? `Chats (${rows.length})` : "Chats",
+              children: (
+                <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
+
+                <FilterBar
+                  testId="conversations-filters"
+                  view={view}
+                  search={{
+                    label: "Search chats by name, id or who started them",
+                    placeholder: "Search chats",
+                  }}
+                  filters={[
+                    {
+                      id: "state",
+                      label: "State",
+                      allLabel: "Any state",
+                      options: stateOptions,
+                      minWidth: 180,
+                    },
+                  ]}
+                  trailing={
+                    !conversations.error && !conversations.isLoading ? (
+                      <Text
+                        data-testid="conversations-summary"
+                        css={{ color: theme.color.textMuted }}
+                      >
+                        {filtered.length} of {rows.length}{" "}
+                        {rows.length === 1 ? "chat" : "chats"}
+                      </Text>
+                    ) : null
+                  }
+                />
+
+                {othersCount > 0 ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    data-testid="conversations-others-note"
+                    title={`${othersCount} of these ${othersCount === 1 ? "chat was" : "chats were"} started by somebody else`}
+                    description="They are listed because this is a shared agent and hiding them would understate what it is doing. They cannot be opened, renamed or deleted from here: the controller reads an instance as its creator, so it answers “not found” to anybody else. A share link from the person who started one is the only other way in."
+                  />
+                ) : null}
+
+                {/* Offered above the table only when something is ticked: a bar that is always
+                    there costs a row of the page for an action most visits never take. */}
+                {selectedIds.length > 0 ? (
+                  <div
+                    data-testid="conversations-bulk-bar"
+                    css={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: theme.space(3),
+                      // The count and the button drop onto separate lines rather than the
+                      // button being pushed off the edge of a narrow page.
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Text css={{ color: theme.color.textMuted }}>
+                      {selectedIds.length}{" "}
+                      {selectedIds.length === 1 ? "chat" : "chats"} selected
+                    </Text>
+                    <DeleteResourceButton
+                      kind="chats"
+                      name={`${selectedIds.length} selected`}
+                      label="Delete selected"
+                      outlined
+                      disabled={isBulkDeleting}
+                      forceLabel="Stop active turns and delete"
+                      onDelete={deleteSelected}
+                      onDeleted={() => undefined}
+                      description="Everything said in them goes too, and none of it can be recovered. The workers they hold are released."
+                    />
+                  </div>
+                ) : null}
+
+                <Table<AgentInstance>
+                  data-testid="conversations-table"
+                  scroll={{ x: "max-content" }}
+                  /* A bigger target than antd's default 16px box.
+
+                     The row is selected by hitting a square barely larger than the tick drawn
+                     inside it, which is a miss more often than it should be — and the cell
+                     around it is already the width of a column, so the space costs nothing.
+                     The padding is on the wrapper rather than the box, so the clickable area
+                     grows without the tick itself changing size. */
+                  css={{
+                    "& .ant-table-selection-column .ant-checkbox-wrapper": {
+                      padding: theme.space(2),
+                      margin: `-${theme.space(2)}`,
+                    },
+                    "& .ant-table-selection-column .ant-checkbox .ant-checkbox-inner": {
+                      width: 18,
+                      height: 18,
+                    },
+                  }}
+                  rowSelection={{
+                    selectedRowKeys: selectedIds as string[],
+                    onChange: (keys) => setSelectedIds(keys.map(String)),
+                    // Somebody else's conversation cannot be deleted from here, so it cannot be
+                    // ticked either — a checkbox that leads to a refusal is worse than none.
+                    getCheckboxProps: (row) => ({
+                      disabled: !(openableIds?.has(row.id) ?? true),
+                    }),
+                  }}
+                  rowKey={(row) => row.id}
+                  columns={columns}
+                  dataSource={conversations.error ? [] : filtered}
+                  loading={conversations.isLoading}
+                  onChange={listTableChange<AgentInstance>(view)}
+                  pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
+                  locale={{
+                    emptyText: conversations.error
+                      ? " "
+                      : view.isNarrowed
+                        ? "No chats match those filters."
+                        : conversations.data
+                          ? "No chats with this agent yet. Start one with “New chat”."
+                          : " ",
+                  }}
+                  onRow={(row) =>
+                    clickableRow(() => void navigate(chatPath(row)), {
+                      enabled: openableIds === undefined || openableIds.has(row.id),
+                    })
+                  }
+                />
+
+                </Space>
+              ),
+            },
+            {
+              key: "schedules",
+              label: schedules.rows ? `Schedules (${schedules.rows.length})` : "Schedules",
+              children:
+                namespace && name ? <AgentSchedules agent={{ namespace, name }} /> : null,
             },
           ]}
-          trailing={
-            !conversations.error && !conversations.isLoading ? (
-              <Text
-                data-testid="conversations-summary"
-                css={{ color: theme.color.textMuted }}
-              >
-                {filtered.length} of {rows.length}{" "}
-                {rows.length === 1 ? "conversation" : "conversations"}
-              </Text>
-            ) : null
-          }
         />
-
-        {othersCount > 0 ? (
-          <Alert
-            type="info"
-            showIcon
-            data-testid="conversations-others-note"
-            title={`${othersCount} of these ${othersCount === 1 ? "conversation was" : "conversations were"} started by somebody else`}
-            description="They are listed because this is a shared agent and hiding them would understate what it is doing. They cannot be opened, renamed or deleted from here: the controller reads an instance as its creator, so it answers “not found” to anybody else. A share link from the person who started one is the only other way in."
-          />
-        ) : null}
-
-        {/* Offered above the table only when something is ticked: a bar that is always
-            there costs a row of the page for an action most visits never take. */}
-        {selectedIds.length > 0 ? (
-          <div
-            data-testid="conversations-bulk-bar"
-            css={{
-              display: "flex",
-              alignItems: "center",
-              gap: theme.space(3),
-              // The count and the button drop onto separate lines rather than the
-              // button being pushed off the edge of a narrow page.
-              flexWrap: "wrap",
-            }}
-          >
-            <Text css={{ color: theme.color.textMuted }}>
-              {selectedIds.length}{" "}
-              {selectedIds.length === 1 ? "conversation" : "conversations"} selected
-            </Text>
-            <DeleteResourceButton
-              kind="conversations"
-              name={`${selectedIds.length} selected`}
-              label="Delete selected"
-              outlined
-              disabled={isBulkDeleting}
-              forceLabel="Stop active turns and delete"
-              onDelete={deleteSelected}
-              onDeleted={() => undefined}
-              description="Everything said in them goes too, and none of it can be recovered. The workers they hold are released."
-            />
-          </div>
-        ) : null}
-
-        <Table<AgentInstance>
-          data-testid="conversations-table"
-          scroll={{ x: "max-content" }}
-          /* A bigger target than antd's default 16px box.
-
-             The row is selected by hitting a square barely larger than the tick drawn
-             inside it, which is a miss more often than it should be — and the cell
-             around it is already the width of a column, so the space costs nothing.
-             The padding is on the wrapper rather than the box, so the clickable area
-             grows without the tick itself changing size. */
-          css={{
-            "& .ant-table-selection-column .ant-checkbox-wrapper": {
-              padding: theme.space(2),
-              margin: `-${theme.space(2)}`,
-            },
-            "& .ant-table-selection-column .ant-checkbox .ant-checkbox-inner": {
-              width: 18,
-              height: 18,
-            },
-          }}
-          rowSelection={{
-            selectedRowKeys: selectedIds as string[],
-            onChange: (keys) => setSelectedIds(keys.map(String)),
-            // Somebody else's conversation cannot be deleted from here, so it cannot be
-            // ticked either — a checkbox that leads to a refusal is worse than none.
-            getCheckboxProps: (row) => ({
-              disabled: !(openableIds?.has(row.id) ?? true),
-            }),
-          }}
-          rowKey={(row) => row.id}
-          columns={columns}
-          dataSource={conversations.error ? [] : filtered}
-          loading={conversations.isLoading}
-          onChange={listTableChange<AgentInstance>(view)}
-          pagination={paginationFor(view, filtered.length, PAGE_SIZE)}
-          locale={{
-            emptyText: conversations.error
-              ? " "
-              : view.isNarrowed
-                ? "No conversations match those filters."
-                : conversations.data
-                  ? "No conversations with this agent yet. Start one with “New chat”."
-                  : " ",
-          }}
-          onRow={(row) =>
-            clickableRow(() => void navigate(chatPath(row)), {
-              enabled: openableIds === undefined || openableIds.has(row.id),
-            })
-          }
-        />
-
-        {/* Below the conversations, because a conversation is what a reader came here
-            for and a schedule is how some of them got started. */}
-        {namespace && name ? (
-          <AgentSchedules agent={{ namespace, name }} />
-        ) : null}
       </Space>
-
-      {/*
-        What this agent is, beside the conversations it has had.
-
-        The same panel the chat carries, given the Agent reference rather than a conversation: the
-        model, the instructions and the tools all live on the template, so this page can
-        show them without an instance to read them through. Only the prepared revision
-        needs a conversation, and it is left out here rather than guessed at.
-      */}
-      <div
-        css={{
-          flexShrink: 0,
-          position: "sticky",
-          top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
-          alignSelf: "start",
-          width: 248,
-        }}
-        data-testid="agent-context-aside"
-      >
-        <AgentContextPanel agentRef={{ namespace: namespace ?? "", name }} />
-
-        {agent ? (
-          <Space size={8} wrap css={{ marginTop: theme.space(5) }}>
-            <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
-              <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
-            </Link>
-            <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
-              onDelete={removeAgent}
-              // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
-              onDeleted={() => {
-                navigate(paths.agents);
-                void invalidateAgents().catch(() => {});
-              }}
-              description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
-            />
-          </Space>
-        ) : null}
-      </div>
       </div>
     </PageFrame>
-  );
-}
-
-/**
- * One labelled value in the identity card.
- *
- * A block rather than a table row, so each can wrap on its own — which is the whole
- * point of the grid above.
- */
-function IdentityField({ label, children }: { label: string; children: ReactNode }) {
-  const theme = useTheme();
-
-  return (
-    // `minWidth: 0` because a grid item will not shrink below its content otherwise,
-    // and a long value would then push its column wider than its share instead of
-    // truncating inside it.
-    <div css={{ minWidth: 0 }}>
-      <div
-        css={{
-          color: theme.color.textMuted,
-          fontSize: 12,
-          marginBlockEnd: theme.space(1),
-        }}
-      >
-        {label}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-/** A value still loading, as tall as the line it stands in for: 22px for text, 23px for a tag. */
-function IdentityPlaceholder({ height }: { height: number }) {
-  return (
-    <div css={{ height, display: "flex", alignItems: "center" }}>
-      <Skeleton.Input active size="small" style={{ height: 14, minWidth: 0, width: 120 }} />
-    </div>
-  );
-}
-
-/**
- * What this agent is made of: each half is a shared resource or inline in the Agent.
- * Without an agent it holds the same layout with placeholders, so the table below stays put.
- */
-function AgentIdentityCard({ agent }: { agent?: Agent }) {
-  const theme = useTheme();
-
-  return (
-    <Card data-testid={agent ? "agent-identity" : "agent-identity-loading"} size="small">
-      <div
-        css={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: theme.space(4),
-        }}
-      >
-        {agent ? (
-          <AgentIdentityFields agent={agent} />
-        ) : (
-          ["Agent template", "Harness", "Revision", "Status"].map((label) => (
-            <IdentityField key={label} label={label}>
-              <IdentityPlaceholder height={label === "Status" ? 23 : 22} />
-            </IdentityField>
-          ))
-        )}
-      </div>
-      <Paragraph
-        css={{
-          margin: `${theme.space(3)} 0 0`,
-          color: theme.color.textMuted,
-          fontSize: 12,
-        }}
-        data-testid="agent-identity-note"
-      >
-        The template says what this agent does and the Harness says how it runs.
-        Templates may be inline or shared; Harnesses are always referenced.
-      </Paragraph>
-    </Card>
-  );
-}
-
-function AgentIdentityFields({ agent }: { agent: Agent }) {
-  const theme = useTheme();
-  const { spec, status } = agent.resource;
-  const mono = { fontFamily: theme.font.mono, fontSize: 12 };
-
-  return (
-    <>
-      <IdentityField label="Agent template">
-        {spec.template.ref ? (
-          <Link
-            to={buildPath(paths.agentTemplateDetail, {
-              namespace: agent.namespace,
-              name: spec.template.ref.name,
-            })}
-            data-testid="agent-template-link"
-            css={{
-              fontFamily: theme.font.mono,
-              color: theme.color.primaryText,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: theme.space(2),
-              minWidth: 0,
-            }}
-          >
-            <Text
-              ellipsis={{ tooltip: spec.template.ref.name }}
-              css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
-            >
-              {spec.template.ref.name}
-            </Text>
-            <Pencil size={12} aria-hidden color={theme.color.textMuted} />
-          </Link>
-        ) : (
-          <Text data-testid="agent-template-inline">Inline</Text>
-        )}
-      </IdentityField>
-
-      <IdentityField label="Harness">
-        <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
-          {spec.harnessRef.name}
-        </Text>
-      </IdentityField>
-
-      <IdentityField label="Revision">
-        {status?.latestSuccessfulRevision ? (
-          // Truncated with a copy button: a revision is a long hash people copy, not read.
-          <Text
-            ellipsis={{ tooltip: status.latestSuccessfulRevision }}
-            copyable={{ text: status.latestSuccessfulRevision }}
-            // One line before antd measures the ellipsis, or the first frame wraps the hash.
-            css={{ ...mono, whiteSpace: "nowrap" }}
-            data-testid="agent-revision"
-          >
-            {status.latestSuccessfulRevision}
-          </Text>
-        ) : (
-          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None yet</Text>
-        )}
-      </IdentityField>
-
-      <IdentityField label="Status">
-        <AgentStatusTag agent={agent} testId="agent-revision-state" />
-      </IdentityField>
-    </>
   );
 }

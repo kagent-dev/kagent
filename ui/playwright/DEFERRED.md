@@ -317,3 +317,12 @@ amendment to the convention rather than a reshuffle, and belongs in its own chan
 - **Stale save (`Aborted`).** The form shows a reload prompt when the server reports a stale `resourceVersion`. The mock refuses one, but the spec cannot write behind the form's back without a second page, which starts with fresh mock state.
 - **Server-side rejection text.** The mock applies the same rules as the form, so an `InvalidArgument` never reaches the form in mock mode. Covered against a cluster only.
 - **Actor JWT authoring.** Audiences and token lifetime are covered by unit tests, not by the spec.
+
+## Agent structure: gaps in `agents/agent-page.spec.ts`
+
+- **`compact` variant.** Nothing renders `AgentStructure` with `compact` yet. Its spec belongs with the chat panel that adopts it.
+- **A sub-agent whose template cannot be read.** The fixtures have no dangling `templateRef`, so the inline warning is untested.
+
+## Deferred: links from the agent overview
+
+Links for the model, the harness, MCP servers and individual tools wait until each has a detail page. Today only edit pages exist.

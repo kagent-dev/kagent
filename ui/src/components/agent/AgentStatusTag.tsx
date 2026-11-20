@@ -17,8 +17,8 @@ export function AgentStatusTag({ agent, testId }: { agent: Agent; testId?: strin
   const reason = agentNotReadyReason(agent);
   const explanation = {
     ready: agent.resource.status?.latestSuccessfulRevision,
-    updating: "The controller is preparing the latest change. Conversations use the last good revision until then.",
-    updateFailed: `${reason ?? "The latest change failed."} Conversations still use the last good revision.`,
+    updating: "The controller is preparing the latest change. Chats use the last good revision until then.",
+    updateFailed: `${reason ?? "The latest change failed."} Chats still use the last good revision.`,
     preparing: reason ?? "A revision is desired and none has succeeded yet.",
     failed: reason,
     notReported: "The controller has not reported a revision for this agent.",

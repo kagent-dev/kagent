@@ -76,7 +76,7 @@ test("extension points: configured components mount where the point promises", a
     // conversations sit inside one. The point's id and its context are unchanged —
     // it was always a point about an instance — which is the property this step is
     // really protecting: a contribution written against it keeps working.
-    await loadPage(page, agentPage(agents.k8s));
+    await loadPage(page, `${agentPage(agents.k8s)}?tab=conversations`);
     // One per row, whatever the list holds — counted from the table rather than
     // written down, so a fixture gaining a conversation is not a false failure while
     // a slot that mounted twice or not at all still fails. Waited for, because
