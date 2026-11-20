@@ -23,6 +23,8 @@ export function inlineLink(theme: Theme) {
   const underline = { textDecorationLine: "underline", textDecorationThickness: 1 };
   return {
     color: theme.color.primaryText,
+    // Medium weight marks a link at rest without an underline; it never changes, so nothing shifts.
+    fontWeight: 500,
     textDecoration: "none",
     textUnderlineOffset: 2,
     borderRadius: 3,
