@@ -1,0 +1,7 @@
+{{- /*
+Substrate is disabled on release/v0.10.x: the Wolfi-based Python ADK images can't be
+restored from a Substrate checkpoint on arm64 (google/gvisor#13542).
+*/}}
+{{- if .Values.substrate.enabled }}
+{{- fail "Substrate is not supported in kagent v0.10.x. Unset substrate.enabled." }}
+{{- end }}

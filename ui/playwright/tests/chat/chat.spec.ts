@@ -34,7 +34,9 @@ test("chat: send and receive a reply", async ({ page, request }) => {
     await input.fill(USER_MESSAGE);
     await page.getByTestId("chat-send").click();
 
-    await expect(page.getByText(USER_MESSAGE)).toBeVisible();
-    await expect(page.getByText(AGENT_REPLY)).toBeVisible();
+    // Scope to transcript items: the sidebar also lists the session under the message text.
+    const transcript = page.locator("[data-mm-item]");
+    await expect(transcript.getByText(USER_MESSAGE)).toBeVisible();
+    await expect(transcript.getByText(AGENT_REPLY)).toBeVisible();
   });
 });

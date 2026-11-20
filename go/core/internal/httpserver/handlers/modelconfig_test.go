@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl_client "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	api "github.com/kagent-dev/kagent/go/api/httpapi"
 	"github.com/kagent-dev/kagent/go/api/v1alpha2"
@@ -600,6 +601,54 @@ func TestModelConfigHandler(t *testing.T) {
 			assert.Equal(t, "gpt-4", updatedConfig.Data.Spec.Model)
 			require.NotNil(t, updatedConfig.Data.Spec.OpenAI)
 			assert.Equal(t, "0.7", updatedConfig.Data.Spec.OpenAI.Temperature)
+		})
+
+		t.Run("Success_ControllerWritesStatusOnSecretChange", func(t *testing.T) {
+			config := &v1alpha2.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "test-config", Namespace: "default"},
+				Spec:       v1alpha2.ModelConfigSpec{Model: "gpt-3.5-turbo", Provider: v1alpha2.ModelProviderOpenAI},
+			}
+			// Mirror the controller: a Secret write bumps the ModelConfig's Status.SecretHash.
+			kubeClient := fake.NewClientBuilder().WithScheme(scheme).
+				WithStatusSubresource(&v1alpha2.ModelConfig{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Create: func(ctx context.Context, c ctrl_client.WithWatch, obj ctrl_client.Object, opts ...ctrl_client.CreateOption) error {
+						if err := c.Create(ctx, obj, opts...); err != nil {
+							return err
+						}
+						if _, ok := obj.(*corev1.Secret); !ok {
+							return nil
+						}
+						mc := &v1alpha2.ModelConfig{}
+						if err := c.Get(ctx, ctrl_client.ObjectKeyFromObject(config), mc); err != nil {
+							return err
+						}
+						mc.Status.SecretHash = "hash"
+						return c.Status().Update(ctx, mc)
+					},
+				}).Build()
+			require.NoError(t, kubeClient.Create(context.Background(), config))
+			handler := handlers.NewModelConfigHandler(&handlers.Base{KubeClient: kubeClient, Authorizer: &auth.NoopAuthorizer{}})
+			responseRecorder := newMockErrorResponseWriter()
+
+			apiKey := "new-api-key"
+			jsonBody, _ := json.Marshal(api.UpdateModelConfigRequest{
+				APIKey: &apiKey,
+				Spec:   v1alpha2.ModelConfigSpec{Model: "gpt-4", Provider: v1alpha2.ModelProviderOpenAI},
+			})
+			req := setUser(httptest.NewRequest("PUT", "/api/modelconfigs/default/test-config", bytes.NewBuffer(jsonBody)), "test-user")
+			router := mux.NewRouter()
+			router.HandleFunc("/api/modelconfigs/{namespace}/{name}", func(w http.ResponseWriter, r *http.Request) {
+				handler.HandleUpdateModelConfig(responseRecorder, r)
+			}).Methods("PUT")
+			router.ServeHTTP(responseRecorder, req)
+
+			require.Equal(t, http.StatusOK, responseRecorder.Code, responseRecorder.Body.String())
+			stored := &v1alpha2.ModelConfig{}
+			require.NoError(t, kubeClient.Get(context.Background(), ctrl_client.ObjectKeyFromObject(config), stored))
+			assert.Equal(t, "gpt-4", stored.Spec.Model)
+			assert.Equal(t, "test-config", stored.Spec.APIKeySecret)
+			assert.Equal(t, "hash", stored.Status.SecretHash)
 		})
 
 		t.Run("Success_CompanionSecrets", func(t *testing.T) {

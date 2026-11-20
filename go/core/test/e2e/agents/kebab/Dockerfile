@@ -3,7 +3,7 @@ ARG DOCKER_REGISTRY=ghcr.io
 ARG VERSION=latest
 ARG DOCKER_REPO=kagent-dev/kagent
 # Use the "-full" runtime image: it ships uv + a shell, which `uv sync` below needs.
-# The default kagent-adk image is now distroless slim and has neither uv nor /bin/sh.
+# The default kagent-adk image is slim and has no uv.
 FROM $DOCKER_REGISTRY/$DOCKER_REPO/kagent-adk:$VERSION-full
 
 WORKDIR /app

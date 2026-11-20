@@ -1,0 +1,43 @@
+suite: test substrate is disabled
+templates:
+  - substrate-disabled.yaml
+tests:
+  - it: should render nothing by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should fail when substrate.enabled is set
+    set:
+      substrate:
+        enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "Substrate is not supported"
+
+  - it: should fail when controller.substrate.enabled is set
+    set:
+      controller:
+        substrate:
+          enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "Substrate is not supported"
+
+  - it: should fail when substrateWorkerPool.create is set
+    set:
+      substrateWorkerPool:
+        create: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "Substrate is not supported"
+
+  - it: should fail when controller.env sets the ate-api endpoint
+    set:
+      controller:
+        env:
+          - name: SUBSTRATE_ATE_API_ENDPOINT
+            value: "dns:///api.ate-system.svc:443"
+    asserts:
+      - failedTemplate:
+          errorPattern: "Substrate is not supported"
