@@ -2,6 +2,7 @@ import { ThemeProvider } from "@emotion/react";
 import type { ReactElement } from "react";
 import { themeFor } from "@/theme/theme";
 import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DataPill, DataPillList } from "./DataPill";
 
@@ -15,11 +16,16 @@ describe("DataPill", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("calls onRemove from its x button", () => {
+  it("is one button that removes the pill, from a click or the keyboard", async () => {
     const onRemove = vi.fn();
-    render(<DataPill onRemove={onRemove}>X-Team</DataPill>);
-    fireEvent.click(screen.getByRole("button", { name: "Remove X-Team" }));
-    expect(onRemove).toHaveBeenCalledTimes(1);
+    render(<DataPill onRemove={onRemove} data-testid="pill">X-Team</DataPill>);
+    const pill = screen.getByRole("button", { name: "Remove X-Team" });
+    expect(pill).toBe(screen.getByTestId("pill"));
+    fireEvent.click(screen.getByText("X-Team"));
+    pill.focus();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard(" ");
+    expect(onRemove).toHaveBeenCalledTimes(3);
   });
 
   it("does not remove while disabled", () => {

@@ -116,7 +116,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
   });
 
-  await test.step("6c. command and arguments become pills: spaces split them, quotes keep them whole", async () => {
+  await test.step("6c. command and arguments become pills: spaces split them, quotes keep them whole, a click removes one", async () => {
     const command = page.getByTestId("harness-command");
     await page.getByTestId("harness-command-input").pressSequentially("node server.js");
     await page.getByTestId("harness-command-add").click();
@@ -126,7 +126,13 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await page.getByTestId("harness-args-input").pressSequentially('--port=8080 --name "two words" extra');
     await page.getByTestId("harness-args-input").press("Enter");
     await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words", "extra"]);
-    await args.getByRole("button", { name: "Remove extra" }).click();
+    // The whole pill is the remove button: a click on its text removes it, and so does Enter.
+    await args.getByRole("listitem").filter({ hasText: /^extra$/ }).getByText("extra").click();
+    await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
+    await page.getByTestId("harness-args-input").pressSequentially("last");
+    await page.getByTestId("harness-args-input").press("Enter");
+    await args.getByRole("button", { name: "Remove last" }).focus();
+    await page.keyboard.press("Enter");
     await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
   });
 

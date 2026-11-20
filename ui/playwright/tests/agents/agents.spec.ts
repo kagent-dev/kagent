@@ -151,10 +151,10 @@ test("agents: selecting no namespace means every namespace, and a pill undoes on
   });
 
   await test.step("3. the pill removes exactly that filter", async () => {
-    await page
-      .getByTestId("agents-filters-pill-ns-analytics")
-      .getByRole("button", { name: /^Remove filter/ })
-      .click();
+    // The pill itself is the remove button.
+    const pill = page.getByTestId("agents-filters-pill-ns-analytics");
+    await expect(pill).toHaveAccessibleName(/^Remove filter/);
+    await pill.click();
     await expect(dataRows(page)).toHaveCount(9);
     await expect(page).not.toHaveURL(/ns=analytics/);
   });

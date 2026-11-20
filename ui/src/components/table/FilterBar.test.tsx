@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@emotion/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -117,7 +117,9 @@ describe("FilterBar", () => {
   it("removes only its own filter when its remove button is clicked", async () => {
     const seen = renderBar("/models?ns=kagent&ns=platform&provider=openai");
 
-    await userEvent.click(within(screen.getByTestId("bar-pill-ns-kagent")).getByRole("button", { name: "Remove filter Namespace: kagent" }));
+    // The whole pill is its remove button.
+    expect(screen.getByRole("button", { name: "Remove filter Namespace: kagent" })).toBe(screen.getByTestId("bar-pill-ns-kagent"));
+    await userEvent.click(screen.getByRole("button", { name: "Remove filter Namespace: kagent" }));
 
     expect(seen.selectedNamespaces).toEqual(["platform"]);
     expect(new URLSearchParams(seen.search).getAll("ns")).toEqual(["platform"]);
@@ -128,7 +130,7 @@ describe("FilterBar", () => {
   it("drops the parameter entirely when its last pill goes", async () => {
     const seen = renderBar("/models?ns=kagent");
 
-    await userEvent.click(within(screen.getByTestId("bar-pill-ns-kagent")).getByRole("button", { name: "Remove filter Namespace: kagent" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove filter Namespace: kagent" }));
 
     // Not `?ns=`, which would read as "narrowed to nothing" — the address has to
     // become the address of the unfiltered list again.
@@ -165,7 +167,7 @@ describe("FilterBar", () => {
     // empty table that is not empty — the rows moved, and the page number did not.
     const seen = renderBar("/models?ns=kagent&ns=platform&page=4");
 
-    await userEvent.click(within(screen.getByTestId("bar-pill-ns-kagent")).getByRole("button", { name: "Remove filter Namespace: kagent" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove filter Namespace: kagent" }));
 
     expect(new URLSearchParams(seen.search).get("page")).toBeNull();
   });
