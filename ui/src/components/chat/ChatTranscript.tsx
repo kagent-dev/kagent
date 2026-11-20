@@ -372,7 +372,7 @@ export function ChatTranscript({
          * render in local state.
          */
         groups.flatMap((group, index) => {
-          // TODO: add day separators here once the backend sends a sent time per message (see 432c174).
+          // TODO: add day separators here once the backend sends a sent time per message (#3746; UI work in 432c174).
           const drawn: ReactNode[] = group.messages.map((message) => {
             const taskId = message.taskId;
             return (
