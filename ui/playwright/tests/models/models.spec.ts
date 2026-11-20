@@ -170,6 +170,14 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await page.getByTestId("model-provider").getByRole("combobox").focus();
     await page.getByTestId("model-provider").getByRole("combobox").blur();
     await expect(page.getByText("Choose a provider.")).toBeVisible();
+
+    // Refresh is an icon-only button, named by its label and its tooltip.
+    const refresh = page.getByTestId("model-fetch");
+    await expect(refresh).toHaveAccessibleName("Refresh models");
+    await refresh.hover();
+    await expect(page.getByRole("tooltip", { name: "Refresh models" })).toBeVisible();
+    await refresh.click();
+    await expect(page.getByTestId("model-provider")).toBeEnabled();
   });
 
   await test.step("6. a filled-in configuration is created and appears on the list", async () => {

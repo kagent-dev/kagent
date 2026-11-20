@@ -13,9 +13,10 @@ import {
   Row,
   Select,
   Space,
+  Tooltip,
   Typography,
 } from "antd";
-import { useTheme } from "@emotion/react";
+import { keyframes, useTheme } from "@emotion/react";
 import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
@@ -101,6 +102,8 @@ function draftContents(draft: ModelDraft): string {
   });
 }
 
+const spin = keyframes({ from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } });
+
 /** A small "open the provider's docs" link, when there is one to open. */
 function DocsLink({ href, title }: { href?: string; title: string }) {
   const theme = useTheme();
@@ -157,6 +160,7 @@ export function ModelForm({
   const [baseline] = useState(() => draftContents(draft));
   const [optionalOpen, setOptionalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [refreshSpins, setRefreshSpins] = useState(0);
   const [failure, setFailure] = useState<unknown>();
 
   const set = <K extends keyof ModelDraft>(key: K, value: ModelDraft[K]) => {
@@ -241,6 +245,7 @@ export function ModelForm({
     [draft.provider, providerModels.data],
   );
   const selectedModel = modelsForProvider.find((m) => m.name === draft.model);
+  const refreshing = providers.isLoading || providerModels.isLoading;
   const isOllama = draft.provider === OLLAMA_PROVIDER;
   const info = draft.provider ? PROVIDER_INFO[draft.provider] : undefined;
 
@@ -457,18 +462,33 @@ export function ModelForm({
                   )}
                 />
                 {/* A refresh, so a provider configured after this page loaded is reachable without a reload. */}
-                <Button
-                  data-testid="model-fetch"
-                  css={{ flexShrink: 0 }}
-                  icon={<RefreshCw size={14} aria-hidden />}
-                  loading={providers.isLoading || providerModels.isLoading}
-                  onClick={() => {
-                    void providers.refresh();
-                    void providerModels.refresh();
-                  }}
-                >
-                  Refresh models
-                </Button>
+                <Tooltip title="Refresh models">
+                  <Button
+                    data-testid="model-fetch"
+                    aria-label="Refresh models"
+                    aria-busy={refreshing}
+                    css={{ flexShrink: 0 }}
+                    icon={
+                      // Keyed by click count, so each click replays the turn; it keeps turning while loading.
+                      <RefreshCw
+                        key={refreshSpins}
+                        size={16}
+                        aria-hidden
+                        css={{
+                          animation: refreshing
+                            ? `${spin} 800ms linear infinite`
+                            : refreshSpins > 0 ? `${spin} 500ms ease-out` : undefined,
+                          "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+                        }}
+                      />
+                    }
+                    onClick={() => {
+                      setRefreshSpins((count) => count + 1);
+                      void providers.refresh();
+                      void providerModels.refresh();
+                    }}
+                  />
+                </Tooltip>
               </div>
             </FormField>
           </Col>
