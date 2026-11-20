@@ -61,7 +61,7 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 						Command: slices.Clone(tt.command), Args: slices.Clone(tt.args),
 					},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+						WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}
@@ -130,7 +130,7 @@ func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 				Command: []string{"kagent-adk", "static"}, Args: []string{"--host", "0.0.0.0"},
 			},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{
-				WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+				WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			},
 		},
 	}
@@ -262,7 +262,7 @@ func TestCompileAgentResolvesWorkerPoolSandboxClass(t *testing.T) {
 
 					Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 					Substrate: v1alpha3.RuntimeSubstratePolicy{
-						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+						WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 					},
 				},
 			}
@@ -369,7 +369,7 @@ func TestCompileAgentStructuredOutput(t *testing.T) {
 				Memory:     &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ModelConfigReference{Name: "default-model"}, TTLDays: 7},
 				Compaction: &v1alpha3.KagentHarnessCompaction{CompactionInterval: new(5)},
 			},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}},
 		},
 	}
 	schema := `{"type":"object","properties":{"answer":{"type":"integer"}},"required":["answer"],"additionalProperties":false}`
@@ -427,7 +427,7 @@ func TestCompileAgentOutputSchemaFromStringFormat(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Kagent:    &v1alpha3.KagentHarness{},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}},
 		},
 	}
 	root := &v1alpha3.AgentTemplate{
@@ -489,7 +489,7 @@ func TestCompileAgentOutputSchemaStrict(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "kagent", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Kagent:    &v1alpha3.KagentHarness{},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}},
 		},
 	}
 	const optionalField = `{"type":"object","properties":{"ticket":{"type":"string"},"note":{"type":"string"}},"required":["ticket"]}`
@@ -590,7 +590,7 @@ func TestCompilerAcceptsExternalHarnessCompiler(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "codex", Namespace: "test"},
 		Spec: v1alpha3.HarnessSpec{
 			Codex:     &v1alpha3.CodexHarness{},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}},
 		},
 	}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}}}
@@ -655,7 +655,7 @@ func TestCompilerPermitsBYOWithoutModelConfig(t *testing.T) {
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "byo", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 		BYO:       &v1alpha3.BYOHarness{},
 		Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/byo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}},
 	}}
 	template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "assistant", Namespace: "test"}}
 
@@ -696,7 +696,7 @@ func TestCompileAgentInjectsCredentialsAtGateway(t *testing.T) {
 
 			Workload: v1alpha3.HarnessWorkload{Image: new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
 			Substrate: v1alpha3.RuntimeSubstratePolicy{
-				WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+				WorkerPoolRef:  v1alpha3.WorkerPoolReference{Name: "default"},
 				SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 			},
 		},
@@ -765,7 +765,7 @@ func TestCompileAgentSharedADKConfig(t *testing.T) {
 		Spec: v1alpha3.HarnessSpec{
 			Kagent:    &v1alpha3.KagentHarness{},
 			Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/kagent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 		},
 	}
 	child := &v1alpha3.AgentTemplate{
@@ -965,7 +965,7 @@ func TestCompileAgentInlineAndReferencedTemplates(t *testing.T) {
 	child := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "child"}, Spec: v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}, SystemPrompt: "review security"}}
 	harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "runtime", UID: "harness-uid"}, Spec: v1alpha3.HarnessSpec{
 		Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
-		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+		Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 	}}
 	for _, tt := range []struct {
 		name           string
@@ -1028,7 +1028,7 @@ func TestCompileAgentResolvesReferenceKinds(t *testing.T) {
 	fixture := func() (*v1alpha3.Harness, *v1alpha3.AgentTemplate) {
 		harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "kagent"}, Spec: v1alpha3.HarnessSpec{
 			Kagent:    &v1alpha3.KagentHarness{Memory: &v1alpha3.KagentHarnessMemory{ModelConfigRef: v1alpha3.ModelConfigReference{Name: "default-model"}, TTLDays: 7}},
-			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}},
 		}}
 		template := &v1alpha3.AgentTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"}, Spec: v1alpha3.AgentTemplateSpec{
 			ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}, SystemPrompt: "help",
@@ -1114,7 +1114,7 @@ func TestCompileAgentRuntimeIdentity(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "shared-runtime"},
 				Spec: v1alpha3.HarnessSpec{
 					Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
-					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 				},
 			}
 			switch kind {

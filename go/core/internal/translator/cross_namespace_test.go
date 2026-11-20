@@ -24,7 +24,7 @@ func TestCrossNamespaceModelsAndMCP(t *testing.T) {
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "auth", "token"
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: kind, Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 				Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
-				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 			}}
 			switch kind {
 			case "kagent":
@@ -114,7 +114,7 @@ func TestAuxiliaryModelReferencesUseHarnessNamespaceAndPolicy(t *testing.T) {
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 				Kagent:    &v1alpha3.KagentHarness{},
 				Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
-				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 			}}
 			ref := v1alpha3.ModelConfigReference{Name: shared.Name, Namespace: shared.Namespace}
 			if auxiliary == "memory" {
@@ -202,7 +202,7 @@ func TestReferencePolicyMatrix(t *testing.T) {
 				}
 				harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runner", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 					Kagent: &v1alpha3.KagentHarness{}, Workload: v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
-					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 				}}
 				template := &v1alpha3.AgentTemplate{Spec: v1alpha3.AgentTemplateSpec{
 					ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name, Namespace: model.Namespace},
@@ -231,7 +231,7 @@ func TestRepeatedMCPBindings(t *testing.T) {
 			secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "auth", Namespace: "test"}, Data: map[string][]byte{"token": []byte("test")}}
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: kind, Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 				Workload:  v1alpha3.HarnessWorkload{Image: new("example.com/runtime@sha256:" + strings.Repeat("a", 64))},
-				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 			}}
 			switch kind {
 			case "kagent":

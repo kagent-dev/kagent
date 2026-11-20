@@ -58,7 +58,9 @@ spec:
 
 SandboxTemplate preparation uses the shared KRT informer runtime and the same
 queue pattern as Agent preparation. A pure collection resolves the WorkerPool in
-the template's namespace, tracks that dependency, and combines its sandbox class
+the template's namespace, or in an allowed namespace that `workerPoolRef.namespace`
+names (see [WorkerPools in another namespace](configuration-and-compilation.md#workerpools-in-another-namespace)),
+tracks that dependency, and combines its sandbox class
 with the template and operator-controlled CPU, memory, and guest-image
 settings to compute an immutable revision. WorkerPool changes and deletion
 recompute affected templates without waiting for a polling interval.

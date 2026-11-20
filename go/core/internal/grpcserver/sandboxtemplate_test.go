@@ -45,7 +45,7 @@ func TestSandboxTemplateCatalog(t *testing.T) {
 		Workload: v1alpha3.SandboxTemplateWorkload{Image: testHarnessImage},
 		Env:      []v1alpha3.RuntimeEnvVar{{Name: "LANG", Value: "C.UTF-8"}},
 		Substrate: v1alpha3.RuntimeSubstratePolicy{
-			WorkerPoolRef:  corev1.LocalObjectReference{Name: "default"},
+			WorkerPoolRef:  v1alpha3.WorkerPoolReference{Name: "default"},
 			SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "s3://snapshots"},
 		},
 	}}

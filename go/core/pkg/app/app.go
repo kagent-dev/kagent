@@ -298,7 +298,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err != nil {
 		return fmt.Errorf("create controller manager: %w", err)
 	}
-	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages())
+	runtime, err := controller.NewRuntime(kubeConfig, watchNamespaces, cfg.GetSubstrate().GetWorkerPoolNamespaces(), ctx.Done(), cfg.GetRuntimeDefaults(), cfg.GetHarnessImages())
 	if err != nil {
 		return err
 	}

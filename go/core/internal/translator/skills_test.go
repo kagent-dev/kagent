@@ -25,7 +25,7 @@ func TestCompileSkillImageVolumes(t *testing.T) {
 		t.Run(string(kind), func(t *testing.T) {
 			harness := &v1alpha3.Harness{ObjectMeta: metav1.ObjectMeta{Name: "runtime", Namespace: "test"}, Spec: v1alpha3.HarnessSpec{
 				Workload:  v1alpha3.HarnessWorkload{Image: new(image), Command: []string{"/agent"}},
-				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
+				Substrate: v1alpha3.RuntimeSubstratePolicy{WorkerPoolRef: v1alpha3.WorkerPoolReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"}},
 			}}
 			model := modelConfig()
 			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"

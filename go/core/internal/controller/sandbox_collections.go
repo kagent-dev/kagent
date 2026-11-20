@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -84,12 +85,15 @@ func newSandboxCollections(inputs Collections, policy substrate.SandboxPolicy, o
 		if _, err := egress.CanonicalAccess(state.EgressGrant.Destinations, state.EgressGrant.Credentials, nil); err != nil {
 			state.EgressConflict = err.Error()
 		}
-		pool := krt.FetchOne(ctx, inputs.WorkerPools, krt.FilterKey(template.Namespace+"/"+template.Spec.Substrate.WorkerPoolRef.Name))
-		if pool == nil {
+		pool, err := translator.ResolveWorkerPool(ctx, translator.Collections{WorkerPools: inputs.WorkerPools, WorkerPoolNamespaces: inputs.WorkerPoolNamespaces}, template.Namespace, template.Spec.Substrate.WorkerPoolRef)
+		var missingPool *translator.WorkerPoolNotFoundError
+		switch {
+		case errors.As(err, &missingPool):
 			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotFound", Message: "The referenced sandbox WorkerPool does not exist"}
-		} else {
-			var err error
-			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, (*pool).Spec.DefaultSandboxClass(), policy)
+		case err != nil:
+			state.Failure = &ReconciliationFailure{Reason: "WorkerPoolNotAllowed", Message: err.Error()}
+		default:
+			state.DesiredActorTemplate, state.RevisionID, state.SourceSnapshot, err = substrate.SandboxActorTemplate(template, pool.Spec.DefaultSandboxClass(), policy)
 			if err != nil {
 				state.CompilationError = err.Error()
 				state.Failure = &ReconciliationFailure{Reason: sandboxPreparationFailed, Message: sandboxPreparationFailureMessage}

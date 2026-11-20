@@ -1,0 +1,68 @@
+suite: test workerpool reader role
+templates:
+  - rbac/workerpool-reader-role.yaml
+tests:
+  - it: should render nothing for a cluster-scoped install
+    set:
+      config.substrate.workerPoolNamespaces: [kagent-workers]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render nothing without pool namespaces
+    set:
+      rbac.namespaces: [NAMESPACE, team-a]
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should grant read-only workerpools access in a pool namespace outside the RBAC scope
+    set:
+      rbac.namespaces: [NAMESPACE, team-a]
+      config.substrate.workerPoolNamespaces: [kagent-workers]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: kagent-workers
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [ate.dev]
+              resources: [workerpools]
+              verbs: [get, list, watch]
+        documentIndex: 0
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: kagent-workers
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: RELEASE-NAME-workerpool-reader
+        documentIndex: 1
+      - equal:
+          path: subjects[0]
+          value:
+            kind: ServiceAccount
+            name: RELEASE-NAME-controller
+            namespace: NAMESPACE
+        documentIndex: 1
+
+  - it: should skip pool namespaces the RBAC scope already covers
+    set:
+      rbac.namespaces: [NAMESPACE, team-a, shared-workers]
+      config.substrate.workerPoolNamespaces: [shared-workers, kagent-workers]
+    asserts:
+      - hasDocuments:
+          count: 2
+      - equal:
+          path: metadata.namespace
+          value: kagent-workers
