@@ -66,11 +66,13 @@ function navRailStyles(theme: Theme) {
     "& .ant-menu-item a:focus-visible": { outline: "none" },
     "& .ant-menu:focus-visible": { outline: `2px solid ${theme.color.navFocus}`, outlineOffset: -2 },
     "& .ant-menu-item::after": { display: "none" },
+    // Left-aligned at the expanded inset, which already centres the icon in the collapsed
+    // rail; centring instead made icons sweep in from the right while the rail shrank.
     "& .ant-menu-inline-collapsed .ant-menu-item": {
-      paddingInline: 0,
+      paddingInline: `${NAV_INSET}px 0`,
       display: "flex",
       alignItems: "center",
-      justifyContent: "center",
+      justifyContent: "flex-start",
     },
   };
 }
