@@ -366,20 +366,18 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			wantReject: "BYO harnesses must specify workload.command",
 		},
 		{
-			name: "Claude Harness rejects workload command",
+			name: "valid Claude Harness with workload command",
 			object: validHarness(namespace, "claude-command", HarnessSpec{
 				Claude:   &ClaudeHarness{},
 				Workload: HarnessWorkload{Command: []string{"/bin/sh"}},
 			}),
-			wantReject: "Claude harnesses do not support workload.command or workload.args",
 		},
 		{
-			name: "Codex Harness rejects workload args",
+			name: "valid Codex Harness with workload args",
 			object: validHarness(namespace, "codex-args", HarnessSpec{
 				Codex:    &CodexHarness{},
 				Workload: HarnessWorkload{Args: []string{"--flag"}},
 			}),
-			wantReject: "Codex harnesses do not support workload.command or workload.args",
 		},
 		{
 			name: "valid kagent Harness with workload command",

@@ -116,15 +116,14 @@ type HarnessWorkload struct {
 	// +optional
 	Image *string `json:"image,omitempty"`
 
-	// Command overrides the image entrypoint. Supported by kagent and byo
-	// harnesses and required by byo; claude and codex harnesses reject it.
+	// Command overrides the image entrypoint. Supported by all harnesses and
+	// required by byo.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +optional
 	Command []string `json:"command,omitempty"`
 
-	// Args overrides the image command arguments. Supported by kagent and byo
-	// harnesses; claude and codex harnesses reject it.
+	// Args overrides the image command arguments. Supported by all harnesses.
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
 	// +optional
@@ -139,8 +138,6 @@ type HarnessWorkload struct {
 // +kubebuilder:validation:ExactlyOneOf=kagent;codex;claude;byo
 // +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.image))",message="BYO harnesses must specify workload.image"
 // +kubebuilder:validation:XValidation:rule="!has(self.byo) || (has(self.workload) && has(self.workload.command))",message="BYO harnesses must specify workload.command"
-// +kubebuilder:validation:XValidation:rule="!has(self.claude) || !has(self.workload) || (!has(self.workload.command) && !has(self.workload.args))",message="Claude harnesses do not support workload.command or workload.args"
-// +kubebuilder:validation:XValidation:rule="!has(self.codex) || !has(self.workload) || (!has(self.workload.command) && !has(self.workload.args))",message="Codex harnesses do not support workload.command or workload.args"
 type HarnessSpec struct {
 	// +optional
 	Kagent *KagentHarness `json:"kagent,omitempty"`
