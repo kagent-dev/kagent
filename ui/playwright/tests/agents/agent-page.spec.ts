@@ -168,6 +168,26 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 });
 
+test("agents: the conversations table titles each row as the rail does", async ({ page }) => {
+  // Unnamed, with a first message, so its title is derived rather than typed.
+  const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+  await loadPage(page, agentPage(agents.sharedOnFastLane));
+  const derived = page.getByTestId(`conversation-link-${autoTitled}`);
+  await expect(derived).toContainText("Summarise last night's deploy");
+  await expect(page.getByTestId(`chat-session-${autoTitled}`)).toContainText(
+    "Summarise last night's deploy",
+  );
+
+  const links = page.locator('a[data-testid^="conversation-link-"]');
+  await expect(links).not.toHaveCount(0);
+  for (const link of await links.all()) {
+    const id = (await link.getAttribute("data-testid"))?.replace("conversation-link-", "");
+    const title = (await link.textContent()) ?? "";
+    // The rail appends the age after " · "; the title before it must match.
+    await expect(page.getByTestId(`chat-session-${id}`)).toContainText(title);
+  }
+});
+
 /**
  * Item 7: the "include agents created by others" toggle is gone, and the consequence
  * of removing it is handled rather than hidden.

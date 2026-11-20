@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { getChatClient } from "@/api/chat";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
@@ -117,7 +117,9 @@ export function useConversationTitles(
     const title = derived.get(instance.id);
     if (title) titles[instance.id] = title;
   }
-  return titles;
+  // Same object until a title changes, so callers can memoise on it.
+  const signature = JSON.stringify(titles);
+  return useMemo(() => JSON.parse(signature) as Record<string, string>, [signature]);
 }
 
 /** Titles per conversation, shared by every mount on one SWR cache. */
