@@ -130,7 +130,12 @@ function TemplateCreateForm({ initial, copyNotice }: { initial?: AgentTemplateDr
             namespace={draft.namespace}
             fieldFor={validation.field}
             namespaceField={
-              <FormField label="Namespace" required {...validation.field("namespace")}>
+              <FormField
+                label="Namespace"
+                required
+                {...validation.field("namespace")}
+                help="Pick the namespace to create the template in."
+              >
                 <NamespaceSelect
                   data-testid="template-form-namespace"
                   value={draft.namespace}

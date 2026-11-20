@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { useAgentTemplates, useMcpServers, useModels, useTools } from "@/api";
 import { DataPill, DataPillList } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
+import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
@@ -198,24 +199,25 @@ export function AgentTemplateForm({
 
       <Form layout="vertical" component="div">
         {isCreate ? (
-          <Field readOnly={readOnly}
-            label="Name"
-            required
-            {...fieldFor("name")}
-            help="Pick a name to refer to this agent template."
-          >
-            <NameInput
-              dots
-              data-testid="template-form-name"
-              value={draft.name}
-              onChange={(value) => set("name", value)}
-              placeholder={placeholder("incident-responder")}
-              {...readOnlyInput}
-            />
-          </Field>
-        ) : null}
-
-        {namespaceField}
+          <FieldRow>
+            <Field readOnly={readOnly}
+              label="Name"
+              required
+              {...fieldFor("name")}
+              help="Pick a name to refer to this agent template."
+            >
+              <NameInput
+                dots
+                data-testid="template-form-name"
+                value={draft.name}
+                onChange={(value) => set("name", value)}
+                placeholder={placeholder("incident-responder")}
+                {...readOnlyInput}
+              />
+            </Field>
+            {namespaceField}
+          </FieldRow>
+        ) : namespaceField}
 
         <Field readOnly={readOnly} label="Model configuration" required={modelRequired} extra={modelHelp} {...fieldFor("model")}>
           <Select

@@ -192,7 +192,7 @@ describe("new agent template page", () => {
     expect(screen.queryByTestId("template-form-sub-agent-0")).not.toBeInTheDocument();
   });
 
-  it("takes a typed namespace exactly as typed when the list cannot be read", async () => {
+  it("takes a typed namespace, kept to a namespace's characters, when the list cannot be read", async () => {
     api.namespacesError = new Error("forbidden");
     api.createAgentTemplate.mockResolvedValue({ name: "helper" });
     const router = renderAt("/agent-templates/new");
@@ -202,9 +202,10 @@ describe("new agent template page", () => {
     fireEvent.input(box, { target: { value: "" } });
     expect(box).toHaveValue("");
     fireEvent.blur(box);
-    expect(box).toHaveAccessibleDescription(/^A namespace is required\./);
-    fireEvent.input(box, { target: { value: "Team A" } });
-    expect(box).toHaveAccessibleDescription(/^The namespace must be a valid Kubernetes name\./);
+    expect(box).toHaveAccessibleDescription(/A namespace is required\./);
+    fireEvent.input(box, { target: { value: "Team A-" } });
+    expect(box).toHaveValue("team-a-");
+    expect(box).toHaveAccessibleDescription(/The namespace must be a valid Kubernetes name\./);
     expect(screen.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByTestId("template-submit"));
     expect(api.createAgentTemplate).not.toHaveBeenCalled();

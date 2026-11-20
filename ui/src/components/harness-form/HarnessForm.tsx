@@ -7,6 +7,7 @@ import { SubmitError } from "@/components/common/SubmitError";
 import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { toastSaved } from "@/components/form/saveToast";
@@ -135,45 +136,47 @@ export function HarnessForm({
 
   return (
     <Form layout="vertical" component="div">
-      <FormField
-        label="Name"
-        required
-        htmlFor="harness-name"
-        {...validation.field("name")}
-        help={harness ? "You can't change the name." : "Pick a name to refer to this harness."}
-      >
-        <NameInput
-          dots
-          id="harness-name"
-          data-testid="harness-name"
-          value={name}
-          disabled={Boolean(harness)}
-          onChange={setName}
-          placeholder="my-harness"
-        />
-      </FormField>
+      <FieldRow>
+        <FormField
+          label="Name"
+          required
+          htmlFor="harness-name"
+          {...validation.field("name")}
+          help={harness ? "You can't change the name." : "Pick a name to refer to this harness."}
+        >
+          <NameInput
+            dots
+            id="harness-name"
+            data-testid="harness-name"
+            value={name}
+            disabled={Boolean(harness)}
+            onChange={setName}
+            placeholder="my-harness"
+          />
+        </FormField>
 
-      <FormField
-        label="Namespace"
-        required
-        htmlFor="harness-namespace"
-        {...validation.field("namespace")}
-        extra={
-          harness
-            ? "Fixed once the harness exists."
-            : fixedNamespace
-              ? "The agent's namespace: an agent can only use a harness in its own."
-              : undefined
-        }
-      >
-        <NamespaceSelect
-          id="harness-namespace"
-          data-testid="harness-namespace"
-          value={namespace}
-          disabled={Boolean(harness || fixedNamespace)}
-          onChange={setNamespace}
-        />
-      </FormField>
+        <FormField
+          label="Namespace"
+          required
+          htmlFor="harness-namespace"
+          {...validation.field("namespace")}
+          extra={
+            harness
+              ? "Fixed once the harness exists."
+              : fixedNamespace
+                ? "The agent's namespace: an agent can only use a harness in its own."
+                : "Pick the namespace to create the harness in."
+          }
+        >
+          <NamespaceSelect
+            id="harness-namespace"
+            data-testid="harness-namespace"
+            value={namespace}
+            disabled={Boolean(harness || fixedNamespace)}
+            onChange={setNamespace}
+          />
+        </FormField>
+      </FieldRow>
 
       <HarnessFields
         draft={draft}

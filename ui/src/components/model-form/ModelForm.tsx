@@ -20,6 +20,7 @@ import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { ListInput } from "@/components/form/ListInput";
@@ -531,43 +532,45 @@ export function ModelForm({
           </FormField>
         ) : null}
 
-        <FormField
-          label="Name"
-          required
-          {...fieldFor("name")}
-          help={
-            identityLocked
-              ? "You can't change the name."
-              : "Pick a name to refer to this model configuration. Defaults to the model's own name."
-          }
-        >
-          <NameInput
-            dots={false}
-            data-testid="model-name"
-            placeholder="gpt-4-1"
-            value={effectiveName}
-            disabled={identityLocked}
-            onChange={(value) => {
-              setNameTouched(true);
-              set("name", value);
-            }}
-            css={{ fontFamily: theme.font.mono }}
-          />
-        </FormField>
+        <FieldRow>
+          <FormField
+            label="Name"
+            required
+            {...fieldFor("name")}
+            help={
+              identityLocked
+                ? "You can't change the name."
+                : "Pick a name to refer to this model configuration. Defaults to the model's own name."
+            }
+          >
+            <NameInput
+              dots={false}
+              data-testid="model-name"
+              placeholder="gpt-4-1"
+              value={effectiveName}
+              disabled={identityLocked}
+              onChange={(value) => {
+                setNameTouched(true);
+                set("name", value);
+              }}
+              css={{ fontFamily: theme.font.mono }}
+            />
+          </FormField>
 
-        <FormField
-          label="Namespace"
-          required
-          {...fieldFor("namespace")}
-          help={identityLocked ? "Fixed once the model exists." : "Pick the namespace to create the model in."}
-        >
-          <NamespaceSelect
-            data-testid="model-namespace"
-            value={draft.namespace}
-            disabled={identityLocked}
-            onChange={(namespace) => set("namespace", namespace)}
-          />
-        </FormField>
+          <FormField
+            label="Namespace"
+            required
+            {...fieldFor("namespace")}
+            help={identityLocked ? "Fixed once the model exists." : "Pick the namespace to create the model in."}
+          >
+            <NamespaceSelect
+              data-testid="model-namespace"
+              value={draft.namespace}
+              disabled={identityLocked}
+              onChange={(namespace) => set("namespace", namespace)}
+            />
+          </FormField>
+        </FieldRow>
 
         {/* Ollama needs no key for a local model, but an Ollama Cloud model authenticates
             with a key, hence the Secret option. Other providers pick a mode: a key typed

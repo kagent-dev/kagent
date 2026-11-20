@@ -16,6 +16,7 @@ import { SubmitError } from "@/components/common/SubmitError";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { toastSaved } from "@/components/form/saveToast";
@@ -139,33 +140,35 @@ export function McpServerNewPage() {
         </Text>
 
         <Form layout="vertical" component="div">
-          <FormField
-            label="Name"
-            required
-            {...validation.field("name")}
-            help="Pick a name to refer to this MCP server."
-          >
-            <NameInput
-              dots={false}
-              data-testid="mcp-name"
-              placeholder="my-mcp-server"
-              value={values.name}
-              onChange={setName}
-            />
-          </FormField>
+          <FieldRow>
+            <FormField
+              label="Name"
+              required
+              {...validation.field("name")}
+              help="Pick a name to refer to this MCP server."
+            >
+              <NameInput
+                dots={false}
+                data-testid="mcp-name"
+                placeholder="my-mcp-server"
+                value={values.name}
+                onChange={setName}
+              />
+            </FormField>
 
-          <FormField
-            label="Namespace"
-            required
-            {...validation.field("namespace")}
-            help="Pick the namespace to register the server in."
-          >
-            <NamespaceSelect
-              data-testid="mcp-namespace"
-              value={values.namespace}
-              onChange={(namespace) => set("namespace", namespace)}
-            />
-          </FormField>
+            <FormField
+              label="Namespace"
+              required
+              {...validation.field("namespace")}
+              help="Pick the namespace to register the server in."
+            >
+              <NamespaceSelect
+                data-testid="mcp-namespace"
+                value={values.namespace}
+                onChange={(namespace) => set("namespace", namespace)}
+              />
+            </FormField>
+          </FieldRow>
 
           <FormField
             label="Server URL"

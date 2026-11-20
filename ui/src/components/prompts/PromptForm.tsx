@@ -5,6 +5,7 @@ import type { CreatePromptTemplateRequest } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
@@ -117,37 +118,39 @@ export function PromptForm({
       {/* Name before namespace: the namespace arrives filled in and is usually left
           alone, so leading with it puts a box to tab past in front of the name. */}
       <Form layout="vertical" component="div">
-        <FormField
-          label="Name"
-          required
-          {...validation.field("name")}
-          help={identityLocked ? "You can't change the name." : "Pick a name to refer to this prompt library."}
-        >
-          <NameInput
-            dots
-            data-testid="prompt-name"
-            placeholder="team-prompts"
-            value={draft.name}
-            // `readOnly` keeps the name at full contrast, so it is clear which library this is.
-            readOnly={identityLocked}
-            onChange={(name) => update({ name })}
-            css={{ fontFamily: theme.font.mono }}
-          />
-        </FormField>
+        <FieldRow>
+          <FormField
+            label="Name"
+            required
+            {...validation.field("name")}
+            help={identityLocked ? "You can't change the name." : "Pick a name to refer to this prompt library."}
+          >
+            <NameInput
+              dots
+              data-testid="prompt-name"
+              placeholder="team-prompts"
+              value={draft.name}
+              // `readOnly` keeps the name at full contrast, so it is clear which library this is.
+              readOnly={identityLocked}
+              onChange={(name) => update({ name })}
+              css={{ fontFamily: theme.font.mono }}
+            />
+          </FormField>
 
-        <FormField
-          label="Namespace"
-          required
-          {...validation.field("namespace")}
-          help={identityLocked ? "Libraries stay in the namespace they were created in." : undefined}
-        >
-          <NamespaceSelect
-            data-testid="prompt-namespace"
-            value={draft.namespace}
-            disabled={identityLocked}
-            onChange={(namespace) => update({ namespace })}
-          />
-        </FormField>
+          <FormField
+            label="Namespace"
+            required
+            {...validation.field("namespace")}
+            help={identityLocked ? "Libraries stay in the namespace they were created in." : "Pick the namespace to create the library in."}
+          >
+            <NamespaceSelect
+              data-testid="prompt-namespace"
+              value={draft.namespace}
+              disabled={identityLocked}
+              onChange={(namespace) => update({ namespace })}
+            />
+          </FormField>
+        </FieldRow>
 
         <FormField
           label="Fragments"
