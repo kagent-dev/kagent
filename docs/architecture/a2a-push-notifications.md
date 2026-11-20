@@ -79,8 +79,7 @@ claimed when capacity is available. Leases cover the configured send timeout plu
 record failed attempts for retry. Shutdown cancels active sends and allows up to
 five seconds to persist each outcome. Successful sends remain acknowledged;
 shutdown-interrupted attempts release their claims immediately without consuming
-the retry budget. Claims whose outcomes could not be saved recover after lease
-expiry.
+an attempt. Claims whose outcomes could not be saved recover after lease expiry.
 
 Workers claim pending registrations at startup and after wake-ups. When idle,
 recovery scans run once a minute by default (`push.recoveryInterval`, which must be
@@ -94,13 +93,11 @@ Send completion and local hints also wake the sender. Queued completions are
 drained together before refilling capacity. Saturated senders wait for capacity
 without querying for pending deliveries.
 
-Each pending generation permits up to ten attempts across controller restarts;
-successfully released shutdown interruptions do not consume this budget.
-Exhausting the retry budget or expiring the final lease clears pending
-delivery state while retaining the callback registration for future publications.
-Failures preparing a notification use the same retry schedule as failed
-HTTP requests, so a malformed task cannot block unrelated callbacks. A newer
-eligible publication resets its attempt count and retry delay.
+Each notification generation permits up to 20 attempts across controller restarts
+and replicas. Preparation and HTTP failures back off for 5s, 10s, 20s, 40s, then
+cap at 60s: about 16 minutes of backoff, plus request and scheduling time.
+Exhaustion clears pending work but keeps the registration; a new publication
+resets the attempt count and backoff.
 An acknowledgement or failure from an older generation cannot change newer
 pending work. Workers capture the latest published task status when claiming and
 check that the claim is still current immediately before sending. Requests
@@ -143,11 +140,11 @@ openssl genpkey -algorithm ED25519 -out private-key.pem
 kubectl -n kagent create secret generic push-signing --from-file=private-key.pem
 ```
 
-Set `controller.push.signing.secretName: push-signing`. Helm references the
-Secret's `private-key.pem` entry; it does not generate or manage signing keys.
-Outside Helm, set `push.signingPrivateKeyFile` to the PEM file path.
-Operators manage key persistence and rotation, and all controller replicas must
-load the same key. An invalid configured key prevents startup.
+Set `controller.push.signing.secretName: push-signing` to mount `private-key.pem`.
+For CSI/custom mounts, set `config.push.signingPrivateKeyFile` and supply
+`controller.volumes` and `controller.volumeMounts`; `secretName` overrides the
+path. Outside Helm, use `push.signingPrivateKeyFile`. All replicas need the same
+key. Invalid keys prevent startup.
 
 When a key is configured, Kagent sends a fresh five-minute Ed25519 JWT as
 `Authorization: Bearer <JWT>` on each attempt and publishes the public key at
@@ -162,8 +159,17 @@ accepted callbacks promptly with 2xx; use your own A2A credentials to call
 Helm chooses the issuer from `config.push.issuer`,
 `ui.externalUrl`, then the in-cluster gateway URL; outside Helm,
 `push.issuer` defaults to `gateway.publicUrl`. Keep the issuer stable.
-Restart all controller Pods together after rotating the key to avoid replicas
-serving different JWKS during rotation.
+The controller polls the file every 15s. Replace the Secret or CSI file without
+restarting Pods; unreadable or invalid updates keep the last valid key.
+Replacement public keys appear immediately; signing switches after
+`config.push.signingKeyActivationDelay` (default `300s`, maximum `86400s`) plus
+a fixed 30s buffer. Set the delay to cover the longest receiver JWKS refresh interval.
+
+Old public keys stay published through their last JWT's expiry plus 30s for clock
+skew, and for at least 5m30s after replacement activation to cover peer replicas.
+Rotation state is in memory: restarts use the mounted key immediately and lose
+key history. Replicas reload independently; callbacks retry on authentication
+failures.
 
 HTTPS and public destinations are required by default. Operators can enable
 HTTP and private, loopback, or link-local destinations with

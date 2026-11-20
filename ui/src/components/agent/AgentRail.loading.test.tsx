@@ -16,7 +16,7 @@ import { AgentRail } from "./AgentRail";
  */
 
 vi.mock("@/api/hooks/useConversationTitles", () => ({
-  useConversationTitles: () => ({}),
+  useConversationTitles: () => ({ titles: {}, loading: new Set() }),
 }));
 
 const loadingList: ApiResource<AgentInstance[]> = {

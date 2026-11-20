@@ -362,6 +362,87 @@ test("chat agent rail: conversations are named", async ({ page }) => {
   });
 });
 
+/** Opening a row keeps its title and the list's length on every frame until the transcript loads. */
+test("chat agent rail: opening a conversation never flashes its id", async ({ page }) => {
+  await page.goto(agentPage(agents.sharedOnFastLane));
+  const row = page.getByTestId(`chat-session-${AUTO_TITLED}`);
+  await expect(row).toContainText("Summarise last night's deploy", { timeout: 30_000 });
+  const listed = await page.getByTestId("chat-sessions-list").locator(":scope > li").count();
+
+  // Sampled per frame in the page, since a one-frame flash is gone before any poll.
+  await page.evaluate((testId) => {
+    const samples: string[] = [];
+    const counts: number[] = [];
+    Object.assign(window, { railSamples: samples, railCounts: counts });
+    const tick = () => {
+      const text = document.querySelector(`[data-testid="${testId}"]`)?.textContent;
+      if (text) samples.push(text);
+      counts.push(document.querySelectorAll('[data-testid="chat-sessions-list"] > li').length);
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, `chat-session-${AUTO_TITLED}`);
+
+  await row.click();
+  await expect(page).toHaveURL(new RegExp(`/agents/${AUTO_TITLED}/chat$`));
+  await expect(page.getByTestId("chat-message").first()).toBeVisible({ timeout: 30_000 });
+
+  const samples = await page.evaluate(
+    () => (window as unknown as { railSamples: string[] }).railSamples,
+  );
+  expect(samples.length, "the row should have been sampled").toBeGreaterThan(0);
+  expect(
+    samples.filter((text) => text.includes("Untitled") || text.includes(AUTO_TITLED.slice(0, 8))),
+    "no frame should show the row's id in place of its title",
+  ).toEqual([]);
+  const counts = await page.evaluate(() => (window as unknown as { railCounts: number[] }).railCounts);
+  expect(
+    counts.filter((count) => count !== listed),
+    `every frame should list all ${listed} conversations`,
+  ).toEqual([]);
+});
+
+/** Chat → New chat → chat keeps the loaded list on every frame; `slow` holds each read open. */
+test("chat agent rail: New chat and back never drops the list to loading", async ({ page }) => {
+  await page.goto(withScenario(AGENT_CHAT, "slow"));
+  const list = page.getByTestId("chat-sessions-list");
+  await expect(list.locator(":scope > li").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid^="conversation-title-loading-"]')).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  const listed = await list.locator(":scope > li").count();
+
+  await page.evaluate(() => {
+    const frames: { rows: number; skeleton: number; placeholders: number }[] = [];
+    Object.assign(window, { railFrames: frames });
+    const tick = () => {
+      frames.push({
+        rows: document.querySelectorAll('[data-testid="chat-sessions-list"] > li').length,
+        skeleton: document.querySelectorAll('[data-testid="chat-sessions-loading"]').length,
+        placeholders: document.querySelectorAll('[data-testid^="conversation-title-loading-"]')
+          .length,
+      });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  await page.getByTestId("chat-new-session").click();
+  await expect(page.getByTestId("new-chat-empty")).toBeVisible();
+  await page.getByTestId(`chat-session-${instances.ready}`).click();
+  await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat`));
+  await expect(page.getByTestId("chat-message").first()).toBeVisible({ timeout: 30_000 });
+
+  const frames = await page.evaluate(
+    () => (window as unknown as { railFrames: { rows: number; skeleton: number; placeholders: number }[] }).railFrames,
+  );
+  expect(frames.length, "the rail should have been sampled").toBeGreaterThan(0);
+  expect(
+    frames.filter((f) => f.skeleton > 0 || f.placeholders > 0 || f.rows !== listed),
+    `every frame should list all ${listed} conversations, titled`,
+  ).toEqual([]);
+});
+
 /**
  * A new conversation keeps its title once you leave it. Only the Agent Details hop fails
  * without the fix here; the mock re-reads on the sibling hop, so the unit tests cover it.

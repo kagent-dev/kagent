@@ -4,6 +4,8 @@ import { useTheme } from "@emotion/react";
 import { Download, FileText, X } from "lucide-react";
 import type { ChatFilePart } from "@/api";
 import { formatBytes } from "@/api/chat/attachments";
+import { cardStateStyles } from "@/components/agent/controlStyles";
+import { halfway } from "@/theme/theme";
 
 /** One file: staged in the composer (with `onRemove`), or sent in a message. */
 export function AttachmentChip({
@@ -86,7 +88,7 @@ export function AttachmentChip({
           size={14}
           aria-hidden
           className="attachment-download"
-          css={{ ...trailingIcon, color: theme.color.textMuted, transition: "color 120ms" }}
+          css={{ ...trailingIcon, color: theme.color.textMuted }}
         />
       ) : null}
     </>
@@ -104,8 +106,10 @@ export function AttachmentChip({
     background: theme.color.bgElevated,
     color: theme.color.text,
     fontSize: 13,
-    transition: "border-color 120ms, background 120ms, box-shadow 120ms, transform 80ms",
+    transition: "none",
   } as const;
+  const card = cardStateStyles(theme, theme.color.bgElevated);
+  const downloadLit = { color: theme.color.primaryText };
 
   if (canDownload) {
     return withTooltip(
@@ -121,19 +125,8 @@ export function AttachmentChip({
           ...chip,
           textDecoration: "none",
           cursor: "pointer",
-          "&:hover": {
-            color: theme.color.text,
-            borderColor: theme.color.primaryText,
-            background: theme.color.accentBg,
-            "& .attachment-download": { color: theme.color.primaryText },
-          },
-          "&:active": {
-            color: theme.color.text,
-            borderColor: theme.color.primary,
-            background: `color-mix(in srgb, ${theme.color.primary} 32%, ${theme.color.bgElevated})`,
-            boxShadow: "inset 0 1px 3px rgba(0, 0, 0, 0.2)",
-            transform: "translateY(1px)",
-          },
+          "&:hover": { ...card["&:hover"], "& .attachment-download": downloadLit },
+          "&:active": { ...card["&:active"], "& .attachment-download": downloadLit },
           ...focusRing,
         }}
       >
@@ -159,13 +152,13 @@ export function AttachmentChip({
           cursor: "pointer",
           "&:hover": {
             borderColor: theme.color.dangerBorder,
+            background: halfway(theme.color.bgElevated, theme.color.dangerBg),
             "& .attachment-remove": { color: theme.color.dangerText },
           },
           "&:active": {
-            borderColor: theme.color.danger,
+            borderColor: theme.color.dangerBorder,
             background: theme.color.dangerBg,
-            transform: "translateY(1px)",
-            "& .attachment-remove": { color: theme.color.dangerText, transform: "scale(0.9)" },
+            "& .attachment-remove": { color: theme.color.dangerText },
           },
           ...focusRing,
         }}
@@ -181,7 +174,6 @@ export function AttachmentChip({
             width: 22,
             height: 22,
             color: theme.color.textMuted,
-            transition: "color 120ms, transform 80ms",
           }}
         >
           <X size={14} />

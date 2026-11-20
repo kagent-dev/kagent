@@ -66,10 +66,14 @@ test("agent templates: a template is created, read, edited and deleted", async (
   await test.step("3. columns sort", async () => {
     // The search is cleared first: sorting one row proves nothing.
     await page.getByTestId("templates-filters-search").fill("");
-    const first = async () => (await dataRows(page).first().textContent()) ?? "";
-    const before = await first();
+    await expect(dataRows(page)).not.toHaveCount(1);
+    const names = () => page.locator('[data-testid^="template-link-"]').allTextContents();
+    const ascending = (list: string[]) => [...list].sort((a, b) => a.localeCompare(b));
+
     await page.getByRole("columnheader", { name: /Template/ }).click();
-    await expect.poll(first).not.toBe(before);
+    await expect.poll(async () => { const now = await names(); return now.join() === ascending(now).join(); }).toBe(true);
+    await page.getByRole("columnheader", { name: /Template/ }).click();
+    await expect.poll(async () => { const now = await names(); return now.join() === ascending(now).reverse().join(); }).toBe(true);
   });
 
   await test.step("4. the form says what a template is, and refuses an unusable one", async () => {

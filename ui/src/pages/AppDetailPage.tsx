@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { ArrowLeft } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { inlineLink } from "@/components/common/linkStyles";
 import { ToolServerTools } from "@/components/mcp/ToolServerTools";
 import { paths } from "@/router/routes";
 import { parseRef, useMcpServers, type DiscoveredTool, type ToolServerResponse } from "@/api";
@@ -153,6 +154,7 @@ export function AppDetailPage() {
                     return (
                       <li key={server.ref}>
                         <Link
+                          css={inlineLink(theme)}
                           to={`${paths.appDetail.replace(":appName", encodeURIComponent(appName))}?ns=${encodeURIComponent(ref.namespace)}&server=${encodeURIComponent(ref.name)}`}
                         >
                           {server.ref}

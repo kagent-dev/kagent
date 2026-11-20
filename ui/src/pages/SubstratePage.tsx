@@ -1,4 +1,5 @@
 import { ReadError } from "@/components/common/ReadError";
+import { pillBorder } from "@/theme/theme";
 import {
   useCallback,
   useEffect,
@@ -152,22 +153,22 @@ function statusPalette(theme: Theme): Record<StatusTone, CSSObject> {
   return {
     healthy: {
       background: theme.color.successBg,
-      borderColor: theme.color.successBorder,
+      borderColor: pillBorder(theme.color.successBorder, theme.color.successBg),
       color: theme.color.successText,
     },
     danger: {
       background: theme.color.dangerBg,
-      borderColor: theme.color.dangerBorder,
+      borderColor: pillBorder(theme.color.dangerBorder, theme.color.dangerBg),
       color: theme.color.dangerText,
     },
     warning: {
       background: theme.color.warningBg,
-      borderColor: theme.color.warningBorder,
+      borderColor: pillBorder(theme.color.warningBorder, theme.color.warningBg),
       color: theme.color.warningText,
     },
     progress: {
       background: theme.color.infoBg,
-      borderColor: theme.color.infoBorder,
+      borderColor: pillBorder(theme.color.infoBorder, theme.color.infoBg),
       color: theme.color.infoText,
     },
     idle: {
@@ -1211,7 +1212,7 @@ export function SubstratePage() {
             </Tooltip>
           ) : null}
 
-          <RefreshButton onRefresh={refreshAll} what="Substrate" loading={isRefreshing} />
+          <RefreshButton onRefresh={refreshAll} what="Substrate" loading={isRefreshing} iconOnly />
         </Space>
       }
     >

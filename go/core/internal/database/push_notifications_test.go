@@ -411,18 +411,22 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 }
 
 func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
+	// Given pending work, when clients are recreated between failed attempts,
+	// assert that backoff and the 20-attempt limit persist across clients.
+	db := setupTestDB(t)
+	client := NewClient(db, "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
 
 	var final *PushDelivery
-	for attempt := 1; attempt <= pushMaxDeliveryAttempts; attempt++ {
+	for attempt := 1; attempt <= 20; attempt++ {
+		client = NewClient(db, "public")
 		delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, delivery)
 		require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
-		if attempt == pushMaxDeliveryAttempts {
+		if attempt == 20 {
 			final = delivery
 			assertPushDeliveryRetired(t, client, delivery.ID)
 			break
@@ -436,7 +440,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
             FROM session_push_registration WHERE id = $1
         `, delivery.ID).Scan(&count, &delaySeconds))
 		require.Equal(t, attempt, count)
-		wantSeconds := float64(min(5<<(attempt-1), 300))
+		wantSeconds := float64(min(5<<(attempt-1), 60))
 		require.InDelta(t, wantSeconds, delaySeconds, 1)
 		blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 		require.NoError(t, err)

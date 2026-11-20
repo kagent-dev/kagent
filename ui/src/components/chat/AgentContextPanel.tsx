@@ -10,6 +10,9 @@ import { backLinkState } from "@/router/backLink";
 
 const { Text, Paragraph } = Typography;
 
+// Model, three rows of tools and a clamped prompt: the tallest of the live agents measured.
+const DETAILS_MIN_HEIGHT = 328;
+
 /**
  * What this agent is, beside the conversation.
  *
@@ -63,6 +66,7 @@ export function AgentContextPanel({
   const harnessRef = definition.data?.resource.spec.harnessRef.name;
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
+  const loading = definition.isLoading || template.isLoading;
   const tools = spec?.tools ?? [];
 
   return (
@@ -112,8 +116,14 @@ export function AgentContextPanel({
         css={{ borderTop: `1px solid ${theme.color.border}`, margin: `${theme.space(1)} 0` }}
       />
 
-      {definition.isLoading || template.isLoading ? (
-        <Skeleton active paragraph={{ rows: 4 }} data-testid="chat-agent-context-loading" />
+      {/* Both held at a typical template's height, so the actions below stay put when it loads. */}
+      {loading ? (
+        <Skeleton
+          active
+          paragraph={{ rows: 7 }}
+          data-testid="chat-agent-context-loading"
+          css={{ minHeight: DETAILS_MIN_HEIGHT }}
+        />
       ) : error ? (
         /* The conversation above is unaffected — it is read from the gateway, not from
            the template — so this is a note beside the transcript rather than a failure
@@ -126,7 +136,15 @@ export function AgentContextPanel({
           description={error.message}
         />
       ) : spec ? (
-        <>
+        <div
+          data-testid="chat-agent-context-details"
+          css={{
+            display: "grid",
+            gap: theme.space(4),
+            alignContent: "start",
+            minHeight: DETAILS_MIN_HEIGHT,
+          }}
+        >
           <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
             <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
               {referenceLabel(spec.modelConfig, templateNamespace) || "—"}
@@ -196,7 +214,7 @@ export function AgentContextPanel({
               </Text>
             </Field>
           ) : null}
-        </>
+        </div>
       ) : null}
 
       {instance?.preparedRevision ? (
@@ -289,6 +307,8 @@ function RefLink({
           justifySelf: "start",
           fontFamily: theme.font.mono,
           fontSize: 12,
+          // Typography's line height, so the link is as tall as the text it replaces.
+          lineHeight: 1.5714,
           color: theme.color.primaryText,
           wordBreak: "break-word",
           "&:hover, &:focus-visible": { textDecoration: "underline" },

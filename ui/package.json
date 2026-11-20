@@ -24,11 +24,13 @@
     "@connectrpc/connect": "2.3.0",
     "@connectrpc/connect-web": "2.3.0",
     "@emotion/react": "^11.14.0",
+    "@monaco-editor/react": "^4.7.0",
     "antd": "^6.7.0",
     "chart.js": "^4.6.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.72.0",
     "mermaid": "12.3.0",
+    "monaco-editor": "^0.57.0",
     "react": "^19.3.1",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.3.1",
@@ -65,7 +67,8 @@
     "vitest": "^4.1.12"
   },
   "resolutions": {
-    "minimatch": "^11.0.1"
+    "minimatch": "^11.0.1",
+    "dompurify": "^3.4.18"
   },
   "msw": {
     "workerDirectory": [

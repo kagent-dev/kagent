@@ -141,7 +141,7 @@ See `samples/openai/` for complete examples:
 
 ## See Also
 
-- [OpenAI Agents SDK Docs](https://github.com/openai/agents)
+- [OpenAI Agents SDK Docs](https://openai.github.io/openai-agents-python/)
 - [Python runtime helpers](../kagent-tools/README.md)
 - [A2A Protocol](https://docs.kagent.ai/a2a)
 

@@ -2,6 +2,7 @@ import { useTheme } from "@emotion/react";
 import { Typography } from "antd";
 import { ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
+import { cardStateStyles } from "@/components/agent/controlStyles";
 
 /**
  * One row of the Agents page's Create modal. Exported through `@/appExtensions` so an
@@ -35,7 +36,7 @@ export function CreateOptionRow({
         padding: theme.space(3),
         borderRadius: theme.radius.md,
         border: `1px solid ${theme.color.border}`,
-        "&:hover": { borderColor: `${theme.color.primary}A6`, background: theme.color.bgElevated },
+        ...cardStateStyles(theme),
         "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
       }}
     >

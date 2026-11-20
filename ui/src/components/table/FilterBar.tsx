@@ -158,7 +158,8 @@ export function FilterBar({
           </div>
         ))}
 
-        {trailing}
+        {/* Pushed to the row's right edge, so the summary and Refresh sit at its end. */}
+        {trailing ? <div css={{ marginInlineStart: "auto" }}>{trailing}</div> : null}
       </div>
 
       {pills.length > 0 ? (
