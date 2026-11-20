@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc/filters"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -65,7 +66,7 @@ type A2AServer struct {
 // NewA2AServer creates a new A2A server using a2asrv.
 func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, logger *slog.Logger, config ServerConfig, handlerOpts ...a2asrv.RequestHandlerOption) (*A2AServer, error) {
 	handlerOpts = append(handlerOpts, a2asrv.WithCallInterceptors(
-		newInvocationInterceptor(logger, config.Telemetry, config.Flush)))
+		newInvocationInterceptor(config.Telemetry, config.Flush)))
 	requestHandler := a2asrv.NewHandler(executor, handlerOpts...)
 	jsonrpcHandler := a2asrv.NewJSONRPCHandler(requestHandler)
 	maxContentLength := defaultMaxContentLength
@@ -158,7 +159,7 @@ func NewA2AServer(agentCard a2atype.AgentCard, executor a2asrv.AgentExecutor, lo
 				}
 			}
 			if err := config.Flush(r.Context()); err != nil {
-				logger.ErrorContext(r.Context(), "failed to flush traces after A2A handler", "error", err)
+				otel.Handle(err)
 			}
 		})
 	}

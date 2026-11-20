@@ -42,8 +42,10 @@ func restoreGlobals(t *testing.T) {
 			}
 		}
 	})
+	handler := otel.GetErrorHandler()
 	tracer, meter, propagator := otel.GetTracerProvider(), otel.GetMeterProvider(), otel.GetTextMapPropagator()
 	t.Cleanup(func() {
+		otel.SetErrorHandler(handler)
 		otel.SetTracerProvider(tracer)
 		otel.SetMeterProvider(meter)
 		otel.SetTextMapPropagator(propagator)

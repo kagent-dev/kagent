@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 // FlushTimeout bounds one ForceFlush.
@@ -58,8 +58,15 @@ type Providers struct {
 // per enabled signal.
 // A signal that fails to configure stays off and is reported in the error.
 func Init(ctx context.Context, opts Options) (*Providers, error) {
+	var diagnostic sync.Once
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
-		slog.Default().ErrorContext(context.Background(), "opentelemetry", "error", err)
+		if err == nil {
+			return
+		}
+		diagnostic.Do(func() {
+			// Collector responses can contain credentials or arbitrary payloads.
+			logging.FromContext(ctx).ErrorContext(ctx, "opentelemetry failure; further diagnostics suppressed", "error_type", fmt.Sprintf("%T", err))
+		})
 	}))
 	providers := &Providers{}
 	if err := opts.Config.Validate(); err != nil {

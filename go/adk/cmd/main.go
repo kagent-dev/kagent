@@ -11,6 +11,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"go.opentelemetry.io/otel"
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/a2a"
 	"github.com/kagent-dev/kagent/go/adk/pkg/app"
@@ -110,13 +111,13 @@ func run(logLevel, host, port, configDir string) error {
 	runtimeTelemetry.AgentNamespace = serviceNamespace
 	providers, err := telemetry.Init(context.Background(), runtimeTelemetry)
 	if err != nil {
-		logger.Error("failed to initialize ADK telemetry", "error", err)
+		otel.Handle(err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := providers.Shutdown(shutdownCtx); err != nil {
-			logger.Error("failed to shutdown telemetry providers cleanly", "error", err)
+			otel.Handle(err)
 		}
 	}()
 
