@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/internal/azureai"
 	"github.com/kagent-dev/kagent/go/adk/pkg/models"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
@@ -120,11 +121,13 @@ func newOpenAIProvider(cfg *configv1.ADKEmbeddingConfig) (*openAIProvider, error
 func generateEmbeddings(ctx context.Context, client openai.Client, cfg *configv1.ADKEmbeddingConfig, provider string, isAzureFamily bool, texts []string) ([][]float32, error) {
 	log := logging.FromContext(ctx)
 
+	options := append(embeddingPassthroughOpts(ctx, cfg, isAzureFamily),
+		option.WithHeader(egresspolicy.ActorIdentityHeader, "required"))
 	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model:      openai.EmbeddingModel(cfg.Model),
 		Input:      openai.EmbeddingNewParamsInputUnion{OfArrayOfStrings: texts},
 		Dimensions: openai.Int(int64(TargetDimension)),
-	}, embeddingPassthroughOpts(ctx, cfg, isAzureFamily)...)
+	}, options...)
 	if err != nil {
 		return nil, fmt.Errorf("%s embeddings request failed: %w", provider, err)
 	}

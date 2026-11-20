@@ -91,7 +91,7 @@ func TestFilterConflictsLimits(t *testing.T) {
 		require.Equal(t, []string{"https://z.example.com:443"}, dropped)
 	}
 	var credentials []Credential
-	for i := range 16 {
+	for i := range 15 {
 		credentials = append(credentials, Credential{Origin: "https://model.example.com:443", Header: fmt.Sprintf("x-header-%02d", i), URI: "ate-secret://k8s.io/default/team/auth/token"})
 	}
 	base = canonicalTestAccess(t, []string{credentials[0].Origin}, credentials...)

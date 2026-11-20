@@ -2,6 +2,7 @@ package adkconfig
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -15,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/utils"
+	"github.com/kagent-dev/kagent/go/core/pkg/egresspolicy"
 	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
@@ -40,6 +42,10 @@ type modelRuntime struct {
 // needed to compile a runtime revision.
 func resolveModel(resolved *translator.ResolvedModelConfig) (*modelRuntime, error) {
 	model, data, err := translateModel(resolved)
+	if err != nil {
+		return nil, err
+	}
+	model.Headers, err = egresspolicy.WithActorIdentity(maps.Clone(model.Headers))
 	if err != nil {
 		return nil, err
 	}
