@@ -61,6 +61,10 @@ func TestRollingUpgradeCompatibility(t *testing.T) {
 	defer cancel()
 	done := make(chan upgradeResult, 1)
 	cmd := helmUpgradeCommand(ctx, env)
+	// At 1 replica the chart deletes the leader-election Role, so the old
+	// leader loses its lease and exits before the new schema lands.
+	cmd.Env = append(cmd.Env, "KAGENT_HELM_EXTRA_ARGS="+
+		strings.TrimSpace(os.Getenv("KAGENT_HELM_EXTRA_ARGS")+" --set controller.replicas=2"))
 	go func() {
 		out, err := cmd.CombinedOutput()
 		done <- upgradeResult{out: string(out), err: err}

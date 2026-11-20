@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod,rw \
     go build -trimpath -ldflags "$LDFLAGS" -o /skills-init ./core/cmd/skills-init
 
 ### Stage 1: runtime
-FROM alpine:3.24
+FROM $BASE_IMAGE_REGISTRY/chainguard/wolfi-base:latest
 
 ARG PYTHON_UID=1001
 ARG PYTHON_GID=1001
@@ -31,7 +31,7 @@ ARG PYTHON_GID=1001
 # git is invoked by skills-init via exec.Command with an argv vector — never
 # through a shell — so the only attack surface here is git itself. OCI fetch
 # uses the in-process go-containerregistry library, so krane and jq are gone.
-RUN apk upgrade --no-cache && apk add --no-cache git openssh-client ca-certificates
+RUN apk add --no-cache git openssh-client openssh-keyscan
 
 COPY --from=builder /skills-init /usr/local/bin/skills-init
 
