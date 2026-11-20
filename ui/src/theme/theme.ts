@@ -384,7 +384,7 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
         itemActiveColor: color.navHoverText,
         itemSelectedColor: color.primaryText,
         inkBarColor: color.primaryText,
-        horizontalItemPadding: "12px 12px",
+        horizontalItemPadding: "12px 12px 10px",
         horizontalItemGutter: 8,
       },
       // The rail's states, all instant: motion tokens are zeroed for the menu only.
