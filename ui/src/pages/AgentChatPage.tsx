@@ -849,7 +849,11 @@ export function AgentChatPage() {
               data-testid="chat-context-aside"
               css={{ width: CONTEXT_WIDTH, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
             >
-              <AgentContextPanel instance={instance.data} onShowDetails={() => setShowingDetails(true)} />
+              <AgentContextPanel
+                instance={instance.data}
+                autoTitle={autoTitle}
+                onShowDetails={() => setShowingDetails(true)}
+              />
             </div>
           ) : null}
         </div>
@@ -857,6 +861,7 @@ export function AgentChatPage() {
 
       <ConversationDetailsModal
         instance={instance}
+        autoTitle={autoTitle}
         open={isShowingDetails}
         onClose={() => setShowingDetails(false)}
       />

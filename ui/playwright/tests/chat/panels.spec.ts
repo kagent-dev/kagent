@@ -104,6 +104,25 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
   });
 });
 
+/** An unnamed chat takes its title from its first message, as the rail does, with the id shown once. */
+test("chat: the panel titles an unnamed chat by its first message", async ({ page }) => {
+  const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(agentChat(autoTitled));
+  const name = page.getByTestId("chat-agent-context-session-name");
+  await expect(name).toContainText("Summarise last night's deploy", { timeout: 30_000 });
+  await expect(page.getByTestId(`chat-session-${autoTitled}`)).toContainText(
+    (await name.textContent()) ?? "",
+  );
+  await expect(name).not.toContainText(autoTitled.slice(0, 8));
+  await expect(page.getByTestId("chat-agent-context-session")).toContainText(autoTitled);
+
+  await page.getByTestId("chat-agent-context-details").click();
+  const fields = page.getByTestId("conversation-details-fields");
+  await expect(fields).toContainText("Summarise last night's deploy");
+  await expect(fields).not.toContainText("Untitled");
+});
+
 /**
  * The column the panel sits in, when the conversation could not be read.
  *

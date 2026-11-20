@@ -5,8 +5,8 @@ import { Pencil } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import {
+  conversationHeading,
   relativeAge,
-  shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { NotReported } from "@/components/agent-instances/InstanceTags";
 import type { AgentInstance } from "@/api";
@@ -33,6 +33,8 @@ export function instanceFields(
    * row still shows the name; it is the pencil that is conditional, not the fact.
    */
   onRename?: () => void,
+  /** The title derived from its first message, as the rail shows it. */
+  autoTitle?: string,
 ): DescriptionsProps["items"] {
   return [
   {
@@ -44,11 +46,10 @@ export function instanceFields(
         {data.name ? (
           <Text>{data.name}</Text>
         ) : (
-          // Not a gap: an unnamed conversation is the ordinary case, and it is
-          // identified by its id everywhere else in the app. Saying "not reported"
-          // here would read as the controller having failed to send something.
+          // Not a gap: an unnamed conversation is the ordinary case. The full id is
+          // the next row, so the title stands alone.
           <Text css={{ color: theme.color.textMuted }}>
-            Untitled · {shortInstanceId(data.id)}
+            {conversationHeading(data, autoTitle)}
           </Text>
         )}
         {onRename ? (

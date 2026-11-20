@@ -37,6 +37,7 @@ function renderPanel(
   template: unknown = { ref: { name: "helper-template" } },
   servers: unknown[] = [],
   onShowDetails?: () => void,
+  autoTitle?: string,
 ) {
   useMcpServers.mockReturnValue({ data: servers });
   useAgent.mockReturnValue({data: {resource: {spec: {template, harnessRef: {name: "runner"}}}}});
@@ -62,6 +63,7 @@ function renderPanel(
             element={
               <AgentContextPanel
                 instance={instance}
+                autoTitle={autoTitle}
                 agentRef={{ namespace: "kagent", name: "assistant" }}
                 onShowDetails={onShowDetails}
               />
@@ -134,6 +136,17 @@ describe("AgentContextPanel", () => {
     expect(screen.getByTestId("chat-agent-context-revision").textContent).not.toContain(revision);
     await userEvent.click(screen.getByRole("button", { name: /Chat details/ }));
     expect(onShowDetails).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { autoTitle: "List the pods in the kagent namespace.", shown: "List the pods in the kagent namespace." },
+    { autoTitle: undefined, shown: "Untitled" },
+  ])("titles an unnamed chat $shown, without repeating its id", ({ autoTitle, shown }) => {
+    const id = "01a1ebcf-f6a7-702b-ab50-641bdbf8983f";
+    renderPanel([], undefined, { id, name: "", agent: "kagent/assistant" } as AgentInstance,
+      undefined, undefined, undefined, autoTitle);
+    expect(screen.getByTestId("chat-agent-context-session-name").textContent).toBe(shown);
+    expect(screen.getByTestId("chat-agent-context-session").textContent).toContain(id);
   });
 
   it("opens the template with a way back to this conversation", async () => {

@@ -1726,6 +1726,7 @@ function ChatEntry({
       {isShowingDetails ? (
         <ConversationDetailsModal
           instance={{ data: instance }}
+          autoTitle={autoTitle}
           open
           onClose={() => setShowingDetails(false)}
         />

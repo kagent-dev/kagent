@@ -10,7 +10,7 @@ import {
   indexToolServers,
   type ServerToolGroup,
 } from "@/api/domain/templateToolCount";
-import { conversationTitle } from "@/components/agent-instances/instanceLabels";
+import { conversationHeading } from "@/components/agent-instances/instanceLabels";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { useAgent, useAgentTemplate, useMcpServers, bareName, type AgentInstance, type ObjectReference } from "@/api";
 import { ResourceLink } from "@/components/common/ResourceLink";
@@ -64,11 +64,14 @@ const hintIcon = (theme: Theme) =>
 /** What this agent is, beside the chat: one card per section. */
 export function AgentContextPanel({
   instance,
+  autoTitle,
   agentRef,
   onShowDetails,
 }: {
   /** A conversation, when there is one open. */
   instance?: AgentInstance;
+  /** The title derived from its first message, as the rail shows it. */
+  autoTitle?: string;
   /** The agent itself, for surfaces with no conversation open. */
   agentRef?: { namespace: string; name?: string };
   /** Opens the chat details modal. */
@@ -259,10 +262,10 @@ export function AgentContextPanel({
         <Field label="Chat" hint="This chat's name, ID and prepared revision.">
           <Text
             data-testid="chat-agent-context-session-name"
-            ellipsis={{ tooltip: conversationTitle(instance) }}
+            ellipsis={{ tooltip: conversationHeading(instance, autoTitle) }}
             css={{ fontSize: 12, color: theme.color.text, minWidth: 0 }}
           >
-            {conversationTitle(instance)}
+            {conversationHeading(instance, autoTitle)}
           </Text>
           <Text
             data-testid="chat-agent-context-session"
