@@ -298,21 +298,23 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 			inputSchema := anthropic.ToolInputSchemaParam{
 				Properties: make(map[string]any),
 			}
+			var m map[string]any
 			if fd.ParametersJsonSchema != nil {
-				if m := parametersJsonSchemaToMap(fd.ParametersJsonSchema); m != nil {
-					if props, ok := m["properties"].(map[string]any); ok {
-						inputSchema.Properties = props
-					}
-					if required, ok := m["required"].([]any); ok {
-						reqStrings := make([]string, 0, len(required))
-						for _, r := range required {
-							if s, ok := r.(string); ok {
-								reqStrings = append(reqStrings, s)
-							}
-						}
-						inputSchema.Required = reqStrings
+				m = parametersJsonSchemaToMap(fd.ParametersJsonSchema)
+			} else if fd.Parameters != nil {
+				m = genaiSchemaToMap(fd.Parameters)
+			}
+			if props, ok := m["properties"].(map[string]any); ok {
+				inputSchema.Properties = props
+			}
+			if required, ok := m["required"].([]any); ok {
+				reqStrings := make([]string, 0, len(required))
+				for _, r := range required {
+					if s, ok := r.(string); ok {
+						reqStrings = append(reqStrings, s)
 					}
 				}
+				inputSchema.Required = reqStrings
 			}
 
 			tool := anthropic.ToolParam{
