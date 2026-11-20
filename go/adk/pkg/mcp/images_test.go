@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
+
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 func TestCaptureImages(t *testing.T) {

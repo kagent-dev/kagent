@@ -7,11 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/tool"
+
+	kagenta2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
 // ADK drops MCP image bytes. They are captured per call, stashed by call ID, and
