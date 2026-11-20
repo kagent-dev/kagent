@@ -183,6 +183,43 @@ describe("model configurations", () => {
     ]);
   });
 
+  it("asks a configured provider's endpoint for its models, always with refresh", async () => {
+    const requests: Array<{ providerName: string; refresh: boolean }> = [];
+    serve(({ service }) => {
+      service(ModelService, {
+        listProviderModels: (request) => {
+          requests.push({ providerName: request.providerName, refresh: request.refresh });
+          return { provider: request.providerName, models: ["gpt-4.1", "team-a"] };
+        },
+      });
+    });
+
+    expect(await apiClient.models.discoverModels("in-house")).toEqual(["gpt-4.1", "team-a"]);
+    expect(requests).toEqual([{ providerName: "in-house", refresh: true }]);
+  });
+
+  it("reads a null model list from the controller as no models", async () => {
+    serve(({ service }) => {
+      service(ModelService, { listProviderModels: () => ({ provider: "in-house" }) });
+    });
+
+    expect(await apiClient.models.discoverModels("in-house")).toEqual([]);
+  });
+
+  it("surfaces a refused or failed discovery", async () => {
+    serve(({ service }) => {
+      service(ModelService, {
+        listProviderModels: () => {
+          throw new ConnectError("endpoint down", Code.Unavailable);
+        },
+      });
+    });
+
+    await expect(apiClient.models.discoverModels("in-house")).rejects.toMatchObject({
+      message: expect.stringContaining("endpoint down"),
+    });
+  });
+
   it("groups the model catalogue by provider, keeping the names the pickers read", async () => {
     serve(({ service }) => {
       service(ModelService, {

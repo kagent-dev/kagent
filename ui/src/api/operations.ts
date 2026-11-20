@@ -139,6 +139,8 @@ export interface OperationMap {
   "models.delete": { input: ResourceRefInput; output: void };
   "models.providers": { input: NoInput; output: Provider[] };
   "models.providerModels": { input: NoInput; output: ProviderModelsResponse };
+  /** The model ids a configured provider's endpoint lists right now. */
+  "models.discover": { input: { providerName: string }; output: string[] };
 
   "mcpServers.list": { input: NoInput; output: ToolServerResponse[] };
   "mcpServers.create": {
