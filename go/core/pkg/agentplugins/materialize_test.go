@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/kagent-dev/kagent/go/api/agentplugin"
 )
@@ -16,17 +19,17 @@ import (
 func commitFiles(t *testing.T, files map[string]string) (repository, commit string) {
 	t.Helper()
 	repository = t.TempDir()
-	git := func(args ...string) string {
-		command := exec.Command("git", append([]string{"-C", repository}, args...)...)
-		output, err := command.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, output)
-		}
-		return strings.TrimSpace(string(output))
+
+	repo, err := git.PlainInit(repository, false)
+	if err != nil {
+		t.Fatalf("git init: %v", err)
 	}
-	git("init")
-	git("config", "user.email", "test@example.com")
-	git("config", "user.name", "Test")
+
+	wt, err := repo.Worktree()
+	if err != nil {
+		t.Fatalf("git worktree: %v", err)
+	}
+
 	for name, content := range files {
 		path := filepath.Join(repository, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -35,10 +38,25 @@ func commitFiles(t *testing.T, files map[string]string) (repository, commit stri
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := wt.Add(name); err != nil {
+			t.Fatalf("git add %s: %v", name, err)
+		}
 	}
-	git("add", ".")
-	git("commit", "-m", "plugin")
-	return repository, git("rev-parse", "HEAD")
+
+	sig := &object.Signature{
+		Name:  "Test",
+		Email: "test@example.com",
+		When:  time.Unix(1700000000, 0),
+	}
+	hash, err := wt.Commit("plugin", &git.CommitOptions{
+		Author:    sig,
+		Committer: sig,
+	})
+	if err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	return repository, hash.String()
 }
 
 func TestMaterializeGitPlugin(t *testing.T) {
