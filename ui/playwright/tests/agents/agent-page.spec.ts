@@ -13,6 +13,9 @@ import {
 import { tick } from "../../helpers/controls";
 import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
 
+/** The agent's page opened on its conversations; the default tab is the overview. */
+const conversationsTab = (agent: Parameters<typeof agentPage>[0]) => `${agentPage(agent)}?tab=conversations`;
+
 /**
  * An agent's own page — the surface between the agents list and a chat.
  *
@@ -56,6 +59,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
   });
 
   await test.step("3. it lists this pair's conversation and not its twin's", async () => {
+    await page.getByRole("tab", { name: /Conversations/ }).click();
     // The assertion the server-side filter exists for. `shared-brain` is two agents;
     // each has exactly one conversation, and they are indistinguishable on
     // everything but the harness. Narrowed on the template alone, both would appear
@@ -66,7 +70,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
   });
 
   await test.step("4. the other agent cut from the same template has the other one", async () => {
-    await loadPage(page, agentPage(agents.sharedOnFastLane));
+    await loadPage(page, conversationsTab(agents.sharedOnFastLane));
     await expectSettled(page);
 
     await expect(dataRows(page)).toHaveCount(1);
@@ -89,7 +93,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
 test("agents: the conversations table lists newest first, as the rail does", async ({
   page,
 }) => {
-  await loadPage(page, agentPage(agents.k8s));
+  await loadPage(page, conversationsTab(agents.k8s));
   await expectSettled(page);
 
   // The fixtures list these oldest-ish first, so only a sort puts them in this order.
@@ -108,7 +112,7 @@ test("agents: the conversations table lists newest first, as the rail does", asy
 test("agents: a conversation is named by the reader, and never renders as a bare UUID", async ({
   page,
 }) => {
-  await loadPage(page, agentPage(agents.k8s));
+  await loadPage(page, conversationsTab(agents.k8s));
   await expectSettled(page);
 
   await test.step("1. a named conversation reads as its name", async () => {
@@ -192,7 +196,7 @@ test("agents: an unnamed conversation is named by its first message, as the rail
   // Unnamed, with a seeded first message; `instances.idle` has none, so it stays "Untitled".
   const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
   const title = "Summarise last night's deploy for the incident channel, and…";
-  await loadPage(page, agentPage(agents.sharedOnFastLane));
+  await loadPage(page, conversationsTab(agents.sharedOnFastLane));
   await expectSettled(page);
 
   await test.step("1. the table names it by its first message", async () => {
@@ -217,7 +221,7 @@ test("agents: an unnamed conversation is named by its first message, as the rail
 test("agents: somebody else's conversation is listed, and plainly cannot be opened", async ({
   page,
 }) => {
-  await loadPage(page, agentPage(agents.k8s));
+  await loadPage(page, conversationsTab(agents.k8s));
   await expectSettled(page);
 
   await test.step("1. the toggle and its alert are gone", async () => {
@@ -307,6 +311,7 @@ test("agents: an agent links to its template, and a conversation links up to its
   });
 
   await test.step("2. a conversation opens its chat", async () => {
+    await page.getByRole("tab", { name: /Conversations/ }).click();
     await page.getByTestId(`conversation-link-${instances.ready}`).click();
     await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
     // Arrived somewhere a message can be typed, which is what opening a conversation
@@ -318,6 +323,7 @@ test("agents: an agent links to its template, and a conversation links up to its
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expect(page).toHaveURL(new RegExp(`${agentPage(agents.k8s)}$`));
     await expectSettled(page);
+    await page.getByRole("tab", { name: /Conversations/ }).click();
     await expect(dataRows(page)).toHaveCount(4);
   });
 
@@ -357,7 +363,7 @@ test("agents: a conversation is created by its first message, not by the click",
   let before = 0;
 
   await test.step("1. the list is read first, so the count means something", async () => {
-    await loadPage(page, agentPage(agents.k8s));
+    await loadPage(page, conversationsTab(agents.k8s));
     await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
     await expectSettled(page);
     before = await dataRows(page).count();
@@ -378,6 +384,7 @@ test("agents: a conversation is created by its first message, not by the click",
     // Back through the rail, which is how a reader who changed their mind leaves.
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expectSettled(page);
+    await page.getByRole("tab", { name: /Conversations/ }).click();
     await expect(dataRows(page)).toHaveCount(before, { timeout: 30_000 });
   });
 
@@ -419,13 +426,14 @@ test("agents: a conversation is created by its first message, not by the click",
     // never heard of this conversation.
     await page.getByTestId("agent-nav-agent-conversations").click();
     await expectSettled(page);
+    await page.getByRole("tab", { name: /Conversations/ }).click();
     // One more, not "at least one more" — and one, not two, which is what a request id
     // minted per send rather than per draft would have produced.
     await expect(dataRows(page)).toHaveCount(before + 1, { timeout: 30_000 });
   });
 
   await test.step("7. an agent with no ready revision cannot start one, and says why", async () => {
-    await loadPage(page, agentPage(agents.preparing));
+    await loadPage(page, conversationsTab(agents.preparing));
     await expectSettled(page);
 
     // `CreateAgentInstance` answers FailedPrecondition for a pair with no successful
@@ -465,7 +473,6 @@ test("agents: a ready agent shows no failure alert", async ({ page }) => {
 
 test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {
   await loadPage(page, agentPage(agents.k8s));
-  await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
   await page.getByTestId(`delete-${agents.k8s.name}`).click();
   await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
   await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
@@ -485,7 +492,7 @@ test("agents: conversations can be picked and deleted together from the table to
    * from whichever surface they are on, and one that offers it while the other does not
    * is a difference they have to learn.
    */
-  await loadPage(page, agentPage(agents.k8s));
+  await loadPage(page, conversationsTab(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
 
   await test.step("1. somebody else's conversation cannot be ticked", async () => {
@@ -609,10 +616,10 @@ test("agents: an agent lists the schedules that run it, and offers one when it h
 });
 
 /**
- * What the agent is made of, shown as a tree above its conversations.
+ * What the agent is made of, shown as a tree on the overview tab.
  *
- * `shared-brain` exercises every branch: two bindings on one server (one asks first),
- * and a chain of sub-agents deeper than the page expands in place.
+ * `shared-brain` exercises every branch: a server with a mix of tools that ask first,
+ * a server with one all-tools binding, and a chain of sub-agents deeper than the page expands in place.
  */
 test("agents: the page shows the agent's structure, and sub-agents expand in place", async ({ page }) => {
   await loadPage(page, agentPage(agents.sharedOnK8s));
@@ -627,16 +634,48 @@ test("agents: the page shows the agent's structure, and sub-agents expand in pla
     await expect(page.getByTestId("agent-revision")).toHaveText("rev-shared-b…");
   });
 
-  await test.step("2. tools open into one group per binding, and say which ask first", async () => {
+  await test.step("2. tools open into one group per server, and mark the ones that ask first", async () => {
     const tools = structure.getByTestId("structure-tools").first();
-    await expect(tools).toContainText("1 MCP server, 3 tools");
-    await expect(tools.getByTestId("structure-tool-group")).toHaveCount(0);
+    await expect(tools).toContainText("2 MCP servers");
+    await expect(tools.locator('[data-testid^="structure-tool-server-"][data-testid$="-toggle"]')).toHaveCount(0);
 
     await tools.getByTestId("structure-tools-toggle").click();
     await expect(tools.getByTestId("structure-tools-toggle")).toHaveAttribute("aria-expanded", "true");
-    await expect(tools.getByTestId("structure-tool-group")).toHaveCount(2);
-    await expect(tools.getByTestId("structure-tool-group").nth(0)).toContainText("k8s_get_events");
-    await expect(tools.getByTestId("structure-tool-group").nth(1)).toContainText("Asks before each call");
+
+    // Two bindings on one server become one group, so there are two groups for two servers.
+    const mixed = tools.getByTestId("structure-tool-server-kagent/kagent-tool-server");
+    const allAsk = tools.getByTestId("structure-tool-server-kagent/ticket-tracker");
+    await expect(mixed).toContainText("3 tools");
+    await expect(allAsk).toContainText("All tools");
+
+    const toggle = mixed.getByTestId("structure-tool-server-kagent/kagent-tool-server-toggle");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(mixed.getByTestId("structure-tool-row-k8s_get_pods")).toHaveCount(0);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(mixed.getByRole("listitem")).toHaveCount(3);
+
+    // Only the tool that asks first carries the icon.
+    await expect(mixed.getByTestId("structure-tool-approval")).toHaveCount(1);
+    await expect(
+      mixed.getByTestId("structure-tool-row-k8s_describe_resource").getByRole("img", { name: "Asks before running" }),
+    ).toBeVisible();
+    await expect(mixed.getByTestId("structure-tool-row-k8s_get_pods").getByRole("img")).toHaveCount(0);
+
+    // The server icon gives the counts when approval is mixed.
+    await mixed.getByTestId("structure-tool-server-approval").hover();
+    await expect(page.getByRole("tooltip").filter({ hasText: "1 ask first, 2 run without asking" })).toBeVisible();
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(mixed.getByTestId("structure-tool-row-k8s_get_pods")).toHaveCount(0);
+
+    // An all-tools binding is one row, and its server asks first on every call.
+    await expect(allAsk.getByTestId("structure-tool-server-approval")).toHaveAccessibleName("Every tool asks first");
+    await allAsk.getByTestId("structure-tool-server-kagent/ticket-tracker-toggle").click();
+    await expect(allAsk.getByRole("listitem")).toHaveCount(1);
+    await expect(allAsk.getByTestId("structure-tool-row-all")).toContainText("All tools");
+    await expect(allAsk.getByTestId("structure-tool-row-all").getByTestId("structure-tool-approval")).toBeVisible();
   });
 
   await test.step("3. a sub-agent expands to its own template's parts", async () => {
@@ -660,11 +699,82 @@ test("agents: the page shows the agent's structure, and sub-agents expand in pla
     await expect(structure.getByTestId("structure-subagent-cluster-checker")).toHaveCount(0);
   });
 
-  await test.step("5. conversations and schedules sit in tabs below, with counts", async () => {
-    await expect(page.getByRole("tab", { name: "Conversations (1)" })).toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "Schedules (0)" }).click();
+});
+
+test("agents: overview is the default tab, and every tab is reachable by click and by address", async ({ page }) => {
+  await loadPage(page, agentPage(agents.sharedOnK8s));
+  await expectSettled(page);
+  const tab = (name: string | RegExp) => page.getByRole("tab", { name });
+
+  await test.step("1. the overview opens first and shows the structure, with counts on the others", async () => {
+    await expect(tab("Overview")).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("agent-structure")).toBeVisible();
+    await expect(tab("Conversations (1)")).toBeVisible();
+    await expect(tab("Schedules (0)")).toBeVisible();
+    await expect(page.getByTestId("conversations-table")).toBeHidden();
+    await expect(page).not.toHaveURL(/[?&]tab=/);
+  });
+
+  await test.step("2. clicking a tab selects it and keeps it in the address", async () => {
+    await tab("Schedules (0)").click();
     await expect(page.getByTestId("agent-schedules-empty")).toBeVisible();
     await expect(page).toHaveURL(/[?&]tab=schedules/);
+    await tab("Conversations (1)").click();
+    await expect(page.getByTestId("conversations-table")).toBeVisible();
+    await expect(page).toHaveURL(/[?&]tab=conversations/);
+    await tab("Overview").click();
+    await expect(page.getByTestId("agent-structure")).toBeVisible();
+    await expect(page).not.toHaveURL(/[?&]tab=/);
+  });
+
+  await test.step("3. each address opens its own tab", async () => {
+    for (const [key, name] of [
+      ["overview", "Overview"],
+      ["conversations", "Conversations (1)"],
+      ["schedules", "Schedules (0)"],
+    ] as const) {
+      await loadPage(page, `${agentPage(agents.sharedOnK8s)}?tab=${key}`);
+      await expect(tab(name)).toHaveAttribute("aria-selected", "true");
+    }
+  });
+});
+
+test("agents: the header puts New chat last, and keeps Delete well apart from Edit", async ({ page }) => {
+  await loadPage(page, agentPage(agents.k8s));
+  await expectSettled(page);
+  const title = page.getByTestId("agent-name");
+  const remove = page.getByTestId(`delete-${agents.k8s.name}`);
+  const edit = page.getByTestId("agent-edit");
+  const newChat = page.getByTestId("agent-new-chat");
+
+  await test.step("1. the actions share the title's row, in the order Delete, Edit, New chat", async () => {
+    await expect(remove).toBeVisible();
+    await expect(edit).toBeVisible();
+    await expect(newChat).toBeVisible();
+    const [t, d, e, n] = await Promise.all([title, remove, edit, newChat].map((l) => l.boundingBox()));
+    if (!t || !d || !e || !n) throw new Error("header controls are not laid out");
+    expect(Math.abs(t.y + t.height / 2 - (d.y + d.height / 2))).toBeLessThan(t.height);
+    expect(d.x + d.width).toBeLessThan(e.x);
+    expect(e.x + e.width).toBeLessThan(n.x);
+    // Far enough from Edit that a slip does not land on Delete.
+    expect(e.x - (d.x + d.width)).toBeGreaterThanOrEqual(24);
+  });
+
+  await test.step("2. a narrow window wraps the header without a sideways scroll", async () => {
+    await page.setViewportSize({ width: 600, height: 900 });
+    await expect(newChat).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
+      .toBe(true);
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
+  await test.step("3. Delete still asks first", async () => {
+    await remove.click();
+    await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
+    await confirmation(page).getByRole("button", { name: "Keep" }).click();
+    await expect(confirmation(page)).toBeHidden();
+    await expect(remove).toBeVisible();
   });
 });
 

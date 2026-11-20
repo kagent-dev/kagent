@@ -13,6 +13,8 @@ import {
   type McpToolBinding,
   type SubAgentToolBinding,
 } from "@/api";
+import { groupMcpTools } from "./groupMcpTools";
+import { ToolServerGroup } from "./ToolServerGroup";
 import { linkInk } from "@/components/common/linkStyles";
 import { buildPath, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
@@ -210,8 +212,8 @@ function TemplateParts({
           description="Actions the agent can take through MCP servers."
         >
           <div css={{ display: "grid", gap: theme.space(3) }}>
-            {servers.map((binding, index) => (
-              <ToolGroup key={index} binding={binding} namespace={namespace} />
+            {groupMcpTools(servers, namespace).map((group) => (
+              <ToolServerGroup key={group.server} group={group} />
             ))}
           </div>
         </StructureNode>
@@ -262,63 +264,12 @@ function TemplateParts({
 }
 
 function toolSummary(servers: readonly McpToolBinding[], namespace: string): string {
-  const distinct = new Set(servers.map((binding) => referenceLabel(binding.server, namespace))).size;
-  const serverText = `${distinct} MCP ${distinct === 1 ? "server" : "servers"}`;
-  // A binding with no tool list exposes everything the server has, which is not countable here.
-  if (servers.some((binding) => !binding.tools?.length)) return serverText;
-  const tools = servers.reduce((total, binding) => total + (binding.tools?.length ?? 0), 0);
+  const groups = groupMcpTools(servers, namespace);
+  const serverText = `${groups.length} MCP ${groups.length === 1 ? "server" : "servers"}`;
+  // A server with no tool list exposes everything it has, which is not countable here.
+  if (groups.some((group) => group.rows.some((row) => row.kind !== "tool"))) return serverText;
+  const tools = groups.reduce((total, group) => total + group.namedCount, 0);
   return `${serverText}, ${tools} ${tools === 1 ? "tool" : "tools"}`;
-}
-
-/** One MCP binding: its server, how many tools it exposes, and whether it asks first. */
-function ToolGroup({ binding, namespace }: { binding: McpToolBinding; namespace: string }) {
-  const theme = useTheme();
-  const tools = binding.tools ?? [];
-  const server = referenceLabel(binding.server, namespace);
-
-  return (
-    <div data-testid="structure-tool-group" css={{ display: "grid", gap: theme.space(2) }}>
-      <div
-        css={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: theme.space(2) }}
-      >
-        <Mono>{server}</Mono>
-        <Text css={{ color: theme.color.textMuted, fontSize: 13 }}>
-          {tools.length === 0 ? "All tools" : `${tools.length} ${tools.length === 1 ? "tool" : "tools"}`}
-        </Text>
-        {binding.requireApproval ? (
-          <Pill tone="warning" testId="structure-tool-approval">Asks before each call</Pill>
-        ) : null}
-      </div>
-      {tools.length > 0 ? (
-        <ul
-          css={{
-            listStyle: "none",
-            margin: 0,
-            padding: 0,
-            display: "flex",
-            flexWrap: "wrap",
-            gap: theme.space(1.5),
-          }}
-        >
-          {tools.map((tool) => (
-            <li
-              key={tool}
-              css={{
-                ...monoCss(theme),
-                border: `1px solid ${theme.color.border}`,
-                background: theme.color.bgElevated,
-                borderRadius: theme.radius.sm - 2,
-                padding: `${theme.space(0.5)} ${theme.space(2)}`,
-                wordBreak: "break-word",
-              }}
-            >
-              {tool}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  );
 }
 
 /** A sub-agent that expands in place, reading its template only once opened. */

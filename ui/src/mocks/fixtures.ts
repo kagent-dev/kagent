@@ -899,6 +899,13 @@ export const mockAgentTemplates: AgentTemplate[] = [
             },
           },
           {
+            // No tool list: every tool on the server, and each one asks first.
+            mcp: {
+              server: { kind: "RemoteMCPServer", name: "ticket-tracker" },
+              requireApproval: true,
+            },
+          },
+          {
             subAgent: {
               name: "note-taker",
               description: "Writes up what was decided.",

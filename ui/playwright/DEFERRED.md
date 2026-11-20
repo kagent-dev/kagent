@@ -322,3 +322,7 @@ amendment to the convention rather than a reshuffle, and belongs in its own chan
 
 - **`compact` variant.** Nothing renders `AgentStructure` with `compact` yet. Its spec belongs with the chat panel that adopts it.
 - **A sub-agent whose template cannot be read.** The fixtures have no dangling `templateRef`, so the inline warning is untested.
+
+## Deferred: links from the agent overview
+
+Links for the model, the harness, MCP servers and individual tools wait until each has a detail page. Today only edit pages exist.

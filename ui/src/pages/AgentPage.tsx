@@ -64,6 +64,8 @@ function MetaField({ label, children }: { label: string; children: ReactNode }) 
   );
 }
 
+const TAB_KEYS = ["overview", "conversations", "schedules"] as const;
+type TabKey = (typeof TAB_KEYS)[number];
 const FILTER_IDS: readonly string[] = ["state"];
 const PAGE_SIZE = 25;
 
@@ -77,7 +79,9 @@ export function AgentPage() {
   const invalidateAgents = useInvalidateAgents();
   const conversations = useAgentConversations(namespace, name);
   const agent = definition.data;
-  const [tab, setTab] = useUrlState("tab", "conversations");
+  const [tab, setTab] = useUrlState("tab", "overview");
+  // An unknown `?tab=` shows the default tab.
+  const activeTab: TabKey = TAB_KEYS.find((key) => key === tab) ?? "overview";
   const schedules = useAgentSchedules({ namespace: namespace ?? "", name: name ?? "" });
   const agentMissing = definition.error !== undefined && isNotFound(definition.error);
 
@@ -361,21 +365,69 @@ export function AgentPage() {
         <header
           data-testid="agent-header"
           css={{
-            display: "flex",
-            flexWrap: "wrap",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: theme.space(4),
+            display: "grid",
+            gap: theme.space(3),
             padding: `${theme.space(4)} ${theme.space(5)}`,
             background: theme.color.surfaceCard,
             border: `1px solid ${theme.color.border}`,
             borderRadius: theme.radius.lg,
           }}
         >
-          <div css={{ minWidth: 0, display: "grid", gap: theme.space(1) }}>
-            <Title level={4} css={{ margin: 0, wordBreak: "break-word" }} data-testid="agent-name">
+          <div
+            css={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "space-between",
+              columnGap: theme.space(4),
+              rowGap: theme.space(3),
+            }}
+          >
+            <Title level={4} css={{ margin: 0, minWidth: 0, wordBreak: "break-word" }} data-testid="agent-name">
               {name}
             </Title>
+            <div
+              data-testid="agent-actions"
+              css={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: theme.space(2) }}
+            >
+              {agent ? (
+                <>
+                  <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
+                    onDelete={removeAgent}
+                    // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
+                    onDeleted={() => {
+                      navigate(paths.agents);
+                      void invalidateAgents().catch(() => {});
+                    }}
+                    description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
+                  />
+                  {/* A wide gap and a rule keep the destructive action away from the other two. */}
+                  <span
+                    aria-hidden
+                    css={{
+                      width: 1,
+                      height: 24,
+                      background: theme.color.borderStrong,
+                      marginInline: theme.space(3),
+                      // When the buttons wrap, a lone rule reads as a stray mark; the gap stays.
+                      "@media (max-width: 900px)": { background: "transparent" },
+                    }}
+                  />
+                  <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
+                    <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
+                  </Link>
+                </>
+              ) : null}
+              <Button
+                type="primary"
+                icon={<MessageSquarePlus size={14} />}
+                onClick={startConversation}
+                data-testid="agent-new-chat"
+              >
+                New chat
+              </Button>
+            </div>
+          </div>
             <div
               css={{
                 display: "flex",
@@ -418,33 +470,6 @@ export function AgentPage() {
                 </MetaField>
               ) : null}
             </div>
-          </div>
-          <Space size={8} wrap>
-            <Button
-              type="primary"
-              icon={<MessageSquarePlus size={14} />}
-              onClick={startConversation}
-              data-testid="agent-new-chat"
-            >
-              New chat
-            </Button>
-            {agent ? (
-              <>
-                <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
-                  <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
-                </Link>
-                <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
-                  onDelete={removeAgent}
-                  // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
-                  onDeleted={() => {
-                    navigate(paths.agents);
-                    void invalidateAgents().catch(() => {});
-                  }}
-                  description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
-                />
-              </>
-            ) : null}
-          </Space>
         </header>
 
         {agentMissing ? (
@@ -534,17 +559,20 @@ export function AgentPage() {
         ) : null}
 
 
-        {agent ? (
-          <AgentStructure agent={agent} />
-        ) : definition.isLoading ? (
-          <AgentStructureSkeleton />
-        ) : null}
-
         <Tabs
           data-testid="agent-activity-tabs"
-          activeKey={tab === "schedules" ? "schedules" : "conversations"}
+          activeKey={activeTab}
           onChange={setTab}
           items={[
+            {
+              key: "overview",
+              label: "Overview",
+              children: agent ? (
+                <AgentStructure agent={agent} />
+              ) : definition.isLoading ? (
+                <AgentStructureSkeleton />
+              ) : null,
+            },
             {
               key: "conversations",
               label: conversations.data ? `Conversations (${rows.length})` : "Conversations",
