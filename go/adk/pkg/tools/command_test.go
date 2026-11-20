@@ -103,6 +103,27 @@ func TestCommandHonorsVenvAndSkillImports(t *testing.T) {
 	require.Contains(t, output, root+":/skills")
 }
 
+func TestEnvironmentContains(t *testing.T) {
+	environ := []byte("PATH=/usr/bin\x00KAGENT_BASH_CALL=7-12\x00HOME=/root\x00")
+	require.True(t, environmentContains(environ, "KAGENT_BASH_CALL=7-12"))
+	require.True(t, environmentContains(environ, "PATH=/usr/bin"))
+	require.False(t, environmentContains(environ, "KAGENT_BASH_CALL=7-1"))
+	require.False(t, environmentContains(environ, "BASH_CALL=7-12"))
+	require.False(t, environmentContains(nil, "KAGENT_BASH_CALL=7-12"))
+}
+
+func TestParentPID(t *testing.T) {
+	parent, ok := parentPID([]byte("4242 (sleep) S 1 4240 4240 0 -1 4194560"))
+	require.True(t, ok)
+	require.Equal(t, 1, parent)
+	// The command name may itself hold spaces and parentheses.
+	parent, ok = parentPID([]byte("4242 (a) b (c) R 77 4242 4242"))
+	require.True(t, ok)
+	require.Equal(t, 77, parent)
+	_, ok = parentPID([]byte("4242 (truncated"))
+	require.False(t, ok)
+}
+
 func TestCommandErrorRetainsCause(t *testing.T) {
 	_, err := executeCommand(t.Context(), "true", commandConfig{directory: filepath.Join(t.TempDir(), "missing")})
 	require.True(t, errors.Is(err, os.ErrNotExist), "%v", err)
