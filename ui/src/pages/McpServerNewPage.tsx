@@ -128,17 +128,13 @@ export function McpServerNewPage() {
     <BackLink to={paths.mcpServers} resource="MCP servers" />
     <PageFrame
       title="New MCP server"
-      description="Register a tool server so agents can call the tools it exposes."
+      description="Connect an MCP server you already host. Agents can then call its tools."
     >
       <Space
         orientation="vertical"
         size="middle"
         css={{ display: "flex", maxWidth: 720 }}
       >
-        <Text css={{ color: theme.color.textMuted }}>
-          The controller connects to an MCP endpoint you already host.
-        </Text>
-
         <Form layout="vertical" component="div">
           <FieldRow>
             <FormField
