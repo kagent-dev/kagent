@@ -85,9 +85,9 @@ func runInvoke(
 	return invokeNonStreaming(ctx, a2aClient, request, format, out)
 }
 
-// openInvokeSession opens a connection and resolves the Session to invoke. When
-// cfg.Agent is set, it creates a new Session through the same API path as
-// "agent session create" and writes the ID to errOut so it can be reused.
+// openInvokeSession opens a connection and resolves the Session to invoke.
+// When cfg.Agent is set, it delegates to createInvokeSession, which creates a
+// new Session and reports its ID on errOut.
 func openInvokeSession(
 	ctx context.Context,
 	options connection.Options,
@@ -113,15 +113,9 @@ func openInvokeSession(
 	if err != nil {
 		return nil, "", err
 	}
-	createCfg := &CreateCfg{Agent: cfg.Agent}
-	ensureRequestID(createCfg)
-	response, err := createSession(ctx, session.API.Session, session.Namespace, createCfg)
+	sessionID, err := createInvokeSession(ctx, session.API.Session, session.Namespace, cfg.Agent, errOut)
 	if err != nil {
 		return nil, "", errors.Join(err, session.Close())
-	}
-	sessionID := response.GetSession().GetId()
-	if _, err := fmt.Fprintf(errOut, "Session: %s\n", sessionID); err != nil {
-		return nil, "", errors.Join(fmt.Errorf("write Session ID: %w", err), session.Close())
 	}
 	return session, sessionID, nil
 }
@@ -455,6 +449,28 @@ func sendResultError(result a2atype.SendMessageResult) error {
 	default:
 		return fmt.Errorf("session task %s returned before reaching a final state: %s", task.ID, task.Status.State)
 	}
+}
+
+// createInvokeSession creates a Session for agent, reports its ID on errOut so
+// the caller can continue the conversation, and returns that ID.
+func createInvokeSession(
+	ctx context.Context,
+	client lifecycleClient,
+	namespace string,
+	agent string,
+	errOut io.Writer,
+) (string, error) {
+	cfg := &CreateCfg{Agent: agent}
+	ensureRequestID(cfg)
+	response, err := createSession(ctx, client, namespace, cfg)
+	if err != nil {
+		return "", err
+	}
+	sessionID := response.GetSession().GetId()
+	if _, err := fmt.Fprintf(errOut, "Session: %s\nTo continue: --session %s\n", sessionID, sessionID); err != nil {
+		return "", fmt.Errorf("write Session ID: %w", err)
+	}
+	return sessionID, nil
 }
 
 // NewInvokeCmd constructs the Session invoke command, which uses an existing
