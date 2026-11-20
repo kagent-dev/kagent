@@ -94,8 +94,8 @@ export function HarnessFields({
             {...fieldFor("command")}
             extra={
               byo
-                ? "Required for bring-your-own images. Spaces split parts. Quote a part with spaces."
-                : "Overrides the image entrypoint. Spaces split parts. Quotes keep spaces."
+                ? "Required for bring-your-own images. Spaces split command parts. Quotes keep spaces."
+                : "Overrides the image entrypoint. Spaces split command parts. Quotes keep spaces."
             }
           >
             <ListInput
