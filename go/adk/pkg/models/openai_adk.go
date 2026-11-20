@@ -388,14 +388,12 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 	var aggregatedText strings.Builder
 	toolCallsAcc := make(map[int64]map[string]any)
 	var finishReason string
-	var promptTokens, completionTokens, totalTokens int64
+	var streamUsage openai.CompletionUsage
 
 	for stream.Next() {
 		chunk := stream.Current()
 		if chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-			promptTokens = chunk.Usage.PromptTokens
-			completionTokens = chunk.Usage.CompletionTokens
-			totalTokens = chunk.Usage.TotalTokens
+			streamUsage = chunk.Usage
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -472,14 +470,7 @@ func runStreaming(ctx context.Context, m *OpenAIModel, params openai.ChatComplet
 		}
 	}
 
-	var usage *genai.GenerateContentResponseUsageMetadata
-	if promptTokens > 0 || completionTokens > 0 {
-		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(promptTokens),
-			CandidatesTokenCount: int32(completionTokens),
-			TotalTokenCount:      int32(totalTokens),
-		}
-	}
+	usage := chatUsageToGenai(streamUsage)
 	resp := &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
@@ -532,14 +523,7 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 			parts = append(parts, p)
 		}
 	}
-	var usage *genai.GenerateContentResponseUsageMetadata
-	if completion.Usage.PromptTokens > 0 || completion.Usage.CompletionTokens > 0 {
-		usage = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(completion.Usage.PromptTokens),
-			CandidatesTokenCount: int32(completion.Usage.CompletionTokens),
-			TotalTokenCount:      int32(completion.Usage.TotalTokens),
-		}
-	}
+	usage := chatUsageToGenai(completion.Usage)
 	return &model.LLMResponse{
 		Partial:       false,
 		TurnComplete:  true,
@@ -552,4 +536,20 @@ func chatCompletionToLLMResponse(completion *openai.ChatCompletion) *model.LLMRe
 // dataURL is data as a base64 data: URL of the given media type.
 func dataURL(mimeType string, data []byte) string {
 	return fmt.Sprintf("data:%s;base64,%s", mimeType, base64.StdEncoding.EncodeToString(data))
+}
+
+// chatUsageToGenai follows the genai convention, where candidates exclude
+// thoughts: Chat Completions counts reasoning inside completion_tokens.
+func chatUsageToGenai(u openai.CompletionUsage) *genai.GenerateContentResponseUsageMetadata {
+	if u.PromptTokens == 0 && u.CompletionTokens == 0 {
+		return nil
+	}
+	reasoning := u.CompletionTokensDetails.ReasoningTokens
+	return &genai.GenerateContentResponseUsageMetadata{
+		PromptTokenCount:        int32(u.PromptTokens),
+		CandidatesTokenCount:    int32(u.CompletionTokens - reasoning),
+		CachedContentTokenCount: int32(u.PromptTokensDetails.CachedTokens),
+		ThoughtsTokenCount:      int32(reasoning),
+		TotalTokenCount:         int32(u.TotalTokens),
+	}
 }
