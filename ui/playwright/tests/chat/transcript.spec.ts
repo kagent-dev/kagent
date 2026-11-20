@@ -483,3 +483,28 @@ test("chat: opening a conversation puts the caret in its box", async ({ page }) 
     await expect(page.getByTestId("chat-input")).toBeFocused();
   });
 });
+
+test("chat: messages show when they were sent, grouped by day", async ({ page }) => {
+  await loadPage(page, AGENT_CHAT);
+  const separators = page.getByTestId("chat-day-separator");
+  const firstMessage = page.getByTestId("chat-message").first();
+
+  await test.step("1. the seeded history opens under yesterday, with the time at rest", async () => {
+    await expect(separators).toHaveText(["Yesterday"], { timeout: 30_000 });
+    const time = firstMessage.getByTestId("chat-message-time");
+    await expect(time).toHaveAttribute("data-at-rest", "shown");
+    await expect(time).toHaveText(/^\d{1,2}:\d{2}/);
+  });
+
+  await test.step("2. a reply within the same run hides its time until hovered", async () => {
+    const quiet = page.locator('[data-testid="chat-message-time"][data-at-rest="hidden"]').first();
+    await expect(quiet).toHaveCSS("opacity", "0");
+    await quiet.locator("xpath=ancestor::article").hover();
+    await expect(quiet).toHaveCSS("opacity", "1");
+  });
+
+  await test.step("3. a new turn opens today", async () => {
+    await sendAndAwaitTurn(page, FIRST_QUESTION);
+    await expect(separators).toHaveText(["Yesterday", "Today"]);
+  });
+});

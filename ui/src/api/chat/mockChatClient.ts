@@ -584,7 +584,8 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
   // by now — the same key `conversationKey` builds. This is the first instance in
   // `mockAgentInstances`, so the fixture agent a reader opens first has a
   // conversation already in it.
-  "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44": () => [
+  // Dated yesterday, so a new turn opens a second day and the day separators show.
+  "6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44": () => sentYesterday([
     message("seed-1-user", "user", "Why is checkout crashlooping?", "seed-task-1"),
     dataMessage("seed-1-call", "seed-task-1", "tool_call", {
       id: "call-seed-1",
@@ -623,7 +624,7 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
       ].join("\n"),
       "seed-task-1",
     ),
-  ],
+  ]),
   /*
    * An *unnamed* conversation with something said in it.
    *
@@ -648,6 +649,16 @@ const SEEDED_TRANSCRIPTS: Record<string, () => ChatMessage[]> = {
     ),
   ],
 };
+
+/** Restamps seeded messages to noon yesterday, a minute apart. */
+function sentYesterday(messages: ChatMessage[]): ChatMessage[] {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12).getTime();
+  return messages.map((seeded, index) => ({
+    ...seeded,
+    createdAt: new Date(start + index * 60 * 1000).toISOString(),
+  }));
+}
 
 function message(
   id: string,
