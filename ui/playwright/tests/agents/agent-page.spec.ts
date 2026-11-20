@@ -517,7 +517,9 @@ test("agents: a ready agent shows no failure alert", async ({ page }) => {
 test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId(`delete-${agents.k8s.name}`).click();
+  // The template panel fills in above Delete and pushes it down; a click before then misses.
+  await expect(page.getByTestId("chat-agent-context-prompt")).toBeVisible({ timeout: 30_000 });
+  await pressOnce(page.getByTestId(`delete-${agents.k8s.name}`));
   await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
   await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
   await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});
