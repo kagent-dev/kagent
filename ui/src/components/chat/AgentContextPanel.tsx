@@ -23,6 +23,9 @@ const { Text, Paragraph } = Typography;
 
 // region Styles
 
+// Model, three rows of tools and a clamped prompt: the tallest of the live agents measured.
+const DETAILS_MIN_HEIGHT = 328;
+
 /** A count: a round outline, so it reads as a number rather than a name. */
 const countPill = (theme: Theme) =>
   ({
@@ -101,6 +104,7 @@ export function AgentContextPanel({
   const harnessRef = definition.data?.resource.spec.harnessRef.name;
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
+  const loading = definition.isLoading || template.isLoading;
   const tools = spec?.tools ?? [];
   const subAgents = tools.flatMap((binding) => (binding.subAgent ? [binding.subAgent] : []));
   const mcpServers = useMcpServers();
@@ -183,8 +187,14 @@ export function AgentContextPanel({
           )}
         </Field>
 
-        {definition.isLoading || template.isLoading ? (
-          <Skeleton active paragraph={{ rows: 4 }} data-testid="chat-agent-context-loading" />
+        {/* Both held at a typical template's height, so the cards below stay put when it loads. */}
+        {loading ? (
+          <Skeleton
+            active
+            paragraph={{ rows: 7 }}
+            data-testid="chat-agent-context-loading"
+            css={{ minHeight: DETAILS_MIN_HEIGHT }}
+          />
         ) : error ? (
           <Alert
             type="warning"
@@ -194,7 +204,10 @@ export function AgentContextPanel({
             description={error.message}
           />
         ) : spec ? (
-          <>
+          <div
+            data-testid="chat-agent-context-spec"
+            css={{ display: "grid", gap: theme.space(2), alignContent: "start", minHeight: DETAILS_MIN_HEIGHT }}
+          >
             <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
               {spec.modelConfig?.name ? (
                 <ResourceLink
@@ -250,7 +263,7 @@ export function AgentContextPanel({
                 </Text>
               </Field>
             ) : null}
-          </>
+          </div>
         ) : null}
       </Group>
 

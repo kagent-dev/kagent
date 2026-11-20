@@ -100,7 +100,7 @@ export function HarnessDetailsPage() {
             </Button>
           ) : null}
           <BackButton back={back} testId="harness-back" />
-          <RefreshButton onRefresh={harnesses.refresh} what="Harness" loading={harnesses.isLoading} disabled={missing} />
+          <RefreshButton onRefresh={harnesses.refresh} what="Harness" loading={harnesses.isLoading} disabled={missing} iconOnly />
         </Space>
       }
     >

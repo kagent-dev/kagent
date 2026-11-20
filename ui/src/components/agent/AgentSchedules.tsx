@@ -8,6 +8,7 @@ import { linkInk } from "@/components/common/linkStyles";
 import { rowClickHandler } from "@/components/table/rowClick";
 import { scheduleDescription } from "@/components/scheduled-runs/scheduleTiming";
 import { buildPath, paths } from "@/router/routes";
+import { rowStateStyles } from "./controlStyles";
 import { schedulesFor, type ScheduledAgentRef } from "./scheduleTargets";
 
 const { Text } = Typography;
@@ -81,11 +82,8 @@ export function AgentSchedules({ agent }: { agent: ScheduledAgentRef }) {
                 marginInline: `-${theme.space(2)}`,
                 borderRadius: theme.radius.sm,
                 cursor: "pointer",
-                /* The table rows' own hover and press, since `clickable-table-row` is a
-                   table rule and reaches no `li`. The press is brand-tinted rather than a
-                   second grey: grey on grey is a difference nobody sees under a finger. */
-                "&:hover": { background: theme.color.border },
-                "&:active": { background: `${theme.color.primary}4D` },
+                // The table rows' hover and press: `clickable-table-row` reaches no `li`.
+                ...rowStateStyles(theme),
                 "&:not(:last-of-type)": {
                   borderBottom: `1px solid ${theme.color.border}`,
                 },

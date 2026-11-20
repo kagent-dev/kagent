@@ -196,7 +196,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
     // The header keeps the four reversible controls and none of the destructive one.
     await expect(
-      page.getByRole("button", { name: /^(Run|Pause|Resume|Edit|Refresh)$/ }),
+      page.getByRole("button", { name: /^(Run|Pause|Resume|Edit|Refresh schedule)$/ }),
     ).toHaveCount(4);
     await expect(page.getByRole("button", { name: /^Delete/ })).toHaveCount(1);
   });

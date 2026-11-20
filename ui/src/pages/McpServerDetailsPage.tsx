@@ -67,7 +67,7 @@ export function McpServerDetailsPage() {
       actions={
         <Space size={8} wrap>
           <BackButton back={back} testId="mcp-server-back" />
-          <RefreshButton onRefresh={servers.refresh} what="MCP server" loading={servers.isLoading} disabled={missing} />
+          <RefreshButton onRefresh={servers.refresh} what="MCP server" loading={servers.isLoading} disabled={missing} iconOnly />
         </Space>
       }
     >

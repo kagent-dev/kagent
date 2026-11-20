@@ -67,6 +67,7 @@ export function PromptDetailPage() {
             onRefresh={refresh}
             what="Prompt library"
             loading={isLoading}
+            iconOnly
             // Nothing to retry when the resource is genuinely absent.
             disabled={missing}
           />

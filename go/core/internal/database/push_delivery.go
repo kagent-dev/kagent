@@ -14,7 +14,16 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const pushMaxDeliveryAttempts = 10
+const (
+	// pushMaxDeliveryAttempts bounds each notification generation across replicas
+	// and restarts. The capped backoff totals 16m15s before the final attempt.
+	pushMaxDeliveryAttempts = 20
+	// pushRetryInitialDelay is the first wait after a failed callback attempt;
+	// subsequent waits double up to pushRetryMaxDelay.
+	pushRetryInitialDelay = 5 * time.Second
+	// pushRetryMaxDelay caps backoff to retry promptly after receiver recovery.
+	pushRetryMaxDelay = time.Minute
+)
 
 // PushDelivery captures one attempt at the current published task. ID identifies
 // the registration; Sequence and ClaimToken fence superseded and expired attempts.
@@ -83,8 +92,8 @@ func (c *Client) ClaimDuePushDelivery(ctx context.Context, sendTimeout time.Dura
 	var delivery *PushDelivery
 	var preparationErr error
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		// Recover a worker that died during its last allowed attempt without
-		// issuing an eleventh request. Skip registrations another writer owns.
+		// Retire abandoned final attempts without issuing another request.
+		// Skip registrations another writer owns.
 		if err := execSQL(ctx, tx, `
             UPDATE session_push_registration SET pending_event_sequence = NULL,
                 attempt_count = 0, next_attempt_at = NULL, claim_token = NULL, lease_until = NULL
@@ -225,9 +234,9 @@ func retryPushDelivery(ctx context.Context, db dbExecutor, delivery PushDelivery
             pending_event_sequence = CASE WHEN attempt_count >= $4 THEN NULL ELSE pending_event_sequence END,
             attempt_count = CASE WHEN attempt_count >= $4 THEN 0 ELSE attempt_count END,
             next_attempt_at = CASE WHEN attempt_count >= $4 THEN NULL
-                ELSE clock_timestamp() + LEAST(interval '5 minutes',
-                    interval '5 seconds' * power(2::double precision, LEAST(attempt_count - 1, 6))) END,
+                ELSE clock_timestamp() + LEAST($5 * interval '1 second',
+                    $6 * interval '1 second' * power(2::double precision, LEAST(attempt_count - 1, 4))) END,
             claim_token = NULL, lease_until = NULL
         WHERE id = $1 AND pending_event_sequence = $2 AND claim_token = $3
-    `, delivery.ID, delivery.Sequence, delivery.ClaimToken, pushMaxDeliveryAttempts)
+    `, delivery.ID, delivery.Sequence, delivery.ClaimToken, pushMaxDeliveryAttempts, pushRetryMaxDelay.Seconds(), pushRetryInitialDelay.Seconds())
 }

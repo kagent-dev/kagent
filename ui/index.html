@@ -22,21 +22,37 @@
       `color-scheme` also darkens the scrollbars and form controls the UA draws
       itself, which no stylesheet of ours can reach.
 
-      The colour is duplicated from `theme/tokens.color.bg` on purpose: nothing
-      generated can be involved this early. An extension that restyles the app
-      may briefly show this before its own background takes over, so it is the
-      neutral dark rather than anything product-specific.
+      The colours are duplicated from `theme/tokens.color.bg` on purpose: nothing
+      generated can be involved this early. The script picks the mode the app will,
+      stored choice first, then the system's (see `theme/storedMode.ts`).
     -->
     <style>
-      :root {
+      /* Zero specificity, so the app's and any extension's own styles win once loaded. */
+      :where(html) {
         color-scheme: dark;
+        background: #08070c;
+      }
+      :where(html[data-theme="light"]) {
+        color-scheme: light;
+        background: #f6f5f9;
       }
       html,
       body {
         margin: 0;
-        background: #030712;
       }
     </style>
+    <script>
+      (function () {
+        var mode;
+        try {
+          mode = localStorage.getItem("kagent.themeMode");
+        } catch (e) {}
+        if (mode !== "light" && mode !== "dark") {
+          mode = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
+        document.documentElement.dataset.theme = mode;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

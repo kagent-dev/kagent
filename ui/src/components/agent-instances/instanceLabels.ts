@@ -207,10 +207,22 @@ export function autoTitleFrom(firstMessage: string | undefined): string | undefi
 export function conversationTitle(
   instance: AgentInstance,
   autoTitle?: string,
+  isTitleLoading = false,
 ): string {
   if (instance.name.trim() !== "") return instance.name;
   if (autoTitle && autoTitle.trim() !== "") return autoTitle;
+  // Not "Untitled" until the read says so; text contexts name it by id meanwhile.
+  if (isTitleLoading) return `Conversation ${shortInstanceId(instance.id)}`;
   return `Untitled · ${shortInstanceId(instance.id)}`;
+}
+
+/** Whether a row should show the title placeholder: unnamed, untitled, and its read in flight. */
+export function isConversationTitlePending(
+  instance: AgentInstance,
+  autoTitle: string | undefined,
+  loading: ReadonlySet<string>,
+): boolean {
+  return !hasConversationName(instance) && !autoTitle?.trim() && loading.has(instance.id);
 }
 
 /**

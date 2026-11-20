@@ -328,7 +328,7 @@ export function AgentsTab() {
                 {filtered.length} of {agents.length} {agents.length === 1 ? "agent" : "agents"}
               </Text>
             ) : null}
-            <RefreshButton onRefresh={refreshThisTab} what="Agents" />
+            <RefreshButton onRefresh={refreshThisTab} what="Agents" iconOnly />
           </Space>
         }
       />

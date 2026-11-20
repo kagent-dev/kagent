@@ -163,7 +163,7 @@ export function EgressPolicyDetailsPage() {
             </>
           ) : null}
           <BackButton back={back} testId="egress-policy-back" />
-          <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} />
+          <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} iconOnly />
         </Space>
       }
     >
