@@ -85,6 +85,7 @@ type mcpServerParams struct {
 	Dir                   string
 	Timeout               *durationpb.Duration
 	SseReadTimeout        *durationpb.Duration
+	TerminateOnClose      *bool
 	TLSInsecureSkipVerify *bool
 	TLSCACertPath         *string
 	TLSDisableSystemCAs   *bool
@@ -136,6 +137,7 @@ func CreateToolsets(
 			ServerType:            "http",
 			Timeout:               httpTool.Params.Timeout,
 			SseReadTimeout:        httpTool.Params.SseReadTimeout,
+			TerminateOnClose:      httpTool.Params.TerminateOnClose,
 			TLSInsecureSkipVerify: httpTool.Params.TlsInsecureSkipVerify,
 			TLSCACertPath:         httpTool.Params.TlsCaCertPath,
 			TLSDisableSystemCAs:   httpTool.Params.TlsDisableSystemCas,
@@ -274,6 +276,9 @@ func createTransport(ctx context.Context, params mcpServerParams) (mcpsdk.Transp
 			headerProvider:   params.HeaderProvider,
 			tokenPassthrough: params.TokenPassthrough,
 		}
+	}
+	if params.ServerType == "http" && params.TerminateOnClose != nil && !*params.TerminateOnClose {
+		httpTransport = &sessionPreservingTransport{base: httpTransport}
 	}
 
 	// Outermost layer: inject W3C traceparent/tracestate, and baggage when
