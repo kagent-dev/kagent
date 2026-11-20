@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Typography, type InputRef } from "antd";
+import { Alert, Button, Form, Typography, type InputRef } from "antd";
 import { useTheme } from "@emotion/react";
 import { EGRESS_LIMITS, isApiError, type EgressPolicy, type EgressPolicyResource } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
@@ -118,14 +119,15 @@ export function EgressPolicyForm({
           {...validation.field("name")}
           help={editing ? egressCopy.form.nameLocked : egressCopy.form.nameHelp}
         >
-          <Input
+          <NameInput
+            dots
             id="egress-form-name-input"
             data-testid="egress-form-name"
             value={draft.name}
             readOnly={editing}
             placeholder="github-api"
             status={validation.errorFor("name") ? "error" : undefined}
-            onChange={(event) => update({ name: event.target.value })}
+            onChange={(name) => update({ name })}
             css={{ fontFamily: theme.font.mono }}
           />
         </FormField>

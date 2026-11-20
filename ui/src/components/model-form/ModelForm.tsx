@@ -20,6 +20,7 @@ import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { ListInput } from "@/components/form/ListInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
@@ -540,14 +541,15 @@ export function ModelForm({
               : "Pick a name to refer to this model configuration. Defaults to the model's own name."
           }
         >
-          <Input
+          <NameInput
+            dots={false}
             data-testid="model-name"
             placeholder="gpt-4-1"
             value={effectiveName}
             disabled={identityLocked}
-            onChange={(event) => {
+            onChange={(value) => {
               setNameTouched(true);
-              set("name", event.target.value);
+              set("name", value);
             }}
             css={{ fontFamily: theme.font.mono }}
           />

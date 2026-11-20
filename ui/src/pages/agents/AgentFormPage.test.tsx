@@ -157,7 +157,8 @@ describe("agent create form", () => {
     mocks.create.mockImplementation(async (input: { name: string }) => ({ name: input.name }));
     renderAt("/agents/new");
     choose("agent-form-template-ref", "shared-brain");
-    type("agent-form-name", "Team.Helper");
+    type("agent-form-name", "Team.Helper.");
+    expect(screen.getByTestId("agent-form-name")).toHaveValue("team.helper.");
     expect(screen.getByText(/lowercase letters, numbers, hyphens and dots/)).toBeInTheDocument();
     expect(screen.getByTestId("agent-form-submit")).toHaveAttribute("aria-disabled", "true");
 

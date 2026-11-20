@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { Form, Input } from "antd";
+import { Form } from "antd";
 import { apiClient, useInvalidateHarnesses, useNamespaces, useWorkerPools, type Harness, type HarnessSpec } from "@/api";
 import { DEFAULT_HARNESS_WORKER_POOL } from "@/api/domain/harnesses";
 import { SubmitError } from "@/components/common/SubmitError";
 import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
@@ -141,12 +142,13 @@ export function HarnessForm({
         {...validation.field("name")}
         help={harness ? "You can't change the name." : "Pick a name to refer to this harness."}
       >
-        <Input
+        <NameInput
+          dots
           id="harness-name"
           data-testid="harness-name"
           value={name}
           disabled={Boolean(harness)}
-          onChange={(event) => setName(event.target.value)}
+          onChange={setName}
           placeholder="my-harness"
         />
       </FormField>

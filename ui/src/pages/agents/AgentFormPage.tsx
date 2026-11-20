@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ReadError } from "@/components/common/ReadError";
-import { Alert, Button, Form, Input, Modal, Radio, Select, Skeleton } from "antd";
+import { Alert, Button, Form, Modal, Radio, Select, Skeleton } from "antd";
 import { useTheme } from "@emotion/react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -18,6 +18,7 @@ import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/compone
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { SectionHeader } from "@/components/form/SectionHeader";
@@ -257,12 +258,13 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           {...validation.field("name")}
           help={agent ? "You can't change the name." : "Pick a name to refer to this agent."}
         >
-          <Input
+          <NameInput
+            dots
             id="agent-form-name"
             data-testid="agent-form-name"
             value={name}
             disabled={Boolean(agent)}
-            onChange={(event) => setName(event.target.value)}
+            onChange={setName}
             placeholder="my-agent"
           />
         </FormField>

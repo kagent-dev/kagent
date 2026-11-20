@@ -41,6 +41,18 @@ export function isValidResourceName(value: string): boolean {
 }
 
 /**
+ * Keeps typed text to a name's characters: lowercase, leading space dropped,
+ * inner spaces as hyphens. Object names keep dots; namespaces and labels drop them.
+ */
+export function sanitizeName(value: string, allowDots: boolean): string {
+  return value
+    .toLowerCase()
+    .replace(/^\s+/, "")
+    .replace(/\s+/g, "-")
+    .replace(allowDots ? /[^a-z0-9.-]/g : /[^a-z0-9-]/g, "");
+}
+
+/**
  * Turns arbitrary text into something that satisfies the rule.
  *
  * Used to suggest a name from a URL or a package, never to silently rewrite

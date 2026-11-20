@@ -16,6 +16,7 @@ import { SubmitError } from "@/components/common/SubmitError";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
@@ -144,11 +145,12 @@ export function McpServerNewPage() {
             {...validation.field("name")}
             help="Pick a name to refer to this MCP server."
           >
-            <Input
+            <NameInput
+              dots={false}
               data-testid="mcp-name"
-              placeholder="my-tool-server"
+              placeholder="my-mcp-server"
               value={values.name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={setName}
             />
           </FormField>
 

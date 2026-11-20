@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { useAgentTemplates, useMcpServers, useModels, useTools } from "@/api";
 import { DataPill, DataPillList } from "@/components/form/DataPill";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
@@ -203,10 +204,11 @@ export function AgentTemplateForm({
             {...fieldFor("name")}
             help="Pick a name to refer to this agent template."
           >
-            <Input
+            <NameInput
+              dots
               data-testid="template-form-name"
               value={draft.name}
-              onChange={(event) => set("name", event.target.value)}
+              onChange={(value) => set("name", value)}
               placeholder={placeholder("incident-responder")}
               {...readOnlyInput}
             />

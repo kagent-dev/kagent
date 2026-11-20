@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
-import { Form, Input, Space } from "antd";
+import { Form, Space } from "antd";
 import { useTheme } from "@emotion/react";
 import type { CreatePromptTemplateRequest } from "@/api";
 import { SubmitError } from "@/components/common/SubmitError";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
@@ -122,13 +123,14 @@ export function PromptForm({
           {...validation.field("name")}
           help={identityLocked ? "You can't change the name." : "Pick a name to refer to this prompt library."}
         >
-          <Input
+          <NameInput
+            dots
             data-testid="prompt-name"
             placeholder="team-prompts"
             value={draft.name}
             // `readOnly` keeps the name at full contrast, so it is clear which library this is.
             readOnly={identityLocked}
-            onChange={(event) => update({ name: event.target.value })}
+            onChange={(name) => update({ name })}
             css={{ fontFamily: theme.font.mono }}
           />
         </FormField>

@@ -1,6 +1,7 @@
 import { useId } from "react";
-import { Input, Typography } from "antd";
+import { Typography } from "antd";
 import { useNamespaces } from "@/api";
+import { NameInput } from "./NameInput";
 import { ResourceSelect } from "./ResourceSelect";
 
 interface NamespaceSelectProps {
@@ -20,11 +21,12 @@ export function NamespaceSelect({ value, onChange, disabled, id, "data-testid": 
   if (namespaces.error) {
     return (
       <>
-        <Input
+        <NameInput
+          dots={false}
           id={id}
           data-testid={testId}
           value={value ?? ""}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
           disabled={disabled}
           placeholder="Type a namespace"
           aria-invalid={aria["aria-invalid"]}

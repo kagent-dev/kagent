@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidNamespace, isValidObjectName } from "./resourceName";
+import { isValidNamespace, isValidObjectName, sanitizeName } from "./resourceName";
 
 describe("resource name rules", () => {
   it("accepts dotted object names up to 253 characters, as the API does", () => {
@@ -15,5 +15,10 @@ describe("resource name rules", () => {
     expect(isValidNamespace("team-a")).toBe(true);
     expect(isValidNamespace("team.a")).toBe(false);
     expect(isValidNamespace("a".repeat(64))).toBe(false);
+  });
+
+  it("rewrites text to a name's characters, keeping dots only for object names", () => {
+    expect(sanitizeName("  My Team_Agent v2.1", true)).toBe("my-teamagent-v2.1");
+    expect(sanitizeName("Team.A", false)).toBe("teama");
   });
 });
