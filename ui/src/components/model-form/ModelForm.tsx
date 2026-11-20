@@ -25,6 +25,7 @@ import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
 import { KeyValueList } from "@/components/form/KeyValueList";
 import { ListInput } from "@/components/form/ListInput";
+import { OptionPanel } from "@/components/form/OptionPanel";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
@@ -300,8 +301,9 @@ export function ModelForm({
   const { blocker, release } = useUnsavedChangesGuard(isDirty);
 
   // The Secret name/key fields, shared by every provider that offers "Existing secret".
+  const settingsLabel = `${authOptions.find((option) => option.value === draft.authType)?.label ?? ""} settings`;
   const secretFields = (
-    <>
+    <OptionPanel label={settingsLabel} data-testid="model-auth-panel">
       <FormField
         label="Existing secret"
         required
@@ -320,8 +322,8 @@ export function ModelForm({
         required={false}
         help={
           isOllama
-            ? "Which entry in the Secret to read. Defaults to OLLAMA_API_KEY."
-            : "Which entry in the Secret to read. Defaults to the provider's usual key."
+            ? "Defaults to OLLAMA_API_KEY."
+            : "Defaults to the provider's usual key."
         }
       >
         <Input
@@ -331,7 +333,7 @@ export function ModelForm({
           onChange={(event) => set("apiKeySecretKey", event.target.value)}
         />
       </FormField>
-    </>
+    </OptionPanel>
   );
 
   const changeProvider = (type: string) => {
@@ -614,29 +616,32 @@ export function ModelForm({
             </FormField>
 
             {draft.authType === "apiKey" ? (
-              <FormField
-                label={
-                  <Space size={6}>
-                    {isEdit ? "API key (leave blank to keep existing)" : "API key"}
-                    <DocsLink
-                      href={info?.apiKeyLink ?? undefined}
-                      title={`Get your ${providerDisplayName(draft.provider ?? "")} API key`}
-                    />
-                  </Space>
-                }
-                // Required to create and not to edit: a blank edit keeps the stored key.
-                required={!isEdit}
-                {...fieldFor("apiKey")}
-                help="Typed once and stored in a Kubernetes Secret the controller creates and owns."
-              >
-                <Input.Password
-                  data-testid="model-api-key"
-                  placeholder={isEdit ? "Enter a new key to replace it" : "Enter API key…"}
-                  value={draft.apiKey}
-                  autoComplete="new-password"
-                  onChange={(event) => set("apiKey", event.target.value)}
-                />
-              </FormField>
+              <OptionPanel label={settingsLabel} data-testid="model-auth-panel">
+                <FormField
+                  css={{ gridColumn: "1 / -1" }}
+                  label={
+                    <Space size={6}>
+                      {isEdit ? "API key (leave blank to keep existing)" : "API key"}
+                      <DocsLink
+                        href={info?.apiKeyLink ?? undefined}
+                        title={`Get your ${providerDisplayName(draft.provider ?? "")} API key`}
+                      />
+                    </Space>
+                  }
+                  // Required to create and not to edit: a blank edit keeps the stored key.
+                  required={!isEdit}
+                  {...fieldFor("apiKey")}
+                  help="Typed once and stored in a Kubernetes Secret the controller creates and owns."
+                >
+                  <Input.Password
+                    data-testid="model-api-key"
+                    placeholder={isEdit ? "Enter a new key to replace it" : "Enter API key…"}
+                    value={draft.apiKey}
+                    autoComplete="new-password"
+                    onChange={(event) => set("apiKey", event.target.value)}
+                  />
+                </FormField>
+              </OptionPanel>
             ) : null}
 
             {draft.authType === "secret" ? secretFields : null}
@@ -653,8 +658,9 @@ export function ModelForm({
         )}
 
         {draft.authType === "actorJwt" ? (
-          <>
+          <OptionPanel label={settingsLabel} data-testid="model-auth-panel">
             <FormField
+              css={{ gridColumn: "1 / -1" }}
               label="Audiences"
               required
               {...fieldFor("actorAudiences")}
@@ -683,7 +689,7 @@ export function ModelForm({
                 onChange={(value) => set("actorExpirationSeconds", value ?? 900)}
               />
             </FormField>
-          </>
+          </OptionPanel>
         ) : null}
 
         {/* Required provider parameters (an Azure endpoint, a Bedrock region) gate

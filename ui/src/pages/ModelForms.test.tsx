@@ -93,6 +93,8 @@ describe("model create form", () => {
     expect(screen.getAllByTestId("field-required")).toHaveLength(5);
     expect(screen.getAllByTestId("field-optional")).toHaveLength(2);
     expect(screen.getByText("Key in secret")).toBeInTheDocument();
+    // The chosen option's fields sit on their own panel.
+    expect(within(screen.getByRole("group", { name: "Existing secret settings" })).getByTestId("model-api-key-secret")).toBeInTheDocument();
   });
 
   it("holds Create back until the required fields are filled, and flags a field once left", () => {
