@@ -1,4 +1,4 @@
-import { useState } from "react";
+import type { Dispatch, SetStateAction } from "react";
 import { Layout, Menu } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -75,12 +75,18 @@ function navRailStyles(theme: Theme) {
   };
 }
 
-export function AppSidebar() {
+// The layout owns `collapsed`, since the header lines its mark up with the rail too.
+export function AppSidebar({
+  collapsed,
+  setCollapsed,
+}: {
+  collapsed: boolean;
+  setCollapsed: Dispatch<SetStateAction<boolean>>;
+}) {
   const theme = useTheme();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const extensionNavItems = useExtensionNavItems();
-  const [collapsed, setCollapsed] = useState(false);
   const navOverrides = useExtensionNavOverrides();
 
   // Core and extension entries interleave by `order`, so consecutive core items
