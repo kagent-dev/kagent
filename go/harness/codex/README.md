@@ -97,6 +97,26 @@ sequenceDiagram
     Codex-->>Executor: More events or completion
 ```
 
+### MCP URL elicitation
+
+An MCP server can ask the person to open a URL during a tool call, such as a
+sign-in link. App Server relays it as an `mcpServer/elicitation/request` of
+mode `url`. The driver parks it like an approval: it interrupts the turn,
+saves the elicitation with the call that asked for it, and returns
+`input-required` with a `url_elicitation_request`. After `accept` the harness
+calls the saved tool again; after `decline` or `cancel` the tool output tells
+the model the person declined. Either result resumes the thread through
+`turn/start.toolOutput`. The URL goes to the person, never to the model.
+
+The harness runs the saved call itself after `accept`, and after the approval of
+a protected tool. If the server asks for a URL elicitation then, instead of
+running the tool, the task waits on that elicitation with the server's new link;
+an approval already given stays given.
+
+A form elicitation is declined: what the person typed into it would reach the
+model's context. So is a URL elicitation from a child thread, or one whose
+server has no single active call on the root thread to attribute it to.
+
 ## Key limitations
 
 - **Tool parenting is not retained across DATA suspension.** Resumed invocations
@@ -116,6 +136,11 @@ sequenceDiagram
   history, and the harness supplies its result as a standalone named tool output.
   The model may request the operation again after seeing the earlier interruption.
   Journal replay protection does not prevent a newly requested duplicate call.
+- **A URL elicitation's call runs again after `accept`.** Codex started the call
+  before the server asked for the URL, and the interrupt aborted it. The retry
+  is a new `tools/call`.
+- **A parked URL elicitation does not survive a downgrade.** An older harness
+  rejects the pending record, so a task waiting on one fails after a rollback.
 - **Protected MCP results are serialized as JSON text.** Image and audio results
   are not delivered as equivalent native multimodal tool output.
 

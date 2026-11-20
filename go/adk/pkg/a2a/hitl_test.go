@@ -469,3 +469,128 @@ func TestBuildRemoteHitlStateAndHintAskUserNested(t *testing.T) {
 		t.Fatalf("hint = %q, want %q", got, want)
 	}
 }
+
+func urlElicitationPart(id, toolID string) *a2atype.Part {
+	return confirmationPart(id, "whoami", toolID, nil, map[string]any{
+		"type": apia2a.HITLTypeURLElicitationRequest, "server": "gateway", "message": "Sign in to github",
+		"url": "https://gateway.example/oauth/proxy/start?s=1", "elicitation_id": "e1",
+	})
+}
+
+func urlElicitationConfirmationMessage() *a2atype.Message {
+	return a2atype.NewMessage(a2atype.MessageRoleAgent, urlElicitationPart("confirm-1", "call-1"))
+}
+
+func TestBuildHITLStatusMessageURLElicitation(t *testing.T) {
+	message := BuildHITLStatusMessage(urlElicitationConfirmationMessage(), true)
+	request := GetURLElicitationRequest(message)
+	if request == nil {
+		t.Fatalf("status message carries no URL elicitation request: %#v", message.Metadata)
+	}
+	want := apia2a.URLElicitationRequest{
+		Type: apia2a.HITLTypeURLElicitationRequest, ID: "confirm-1", Server: "gateway",
+		Message: "Sign in to github", URL: "https://gateway.example/oauth/proxy/start?s=1", ElicitationID: "e1",
+	}
+	if *request != want {
+		t.Fatalf("request = %#v, want %#v", *request, want)
+	}
+	if GetToolApprovalRequest(message) != nil {
+		t.Fatal("a URL elicitation is presented as a tool approval")
+	}
+	if text := messageText(message); !strings.Contains(text, "https://gateway.example/oauth/proxy/start?s=1") {
+		t.Fatalf("a client that renders only the text gets no link: %q", text)
+	}
+
+	plain := BuildHITLStatusMessage(urlElicitationConfirmationMessage(), false)
+	if text := messageText(plain); !strings.Contains(text, "https://gateway.example/oauth/proxy/start?s=1") {
+		t.Fatalf("a client without the extension gets no link: %q", text)
+	}
+}
+
+// A URL elicitation that shares its pause with another call is presented as
+// an approval, so the approval text carries the URL.
+func TestBuildHITLStatusMessageURLElicitationWithAnotherCall(t *testing.T) {
+	message := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		urlElicitationPart("confirm-1", "call-1"),
+		urlElicitationPart("confirm-2", "call-2"),
+	), true)
+	if GetURLElicitationRequest(message) != nil {
+		t.Fatal("two pending calls are presented as one URL elicitation")
+	}
+	request := GetToolApprovalRequest(message)
+	if request == nil || len(request.Tools) != 2 {
+		t.Fatalf("approval request = %#v", request)
+	}
+	if !strings.Contains(request.Hint, "https://gateway.example/oauth/proxy/start?s=1") {
+		t.Fatalf("approval hint carries no link: %q", request.Hint)
+	}
+	for _, tool := range request.Tools {
+		elicitation := tool.URLElicitation
+		if elicitation == nil || elicitation.URL != "https://gateway.example/oauth/proxy/start?s=1" || elicitation.ID != tool.ID || elicitation.Server == "" {
+			t.Fatalf("tool %s carries URL elicitation %#v", tool.ID, elicitation)
+		}
+	}
+}
+
+// A call that waits on a URL elicitation carries it typed in an approval it
+// shares with a plain approval, which carries none.
+func TestBuildHITLStatusMessageURLElicitationWithAnApproval(t *testing.T) {
+	message := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent,
+		urlElicitationPart("confirm-1", "call-1"),
+		confirmationPart("confirm-2", "delete_file", "call-2", map[string]any{"path": "a"}, nil),
+	), true)
+	request := GetToolApprovalRequest(message)
+	if request == nil || len(request.Tools) != 2 {
+		t.Fatalf("approval request = %#v", request)
+	}
+	if request.Tools[0].URLElicitation == nil || request.Tools[1].URLElicitation != nil {
+		t.Fatalf("tools = %#v", request.Tools)
+	}
+}
+
+func TestBuildHITLStatusMessageIgnoresAnUnsafeURL(t *testing.T) {
+	message := BuildHITLStatusMessage(a2atype.NewMessage(a2atype.MessageRoleAgent, confirmationPart("confirm-1", "whoami", "call-1", nil, map[string]any{
+		"type": apia2a.HITLTypeURLElicitationRequest, "server": "gateway", "url": "javascript:alert(1)",
+	})), false)
+	if strings.Contains(messageText(message), "javascript:") {
+		t.Fatalf("an unsafe URL reaches the person: %q", messageText(message))
+	}
+}
+
+func TestBuildResumeHITLMessageURLElicitation(t *testing.T) {
+	stored := &a2atype.Task{Status: a2atype.TaskStatus{
+		State:   a2atype.TaskStateInputRequired,
+		Message: BuildHITLStatusMessage(urlElicitationConfirmationMessage(), true),
+	}}
+	for _, test := range []struct {
+		action    string
+		confirmed bool
+	}{
+		{apia2a.URLElicitationAccept, true},
+		{apia2a.URLElicitationDecline, false},
+		{apia2a.URLElicitationCancel, false},
+	} {
+		incoming := hitlDecisionMessage(&apia2a.URLElicitationResponse{Type: apia2a.HITLTypeURLElicitationResponse, ID: "confirm-1", Action: test.action})
+		if !IsHITLResponse(incoming) {
+			t.Fatalf("%s: a URL elicitation response is not a HITL response", test.action)
+		}
+		resume, err := BuildResumeHITLMessage(stored, incoming)
+		if err != nil || len(resume.Parts) != 1 {
+			t.Fatalf("%s: resume = %#v, err = %v", test.action, resume, err)
+		}
+		data, _ := resume.Parts[0].Data().(map[string]any)
+		response, _ := data["response"].(map[string]any)
+		var confirmation toolconfirmation.ToolConfirmation
+		if err := json.Unmarshal([]byte(stringValue(response["response"])), &confirmation); err != nil {
+			t.Fatalf("%s: decode confirmation from %#v: %v", test.action, data, err)
+		}
+		if confirmation.Confirmed != test.confirmed {
+			t.Fatalf("%s: confirmed = %v, want %v", test.action, confirmation.Confirmed, test.confirmed)
+		}
+	}
+
+	other := hitlDecisionMessage(&apia2a.URLElicitationResponse{Type: apia2a.HITLTypeURLElicitationResponse, ID: "confirm-2", Action: apia2a.URLElicitationAccept})
+	if _, err := BuildResumeHITLMessage(stored, other); err == nil {
+		t.Fatal("BuildResumeHITLMessage() accepted a response to another URL elicitation")
+	}
+}

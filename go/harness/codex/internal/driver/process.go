@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	"github.com/kagent-dev/kagent/go/harness/internal/utils"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -315,8 +316,11 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 			ToolName   string         `json:"tool_name"`
 			ToolParams map[string]any `json:"tool_params"`
 		} `json:"_meta"`
-		Message    string `json:"message"`
-		ServerName string `json:"serverName"`
+		Message       string `json:"message"`
+		ServerName    string `json:"serverName"`
+		Mode          string `json:"mode"`
+		URL           string `json:"url"`
+		ElicitationID string `json:"elicitationId"`
 	}
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return nil, false, fmt.Errorf("decode Codex MCP approval request: %w", err)
@@ -326,7 +330,11 @@ func (d *ProcessDriver) handleServerRequest(client *rpcClient, translator *event
 		return nil, false, fmt.Errorf("Codex MCP request does not match the active turn")
 	}
 	if params.Meta.Kind != "mcp_tool_call" {
-		// This is genuine MCP elicitation, which the native Harness does not expose.
+		// A URL elicitation parks the root call that asked for it. A form is
+		// declined: what the person typed into it would reach the model's context.
+		if _, called := translator.elicitedTool(params.ThreadID, params.ServerName); called && !child && params.Mode == "url" && apia2a.ValidateElicitationURL(params.URL) == nil {
+			return &runtime.URLElicitationRequest{ID: uuid.NewString(), Server: params.ServerName, Message: params.Message, URL: params.URL, ElicitationID: params.ElicitationID}, true, nil
+		}
 		return nil, false, client.respond(message.ID, map[string]any{"action": "decline", "content": map[string]any{}})
 	}
 	if _, protected := d.config.ApprovalServers[params.ServerName]; !protected {

@@ -193,10 +193,10 @@ func TestDeferredMCPUsesCurrentCredentialsAndAllowedTools(t *testing.T) {
 	if _, err := missing.Call(t.Context(), "protected", "write", nil); err == nil || !strings.Contains(err.Error(), "unavailable") || calls.Load() != 1 {
 		t.Fatalf("missing credential was not rejected before execution: %v", err)
 	}
-	servers["protected"] = config.MCPServer{URL: endpoint.URL}
-	if _, err := caller.Call(t.Context(), "protected", "write", nil); err == nil || calls.Load() != 1 {
-		t.Fatalf("removed approval boundary was not rejected: %v", err)
-	}
+	var notExecuted *toolNotExecutedError
+	_, err := caller.Call(t.Context(), "unknown", "write", nil)
+	require.ErrorAs(t, err, &notExecuted)
+	require.Equal(t, int32(1), calls.Load())
 }
 
 func TestDeferredTurnReparksKnownMCPNonExecution(t *testing.T) {
