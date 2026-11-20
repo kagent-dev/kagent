@@ -21,7 +21,11 @@ import {
   useTools,
   type AgentInstance,
 } from "@/api";
-import { conversationTitle } from "@/components/agent-instances/instanceLabels";
+import {
+  conversationTitle,
+  isConversationTitlePending,
+} from "@/components/agent-instances/instanceLabels";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import { RefreshButton } from "@/components/table/RefreshButton";
 
@@ -109,7 +113,7 @@ export function DashboardPage() {
    * headed "Recent agent chat sessions" lists rows called "Untitled", which is true and
    * useless.
    */
-  const derivedTitles = useConversationTitles(recent);
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(recent);
 
   return (
     <PageFrame
@@ -230,6 +234,11 @@ export function DashboardPage() {
                         key={row.id}
                         row={row}
                         autoTitle={derivedTitles[row.id]}
+                        isTitleLoading={isConversationTitlePending(
+                          row,
+                          derivedTitles[row.id],
+                          loadingTitles,
+                        )}
                       />
                     ))}
                   </ul>
@@ -246,7 +255,15 @@ export function DashboardPage() {
 const UNREADABLE = "Could not be read";
 
 /** One row of the recent-activity list: which agent it is, whether it came up, and when. */
-function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: string }) {
+function RecentAgent({
+  row,
+  autoTitle,
+  isTitleLoading,
+}: {
+  row: AgentInstance;
+  autoTitle?: string;
+  isTitleLoading: boolean;
+}) {
   const theme = useTheme();
 
   return (
@@ -271,7 +288,11 @@ function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: strin
               "Untitled" and the short id — the same three answers in the same order as
               the rail and the conversations table. This used to be the bare short id,
               on the reasoning that a conversation had no name to show. It does now. */}
-          {conversationTitle(row, autoTitle)}
+          {isTitleLoading ? (
+            <ConversationTitlePlaceholder instanceId={row.id} />
+          ) : (
+            conversationTitle(row, autoTitle)
+          )}
         </Link>
         <Text css={{ display: "block", color: theme.color.textMuted, fontSize: 12 }}>
           {row.agent ?? "template not reported"}

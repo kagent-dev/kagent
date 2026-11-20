@@ -41,9 +41,11 @@ import {
 } from "@/api";
 import {
   conversationTitle,
+  isConversationTitlePending,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
@@ -398,7 +400,7 @@ export function AgentRail({
    * list very nearly unusable: the one row a reader could identify was the one they
    * were already looking at.
    */
-  const derivedTitles = useConversationTitles(
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(
     chats,
     ref.id ? { id: ref.id, title: autoTitle } : undefined,
   );
@@ -578,7 +580,11 @@ export function AgentRail({
     try {
       // The title, not the row's label: that carries the age too, and a copy called
       // "… · 2 minutes ago (copy)" is stamped with the age of the thing it came from.
-      const title = conversationTitle(target, derivedTitles[target.id]);
+      const title = conversationTitle(
+        target,
+        derivedTitles[target.id],
+        loadingTitles.has(target.id),
+      );
       const copy = await apiClient.agentInstances.fork(target.id, `${title} (copy)`);
       await conversations.refresh();
       toast.success(`Duplicated "${title}"`);
@@ -1221,17 +1227,22 @@ export function AgentRail({
           >
             {chats.map((candidate) => {
               const href = url.chat({ id: candidate.id });
+              /* The open row prefers its transcript's title, and keeps the listed one
+                 until that transcript loads, so opening a row never shows its id. */
+              const candidateTitle =
+                (candidate.id === ref.id ? autoTitle : undefined) ??
+                derivedTitles[candidate.id];
 
               return (
               <ChatEntry
                 key={candidate.id}
                 instance={candidate}
-                /* The open row prefers its transcript's title, and keeps the listed one
-                   until that transcript loads, so opening a row never shows its id. */
-                autoTitle={
-                  (candidate.id === ref.id ? autoTitle : undefined) ??
-                  derivedTitles[candidate.id]
-                }
+                autoTitle={candidateTitle}
+                isTitleLoading={isConversationTitlePending(
+                  candidate,
+                  candidateTitle,
+                  loadingTitles,
+                )}
                 href={href}
                 /*
                  * Lit only where the reader actually is, not wherever the id appears.
@@ -1323,7 +1334,15 @@ export function AgentRail({
           id="app_agents_agentRail_gutter_actions"
           context={{
             instanceId: instance.id,
-            label: conversationLabel(instance, autoTitle ?? derivedTitles[instance.id]),
+            label: conversationLabel(
+              instance,
+              autoTitle ?? derivedTitles[instance.id],
+              isConversationTitlePending(
+                instance,
+                autoTitle ?? derivedTitles[instance.id],
+                loadingTitles,
+              ),
+            ),
           }}
         />
       ) : null}
@@ -1344,9 +1363,16 @@ export function AgentRail({
  * label, so how long ago a conversation started is the only other thing that
  * distinguishes two untitled ones. A table has a column for it instead.
  */
-function conversationLabel(instance: AgentInstance, autoTitle?: string) {
-  const age = instance.createdAt ? ` · ${relativeAge(instance.createdAt)}` : "";
-  return `${conversationTitle(instance, autoTitle)}${age}`;
+function conversationLabel(
+  instance: AgentInstance,
+  autoTitle?: string,
+  isTitleLoading = false,
+) {
+  return `${conversationTitle(instance, autoTitle, isTitleLoading)}${ageSuffix(instance)}`;
+}
+
+function ageSuffix(instance: AgentInstance) {
+  return instance.createdAt ? ` · ${relativeAge(instance.createdAt)}` : "";
 }
 
 function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
@@ -1370,6 +1396,7 @@ function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
 function ChatEntry({
   instance,
   autoTitle,
+  isTitleLoading,
   href,
   isActive,
   onDelete,
@@ -1382,6 +1409,8 @@ function ChatEntry({
 }: {
   instance: AgentInstance;
   autoTitle?: string;
+  /** The title read is in flight, so the row shows a placeholder rather than "Untitled". */
+  isTitleLoading: boolean;
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance, force: boolean) => void;
@@ -1421,7 +1450,7 @@ function ChatEntry({
    */
   const slotContext = {
     instanceId: instance.id,
-    label: conversationLabel(instance, autoTitle),
+    label: conversationLabel(instance, autoTitle, isTitleLoading),
   };
 
   /*
@@ -1452,7 +1481,7 @@ function ChatEntry({
         okText="Delete"
         okButtonProps={{ danger: true, loading: isDeleting }}
         cancelText="Keep"
-        title={`Delete "${conversationLabel(instance, autoTitle)}"?`}
+        title={`Delete "${conversationLabel(instance, autoTitle, isTitleLoading)}"?`}
         data-testid={`chat-session-confirm-${instance.id}`}
       >
         <Text css={{ color: theme.color.textMuted }}>
@@ -1500,7 +1529,7 @@ function ChatEntry({
         <Checkbox
           checked={isSelected}
           data-testid={`chat-session-select-${instance.id}`}
-          aria-label={`Select ${conversationLabel(instance, autoTitle)}`}
+          aria-label={`Select ${conversationLabel(instance, autoTitle, isTitleLoading)}`}
           onClick={(event) => {
             // Read from the event rather than a keydown listener: the shift state that
             // matters is the one at the moment of the click.
@@ -1539,15 +1568,24 @@ function ChatEntry({
           // row, and what the ellipsis hides is the name. To the right, so it opens
           // into the page rather than back over the list it is explaining one of.
           ellipsis={{
-            tooltip: {
-              title: conversationTitle(instance, autoTitle),
-              placement: "right",
-              styles: TITLE_TOOLTIP_STYLES,
-            },
+            tooltip: isTitleLoading
+              ? false
+              : {
+                  title: conversationTitle(instance, autoTitle),
+                  placement: "right",
+                  styles: TITLE_TOOLTIP_STYLES,
+                },
           }}
           css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
         >
-          {conversationLabel(instance, autoTitle)}
+          {isTitleLoading ? (
+            <>
+              <ConversationTitlePlaceholder instanceId={instance.id} width="6em" />
+              {ageSuffix(instance)}
+            </>
+          ) : (
+            conversationLabel(instance, autoTitle)
+          )}
         </Text>
       </Link>
       {/*
@@ -1660,7 +1698,7 @@ function ChatEntry({
           size="small"
           loading={isDeleting || isDuplicating}
           data-testid={`chat-session-menu-${instance.id}`}
-          aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
+          aria-label={`Actions for ${conversationLabel(instance, autoTitle, isTitleLoading)}`}
           icon={
             <MoreVertical
               size={14}

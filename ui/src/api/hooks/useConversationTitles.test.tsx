@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInstance } from "@/api";
 import { resetChatClient, setChatClientFactory } from "../chat";
 import type { ChatClient, ChatMessage } from "../chat/types";
-import { useConversationTitles } from "./useConversationTitles";
+import { useConversationTitles, type ConversationTitles } from "./useConversationTitles";
 
 /** An unnamed conversation, as the rail lists it. */
 
@@ -53,6 +53,33 @@ type Open = { id: string; title?: string };
 afterEach(() => resetChatClient());
 
 describe("useConversationTitles", () => {
+  it("reports a row loading only while its read is in flight", async () => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    setChatClientFactory(() => ({
+      ...client(new Map(), []),
+      history: async ({ id }) => {
+        await held;
+        return { messages: id === "titled" ? [said("Why is checkout down")] : [] };
+      },
+    }));
+    const named = { ...conversation("named"), name: "Untitled" };
+    const pastBudget = Array.from({ length: 30 }, (_, i) => conversation(`row-${i}`));
+    const listed = [conversation("titled"), conversation("empty"), named, ...pastBudget];
+
+    const { result } = renderHook(() => useConversationTitles(listed), {
+      wrapper: sharedCache(),
+    });
+
+    // Named rows are never read, and rows past the budget are never read either.
+    expect(result.current.loading).toEqual(
+      new Set(["titled", "empty", ...pastBudget.slice(0, 28).map((row) => row.id)]),
+    );
+    release();
+    await waitFor(() => expect(result.current.loading.size).toBe(0));
+    expect(result.current.titles).toEqual({ titled: "Why is checkout down" });
+  });
+
   it("reads a conversation's title once, not again when the list grows", async () => {
     const histories = new Map([["named", [said("An older question")]]]);
     const reads: string[] = [];
@@ -65,13 +92,13 @@ describe("useConversationTitles", () => {
         initialProps: { listed: [conversation("named"), conversation("fresh")] },
       },
     );
-    await waitFor(() => expect(result.current).toEqual({ named: "An older question" }));
+    await waitFor(() => expect(result.current.titles).toEqual({ named: "An older question" }));
 
     // A new set of ids is a new read, but only of the rows that have no title yet.
     reads.length = 0;
     rerender({ listed: [conversation("named"), conversation("fresh"), conversation("third")] });
     await waitFor(() => expect(reads.sort()).toEqual(["fresh", "third"]));
-    expect(result.current).toEqual({ named: "An older question" });
+    expect(result.current.titles).toEqual({ named: "An older question" });
   });
 
   // The open row is titled from its transcript; the rail's read of it came before that.
@@ -82,18 +109,18 @@ describe("useConversationTitles", () => {
     const wrapper = sharedCache();
     const listed = [conversation("fresh"), conversation("other")];
 
-    const { result, rerender } = renderHook<Record<string, string>, { open: Open }>(
+    const { result, rerender } = renderHook<ConversationTitles, { open: Open }>(
       ({ open }) => useConversationTitles(listed, open),
       { wrapper, initialProps: { open: { id: "fresh", title: "This is twin B." } } },
     );
     await waitFor(() => expect(reads.sort()).toEqual(["fresh", "other"]));
 
     rerender({ open: { id: "other" } });
-    expect(result.current).toEqual({ fresh: "This is twin B." });
+    expect(result.current.titles).toEqual({ fresh: "This is twin B." });
 
     // And on the next page, whose rail is a new mount reading the same cache.
     const detailsPage = renderHook(() => useConversationTitles(listed), { wrapper });
-    expect(detailsPage.result.current).toEqual({ fresh: "This is twin B." });
+    expect(detailsPage.result.current.titles).toEqual({ fresh: "This is twin B." });
   });
 
   it("takes the title back when the transcript takes back a refused first message", async () => {
@@ -102,7 +129,7 @@ describe("useConversationTitles", () => {
     setChatClientFactory(() => client(histories, reads));
     const listed = [conversation("fresh"), conversation("other")];
 
-    const { result, rerender } = renderHook<Record<string, string>, { open: Open }>(
+    const { result, rerender } = renderHook<ConversationTitles, { open: Open }>(
       ({ open }) => useConversationTitles(listed, open),
       {
         wrapper: sharedCache(),
@@ -113,7 +140,7 @@ describe("useConversationTitles", () => {
 
     rerender({ open: { id: "fresh" } });
     rerender({ open: { id: "other" } });
-    expect(result.current).toEqual({});
+    expect(result.current.titles).toEqual({});
   });
 
   it("takes the title back even after a read that ran while it was remembered", async () => {
@@ -124,7 +151,7 @@ describe("useConversationTitles", () => {
     const three = [...two, conversation("third")];
 
     const { result, rerender } = renderHook<
-      Record<string, string>,
+      ConversationTitles,
       { listed: AgentInstance[]; open: Open }
     >(({ listed, open }) => useConversationTitles(listed, open), {
       wrapper: sharedCache(),
@@ -139,7 +166,7 @@ describe("useConversationTitles", () => {
 
     rerender({ listed: three, open: { id: "fresh" } });
     rerender({ listed: three, open: { id: "other" } });
-    expect(result.current).toEqual({});
+    expect(result.current.titles).toEqual({});
   });
 
   // Each page's rail is its own read; one cached before the first message is not final.
@@ -152,13 +179,13 @@ describe("useConversationTitles", () => {
 
     const newChatPage = renderHook(() => useConversationTitles(listed), { wrapper });
     await waitFor(() => expect(reads).toEqual(["fresh"]));
-    expect(newChatPage.result.current).toEqual({});
+    expect(newChatPage.result.current.titles).toEqual({});
     newChatPage.unmount();
 
     histories.set("fresh", [said("This is twin B.")]);
     const detailsPage = renderHook(() => useConversationTitles(listed), { wrapper });
 
-    await waitFor(() => expect(detailsPage.result.current).toEqual({ fresh: "This is twin B." }));
+    await waitFor(() => expect(detailsPage.result.current.titles).toEqual({ fresh: "This is twin B." }));
   });
 
   it("answers from a title found under another set of conversations, without reading", async () => {
@@ -177,13 +204,13 @@ describe("useConversationTitles", () => {
       () => useConversationTitles([conversation("fresh"), conversation("other")]),
       { wrapper },
     );
-    await waitFor(() => expect(chatPage.result.current).toEqual({ fresh: "This is twin B." }));
+    await waitFor(() => expect(chatPage.result.current.titles).toEqual({ fresh: "This is twin B." }));
     chatPage.unmount();
     reads.length = 0;
 
     // Back on a page listing the first set, whose cached read still says nothing.
     const after = renderHook(() => useConversationTitles([conversation("fresh")]), { wrapper });
-    expect(after.result.current).toEqual({ fresh: "This is twin B." });
+    expect(after.result.current.titles).toEqual({ fresh: "This is twin B." });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(reads).toEqual([]);
   });

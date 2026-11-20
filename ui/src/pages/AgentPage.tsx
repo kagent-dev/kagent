@@ -33,10 +33,12 @@ import { StateTag, ValueOrNotReported } from "@/components/agent-instances/Insta
 import {
   conversationTitle,
   hasConversationName,
+  isConversationTitlePending,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { RenameConversationButton } from "@/components/agent-instances/RenameConversationButton";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView, type SortState } from "@/components/table/useListView";
@@ -81,10 +83,16 @@ export function AgentPage() {
   );
 
   // Titled the way the rail titles them, from the same cached reads.
-  const derivedTitles = useConversationTitles(rows);
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(rows);
+  const isTitlePending = useMemo(
+    () => (row: AgentInstance) =>
+      isConversationTitlePending(row, derivedTitles[row.id], loadingTitles),
+    [derivedTitles, loadingTitles],
+  );
   const titleOf = useMemo(
-    () => (row: AgentInstance) => conversationTitle(row, derivedTitles[row.id]),
-    [derivedTitles],
+    () => (row: AgentInstance) =>
+      conversationTitle(row, derivedTitles[row.id], isTitlePending(row)),
+    [derivedTitles, isTitlePending],
   );
 
   const stateOptions = useMemo(() => {
@@ -191,6 +199,11 @@ export function AgentPage() {
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => {
           const title = titleOf(row);
+          const shown = isTitlePending(row) ? (
+            <ConversationTitlePlaceholder instanceId={row.id} width="9em" />
+          ) : (
+            title
+          );
           // Until the read lands nothing is known about who may open what, so
           // nothing is claimed: treating an unread answer as "not yours" would
           // strip the links off a list that is about to be perfectly openable.
@@ -208,7 +221,7 @@ export function AgentPage() {
                     fontStyle: hasConversationName(row) ? undefined : "italic",
                   }}
                 >
-                  {title}
+                  {shown}
                 </Link>
               ) : (
                 /* No link, deliberately. `GetAgentInstance` is scoped to its
@@ -222,7 +235,7 @@ export function AgentPage() {
                     data-testid={`conversation-unopenable-${row.id}`}
                     css={{ color: theme.color.textMuted, fontStyle: "italic" }}
                   >
-                    {title}
+                    {shown}
                   </Text>
                 </Tooltip>
               )}
@@ -310,7 +323,7 @@ export function AgentPage() {
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations.refresh, openableIds, theme, extensionColumns, view, titleOf],
+    [conversations.refresh, openableIds, theme, extensionColumns, view, titleOf, isTitlePending],
   );
 
   const othersCount = rows.filter(

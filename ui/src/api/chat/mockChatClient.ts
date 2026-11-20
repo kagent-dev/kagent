@@ -85,6 +85,16 @@ function publishActivity(): void {
   (window as unknown as Record<string, unknown>)[MOCK_CHAT_PROPERTY] = activity;
 }
 
+/** A promise the browser suite may set to hold history reads until it resolves. */
+export const MOCK_HISTORY_GATE_PROPERTY = "__kagentMockHistoryGate";
+
+function historyGate(): Promise<unknown> | undefined {
+  if (typeof window === "undefined") return undefined;
+  return (window as unknown as Record<string, Promise<unknown> | undefined>)[
+    MOCK_HISTORY_GATE_PROPERTY
+  ];
+}
+
 export class MockChatClient implements ChatClient {
   readonly protocolVersion = "mock";
 
@@ -110,6 +120,7 @@ export class MockChatClient implements ChatClient {
     options: { signal?: AbortSignal } = {},
   ): Promise<ChatHistory> {
     await delay(250, options.signal);
+    await historyGate();
     refuseAnInvalidShare(conversation);
     const sessionId = conversationKey(conversation);
     // An instance that was talked to before opens with that conversation in it; a

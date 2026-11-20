@@ -188,6 +188,37 @@ test("agents: the conversations table titles each row as the rail does", async (
   }
 });
 
+test("agents: a title still being read shows a placeholder, not Untitled", async ({ page }) => {
+  const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+  // Holds every history read until the test releases it.
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    w.__kagentMockHistoryGate = new Promise((resolve) => {
+      w.__releaseHistory = resolve;
+    });
+  });
+  await loadPage(page, agentPage(agents.sharedOnFastLane));
+  const link = page.getByTestId(`conversation-link-${autoTitled}`);
+  const railRow = page.getByTestId(`chat-session-${autoTitled}`);
+
+  await test.step("1. while held, both surfaces show the placeholder", async () => {
+    await expect(link.getByTestId(`conversation-title-loading-${autoTitled}`)).toBeVisible();
+    await expect(railRow.getByTestId(`conversation-title-loading-${autoTitled}`)).toBeVisible();
+    await expect(link).not.toContainText("Untitled");
+    await expect(railRow).not.toContainText("Untitled");
+    await expect(link).toHaveAccessibleName(`Open conversation Conversation ${autoTitled.slice(0, 8)}`);
+  });
+
+  await test.step("2. once released, the real title replaces it", async () => {
+    await page.evaluate(() =>
+      (window as unknown as { __releaseHistory: () => void }).__releaseHistory(),
+    );
+    await expect(link).toContainText("Summarise last night's deploy");
+    await expect(railRow).toContainText("Summarise last night's deploy");
+    await expect(page.getByTestId(`conversation-title-loading-${autoTitled}`)).toHaveCount(0);
+  });
+});
+
 test("agents: conversations list the most recently active first, and the reader can reverse it", async ({
   page,
 }) => {
