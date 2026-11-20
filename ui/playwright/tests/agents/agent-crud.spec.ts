@@ -38,7 +38,7 @@ for (const template of CASES) {
       await expect(page).toHaveURL(/\/agents\/new$/);
       await expect(page.getByTestId("agent-form-harness-ref")).toContainText("kagent-default");
       await expectRequired(page, {
-        marked: ["Name", "Namespace", "Agent template", "Harness"],
+        marked: ["Name", "Namespace", "Existing template", "Existing harness"],
         unmarked: ["Egress policies"],
       });
       await page.getByTestId("agent-form-name").fill(name);
