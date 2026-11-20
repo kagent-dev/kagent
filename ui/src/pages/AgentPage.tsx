@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Card, Space, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Skeleton, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -483,7 +483,7 @@ export function AgentPage() {
           />
         ) : null}
 
-        {agent ? <AgentIdentityCard agent={agent} /> : null}
+        {agent || definition.isLoading ? <AgentIdentityCard agent={agent} /> : null}
 
         <FilterBar
           testId="conversations-filters"
@@ -684,14 +684,24 @@ function IdentityField({ label, children }: { label: string; children: ReactNode
   );
 }
 
-/** What this agent is made of: each half is a shared resource or inline in the Agent. */
-function AgentIdentityCard({ agent }: { agent: Agent }) {
+/** A value still loading, as tall as the line it stands in for: 22px for text, 23px for a tag. */
+function IdentityPlaceholder({ height }: { height: number }) {
+  return (
+    <div css={{ height, display: "flex", alignItems: "center" }}>
+      <Skeleton.Input active size="small" style={{ height: 14, minWidth: 0, width: 120 }} />
+    </div>
+  );
+}
+
+/**
+ * What this agent is made of: each half is a shared resource or inline in the Agent.
+ * Without an agent it holds the same layout with placeholders, so the table below stays put.
+ */
+function AgentIdentityCard({ agent }: { agent?: Agent }) {
   const theme = useTheme();
-  const { spec, status } = agent.resource;
-  const mono = { fontFamily: theme.font.mono, fontSize: 12 };
 
   return (
-    <Card data-testid="agent-identity" size="small">
+    <Card data-testid={agent ? "agent-identity" : "agent-identity-loading"} size="small">
       <div
         css={{
           display: "grid",
@@ -699,6 +709,38 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
           gap: theme.space(4),
         }}
       >
+        {agent ? (
+          <AgentIdentityFields agent={agent} />
+        ) : (
+          ["Agent template", "Harness", "Revision", "Status"].map((label) => (
+            <IdentityField key={label} label={label}>
+              <IdentityPlaceholder height={label === "Status" ? 23 : 22} />
+            </IdentityField>
+          ))
+        )}
+      </div>
+      <Paragraph
+        css={{
+          margin: `${theme.space(3)} 0 0`,
+          color: theme.color.textMuted,
+          fontSize: 12,
+        }}
+        data-testid="agent-identity-note"
+      >
+        The template says what this agent does and the Harness says how it runs.
+        Templates may be inline or shared; Harnesses are always referenced.
+      </Paragraph>
+    </Card>
+  );
+}
+
+function AgentIdentityFields({ agent }: { agent: Agent }) {
+  const theme = useTheme();
+  const { spec, status } = agent.resource;
+  const mono = { fontFamily: theme.font.mono, fontSize: 12 };
+
+  return (
+    <>
         <IdentityField label="Agent template">
           {spec.template.ref ? (
             <Link
@@ -741,7 +783,8 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
             <Text
               ellipsis={{ tooltip: status.latestSuccessfulRevision }}
               copyable={{ text: status.latestSuccessfulRevision }}
-              css={mono}
+              // One line before antd measures the ellipsis, or the first frame wraps the hash.
+              css={{ ...mono, whiteSpace: "nowrap" }}
               data-testid="agent-revision"
             >
               {status.latestSuccessfulRevision}
@@ -754,18 +797,6 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         <IdentityField label="Status">
           <AgentStatusTag agent={agent} testId="agent-revision-state" />
         </IdentityField>
-      </div>
-      <Paragraph
-        css={{
-          margin: `${theme.space(3)} 0 0`,
-          color: theme.color.textMuted,
-          fontSize: 12,
-        }}
-        data-testid="agent-identity-note"
-      >
-        The template says what this agent does and the Harness says how it runs.
-        Templates may be inline or shared; Harnesses are always referenced.
-      </Paragraph>
-    </Card>
+    </>
   );
 }

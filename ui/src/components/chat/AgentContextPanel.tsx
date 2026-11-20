@@ -9,6 +9,9 @@ import { backLinkState } from "@/router/backLink";
 
 const { Text, Paragraph } = Typography;
 
+// Model, three rows of tools and a clamped prompt: the tallest of the live agents measured.
+const DETAILS_MIN_HEIGHT = 328;
+
 /**
  * What this agent is, beside the conversation.
  *
@@ -62,6 +65,7 @@ export function AgentContextPanel({
   const harnessRef = definition.data?.resource.spec.harnessRef.name;
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
+  const loading = definition.isLoading || template.isLoading;
   const tools = spec?.tools ?? [];
 
   return (
@@ -111,8 +115,18 @@ export function AgentContextPanel({
         css={{ borderTop: `1px solid ${theme.color.border}`, margin: `${theme.space(1)} 0` }}
       />
 
-      {definition.isLoading || template.isLoading ? (
-        <Skeleton active paragraph={{ rows: 4 }} data-testid="chat-agent-context-loading" />
+      {/* Held at a typical template's height, so the actions below stay put when it loads. */}
+      <div
+        data-testid="chat-agent-context-details"
+        css={{
+          display: "grid",
+          gap: theme.space(4),
+          alignContent: "start",
+          minHeight: loading || error || spec ? DETAILS_MIN_HEIGHT : undefined,
+        }}
+      >
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 7 }} data-testid="chat-agent-context-loading" />
       ) : error ? (
         /* The conversation above is unaffected — it is read from the gateway, not from
            the template — so this is a note beside the transcript rather than a failure
@@ -200,6 +214,7 @@ export function AgentContextPanel({
           ) : null}
         </>
       ) : null}
+      </div>
 
       {instance?.preparedRevision ? (
         <Field
@@ -291,6 +306,8 @@ function RefLink({
           justifySelf: "start",
           fontFamily: theme.font.mono,
           fontSize: 12,
+          // Typography's line height, so the link is as tall as the text it replaces.
+          lineHeight: 1.5714,
           color: theme.color.primaryText,
           wordBreak: "break-word",
           "&:hover, &:focus-visible": { textDecoration: "underline" },

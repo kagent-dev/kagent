@@ -191,7 +191,7 @@ function markdownStyles(theme: Theme, p: MarkdownPalette) {
     & h5,
     & h6 {
       color: ${p.heading};
-      margin: 1.6em 0 0.5em;
+      margin: 1.6em 0 calc(0.5em + 2px);
     }
     & h1 {
       font-size: 22px;
