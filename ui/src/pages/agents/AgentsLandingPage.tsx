@@ -77,11 +77,7 @@ export function AgentsLandingPage() {
         </Space>
       }
     >
-      {/* Closer to the heading than the page's default gap: the overview belongs to
-          the title above it, and the full gap left it floating between the two. */}
-      <div css={{ marginTop: `-${theme.space(3)}` }}>
-        <AgentConcepts />
-      </div>
+      <AgentConcepts />
 
       <Modal
         title="Create"
