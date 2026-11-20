@@ -32,6 +32,7 @@ func (s *sessionServer) ListSessions(ctx context.Context, request *apiv1.ListSes
 	result, err := s.service.List(ctx, sessionsvc.ListRequest{
 		AllCreators: request.GetAllCreators(),
 		Agent:       request.GetAgent(),
+		Namespace:   request.GetNamespace(),
 		PageSize:    int(request.GetPage().GetLimit()), PageToken: request.GetPage().GetPageToken(),
 	})
 	if err != nil {

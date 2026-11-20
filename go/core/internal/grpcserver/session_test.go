@@ -53,6 +53,9 @@ func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query databa
 		if query.Agent != nil && (session.Agent.Ref.Namespace != query.Agent.Namespace || session.Agent.Ref.Name != query.Agent.Name) {
 			continue
 		}
+		if query.Namespace != "" && session.Agent.Ref.Namespace != query.Namespace {
+			continue
+		}
 		rows = append(rows, session)
 		if len(rows) == query.Limit {
 			break
@@ -116,6 +119,21 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	_, err = client.ListSessions(caller("blocked", false), &apiv1.ListSessionsRequest{})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	require.Equal(t, before, store.lists.Load())
+
+	for _, scenario := range []struct {
+		name      string
+		namespace string
+		want      int
+	}{
+		{name: "Given two sessions in team-a, when an all-creators caller lists team-a, assert that both are returned", namespace: "team-a", want: 2},
+		{name: "Given two sessions in team-a, when an all-creators caller lists team-b, assert that none is returned", namespace: "team-b"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			listed, err := client.ListSessions(caller("operator", false), &apiv1.ListSessionsRequest{AllCreators: true, Namespace: scenario.namespace})
+			require.NoError(t, err)
+			require.Len(t, listed.GetSessions(), scenario.want)
+		})
+	}
 
 	wide, err := client.ListSessions(caller("operator", false), &apiv1.ListSessionsRequest{AllCreators: true, Page: &apiv1.PageRequest{Limit: 1}})
 	require.NoError(t, err)
