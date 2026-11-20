@@ -29,7 +29,8 @@ func TestNormalDeletionAllowsSettledTurns(t *testing.T) {
 	for _, state := range []a2a.TaskState{a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired, a2a.TaskStateCompleted, a2a.TaskStateFailed, a2a.TaskStateCanceled, a2a.TaskStateRejected} {
 		t.Run("Given a settled "+string(state)+" turn, when deletion is requested, assert that it is admitted", func(t *testing.T) {
 			client, session, task, version := deletionTaskFixture(t, state)
-			require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+			_, err := client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+			require.NoError(t, err)
 			operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 			require.NoError(t, err)
 			require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_DELETING, operation.Instance.State)
@@ -45,7 +46,7 @@ func TestForceDeletionFencesTurnsAndSurvivesPreparationFailure(t *testing.T) {
 	require.NoError(t, err)
 	_, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash("late update"), task, task, "")
 	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "late input"), ErrConflict)
+	require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "late input", nil), ErrConflict)
 	current, err := client.GetSessionTask(t.Context(), session.Id, string(task.ID), nil)
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateWorking, current.Status.State, "deletion intent does not prove execution stopped")
@@ -90,7 +91,8 @@ func TestForceDeletionPreservesSavedBoundary(t *testing.T) {
 			retained, err := unmarshalSessionTask(stored.Data)
 			require.NoError(t, err)
 			require.Equal(t, state, retained.Status.State)
-			require.ErrorIs(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version), ErrNotFound)
+			_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+			require.ErrorIs(t, err, ErrNotFound)
 		})
 	}
 }
@@ -103,7 +105,8 @@ func TestForceDeletionPreservesConcurrentRuntimeSettlement(t *testing.T) {
 	require.NoError(t, err)
 
 	// The runtime acknowledges its saved result while actor deletion is in progress.
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	finishAdmittedDeletion(t, client, operation)
 
 	stored, err := readSessionTask(t.Context(), client.db, row.HistoryID, string(task.ID))
@@ -153,7 +156,7 @@ func TestForceDeletionFinalizationRollsBackOnIdentityConflict(t *testing.T) {
 func TestForceDeletionRevokesDispatch(t *testing.T) {
 	client, session := deletionSessionFixture(t)
 	dispatchID := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "pending"))
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatchID, "pending", nil))
 	_, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	operation, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, true)
@@ -167,7 +170,8 @@ func TestForceDeletionRevokesDispatch(t *testing.T) {
 
 func TestForceDeletionRetainsIdleLifecycleOwnership(t *testing.T) {
 	client, session, task, version := deletionTaskFixture(t, a2a.TaskStateCompleted)
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err := client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	work, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, session.Id, work.Session.Id)
@@ -190,7 +194,7 @@ func TestDeletionSerializesWithMessageAdmission(t *testing.T) {
 	})
 	workers.Go(func() {
 		<-start
-		results <- client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "concurrent input")
+		results <- client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "concurrent input", nil)
 	})
 	close(start)
 	workers.Wait()

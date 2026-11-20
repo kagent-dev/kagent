@@ -132,7 +132,7 @@ func TestCrashedSessionRecoveryRetriesWithoutLosingState(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, a2a.TaskStateFailed, published.Status.State)
 			require.Len(t, published.History, 1)
-			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()), database.ErrConflict)
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString(), nil), database.ErrConflict)
 			// A retried RevertSession on another workflow instance joins the admitted
 			// operation from PostgreSQL.
 			restarted := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Second, noop.NewMeterProvider())
@@ -295,7 +295,8 @@ func TestCrashedSessionRecoversAnOlderResumedTask(t *testing.T) {
 	hash := sha256.Sum256([]byte("waiting"))
 	waitingVersion, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], older, older, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(older.ID), waitingVersion))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(older.ID), waitingVersion)
+	require.NoError(t, err)
 	work, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, &database.SessionTaskSnapshot{
@@ -309,7 +310,8 @@ func TestCrashedSessionRecoversAnOlderResumedTask(t *testing.T) {
 	hash = sha256.Sum256([]byte("newer completed task"))
 	newerVersion, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], newer, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(newer.ID), newerVersion))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(newer.ID), newerVersion)
+	require.NoError(t, err)
 	work, err = store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, &database.SessionTaskSnapshot{
@@ -330,7 +332,7 @@ func TestCrashedSessionRecoversAnOlderResumedTask(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateCompleted, retained.Status.State)
 	require.Equal(t, newerVersion, retainedVersion, "recovery cannot rewrite a later completed task")
-	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString()))
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), uuid.NewString(), nil))
 }
 
 func TestExplicitRevertRespectsCheckpointCreation(t *testing.T) {
@@ -339,7 +341,8 @@ func TestExplicitRevertRespectsCheckpointCreation(t *testing.T) {
 	hash := sha256.Sum256([]byte("completed"))
 	version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	work, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, &database.SessionTaskSnapshot{
@@ -368,7 +371,8 @@ func TestExplicitRevertRetiresIdleSuspensionOfCrashedActor(t *testing.T) {
 	hash := sha256.Sum256([]byte("completed"))
 	version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	work, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
@@ -427,7 +431,8 @@ func TestExplicitRevertCannotCheckpointDiscardedTerminalState(t *testing.T) {
 	hash := sha256.Sum256([]byte("completed before snapshot"))
 	version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], task, task, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	workflow := NewActorWorkflow(store, actors, make(chan struct{}, 1), time.Minute, noop.NewMeterProvider())
 	_, err = workflow.Revert(t.Context(), session)
 	require.NoError(t, err)
@@ -451,7 +456,8 @@ func TestExplicitRevertPreservesOnlyCapturedWaits(t *testing.T) {
 				hash := sha256.Sum256([]byte(state))
 				version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], task, task, "")
 				require.NoError(t, err)
-				require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+				_, err = store.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+				require.NoError(t, err)
 				if captured {
 					work, err := store.ClaimSessionQuiescence(t.Context())
 					require.NoError(t, err)
@@ -485,7 +491,8 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 	hash := sha256.Sum256([]byte("waiting"))
 	version, err := store.UpdateSessionTask(t.Context(), session.Id, version, hash[:], waiting, waiting, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(waiting.ID), version)
+	require.NoError(t, err)
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("another turn"))
 	message.ContextID = session.ContextId
 	later := a2a.NewSubmittedTask(message, message)
@@ -493,7 +500,8 @@ func TestExplicitRevertRetainsWaitCapturedByLaterTurn(t *testing.T) {
 	hash = sha256.Sum256([]byte("later completed turn"))
 	version, err = store.CreateRuntimeTask(t.Context(), session.Id, hash[:], later, "")
 	require.NoError(t, err)
-	require.NoError(t, store.SettleSessionTask(t.Context(), session.Id, string(later.ID), version))
+	_, err = store.SettleSessionTask(t.Context(), session.Id, string(later.ID), version)
+	require.NoError(t, err)
 	work, err := store.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), work, &database.SessionTaskSnapshot{
@@ -698,10 +706,12 @@ type suspensionTestStore struct {
 	*database.Client
 	reserveErr error
 	reserves   int
+	senders    []*database.TurnSender
 }
 
-func (s *suspensionTestStore) ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error {
+func (s *suspensionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, _ string, sender *database.TurnSender) error {
 	s.reserves++
+	s.senders = append(s.senders, sender)
 	return s.reserveErr
 }
 
@@ -738,6 +748,7 @@ func TestSendRecoversACrashDuringSuspension(t *testing.T) {
 		dispatched bool
 	}{
 		{name: "a crash during suspension", reserveErr: database.ErrDispatchSuspending, crashed: true, reverts: 1, dispatched: true},
+		{name: "a crash during an active turn", reserveErr: database.ErrActiveTurn, crashed: true, reverts: 1, dispatched: true},
 		{name: "a suspension still running", reserveErr: database.ErrDispatchSuspending, reverts: 1},
 		{name: "a revert that cannot run", reserveErr: database.ErrDispatchSuspending, crashed: true,
 			revertErr: status.Error(codes.Unavailable, "control plane unavailable"), reverts: 1},
@@ -761,6 +772,9 @@ func TestSendRecoversACrashDuringSuspension(t *testing.T) {
 			prepared, err := interactions.PrepareSend(serviceTestContext("alice"), agent, &a2a.SendMessageRequest{Message: message})
 			elapsed := time.Since(started)
 			require.Equal(t, test.reverts, workflow.reverts)
+			for _, sender := range store.senders {
+				require.Equal(t, &database.TurnSender{Kind: "principal", PrincipalID: "alice"}, sender)
+			}
 			if test.dispatched {
 				require.NoError(t, err)
 				require.NotEqual(t, uuid.Nil, prepared.DispatchID)

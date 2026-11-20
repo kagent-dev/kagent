@@ -22,6 +22,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 type interactionStore interface {
@@ -30,7 +31,7 @@ type interactionStore interface {
 	GetTaskPushConfig(context.Context, string, string, string) (*database.TaskPushConfig, error)
 	ListTaskPushConfigs(context.Context, string, string, string, int) ([]database.TaskPushConfig, error)
 	DeleteTaskPushConfig(context.Context, string, string, string) error
-	ReserveSessionDispatch(context.Context, string, uuid.UUID, string) error
+	ReserveSessionDispatch(context.Context, string, uuid.UUID, string, *database.TurnSender) error
 	RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (bool, error)
 	GetRuntimeRevision(context.Context, string) (*database.RuntimeRevision, error)
 	GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error)
@@ -173,7 +174,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		config.PushConfig = nil
 		req.Config = &config
 	}
-	id, err := s.reserveDispatch(ctx, session.Id, initialID, s.dispatchWait)
+	id, err := s.reserveDispatch(ctx, session.Id, initialID, turnSender(ctx, session), s.dispatchWait)
 	if s.automaticRecovery && errors.Is(err, errSuspensionUnsettled) {
 		// Why: a worker lost while the Actor suspends after a turn leaves the
 		// Actor CRASHED, the Session READY, and the suspension's claim held, since
@@ -187,7 +188,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		// proceeds or answers retry as before.
 		switch recoverErr := s.recoverForSend(ctx, session.Id); {
 		case recoverErr == nil:
-			id, err = s.reserveDispatch(ctx, session.Id, initialID, 0)
+			id, err = s.reserveDispatch(ctx, session.Id, initialID, turnSender(ctx, session), 0)
 		case !errors.Is(recoverErr, errRecoveryUnavailable):
 			return nil, recoverErr
 		}
@@ -199,7 +200,7 @@ func (s *InteractionService) PrepareSend(ctx context.Context, agent types.Namesp
 		// reservation either proceeds or is refused as before.
 		switch recoverErr := s.recoverForSend(ctx, session.Id); {
 		case recoverErr == nil:
-			id, err = s.reserveDispatch(ctx, session.Id, initialID, s.dispatchWait)
+			id, err = s.reserveDispatch(ctx, session.Id, initialID, turnSender(ctx, session), s.dispatchWait)
 		case !errors.Is(recoverErr, errRecoveryUnavailable):
 			return nil, recoverErr
 		}
@@ -265,11 +266,11 @@ func (s *InteractionService) prepareTask(ctx context.Context, agent types.Namesp
 // on an ambiguous transport error, and no SQL lock is held during dispatch.
 // It waits at most wait for a busy Session, answering ErrSendNotAccepted after
 // it, or errSuspensionUnsettled when a claimed suspension was still the cause.
-func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string, wait time.Duration) (uuid.UUID, error) {
+func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, initialID string, sender *database.TurnSender, wait time.Duration) (uuid.UUID, error) {
 	id := uuid.New()
 	deadline := time.Now().Add(wait)
 	for {
-		err := s.store.ReserveSessionDispatch(ctx, sessionID, id, initialID)
+		err := s.store.ReserveSessionDispatch(ctx, sessionID, id, initialID, sender)
 		if err == nil {
 			return id, nil
 		}
@@ -293,6 +294,22 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 		case <-timer.C:
 		}
 	}
+}
+
+// turnSender identifies the authenticated principal charged for a dispatch.
+func turnSender(ctx context.Context, session *apiv1.Session) *database.TurnSender {
+	authSession, ok := auth.AuthSessionFrom(ctx)
+	if !ok {
+		return nil
+	}
+	if _, ok := authSession.(auth.ControlPlaneSession); ok {
+		return &database.TurnSender{Kind: conv.KagentTurnSenderController, PrincipalID: session.GetCreator()}
+	}
+	principal := authSession.Principal()
+	if binding := principal.RuntimeBinding; binding != nil {
+		return &database.TurnSender{Kind: conv.KagentTurnSenderActor, PrincipalID: binding.CreatorID, CallerSessionID: binding.SessionID}
+	}
+	return &database.TurnSender{Kind: conv.KagentTurnSenderPrincipal, PrincipalID: principal.ID}
 }
 
 // errSuspensionUnsettled is reserveDispatch's answer when a claimed post-turn
