@@ -160,16 +160,16 @@ test("models: a configuration is created, read, changed and deleted", async ({
      * would pass on a form that marked every field.
      */
     await expectRequired(page, {
-      marked: ["Provider", "Provider model", "Name", "Namespace", "Authentication", "API key"],
-      unmarked: [],
+      marked: ["Provider", "Provider model", "Namespace", "Authentication", "API key"],
+      unmarked: ["Display name"],
     });
     await expect(page.getByTestId("model-namespace")).toHaveClass(/ant-select/);
 
     // Create is held back; an empty required field is flagged once it is left.
     await expect(page.getByTestId("model-submit")).toHaveAttribute("aria-disabled", "true");
-    await page.getByTestId("model-name").focus();
-    await page.getByTestId("model-name").blur();
-    await expect(page.getByText("A name is required.")).toBeVisible();
+    await page.getByTestId("model-provider").getByRole("combobox").focus();
+    await page.getByTestId("model-provider").getByRole("combobox").blur();
+    await expect(page.getByText("Choose a provider.")).toBeVisible();
   });
 
   await test.step("6. a filled-in configuration is created and appears on the list", async () => {
@@ -238,8 +238,8 @@ test("models: a configuration is created, read, changed and deleted", async ({
       .getByText("API key", { exact: true })
       .click();
     await expectRequired(page, {
-      marked: ["Name", "Namespace"],
-      unmarked: [],
+      marked: ["Namespace"],
+      unmarked: ["Display name"],
     });
   });
 

@@ -84,13 +84,14 @@ describe("model create form", () => {
   it("marks every field required or optional", () => {
     renderAt("/models/new");
     chooseProvider();
-    // Provider, provider model, name, namespace, authentication, API key.
-    expect(screen.getAllByTestId("field-required")).toHaveLength(6);
+    // Provider, provider model, namespace, authentication, API key; the display name is optional.
+    expect(screen.getAllByTestId("field-required")).toHaveLength(5);
+    expect(screen.getAllByTestId("field-optional")).toHaveLength(1);
 
     fireEvent.click(screen.getByText("Existing secret"));
     // The secret replaces the API key as the required credential; its key is optional.
-    expect(screen.getAllByTestId("field-required")).toHaveLength(6);
-    expect(screen.getAllByTestId("field-optional")).toHaveLength(1);
+    expect(screen.getAllByTestId("field-required")).toHaveLength(5);
+    expect(screen.getAllByTestId("field-optional")).toHaveLength(2);
     expect(screen.getByText("Key in secret")).toBeInTheDocument();
   });
 
@@ -147,11 +148,13 @@ describe("model create form", () => {
     expect(mocks.success).not.toHaveBeenCalled();
   });
 
-  it("creates the model, shows the toast and lands on the list", async () => {
+  it("creates the model under the model's own name when the display name is empty", async () => {
     mocks.create.mockResolvedValue(undefined);
     renderAt("/models/new");
     chooseProvider();
     type("model-model", "gpt-4o");
+    expect(screen.getByTestId("model-name")).toHaveValue("");
+    expect(screen.getByTestId("model-name")).toHaveAttribute("placeholder", "gpt-4o");
     type("model-api-key", "sk-test");
     fireEvent.click(screen.getByTestId("model-submit"));
     expect(await screen.findByText("Model list")).toBeInTheDocument();

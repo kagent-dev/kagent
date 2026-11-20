@@ -154,9 +154,6 @@ export function ModelForm({
   const providerModels = useProviderModels();
 
   const [draft, setDraft] = useState<ModelDraft>(initial ?? emptyModelDraft());
-  // Whether the name has been typed into. True when editing: an existing name is
-  // its own and must not be rewritten by the model picker.
-  const [nameTouched, setNameTouched] = useState(isEdit);
   const [baseline] = useState(() => draftContents(draft));
   const [optionalOpen, setOptionalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -272,16 +269,15 @@ export function ModelForm({
 
   if (supportsActorJWT(draft.provider)) authOptions.push({ label: "Actor JWT", value: "actorJwt" });
 
-  // The name follows the chosen model until the field is edited, since the model's
-  // own name is almost always what a new configuration should be called.
-  const effectiveName = nameTouched
-    ? draft.name
-    : slugifyResourceName(draft.model ?? "");
+  // An empty name falls back to the model's own, which is almost always what a new configuration is called.
+  const modelName = slugifyResourceName(draft.model ?? "");
+  const effectiveName = draft.name.trim() || modelName;
   const effective = useMemo<ModelDraft>(
     () => ({ ...draft, name: effectiveName }),
     [draft, effectiveName],
   );
 
+  // The name is optional: with no model to fall back to, the model's own issue says what is missing.
   const issues = useMemo(
     () =>
       modelDraftIssues(effective, {
@@ -289,8 +285,8 @@ export function ModelForm({
         nameHint: RESOURCE_NAME_HINT,
         requiredParamKeys: requiredKeys,
         isEdit,
-      }),
-    [effective, requiredKeys, isEdit],
+      }).filter((issue) => issue.field !== "name" || effectiveName !== ""),
+    [effective, effectiveName, requiredKeys, isEdit],
   );
   const validation = useSubmitValidation(issues);
   const fieldFor = validation.field;
@@ -534,25 +530,18 @@ export function ModelForm({
 
         <FieldRow>
           <FormField
-            label="Name"
-            required
+            label="Display name"
+            required={false}
             {...fieldFor("name")}
-            help={
-              identityLocked
-                ? "You can't change the name."
-                : "Pick a name to refer to this model configuration. Defaults to the model's own name."
-            }
+            help={identityLocked ? "You can't change the name." : "Leave empty to use the model's name."}
           >
             <NameInput
               dots={false}
               data-testid="model-name"
-              placeholder="gpt-4-1"
-              value={effectiveName}
+              placeholder={modelName || "gpt-4-1"}
+              value={draft.name}
               disabled={identityLocked}
-              onChange={(value) => {
-                setNameTouched(true);
-                set("name", value);
-              }}
+              onChange={(value) => set("name", value)}
               css={{ fontFamily: theme.font.mono }}
             />
           </FormField>
