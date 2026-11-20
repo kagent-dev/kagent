@@ -181,9 +181,10 @@ export function GlobalStyles() {
         .ant-tabs:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab::before {
           content: "";
           position: absolute;
-          inset: 6px 0;
+          /* Square at the foot, so the fill sits flat on the tab line. */
+          inset: 6px 0 0;
           z-index: -1;
-          border-radius: ${theme.radius.sm}px;
+          border-radius: ${theme.radius.sm}px ${theme.radius.sm}px 0 0;
           pointer-events: none;
         }
         .ant-tabs:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-disabled):hover::before {
