@@ -28,19 +28,21 @@ import {
   useInvalidateAgents,
   type AgentInstance,
 } from "@/api";
-import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
+import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
 import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import {
   conversationTitle,
+  isConversationTitlePending,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { RenameConversationButton } from "@/components/agent-instances/RenameConversationButton";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { FilterBar } from "@/components/table/FilterBar";
-import { useListView } from "@/components/table/useListView";
+import { useListView, type SortState } from "@/components/table/useListView";
 import { clickableRow } from "@/components/table/rowClick";
 import {
   byText,
@@ -68,13 +70,15 @@ const TAB_KEYS = ["overview", "conversations", "schedules"] as const;
 type TabKey = (typeof TAB_KEYS)[number];
 const FILTER_IDS: readonly string[] = ["state"];
 const PAGE_SIZE = 25;
+// Most recently active first until the reader picks another order.
+const DEFAULT_SORT: SortState = { column: "updatedAt", direction: "desc" };
 
 /** An Agent definition and the conversations pinned to its revisions. */
 export function AgentPage() {
   const theme = useTheme();
   const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const view = useListView(FILTER_IDS);
+  const view = useListView(FILTER_IDS, DEFAULT_SORT);
   const definition = useAgent(namespace, name);
   const invalidateAgents = useInvalidateAgents();
   const conversations = useAgentConversations(namespace, name);
@@ -96,11 +100,22 @@ export function AgentPage() {
     () => [...(conversations.data?.all ?? [])].sort(byNewestFirst),
     [conversations.data],
   );
-  // The rail's title for each unnamed conversation, so the two lists name them alike.
-  const derivedTitles = useConversationTitles(rows);
   const openableIds = useMemo(
     () => conversations.data && new Set(conversations.data.own.map((row) => row.id)),
     [conversations.data],
+  );
+
+  // Titled the way the rail titles them, from the same cached reads.
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(rows);
+  const isTitlePending = useMemo(
+    () => (row: AgentInstance) =>
+      isConversationTitlePending(row, derivedTitles[row.id], loadingTitles),
+    [derivedTitles, loadingTitles],
+  );
+  const titleOf = useMemo(
+    () => (row: AgentInstance) =>
+      conversationTitle(row, derivedTitles[row.id], isTitlePending(row)),
+    [derivedTitles, isTitlePending],
   );
 
   const stateOptions = useMemo(() => {
@@ -121,12 +136,12 @@ export function AgentPage() {
         // The id as well as the title: an id is what a bug report or a log line
         // carries, and it is the only handle an untitled conversation has.
         return matchesQuery(view.query, [
-          conversationTitle(row, derivedTitles[row.id]),
+          titleOf(row),
           row.id,
           row.creator,
         ]);
       }),
-    [rows, derivedTitles, selectedStates, view.query],
+    [rows, selectedStates, view.query, titleOf],
   );
 
   /**
@@ -203,10 +218,15 @@ export function AgentPage() {
       {
         title: "Conversation",
         key: "name",
-        sorter: byText<AgentInstance>((row) => conversationTitle(row, derivedTitles[row.id])),
+        sorter: byText<AgentInstance>(titleOf),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => {
-          const title = conversationTitle(row, derivedTitles[row.id]);
+          const title = titleOf(row);
+          const shown = isTitlePending(row) ? (
+            <ConversationTitlePlaceholder instanceId={row.id} width="9em" />
+          ) : (
+            title
+          );
           // Until the read lands nothing is known about who may open what, so
           // nothing is claimed: treating an unread answer as "not yours" would
           // strip the links off a list that is about to be perfectly openable.
@@ -221,7 +241,7 @@ export function AgentPage() {
                   data-testid={`conversation-link-${row.id}`}
                   css={{ color: theme.color.primaryText }}
                 >
-                  {title}
+                  {shown}
                 </Link>
               ) : (
                 /* No link, deliberately. `GetAgentInstance` is scoped to its
@@ -235,7 +255,7 @@ export function AgentPage() {
                     data-testid={`conversation-unopenable-${row.id}`}
                     css={{ color: theme.color.textMuted }}
                   >
-                    {title}
+                    {shown}
                   </Text>
                 </Tooltip>
               )}
@@ -282,6 +302,8 @@ export function AgentPage() {
         width: 140,
         sorter: byText<AgentInstance>((row) => row.updatedAt),
         sortOrder: sortOrderFor(view, "updatedAt"),
+        // Clearing returns to the newest-first default, so the click cycle starts there.
+        sortDirections: ["descend", "ascend"],
         render: (_, row) =>
           row.updatedAt ? (
             <Tooltip title={row.updatedAt}>
@@ -306,7 +328,7 @@ export function AgentPage() {
               <RenameConversationButton instance={row} disabled={!mine} />
               <DeleteResourceButton
                 kind="conversation"
-                name={conversationTitle(row, derivedTitles[row.id])}
+                name={titleOf(row)}
                 disabled={!mine}
                 forceLabel="Stop active turns and delete"
                 onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
@@ -321,7 +343,7 @@ export function AgentPage() {
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations.refresh, openableIds, derivedTitles, theme, extensionColumns, view],
+    [conversations.refresh, openableIds, theme, extensionColumns, view, titleOf, isTitlePending],
   );
 
   const othersCount = rows.filter(
@@ -352,7 +374,7 @@ export function AgentPage() {
             // Known from the URL here, so the switcher can leave this agent out of its
             // own list without waiting for a conversation that does not exist.
             agentRef={{ namespace: namespace ?? "", name }}
-            instances={{ ...conversations, data: rows }}
+            instances={{ ...conversations, data: conversations.data?.own }}
             onNewChat={startConversation}
           />
         ) : null}

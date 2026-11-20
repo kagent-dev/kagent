@@ -64,6 +64,11 @@ export function ToolsPerServerChart({
     };
   }, [servers]);
 
+  const options = useMemo(
+    () => horizontalBarOptions({ one: "tool reported", many: "tools reported" }, theme),
+    [theme],
+  );
+
   // A failed read must not be drawn as a chart of zeroes: an empty plot with
   // real axes looks like a measurement, and this is the absence of one.
   if (hasError) {
@@ -93,10 +98,7 @@ export function ToolsPerServerChart({
     >
       <Bar
         data={chart}
-        options={horizontalBarOptions({
-          one: "tool reported",
-          many: "tools reported",
-        })}
+        options={options}
         plugins={[barValueLabels]}
         aria-label="Discovered tools per MCP server"
       />

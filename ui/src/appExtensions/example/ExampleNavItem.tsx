@@ -1,7 +1,7 @@
 import { Menu } from "antd";
 import { Link, useNavigate } from "react-router-dom";
 import { Puzzle } from "lucide-react";
-import { useThemeMode } from "@/appExtensions";
+import { navInlineIndent, useThemeMode } from "@/appExtensions";
 import type { ExtensionNavItemProps } from "@/appExtensions";
 import { EXAMPLE_PATH } from "./paths";
 
@@ -31,6 +31,7 @@ export function ExampleNavItem({ isActive, collapsed }: ExtensionNavItemProps) {
       // entries become unreadable.
       theme={mode === "light" ? "light" : "dark"}
       mode="inline"
+      inlineIndent={navInlineIndent}
       inlineCollapsed={collapsed}
       selectedKeys={isActive ? ["example"] : []}
       css={{ borderInlineEnd: "none" }}

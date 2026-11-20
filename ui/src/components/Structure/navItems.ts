@@ -11,6 +11,9 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { paths } from "@/router/routes";
 
+/** Where every rail icon's left edge sits, from the row's inset: the same expanded and collapsed. */
+export const NAV_INSET = 18;
+
 export interface NavItem {
   /** Stable identifier; also the antd Menu key. */
   key: string;

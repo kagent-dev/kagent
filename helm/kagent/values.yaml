@@ -192,6 +192,11 @@ config:
     sendTimeout: 5s
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
+    # Publish replacement keys before use (max 24h), plus a fixed 30s buffer.
+    # Must cover receivers' JWKS refresh intervals. Key files are polled every 15s.
+    signingKeyActivationDelay: 300s
+    # Custom/CSI-mounted PEM path; controller.push.signing.secretName overrides it.
+    # signingPrivateKeyFile: /mnt/signing/private-key.pem
   sessions:
     # Set automaticRecovery: true to recover crashed runtimes when a client sends
     # another message. It is off by default and not rendered, so the default config

@@ -162,7 +162,7 @@ export function EgressPolicyDetailsPage() {
           <Link to={egressPoliciesTab}>
             <Button>{egressCopy.details.back}</Button>
           </Link>
-          <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} />
+          <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} iconOnly />
         </Space>
       }
     >
