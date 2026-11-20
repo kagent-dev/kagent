@@ -202,6 +202,17 @@ test("models: a configuration is created, read, changed and deleted", async ({
     await selectOption(page, "model-namespace", "kagent");
     await page.getByTestId("model-api-key").fill("sk-not-a-real-key");
 
+    // Headers are a compact two-column list: column titles once, no per-row title.
+    await page.getByTestId("model-advanced").getByText("Advanced (headers, TLS)").click();
+    await page.getByTestId("model-headers-add").click();
+    const headers = page.getByTestId("model-headers");
+    await expect(headers.getByRole("textbox", { name: "Header name 1" })).toBeFocused();
+    await expect(headers.getByRole("textbox", { name: "Value 1" })).toHaveAttribute("placeholder", "Value");
+    await expect(headers.getByText("Header 1", { exact: true })).toHaveCount(0);
+    await headers.getByRole("textbox", { name: "Header name 1" }).fill("X-Team");
+    await headers.getByRole("button", { name: "Remove header X-Team" }).click();
+    await expect(headers.getByTestId("model-headers-row")).toHaveCount(0);
+
     await page.getByTestId("model-submit").click();
     await page.waitForURL(/\/models(\?|$)/, { timeout: 30_000 });
 

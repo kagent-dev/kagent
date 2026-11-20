@@ -23,7 +23,7 @@ import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { FieldRow } from "@/components/form/FieldRow";
 import { NameInput } from "@/components/form/NameInput";
-import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { KeyValueList } from "@/components/form/KeyValueList";
 import { ListInput } from "@/components/form/ListInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
@@ -731,37 +731,24 @@ export function ModelForm({
                       required={false}
                       help="Sent on every request to the provider — for API versioning, tracing, or provider-specific needs."
                     >
-                      <FormRowList
+                      <KeyValueList
                         data-testid="model-headers"
+                        rows={draft.defaultHeaders}
+                        rowKey={(index) => draft.defaultHeaders[index].id}
+                        keyTitle="Header name"
+                        valueTitle="Value"
+                        keyPlaceholder="Header name"
+                        valuePlaceholder="Value"
                         addLabel="Add header"
                         onAdd={addHeader}
-                      >
-                        {draft.defaultHeaders.map((row, index) => (
-                          <FormRow
-                            key={row.id}
-                            title={`Header ${index + 1}`}
-                            onRemove={() => removeHeader(row.id)}
-                            removeLabel={`Remove header ${index + 1}`}
-                          >
-                            <Space size={8} css={{ display: "flex" }}>
-                              <Input
-                                data-testid="model-header-name"
-                                aria-label={`Header ${index + 1} name`}
-                                placeholder="X-Environment"
-                                value={row.key}
-                                onChange={(event) => setHeader(row.id, "key", event.target.value)}
-                              />
-                              <Input
-                                data-testid="model-header-value"
-                                aria-label={`Header ${index + 1} value`}
-                                placeholder="development"
-                                value={row.value}
-                                onChange={(event) => setHeader(row.id, "value", event.target.value)}
-                              />
-                            </Space>
-                          </FormRow>
-                        ))}
-                      </FormRowList>
+                        onChange={(index, patch) => {
+                          const id = draft.defaultHeaders[index].id;
+                          if (patch.key !== undefined) setHeader(id, "key", patch.key);
+                          if (patch.value !== undefined) setHeader(id, "value", patch.value);
+                        }}
+                        onRemove={(index) => removeHeader(draft.defaultHeaders[index].id)}
+                        removeLabel={(index) => `Remove header ${draft.defaultHeaders[index].key.trim() || index + 1}`}
+                      />
                     </FormField>
 
                     <Form.Item>
