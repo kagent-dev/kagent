@@ -168,6 +168,25 @@ class TestKAgentOllamaLlm:
 
 
 class TestConvertContentToOllamaMessages:
+    @pytest.mark.parametrize(
+        ("response", "expected"),
+        [
+            ({"status": "success", "report": "Sunny in Paris"}, '{"status": "success", "report": "Sunny in Paris"}'),
+            ({"error": "Missing city"}, '{"error": "Missing city"}'),
+        ],
+    )
+    def test_tool_result_with_plain_dict(self, response, expected):
+        content = types.Content(
+            role="user",
+            parts=[types.Part.from_function_response(name="get_weather", response=response)],
+        )
+
+        messages = _convert_content_to_ollama_messages([content])
+
+        assert len(messages) == 1
+        assert messages[0].role == "tool"
+        assert messages[0].content == expected
+
     def test_image_inline_data_included(self):
         content = types.Content(
             role="user",
