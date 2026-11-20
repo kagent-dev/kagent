@@ -105,12 +105,28 @@ def write_file_content(file_path: Path, content: str) -> str:
     return f"Successfully wrote to {file_path}"
 
 
+def _uses_crlf(content: str) -> bool:
+    """True when every line break in the content is a CRLF."""
+    crlf = content.count("\r\n")
+    return crlf > 0 and crlf == content.count("\n")
+
+
+def _with_crlf(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\n", "\r\n")
+
+
 def edit_file_content(file_path: Path, old_string: str, new_string: str, replace_all: bool = False) -> str:
     if not old_string:
         raise ValueError("old_string cannot be empty")
     if old_string == new_string:
         raise ValueError("old_string and new_string must be different")
-    content = file_path.read_text(encoding="utf-8")
+    # newline="" turns off newline translation. The default reads every CRLF as "\n" and
+    # writes "\n" back, which rewrites the line ending of every line to change one.
+    with file_path.open(encoding="utf-8", newline="") as stream:
+        content = stream.read()
+    if _uses_crlf(content):
+        # read_file shows lines without their "\r", so the model's strings use "\n".
+        old_string, new_string = _with_crlf(old_string), _with_crlf(new_string)
     count = content.count(old_string)
     if not count:
         raise ValueError(f"old_string not found in {file_path}")
@@ -118,7 +134,8 @@ def edit_file_content(file_path: Path, old_string: str, new_string: str, replace
         raise ValueError(
             f"old_string appears {count} times in {file_path}. Provide more context or set replace_all=true."
         )
-    file_path.write_text(content.replace(old_string, new_string, -1 if replace_all else 1), encoding="utf-8")
+    with file_path.open("w", encoding="utf-8", newline="") as stream:
+        stream.write(content.replace(old_string, new_string, -1 if replace_all else 1))
     return f"Successfully replaced {count if replace_all else 1} occurrence(s) in {file_path}"
 
 
