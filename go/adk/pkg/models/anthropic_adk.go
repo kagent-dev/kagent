@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -430,7 +431,11 @@ func runAnthropicStreaming(ctx context.Context, m *AnthropicModel, params anthro
 }
 
 func runAnthropicNonStreaming(ctx context.Context, m *AnthropicModel, params anthropic.MessageNewParams, yield func(*model.LLMResponse, error) bool) {
-	message, err := m.Client.Messages.New(ctx, params, anthropicPassthroughOpts(ctx, m.Config)...)
+	// Without a request timeout, the SDK refuses a non-streaming request whose
+	// max_tokens could take more than 10 minutes, and never sends it. Give it
+	// the timeout the HTTP client already uses.
+	opts := append(anthropicPassthroughOpts(ctx, m.Config), option.WithRequestTimeout(m.Config.requestTimeout()))
+	message, err := m.Client.Messages.New(ctx, params, opts...)
 	if err != nil {
 		yield(nil, fmt.Errorf("anthropic API error: %w", err))
 		return

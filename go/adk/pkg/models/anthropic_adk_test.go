@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/stretchr/testify/assert"
@@ -221,6 +222,54 @@ func TestAnthropicNonStreamingCarriesBreakpointsAndCacheUsage(t *testing.T) {
 	assert.Equal(t, &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 1000, CachedContentTokenCount: 900, CandidatesTokenCount: 5}, final.UsageMetadata)
 	require.Len(t, final.Content.Parts, 1)
 	assert.Equal(t, "pod-a", final.Content.Parts[0].Text)
+}
+
+// TestAnthropicNonStreamingSendsLargeMaxTokens covers max_tokens values for
+// which the SDK, without a request timeout, expects more than 10 minutes and
+// refuses to send a non-streaming request.
+func TestAnthropicNonStreamingSendsLargeMaxTokens(t *testing.T) {
+	scenarios := []struct {
+		given       string
+		timeout     *time.Duration
+		wantTimeout string
+	}{
+		{given: "Given maxTokens 64000 and no timeout", wantTimeout: "1800"},
+		{given: "Given maxTokens 64000 and a 45 minute timeout", timeout: new(45 * time.Minute), wantTimeout: "2700"},
+	}
+	for _, s := range scenarios {
+		t.Run(s.given+", when the model is called without streaming, assert that the request is sent with the client timeout", func(t *testing.T) {
+			var requests []*http.Request
+			var body []byte
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r)
+				body, _ = io.ReadAll(r.Body)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-6",
+					"content":[{"type":"text","text":"pod-a"}],"stop_reason":"end_turn","stop_sequence":null,
+					"usage":{"input_tokens":4,"output_tokens":5}}`)
+			}))
+			t.Cleanup(server.Close)
+			m, err := newAnthropicModelFromConfig(context.Background(), &AnthropicConfig{
+				TransportConfig: TransportConfig{Timeout: s.timeout},
+				Model:           "claude-sonnet-4-6",
+				BaseUrl:         server.URL,
+				MaxTokens:       new(int64(64000)),
+			}, "test-key")
+			require.NoError(t, err)
+
+			final := finalResponse(t, m, false)
+
+			require.Len(t, requests, 1)
+			assert.Equal(t, s.wantTimeout, requests[0].Header.Get("X-Stainless-Timeout"))
+			var wire struct {
+				MaxTokens int64 `json:"max_tokens"`
+			}
+			require.NoError(t, json.Unmarshal(body, &wire))
+			assert.Equal(t, int64(64000), wire.MaxTokens)
+			require.Len(t, final.Content.Parts, 1)
+			assert.Equal(t, "pod-a", final.Content.Parts[0].Text)
+		})
+	}
 }
 
 func TestAnthropicStreamingCarriesBreakpointsAndCacheUsage(t *testing.T) {
