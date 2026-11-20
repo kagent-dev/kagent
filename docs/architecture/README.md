@@ -113,6 +113,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [OIDC proxy authentication](oidc-proxy-authentication.md)
 - [Persistence, checkpoints, and forks](persistence-checkpoints-and-forks.md)
 - [MCP](mcp.md)
+- [Model provider discovery](model-provider-discovery.md)
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
 - [Token usage](usage-extension.md)

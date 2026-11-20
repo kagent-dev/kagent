@@ -68,6 +68,11 @@ export const mockModels: ModelConfig[] = [
   },
 ];
 
+/** Model ids each configured provider's endpoint lists, keyed by the provider's name. */
+export const mockDiscoveredModels: Record<string, string[]> = {
+  "example-openai-proxy": ["gpt-4.1", "litellm/team-a-sonnet", "litellm/local-llama"],
+};
+
 export const mockProviderModels: ProviderModelsResponse = {
   OpenAI: [
     { name: "gpt-4.1", function_calling: true },

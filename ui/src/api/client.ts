@@ -71,6 +71,8 @@ export interface ModelsApi {
   providerModels(options?: ReadOptions): Promise<ProviderModelsResponse>;
   /** Every provider the controller knows: the stock ones and the configured ones. */
   providers(options?: ReadOptions): Promise<Provider[]>;
+  /** Asks a configured provider's endpoint which models it lists right now. */
+  discoverModels(providerName: string, options?: ReadOptions): Promise<string[]>;
   create(payload: CreateModelConfigRequest): Promise<ModelConfig>;
   /** Replaces a model configuration. */
   update(
@@ -304,6 +306,8 @@ export function createApiClient(): KagentApiClient {
         invoke("models.get", { namespace, name }, options),
       providerModels: (options) => invoke("models.providerModels", {}, options),
       providers: (options) => invoke("models.providers", {}, options),
+      discoverModels: (providerName, options) =>
+        invoke("models.discover", { providerName }, options),
       create: (payload) => invoke("models.create", { payload }),
       update: (namespace, name, payload) =>
         invoke("models.update", { namespace, name, payload }),

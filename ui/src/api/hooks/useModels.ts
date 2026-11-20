@@ -30,6 +30,19 @@ export function useProviderModels(): ApiResource<ProviderModelsResponse> {
 }
 
 /**
+ * The model ids a configured provider's endpoint lists right now. Holds off until
+ * a provider is chosen; every fetch asks the endpoint afresh.
+ */
+export function useDiscoveredModels(
+  providerName: string | undefined,
+): ApiResource<string[]> {
+  return useApiResource(
+    providerName ? ["models.discover", providerName] : null,
+    () => apiClient.models.discoverModels(providerName!),
+  );
+}
+
+/**
  * The providers the controller supports, each with the parameters its config
  * block accepts. Feeds the provider picker and the per-provider parameter fields.
  */

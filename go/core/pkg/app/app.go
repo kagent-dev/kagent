@@ -49,6 +49,7 @@ import (
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
 	"github.com/kagent-dev/kagent/go/core/internal/controller"
+	modelproviderconfigcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/modelproviderconfig"
 	remotemcpcontroller "github.com/kagent-dev/kagent/go/core/internal/controller/remotemcpserver"
 	scheduledruncontroller "github.com/kagent-dev/kagent/go/core/internal/controller/scheduledrun"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -343,6 +344,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := remoteMCPDiscovery.SetupWithManager(manager); err != nil {
 		return fmt.Errorf("set up RemoteMCPServer discovery: %w", err)
 	}
+	modelDiscoverer := modelproviderconfigcontroller.NewDiscoverer(manager.GetClient())
+	if err := modelproviderconfigcontroller.New(manager.GetClient(), modelDiscoverer).SetupWithManager(manager); err != nil {
+		return fmt.Errorf("set up ModelProviderConfig discovery: %w", err)
+	}
 
 	authenticator, authorizer := opts.resolve()
 	if machine := cfg.GetServer().GetAuth().GetServiceAccount(); machine != nil {
@@ -355,7 +360,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	authenticator = runtimeauth.NewProvider(authenticator, actorVerifier, store, cfg.GetSubstrate().GetActorJwtIssuer())
 	authorizer = runtimeauth.NewAuthorizer(authorizer, store)
 	resourceNamespace := cfg.GetKubernetes().GetNamespace()
-	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace)
+	models := modelservice.NewService(manager.GetClient(), authorizer, resourceNamespace, modelservice.WithProviderModelRefresher(modelDiscoverer))
 	tools := toolservice.NewService(manager.GetClient(), store, authorizer, resourceNamespace, mcpClient)
 	prompts := prompttemplateservice.NewService(manager.GetClient(), authorizer)
 	system := systemservice.NewService(manager.GetClient(), watchNamespaces, authorizer, actors)
