@@ -1,5 +1,8 @@
 import { referenceLabel, type McpToolBinding } from "@/api";
 
+/** The kind the API assumes when a reference omits it. */
+export const DEFAULT_SERVER_KIND = "RemoteMCPServer";
+
 /** One line in a server's tool list. */
 export interface ToolRow {
   /** `all` is a binding with no tool list; `allOther` is the same next to named tools. */
@@ -15,6 +18,7 @@ export type ServerApproval = "none" | "some" | "all";
 export interface ToolServerGroup {
   /** Kind and label, so two servers of different kinds with one name stay apart. */
   key: string;
+  kind: string;
   server: string;
   rows: ToolRow[];
   /** How many named tools the agent lists for this server. */
@@ -37,12 +41,13 @@ export function groupMcpTools(
   bindings: readonly McpToolBinding[],
   namespace: string,
 ): ToolServerGroup[] {
-  const byServer = new Map<string, { server: string; named: Map<string, boolean>; all?: boolean }>();
+  const byServer = new Map<string, { kind: string; server: string; named: Map<string, boolean>; all?: boolean }>();
 
   for (const binding of bindings) {
     const server = referenceLabel(binding.server, namespace);
-    const key = `${binding.server.kind ?? "RemoteMCPServer"}/${server}`;
-    const entry = byServer.get(key) ?? { server, named: new Map<string, boolean>() };
+    const kind = binding.server.kind ?? DEFAULT_SERVER_KIND;
+    const key = `${kind}/${server}`;
+    const entry = byServer.get(key) ?? { kind, server, named: new Map<string, boolean>() };
     const requires = binding.requireApproval === true;
     if (binding.tools?.length) {
       for (const tool of binding.tools) {
@@ -54,7 +59,7 @@ export function groupMcpTools(
     byServer.set(key, entry);
   }
 
-  return [...byServer].map(([key, { server, named, all }]) => {
+  return [...byServer].map(([key, { kind, server, named, all }]) => {
     const rows: ToolRow[] = [...named].map(([name, requiresApproval]) => ({
       kind: "tool",
       name,
@@ -70,6 +75,6 @@ export function groupMcpTools(
     const approval: ServerApproval =
       asking === 0 ? "none" : asking === rows.length ? "all" : "some";
     const otherAsks = named.size > 0 && all !== undefined ? all : undefined;
-    return { key, server, rows, namedCount: named.size, askCount, freeCount, otherAsks, approval };
+    return { key, kind, server, rows, namedCount: named.size, askCount, freeCount, otherAsks, approval };
   });
 }

@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { Tooltip } from "antd";
 import { useTheme } from "@emotion/react";
 import { ChevronRight, ShieldAlert } from "lucide-react";
-import type { ToolRow, ToolServerGroup as Group } from "./groupMcpTools";
+import { DEFAULT_SERVER_KIND, type ToolRow, type ToolServerGroup as Group } from "./groupMcpTools";
 
 const ASKS_FIRST = "Asks before running";
 
@@ -64,10 +64,12 @@ export function ToolServerGroup({ group }: { group: Group }) {
   const [open, setOpen] = useState(false);
   const iconLabel = serverIconLabel(group);
   const mono = { fontFamily: theme.font.mono, fontSize: 12.5 };
+  // Ids and labels name the kind only when it is not the default, so the usual ones stay short.
+  const id = group.kind === DEFAULT_SERVER_KIND ? group.server : `${group.kind}/${group.server}`;
 
   return (
     <div
-      data-testid={`structure-tool-server-${group.server}`}
+      data-testid={`structure-tool-server-${id}`}
       css={{
         border: `1px solid ${theme.color.border}`,
         borderRadius: theme.radius.md,
@@ -80,8 +82,8 @@ export function ToolServerGroup({ group }: { group: Group }) {
           type="button"
           aria-expanded={open}
           aria-controls={listId}
-          aria-label={`Show tools for ${group.server}`}
-          data-testid={`structure-tool-server-${group.server}-toggle`}
+          aria-label={`Show tools for ${id}`}
+          data-testid={`structure-tool-server-${id}-toggle`}
           onClick={() => setOpen((value) => !value)}
           css={{
             flex: 1,
@@ -115,6 +117,9 @@ export function ToolServerGroup({ group }: { group: Group }) {
             }}
           />
           <span css={{ ...mono, fontWeight: 600, wordBreak: "break-word" }}>{group.server}</span>
+          {id !== group.server ? (
+            <span css={{ color: theme.color.textMuted, fontSize: 12 }}>{group.kind}</span>
+          ) : null}
           <span css={{ color: theme.color.textMuted, fontSize: 13 }}>{countText(group)}</span>
         </button>
         {iconLabel ? (
