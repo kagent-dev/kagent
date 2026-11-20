@@ -1,7 +1,6 @@
 package adapter
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,7 +20,7 @@ func TestNewMaterializesDurableDirectories(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
 	ephemeralDir := filepath.Join(t.TempDir(), "credentials")
 	workspace := filepath.Join(durableDir, "workspace")
-	runner, err := New(context.Background(), Input{
+	runner, err := New(t.Context(), Input{
 		ConfigJSON: []byte(`{"version":5,"claude_executable":"claude","expected_claude_version":"2.1.285","strict_version":true,"max_event_bytes":100,"max_stderr_bytes":100,"interrupt_grace_millis":100}`),
 		Workspace:  workspace,
 		DurableDir: durableDir, EphemeralDir: ephemeralDir,
@@ -87,19 +86,15 @@ func TestNativeProcessRetriesAreOptIn(t *testing.T) {
 
 func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 	durableDir := filepath.Join(t.TempDir(), "data")
-	claudeDir := filepath.Join(durableDir, "claude")
 	skillRoot := filepath.Join(durableDir, "generated", "claude")
-	packageRoot := filepath.Join(claudeDir, "packages", "standalone-0")
-	if err := os.MkdirAll(packageRoot, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(packageRoot, "SKILL.md"), []byte("# Review"), 0o644); err != nil {
+	skillDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Review"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Production("claude-test", "help")
 	cfg.StrictVersion = false
 	cfg.SkillResources = &agentplugin.Resources{Skills: []agentplugin.Skill{{
-		Name: "review", Source: agentplugin.Source{Git: &agentplugin.GitSource{URL: "unused", Commit: strings.Repeat("a", 40)}},
+		Name: "review", Source: agentplugin.Source{Directory: skillDir},
 	}}}
 	cfg.MCPServers = map[string]config.MCPServer{"tools": {Type: "http", URL: "https://mcp.example.com/mcp"}}
 	raw, err := json.Marshal(cfg)
@@ -107,7 +102,7 @@ func TestNewMaterializesSkillsAndMCPConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	ephemeralDir := filepath.Join(t.TempDir(), "generated")
-	runner, err := New(context.Background(), Input{
+	runner, err := New(t.Context(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
 	})
@@ -155,7 +150,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner, err := New(context.Background(), Input{
+	runner, err := New(t.Context(), Input{
 		ConfigJSON: raw, Workspace: filepath.Join(durableDir, "workspace"), DurableDir: durableDir,
 		EphemeralDir: ephemeralDir, Environment: []string{"PATH=/bin"},
 	})
@@ -226,7 +221,7 @@ func TestNewMaterializesApprovalSettings(t *testing.T) {
 
 func TestNewRejectsInvalidInput(t *testing.T) {
 	input := Input{ConfigJSON: []byte(`{}`), Workspace: "relative", DurableDir: "relative", EphemeralDir: "relative"}
-	if _, err := New(context.Background(), input); err == nil {
+	if _, err := New(t.Context(), input); err == nil {
 		t.Fatal("New() accepted invalid input")
 	}
 }
