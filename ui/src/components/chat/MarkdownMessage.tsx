@@ -361,6 +361,10 @@ function markdownStyles(theme: Theme, p: MarkdownPalette) {
     & tbody tr:last-child td {
       border-bottom: none;
     }
+    & th + th,
+    & td + td {
+      border-inline-start: 1px solid ${p.tableRule};
+    }
 
     /* A break in thought: a rule fading out at both ends around a small diamond. */
     & hr {
