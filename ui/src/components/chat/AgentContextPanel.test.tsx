@@ -125,7 +125,8 @@ describe("AgentContextPanel", () => {
       undefined,
       onShowDetails,
     );
-    expect(screen.getByRole("group", { name: "Chat" })).toBeTruthy();
+    expect(screen.getByText("Chat", { exact: true })).toBeTruthy();
+    expect(screen.queryByRole("group")).toBeNull();
     expect(screen.queryByText(/conversation/i)).toBeNull();
     expect(screen.getByTestId("chat-agent-context-session-name").textContent).toBe("Cluster review");
     expect(screen.getByTestId("chat-agent-context-session").textContent).toContain("6f1c9d20-1b7a");

@@ -79,7 +79,7 @@ test("chat: the agent panel says what the conversation cannot", async ({ page })
   });
 
   await test.step("2b. the chat's name and ID, and its details one click away", async () => {
-    await expect(panel.getByRole("group", { name: "Chat" })).toBeVisible();
+    await expect(panel.getByText("Chat", { exact: true })).toBeVisible();
     await expect(page.getByTestId("chat-agent-context-session-name")).toHaveText("Tuesday cluster review");
     await expect(page.getByTestId("chat-agent-context-session")).toContainText(instances.ready);
     await expect(page.getByTestId("chat-agent-context-revision")).toContainText("rev-7f3a91c");
