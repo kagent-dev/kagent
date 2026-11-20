@@ -2633,6 +2633,33 @@ refinements:
     stability: development
     unit: \u0027{revision}\u0027
   - attributes:
+    - brief: Why a controller stopped tracking a failed dispatch cleanup.
+      key: kagent.dispatch_cleanup.drop_reason
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The replica already held its maximum outstanding cleanups.
+          id: queue_full
+          stability: development
+          value: queue_full
+        - brief: The cleanup deadline expired before completion.
+          id: retry_budget_exhausted
+          stability: development
+          value: retry_budget_exhausted
+    brief: Number of dispatch cleanups dropped by a controller replica.
+    id: kagent.session.dispatch_cleanup.dropped
+    instrument: counter
+    name: kagent.session.dispatch_cleanup.dropped
+    note: Count each queue refusal or exhausted retry budget once. Controller shutdown and superseded cleanups are excluded.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{cleanup}\u0027
+  - attributes:
     - brief: What prompted a work claim, either initial discovery or continued backlog processing.
       key: kagent.worker.trigger
       provenance:
@@ -5682,6 +5709,21 @@ registry:
       path: telemetry/registry/kagent.yaml
     stability: development
     type: boolean
+  - brief: Why a controller stopped tracking a failed dispatch cleanup.
+    key: kagent.dispatch_cleanup.drop_reason
+    provenance:
+      path: telemetry/registry/kagent.yaml
+    stability: development
+    type:
+      members:
+      - brief: The replica already held its maximum outstanding cleanups.
+        id: queue_full
+        stability: development
+        value: queue_full
+      - brief: The cleanup deadline expired before completion.
+        id: retry_budget_exhausted
+        stability: development
+        value: retry_budget_exhausted
   - brief: The stage of a runtime revision garbage collection attempt.
     key: kagent.gc.stage
     provenance:
@@ -5964,6 +6006,32 @@ registry:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - attributes:
+    - brief: Why a controller stopped tracking a failed dispatch cleanup.
+      key: kagent.dispatch_cleanup.drop_reason
+      provenance:
+        path: telemetry/registry/kagent.yaml
+      requirement_level: required
+      stability: development
+      type:
+        members:
+        - brief: The replica already held its maximum outstanding cleanups.
+          id: queue_full
+          stability: development
+          value: queue_full
+        - brief: The cleanup deadline expired before completion.
+          id: retry_budget_exhausted
+          stability: development
+          value: retry_budget_exhausted
+    brief: Number of dispatch cleanups dropped by a controller replica.
+    instrument: counter
+    name: kagent.session.dispatch_cleanup.dropped
+    note: Count each queue refusal or exhausted retry budget once. Controller shutdown and superseded cleanups are excluded.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{cleanup}\u0027
   - attributes:
     - brief: What prompted a work claim, either initial discovery or continued backlog processing.
       key: kagent.worker.trigger

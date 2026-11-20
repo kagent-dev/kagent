@@ -58,7 +58,7 @@ func (g *Gateway) cancelTask(ctx context.Context, agent types.NamespacedName, re
 	return result, nil
 }
 
-func (g *Gateway) sendMessage(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (a2atype.SendMessageResult, error) {
+func (g *Gateway) sendMessage(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (result a2atype.SendMessageResult, err error) {
 	var historyLength *int
 	if req != nil && req.Config != nil {
 		historyLength = req.Config.HistoryLength
@@ -75,17 +75,18 @@ func (g *Gateway) sendMessage(ctx context.Context, agent types.NamespacedName, r
 		return g.awaitTaskCompletion(ctx, agent, req.Message, task.ID, historyLength)
 	}
 	ctx = a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.DispatchHeader: {dispatchID.String()}})
-	defer g.finishSend(ctx, agent, req.Message, dispatchID, nil)
+	finish := sync.OnceValue(func() error { return g.finishSend(ctx, agent, req.Message, dispatchID, err) })
+	defer finish()
 	client, err := g.dial(ctx, session)
 	if err != nil {
 		return nil, err
 	}
 	closeRuntime := sync.OnceValue(client.Destroy)
 	defer closeRuntime()
-	result, err := client.SendMessage(ctx, req)
+	result, err = client.SendMessage(ctx, req)
 	if err != nil {
-		err = g.finishSend(ctx, agent, req.Message, dispatchID, err)
 		_ = closeRuntime()
+		err = finish()
 		// Native settlement can pause the runtime before its unary response is
 		// delivered. Recover only this accepted input's durable boundary.
 		// The gRPC SDK maps proxy connection failures to A2A InternalError.
@@ -129,7 +130,7 @@ func (g *Gateway) subscribeToTask(ctx context.Context, agent types.NamespacedNam
 	}
 	// The SDK subscription supplies its own initial task and later events.
 	// Do not concatenate an unrelated stored snapshot with that live stream.
-	return g.observe(ctx, agent, session, req.ID, nil, nil, client, client.SubscribeToTask(ctx, req))
+	return g.observe(ctx, agent, session, req.ID, nil, nil, sync.OnceValue(client.Destroy), client.SubscribeToTask(ctx, req))
 }
 
 func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
@@ -155,34 +156,41 @@ func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.Namespac
 			return
 		}
 		ctx := a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.DispatchHeader: {dispatchID.String()}})
-		defer g.finishSend(ctx, agent, req.Message, dispatchID, nil)
+		// Stopping observation before a result is cancellation, even when the
+		// caller stops iterating without canceling its context.
+		sendErr := error(context.Canceled)
+		finish := sync.OnceValue(func() error { return g.finishSend(ctx, agent, req.Message, dispatchID, sendErr) })
+		defer finish()
 		client, err := g.dial(ctx, session)
 		if err != nil {
+			sendErr = err
 			yield(nil, err)
 			return
 		}
-		events := func(next func(a2atype.Event, error) bool) {
-			for event, err := range client.SendStreamingMessage(ctx, req) {
-				if err != nil {
-					next(nil, g.finishSend(ctx, agent, req.Message, dispatchID, err))
-					return
-				}
-				if !next(event, nil) {
-					return
-				}
+		closeRuntime := sync.OnceValue(client.Destroy)
+		for event, err := range g.observe(ctx, agent, session, req.Message.TaskID, req.Message, historyLength, closeRuntime, client.SendStreamingMessage(ctx, req)) {
+			sendErr = err
+			if err != nil {
+				_ = closeRuntime()
+				err = finish()
 			}
-			next(nil, g.finishSend(ctx, agent, req.Message, dispatchID, a2atype.ErrInternalError))
+			if !yield(event, err) {
+				if err == nil && !isQuiescent(eventTaskState(event)) {
+					sendErr = context.Canceled
+				}
+				return
+			}
 		}
-		g.observe(ctx, agent, session, req.Message.TaskID, req.Message, historyLength, client, events)(yield)
 	}
 }
 
-// finishSend releases the attempt even after the caller disconnects. A failed
-// actor call is retryable only if persistence proves the input was not accepted.
+// finishSend revokes the attempt even after the caller disconnects. Close the
+// runtime connection first: revocation may immediately schedule actor cleanup.
+// A failed actor call is retryable only if its input was not accepted.
 func (g *Gateway) finishSend(ctx context.Context, agent types.NamespacedName, message *a2atype.Message, id uuid.UUID, sendErr error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
-	revoked, err := g.interactions.RevokeSend(ctx, agent, message, id)
+	revoked, err := g.interactions.RevokeSend(ctx, agent, message, id, sendErr != nil)
 	if err != nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "release runtime dispatch", "session_id", message.ContextID, "error", err)
 	} else if revoked && sendErr != nil && a2atype.ErrorReason(sendErr) == a2atype.ErrorReason(a2atype.ErrInternalError) {
@@ -194,7 +202,7 @@ func (g *Gateway) finishSend(ctx context.Context, agent types.NamespacedName, me
 // observe owns only this observer's actor connection. Disconnecting cannot
 // cancel execution. Final results come from the service after native cleanup
 // acknowledges their saved version, independently of actor pause or suspend.
-func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, session *apiv1.Session, taskID a2atype.TaskID, message *a2atype.Message, historyLength *int, client *a2aclient.Client, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
+func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, session *apiv1.Session, taskID a2atype.TaskID, message *a2atype.Message, historyLength *int, closeRuntime func() error, events iter.Seq2[a2atype.Event, error]) iter.Seq2[a2atype.Event, error] {
 	// Keep the original operation's permissions when reading its result. The
 	// actor may assign a task ID, but that does not turn a send into an update.
 	readResult := func() (*a2atype.Task, error) {
@@ -204,7 +212,6 @@ func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, sessi
 		return g.interactions.GetSettledTask(ctx, agent, session.Id, taskID, historyLength)
 	}
 	return func(yield func(a2atype.Event, error) bool) {
-		closeRuntime := sync.OnceValue(client.Destroy)
 		next, stop := iter.Pull2(events)
 		defer stop()
 		defer closeRuntime()
@@ -223,13 +230,7 @@ func (g *Gateway) observe(ctx context.Context, agent types.NamespacedName, sessi
 				return
 			}
 			taskID = event.TaskInfo().TaskID
-			var state a2atype.TaskState
-			switch value := event.(type) {
-			case *a2atype.Task:
-				state = value.Status.State
-			case *a2atype.TaskStatusUpdateEvent:
-				state = value.Status.State
-			}
+			state := eventTaskState(event)
 			if isQuiescent(state) {
 				if state.Terminal() {
 					// Let the runtime finish its response naturally. A stuck stream
@@ -325,6 +326,18 @@ func requiresInput(state a2atype.TaskState) bool {
 
 func isQuiescent(state a2atype.TaskState) bool {
 	return state.Terminal() || requiresInput(state)
+}
+
+// eventTaskState returns unspecified for events without task status.
+func eventTaskState(event a2atype.Event) a2atype.TaskState {
+	switch value := event.(type) {
+	case *a2atype.Task:
+		return value.Status.State
+	case *a2atype.TaskStatusUpdateEvent:
+		return value.Status.State
+	default:
+		return a2atype.TaskStateUnspecified
+	}
 }
 
 func errorEvents(err error) iter.Seq2[a2atype.Event, error] {

@@ -125,6 +125,8 @@ func (s *serviceTestStore) DeleteSessionShare(_ context.Context, id, _ string) e
 
 type serviceTestWorkflow struct{ err error }
 
+func (serviceTestWorkflow) QueueDispatchCleanup(context.Context, string, uuid.UUID) {}
+
 func (w serviceTestWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, w.err
 }

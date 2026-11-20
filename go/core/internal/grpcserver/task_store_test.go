@@ -726,6 +726,8 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 // returns the Session unchanged and the send is refused as before.
 type healthyRuntimeWorkflow struct{}
 
+func (healthyRuntimeWorkflow) QueueDispatchCleanup(context.Context, string, uuid.UUID) {}
+
 func (healthyRuntimeWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
 	return session, nil
 }

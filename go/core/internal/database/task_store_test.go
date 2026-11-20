@@ -2,6 +2,7 @@ package database
 
 import (
 	"crypto/sha256"
+	"sync"
 	"testing"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -387,7 +388,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrDispatchBusy)
 	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, dispatchID, "new-input")
 	require.NoError(t, err)
-	require.True(t, revoked)
+	require.True(t, revoked.NotAccepted)
 	_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(waiting.ID))
 	require.NoError(t, err)
 	resumed := *waiting
@@ -406,7 +407,7 @@ func TestDispatchFencesIdleWorkAndLateAcceptance(t *testing.T) {
 	require.NoError(t, err)
 	revoked, err = client.RevokeSessionDispatch(ctx, session.Id, dispatchID, "new-input")
 	require.NoError(t, err)
-	require.False(t, revoked, "accepted work must never be reported retryable")
+	require.False(t, revoked.NotAccepted, "accepted work must never be reported retryable")
 	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrConflict)
 }
 
@@ -427,7 +428,7 @@ func TestDispatchExpiryRejectsLateSave(t *testing.T) {
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, ""))
 	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "next-message")
 	require.NoError(t, err)
-	require.False(t, revoked)
+	require.False(t, revoked.NotAccepted)
 	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("stale"), next, id.String())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("current"), next, newID.String())
@@ -453,7 +454,173 @@ func TestRevokedContinuationWithSavedInputIsNotRetryable(t *testing.T) {
 	require.NoError(t, err)
 	notAccepted, err := client.RevokeSessionDispatch(ctx, session.Id, id, input.ID)
 	require.NoError(t, err)
-	require.False(t, notAccepted, "revocation must not make persisted input retryable")
+	require.False(t, notAccepted.NotAccepted, "revocation must not make persisted input retryable")
+	require.NotEqual(t, uuid.Nil, notAccepted.CleanupID, "unused execution still needs cleanup after saving input")
+}
+
+func TestDispatchCleanupRejectsLateDeliveryWithoutBlockingNewAdmission(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, waiting := waitingTaskFixture(t, client)
+	id := uuid.New()
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
+	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "canceled-input")
+	require.NoError(t, err)
+	require.True(t, revoked.NotAccepted)
+	require.NotEqual(t, id, revoked.CleanupID)
+	again, err := client.RevokeSessionDispatch(ctx, session.Id, id, "canceled-input")
+	require.NoError(t, err)
+	require.Equal(t, uuid.Nil, again.CleanupID, "a deferred second revocation must not enqueue cleanup again")
+
+	work, err := client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID, uuid.Nil)
+	require.NoError(t, err)
+	_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(waiting.ID))
+	require.NoError(t, err)
+	waiting.Status.State = a2a.TaskStateWorking
+	_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("late delivery"), waiting, waiting, id.String())
+	require.ErrorIs(t, err, ErrFailedPrecondition, "the canceled dispatch cannot become valid during cleanup")
+	// A new send can replace the revoked dispatch before suspension is claimed.
+	newID := uuid.New()
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, ""))
+	_, err = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID, uuid.Nil)
+	require.ErrorIs(t, err, ErrNotFound)
+	require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "obsolete", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
+	_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("new delivery"), waiting, waiting, newID.String())
+	require.NoError(t, err, "an obsolete cleanup cannot clear the new send's dispatch")
+}
+
+func TestDispatchCleanupRecordsOnlyItsCapturedSnapshot(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	session, waiting := waitingTaskFixture(t, client)
+	id := uuid.New()
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
+	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "canceled-input")
+	require.NoError(t, err)
+	owner := uuid.New()
+	work, err := client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, owner)
+	require.NoError(t, err)
+	require.Equal(t, string(waiting.ID), work.TaskID)
+	// Even a second replica observing the same failed send cannot acquire or release this claim.
+	_, err = client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, uuid.New())
+	require.ErrorIs(t, err, ErrNotFound)
+	again, err := client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, owner)
+	require.NoError(t, err, "the owner can recover a lost database claim response")
+	require.Equal(t, work.CleanupID, again.CleanupID)
+	attempt := newSessionTask(uuid.NewString(), "next input")
+	attempt.ContextID = session.ContextId
+	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("invalid claim"), attempt, owner.String())
+	require.ErrorIs(t, err, ErrFailedPrecondition, "a suspension claim cannot authorize a turn")
+	_, err = client.RevokeSessionDispatch(ctx, session.Id, owner, "never delivered")
+	require.NoError(t, err)
+	require.Error(t, client.FinishSessionDispatchCleanup(ctx, work, &SessionTaskSnapshot{}))
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrDispatchSuspending,
+		"a rolled-back snapshot write must retain the claim")
+	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/after-cleanup", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
+	require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, snapshot))
+	// Completion is idempotent and can never overwrite a later snapshot.
+	require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "obsolete", Fidelity: snapshot.Fidelity}))
+	stored, err := readSession(ctx, client.db, session.Id)
+	require.NoError(t, err)
+	task, err := readSessionTask(ctx, client.db, stored.HistoryID, string(waiting.ID))
+	require.NoError(t, err)
+	require.Equal(t, snapshot.URI, *task.SnapshotURI)
+	require.Equal(t, work.Version, *task.HistorySequence)
+	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""))
+}
+
+func TestDispatchCleanupDefersToPostTurnSuspension(t *testing.T) {
+	for _, claimed := range []bool{false, true} {
+		name := "Given queued post-turn suspension, when dispatch cleanup checks eligibility, assert that it defers"
+		if claimed {
+			name = "Given claimed post-turn suspension, when dispatch cleanup finishes late, assert that admission stays closed"
+		}
+		t.Run(name, func(t *testing.T) {
+			client := NewClient(setupTestDB(t), "public")
+			ctx := t.Context()
+			sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+			session, task := waitingTaskFixture(t, client)
+			_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(task.ID))
+			require.NoError(t, err)
+			task.Status.State = a2a.TaskStateCanceled
+			version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("cancel waiting task"), task, task, "")
+			require.NoError(t, err)
+			require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
+			id := uuid.New()
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
+			revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "abandoned message")
+			require.NoError(t, err)
+
+			var owner *SessionQuiescence
+			if claimed {
+				owner, err = client.ClaimSessionQuiescence(ctx)
+				require.NoError(t, err)
+			}
+			_, err = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID, uuid.Nil)
+			require.ErrorIs(t, err, ErrNotFound, "post-turn suspension owns both queued and claimed work")
+			if !claimed {
+				owner, err = client.ClaimSessionQuiescence(ctx)
+				require.NoError(t, err, "dispatch cleanup must leave queued suspension available")
+			}
+
+			// Simulate cleanup admitted by the old eligibility check, before the
+			// post-turn worker claimed this boundary. Its late finish owns no claim.
+			cleanup := &SessionDispatchCleanup{Session: session, CleanupID: revoked.CleanupID, TaskID: string(task.ID), Version: version}
+			snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/dispatch-cleanup", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
+			require.NoError(t, client.FinishSessionDispatchCleanup(ctx, cleanup, snapshot))
+			require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrDispatchSuspending,
+				"only the post-turn worker may release its suspension claim")
+			snapshot.URI = "s3://snapshots/post-turn"
+			require.NoError(t, client.FinishSessionQuiescence(ctx, owner, snapshot))
+			stored, err := readSession(ctx, client.db, session.Id)
+			require.NoError(t, err)
+			boundary, err := readSessionTask(ctx, client.db, stored.HistoryID, string(task.ID))
+			require.NoError(t, err)
+			require.Equal(t, snapshot.URI, *boundary.SnapshotURI, "the owner's finish must record its snapshot")
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""))
+		})
+	}
+}
+
+func TestDispatchCleanupRacesNewSend(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
+	for range 10 {
+		session, _ := waitingTaskFixture(t, client)
+		id := uuid.New()
+		require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
+		revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "canceled")
+		require.NoError(t, err)
+		var work *SessionDispatchCleanup
+		var claimErr, sendErr error
+		newID := uuid.New()
+		start := make(chan struct{})
+		var calls sync.WaitGroup
+		calls.Go(func() {
+			<-start
+			work, claimErr = client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, uuid.New())
+		})
+		calls.Go(func() {
+			<-start
+			sendErr = client.ReserveSessionDispatch(ctx, session.Id, newID, "")
+		})
+		close(start)
+		calls.Wait()
+		if claimErr == nil {
+			require.ErrorIs(t, sendErr, ErrDispatchSuspending)
+			require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, nil))
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, ""))
+		} else {
+			require.ErrorIs(t, claimErr, ErrNotFound)
+			require.NoError(t, sendErr)
+		}
+		current, err := client.RevokeSessionDispatch(ctx, session.Id, newID, "new input")
+		require.NoError(t, err)
+		require.NotEqual(t, uuid.Nil, current.CleanupID, "a stale finish cannot clear the new send")
+	}
 }
 
 func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {

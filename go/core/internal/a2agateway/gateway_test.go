@@ -57,6 +57,9 @@ type gatewayTestStore struct {
 	initialID        string
 	listedIDs        []string
 	revoked          bool
+	cleanupID        uuid.UUID
+	queuedCleanups   []uuid.UUID
+	onRevoke         func()
 	reverts          int
 	onRevert         func()
 	revertErr        error
@@ -87,10 +90,15 @@ func (s *gatewayTestStore) ReserveSessionDispatch(_ context.Context, _ string, _
 	return s.reserveErr
 }
 
-func (s *gatewayTestStore) RevokeSessionDispatch(ctx context.Context, _ string, _ uuid.UUID, _ string) (bool, error) {
+func (s *gatewayTestStore) RevokeSessionDispatch(ctx context.Context, _ string, _ uuid.UUID, _ string) (database.DispatchRevocation, error) {
+	if s.onRevoke != nil {
+		s.onRevoke()
+	}
 	s.revokeCalls++
 	s.revokeContextErr = ctx.Err()
-	return s.revoked, nil
+	cleanupID := s.cleanupID
+	s.cleanupID = uuid.Nil
+	return database.DispatchRevocation{CleanupID: cleanupID, NotAccepted: s.revoked}, nil
 }
 
 func (s *gatewayTestStore) GetSessionByID(_ context.Context, id string) (*apiv1.Session, error) {
@@ -197,6 +205,7 @@ type gatewayTestRuntime struct {
 	getTaskCalls   int
 	subscribeEvent a2atype.Event
 	streamState    a2atype.TaskState
+	streamErr      error
 	subscribeErr   error
 	subscribeCalls int
 	cancelErr      error
@@ -254,6 +263,10 @@ func (r *gatewayTestRuntime) SendStreamingMessage(_ context.Context, _ a2aclient
 		r.onStream(req)
 	}
 	return func(yield func(a2atype.Event, error) bool) {
+		if r.streamErr != nil {
+			yield(nil, r.streamErr)
+			return
+		}
 		if r.task != nil {
 			yield(r.task, nil)
 			return
@@ -343,6 +356,9 @@ func (r *endingRuntime) SendStreamingMessage(_ context.Context, _ a2aclient.Serv
 		r.mu.Lock()
 		r.endedBeforeEnd = !r.destroyed
 		r.mu.Unlock()
+		if r.streamErr != nil {
+			yield(nil, r.streamErr)
+		}
 	}
 }
 
@@ -361,15 +377,18 @@ func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
 		name      string
 		hold      bool
 		wantEnded bool
+		streamErr error
 	}{
 		{name: "runtime ends its stream", wantEnded: true},
 		{name: "runtime keeps its stream open", hold: true},
+		{name: "runtime errors after its final result", wantEnded: true, streamErr: context.Canceled},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			session := gatewayTestSession()
-			runtime := &endingRuntime{hold: tt.hold, closed: make(chan struct{})}
-			gateway := newTestGateway(&gatewayTestStore{session: session, task: &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			runtime := &endingRuntime{gatewayTestRuntime: gatewayTestRuntime{streamErr: tt.streamErr}, hold: tt.hold, closed: make(chan struct{})}
+			store := &gatewayTestStore{session: session, cleanupID: uuid.New(), task: &a2atype.Task{ID: "runtime-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
 			for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
 				if err != nil {
 					t.Fatal(err)
@@ -380,6 +399,7 @@ func TestGatewayDrainsTheRuntimeStreamBeforeClosingATerminalTurn(t *testing.T) {
 			if runtime.endedBeforeEnd != tt.wantEnded || !runtime.destroyed {
 				t.Fatalf("stream ended before destroy = %v, destroyed = %v", runtime.endedBeforeEnd, runtime.destroyed)
 			}
+			require.Empty(t, store.queuedCleanups, "draining a successful stream must not queue cleanup")
 		})
 	}
 }
@@ -1040,8 +1060,33 @@ func TestGatewayReleasesDispatchAfterCallerDisconnects(t *testing.T) {
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 	_, err := gateway.SendMessage(ctx, gatewayTestRequest())
 	require.Error(t, err)
-	require.Positive(t, store.revokeCalls)
+	require.Equal(t, 1, store.revokeCalls)
 	require.NoError(t, store.revokeContextErr)
+}
+
+func TestGatewayClosesRouterBeforeRevokingDispatch(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		name := "Given a failed unary send, when revoking dispatch, assert that the router connection is closed"
+		if streaming {
+			name = "Given a failed streaming send, when revoking dispatch, assert that the router connection is closed"
+		}
+		t.Run(name, func(t *testing.T) {
+			runtime := &gatewayTestRuntime{onSend: func() error { return context.Canceled }, streamErr: context.Canceled}
+			store := &gatewayTestStore{session: gatewayTestSession(), onRevoke: func() {
+				require.True(t, runtime.destroyed, "cleanup must not begin before closing the failed request")
+			}}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
+			if streaming {
+				for _, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+					require.Error(t, err)
+				}
+			} else {
+				_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+				require.Error(t, err)
+			}
+			require.Equal(t, 1, store.revokeCalls)
+		})
+	}
 }
 
 func TestGatewayUnusedStreamDoesNotReserveDispatch(t *testing.T) {
@@ -1051,4 +1096,109 @@ func TestGatewayUnusedStreamDoesNotReserveDispatch(t *testing.T) {
 	_ = gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest())
 	require.Zero(t, store.reserveCalls)
 	require.Nil(t, dialer.session)
+}
+
+func TestGatewaySuccessfulSendDoesNotQueueDispatchCleanup(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, state := range []a2atype.TaskState{
+			a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired,
+			a2atype.TaskStateCompleted, a2atype.TaskStateFailed,
+		} {
+			mode := "unary"
+			if streaming {
+				mode = "streaming"
+			}
+			t.Run("Given an unused dispatch, when a "+mode+" send returns "+string(state)+", assert that cleanup is not queued", func(t *testing.T) {
+				task := &a2atype.Task{ID: "task", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: state}}
+				runtime := &gatewayTestRuntime{task: task}
+				store := &gatewayTestStore{session: gatewayTestSession(), task: task, cleanupID: uuid.New(), onRevoke: func() {
+					require.True(t, runtime.destroyed)
+				}}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
+				req := gatewayTestRequest()
+				req.Message.TaskID = task.ID
+				if streaming {
+					count := 0
+					for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), req) {
+						require.NoError(t, err)
+						require.Equal(t, task, event)
+						count++
+						break // A caller can stop as soon as it receives its result.
+					}
+					require.Equal(t, 1, count)
+				} else {
+					result, err := gateway.SendMessage(gatewayTestContext(), req)
+					require.NoError(t, err)
+					require.Equal(t, task, result)
+				}
+				require.Equal(t, 1, store.revokeCalls, "successful sends still revoke unused dispatches")
+				require.Empty(t, store.queuedCleanups, "successful waiting or terminal replies use normal post-turn suspension")
+			})
+		}
+	}
+}
+
+func TestGatewayFailedDeliveryQueuesOnlyUnusedDispatch(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		streaming bool
+		dialFails bool
+		sendErr   error
+		stopEarly bool
+		admitted  bool
+	}{
+		{name: "unary cancellation", sendErr: context.Canceled},
+		{name: "unary timeout", sendErr: context.DeadlineExceeded},
+		{name: "unary failure", sendErr: a2atype.ErrInternalError},
+		{name: "unary dial failure", dialFails: true},
+		{name: "streaming cancellation", streaming: true, sendErr: context.Canceled},
+		{name: "streaming failure", streaming: true, sendErr: a2atype.ErrInternalError},
+		{name: "streaming dial failure", streaming: true, dialFails: true},
+		{name: "premature stream end", streaming: true},
+		{name: "stopped observation", streaming: true, stopEarly: true},
+		{name: "unary failure after turn admission", sendErr: context.Canceled, admitted: true},
+		{name: "streaming failure after turn admission", streaming: true, sendErr: context.Canceled, admitted: true},
+	} {
+		t.Run("Given a "+scenario.name+", when the send ends, assert that only unused dispatches queue cleanup", func(t *testing.T) {
+			task := &a2atype.Task{ID: "task", ContextID: gatewayTestID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}
+			runtime := &gatewayTestRuntime{task: task, streamErr: scenario.sendErr, onSend: func() error { return scenario.sendErr }}
+			cleanupID := uuid.New()
+			store := &gatewayTestStore{session: gatewayTestSession(), task: task, cleanupID: cleanupID, onRevoke: func() {
+				if !scenario.dialFails {
+					require.True(t, runtime.destroyed, "close the router before cleanup is queued")
+				}
+			}}
+			if scenario.admitted {
+				store.cleanupID = uuid.Nil // Starting a turn consumes its dispatch.
+			}
+			dialer := &gatewayTestDialer{client: gatewayTestClient(t, runtime)}
+			if scenario.dialFails {
+				dialer.err = errors.New("dial failed")
+			}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, dialer, "")
+			var sendErr error
+			if scenario.streaming {
+				for event, err := range gateway.SendStreamingMessage(gatewayTestContext(), gatewayTestRequest()) {
+					sendErr = err
+					if scenario.stopEarly {
+						require.NoError(t, err)
+						require.Equal(t, task, event)
+						break
+					}
+				}
+			} else {
+				_, sendErr = gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			}
+			if !scenario.stopEarly {
+				require.Error(t, sendErr)
+			}
+			require.Equal(t, 1, store.revokeCalls)
+			require.NoError(t, store.revokeContextErr)
+			if scenario.admitted {
+				require.Empty(t, store.queuedCleanups, "disconnecting must not suspend an active turn")
+			} else {
+				require.Equal(t, []uuid.UUID{cleanupID}, store.queuedCleanups)
+			}
+		})
+	}
 }

@@ -138,23 +138,34 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 		if stored.State != string(work.State) {
 			return ErrConflict
 		}
-		if snapshot != nil {
-			if err := execSQL(ctx, tx, `
-				UPDATE session_task SET snapshot_atespace = $3, snapshot_uri = $4,
-				    snapshot_fidelity = $5, history_sequence = $6
-				WHERE history_id = $1 AND id = $2
-			`, session.HistoryID, work.TaskID, snapshot.Atespace, snapshot.URI, snapshot.Fidelity, work.Version); err != nil {
-				return err
-			}
-			if err := execSQL(ctx, tx, `
-				UPDATE session_task_event SET snapshot_atespace = $2, snapshot_uri = $3, snapshot_fidelity = $4
-				WHERE sequence = $1
-			`, work.Version, snapshot.Atespace, snapshot.URI, snapshot.Fidelity); err != nil {
-				return err
-			}
+		if err := recordSessionTaskSnapshot(ctx, tx, session.HistoryID, work.TaskID, work.Version, snapshot); err != nil {
+			return err
 		}
 		return execSQL(ctx, tx, `
-			UPDATE session_task_event SET quiescence_pending = FALSE WHERE sequence = $1
+			UPDATE session_task_event SET quiescence_pending = FALSE
+			WHERE sequence = $1
 		`, work.Version)
 	})
+}
+
+// recordSessionTaskSnapshot replaces an idle boundary's snapshot reference after
+// suspension. Callers hold the session lock and pin the task and history version
+// before runtime I/O, so a newer turn can never inherit an older snapshot.
+// Recording a snapshot does not release another worker's suspension claim.
+func recordSessionTaskSnapshot(ctx context.Context, tx pgx.Tx, historyID uuid.UUID, taskID string, version int64, snapshot *SessionTaskSnapshot) error {
+	if snapshot.URI == "" || snapshot.Atespace == "" || snapshot.Fidelity == "" {
+		return fmt.Errorf("task suspension requires a runtime snapshot")
+	}
+	if err := execSQL(ctx, tx, `
+		UPDATE session_task SET snapshot_atespace = $3, snapshot_uri = $4,
+		    snapshot_fidelity = $5, history_sequence = $6
+		WHERE history_id = $1 AND id = $2
+	`, historyID, taskID, snapshot.Atespace, snapshot.URI, snapshot.Fidelity, version); err != nil {
+		return err
+	}
+	return execSQL(ctx, tx, `
+		UPDATE session_task_event SET snapshot_atespace = $2, snapshot_uri = $3,
+		    snapshot_fidelity = $4
+		WHERE sequence = $1 AND history_id = $5 AND task_id = $6
+	`, version, snapshot.Atespace, snapshot.URI, snapshot.Fidelity, historyID, taskID)
 }

@@ -1268,8 +1268,11 @@ type SessionsConfig struct {
 	ShareMaxTtl                *durationpb.Duration `protobuf:"bytes,2,opt,name=share_max_ttl,json=shareMaxTtl,proto3" json:"share_max_ttl,omitempty"`
 	ExpirationInterval         *durationpb.Duration `protobuf:"bytes,3,opt,name=expiration_interval,json=expirationInterval,proto3" json:"expiration_interval,omitempty"`
 	QuiescenceRecoveryInterval *durationpb.Duration `protobuf:"bytes,4,opt,name=quiescence_recovery_interval,json=quiescenceRecoveryInterval,proto3" json:"quiescence_recovery_interval,omitempty"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Grace period before best-effort cleanup of a canceled, unused dispatch.
+	// New messages supersede cleanup until suspension is claimed. Default 120s; zero disables cleanup.
+	DispatchCleanupDelay *durationpb.Duration `protobuf:"bytes,6,opt,name=dispatch_cleanup_delay,json=dispatchCleanupDelay,proto3" json:"dispatch_cleanup_delay,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SessionsConfig) Reset() {
@@ -1333,6 +1336,13 @@ func (x *SessionsConfig) GetExpirationInterval() *durationpb.Duration {
 func (x *SessionsConfig) GetQuiescenceRecoveryInterval() *durationpb.Duration {
 	if x != nil {
 		return x.QuiescenceRecoveryInterval
+	}
+	return nil
+}
+
+func (x *SessionsConfig) GetDispatchCleanupDelay() *durationpb.Duration {
+	if x != nil {
+		return x.DispatchCleanupDelay
 	}
 	return nil
 }
@@ -2264,7 +2274,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01B\x0f\n" +
 	"\r_api_endpointB\r\n" +
 	"\v_router_urlB\x13\n" +
-	"\x11_actor_jwt_issuer\"\xa5\x03\n" +
+	"\x11_actor_jwt_issuer\"\x88\x04\n" +
 	"\x0eSessionsConfig\x12-\n" +
 	"\x12automatic_recovery\x18\x05 \x01(\bR\x11automaticRecovery\x12F\n" +
 	"\bidle_ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
@@ -2274,7 +2284,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x13expiration_interval\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x12expirationInterval\x12m\n" +
 	"\x1cquiescence_recovery_interval\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x1aquiescenceRecoveryInterval\"_\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x1aquiescenceRecoveryInterval\x12a\n" +
+	"\x16dispatch_cleanup_delay\x18\x06 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"2\x00R\x14dispatchCleanupDelay\"_\n" +
 	"\rGatewayConfig\x12?\n" +
 	"\n" +
 	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01B\r\n" +
@@ -2453,28 +2465,29 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	30, // 35: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
 	30, // 36: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
 	30, // 37: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	30, // 38: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
-	30, // 39: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
-	30, // 40: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	30, // 41: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	30, // 42: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 43: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	30, // 44: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	30, // 45: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	25, // 46: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	25, // 47: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	25, // 48: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	29, // 49: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	30, // 50: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	4,  // 51: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	24, // 52: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	28, // 53: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	27, // 54: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	55, // [55:55] is the sub-list for method output_type
-	55, // [55:55] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	30, // 38: kagent.config.v1.SessionsConfig.dispatch_cleanup_delay:type_name -> google.protobuf.Duration
+	30, // 39: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	30, // 40: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
+	30, // 41: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	30, // 42: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	30, // 43: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 44: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	30, // 45: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	30, // 46: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	25, // 47: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	25, // 48: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	25, // 49: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	29, // 50: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	30, // 51: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	4,  // 52: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	24, // 53: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	28, // 54: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	27, // 55: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }

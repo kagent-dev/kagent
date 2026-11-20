@@ -53,15 +53,23 @@ Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.
 
-`TestSessionDeletionAfterInterruptedResume` delays restored Go ADK startup by
-20 seconds and sends a message through kagent. CI installs Substrate with
-[manifests/substrate-values.yaml](manifests/substrate-values.yaml), pinning the
-parking budget to 5 seconds and request timeout to 10 seconds. For local runs,
-include this file in `install.substrate.valuesFiles` when installing the test
-cluster. These overrides keep the test independent of the chart's defaults.
-The test requires the actor to remain `RESUMING` before ordinary Session deletion,
-then verifies Session and Actor absence through kagent APIs. Backend cleanup
-retries are allowed only after the actor reaches `DELETING` or is absent.
+`TestSessionDeletionAfterInterruptedResume` keeps the restored harness unready
+and lets the router time out. It verifies the actor is still `RESUMING`
+immediately before ordinary session deletion. Include the CI router values in
+`install.substrate.valuesFiles` for local runs (5s parking, 10s request timeout).
+[Substrate test values](manifests/substrate-values.yaml)
+
+`TestCanceledDispatchSuspendsActorWithoutTurn` cancels a unary send while Running
+and a streaming send while Resuming. It verifies suspension, no accepted task,
+and a successful subsequent message. The BYO test agent's opt-in
+`--block-message-id` holds only the selected message before task admission;
+normal invocation is unchanged. Restored startup is delayed by two seconds in
+the Resuming case, allowing cancellation without waiting for the router timeout.
+CI uses `config.sessions.dispatchCleanupDelay: 10s` so an immediate retry has
+time to supersede cleanup. Only the cancellation cases wait for this delay.
+Setting it to `0s` disables dispatch cleanup; post-turn suspension is unchanged.
+Unit tests advance Go's simulated clock to check the full grace period, retry
+backoff, and deadline without wall-clock sleeps.
 
 The suite exercises the public API against a clean Kind installation. It does
 not reconcile Kubernetes resources itself: installation creates the Harness

@@ -28,6 +28,58 @@ type interactionTestStore struct {
 	taskReads   int
 	dispatchErr error
 	reservedIDs []string
+	revocation  database.DispatchRevocation
+}
+
+func (s *interactionTestStore) RevokeSessionDispatch(context.Context, string, uuid.UUID, string) (database.DispatchRevocation, error) {
+	return s.revocation, nil
+}
+
+func TestRevokeSendQueuesOnlyUnusedExecution(t *testing.T) {
+	for _, scenario := range []struct {
+		name           string
+		revocation     database.DispatchRevocation
+		deliveryFailed bool
+		disabled       bool
+		queued         bool
+	}{
+		{name: "canceled before input acceptance", revocation: database.DispatchRevocation{CleanupID: uuid.New(), NotAccepted: true}, deliveryFailed: true, queued: true},
+		{name: "failed delivery after saving waiting input without execution", revocation: database.DispatchRevocation{CleanupID: uuid.New()}, deliveryFailed: true, queued: true},
+		{name: "successful waiting reply without execution", revocation: database.DispatchRevocation{CleanupID: uuid.New()}},
+		{name: "successful reply without saved input", revocation: database.DispatchRevocation{CleanupID: uuid.New(), NotAccepted: true}},
+		{name: "successful execution consumed the dispatch"},
+		{name: "failed delivery after execution consumed the dispatch", deliveryFailed: true},
+		{name: "cleanup disabled for an unused dispatch", revocation: database.DispatchRevocation{CleanupID: uuid.New(), NotAccepted: true}, deliveryFailed: true, disabled: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			id := uuid.NewString()
+			agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+			session := &apiv1.Session{Id: id, ContextId: id, Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+			config := ActorWorkflowConfig{RecoveryInterval: time.Hour, DispatchCleanupDelay: time.Millisecond}
+			if scenario.disabled {
+				config.DispatchCleanupDelay = 0
+			}
+			workflow := NewActorWorkflow(nil, nil, nil, config, nil)
+			store := &interactionTestStore{revocation: scenario.revocation}
+			service := NewInteractionService(store, nil, NewService(&serviceTestStore{getResult: session}, serviceTestAuthorizer{}, workflow), false, false)
+			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("input"))
+			message.ContextID = id
+			notAccepted, err := service.RevokeSend(serviceTestContext("alice"), agent, message, uuid.New(), scenario.deliveryFailed)
+			require.NoError(t, err)
+			require.Equal(t, scenario.revocation.NotAccepted, notAccepted)
+			if scenario.queued {
+				select {
+				case work := <-workflow.dispatchCleanups:
+					require.Equal(t, id, work.sessionID)
+					require.Equal(t, scenario.revocation.CleanupID, work.cleanupID)
+				default:
+					t.Fatal("unused execution was not queued for cleanup")
+				}
+			} else {
+				require.Empty(t, workflow.dispatchCleanups, "successful delivery, admitted turns, and disabled cleanup must not queue work")
+			}
+		})
+	}
 }
 
 func (s *interactionTestStore) ReserveSessionDispatch(_ context.Context, _ string, _ uuid.UUID, initialMessageID string) error {
@@ -176,7 +228,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 			return err
 		}},
 		{name: "revoke send", verb: auth.VerbCreate, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {
-			_, err := s.RevokeSend(ctx, agent, &a2atype.Message{ID: "input", ContextID: id}, uuid.New())
+			_, err := s.RevokeSend(ctx, agent, &a2atype.Message{ID: "input", ContextID: id}, uuid.New(), true)
 			return err
 		}},
 		{name: "get", verb: auth.VerbGet, call: func(ctx context.Context, s *InteractionService, agent types.NamespacedName) error {

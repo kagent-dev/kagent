@@ -26,6 +26,20 @@ attributes:
           brief: A follow-on claim, including worker handoffs and freed delivery capacity.
           stability: development
 
+  - key: kagent.dispatch_cleanup.drop_reason
+    brief: Why a controller stopped tracking a failed dispatch cleanup.
+    stability: development
+    type:
+      members:
+        - id: queue_full
+          value: queue_full
+          brief: The replica already held its maximum outstanding cleanups.
+          stability: development
+        - id: retry_budget_exhausted
+          value: retry_budget_exhausted
+          brief: The cleanup deadline expired before completion.
+          stability: development
+
   - key: kagent.gc.stage
     brief: The stage of a runtime revision garbage collection attempt.
     stability: development

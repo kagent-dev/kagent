@@ -4,15 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 type workflowStore interface {
@@ -28,6 +32,9 @@ type workflowStore interface {
 	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation, bool) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
+	ClaimSessionDispatchSuspension(context.Context, string, uuid.UUID, uuid.UUID) (*database.SessionDispatchCleanup, error)
+	GetSessionDispatchCleanup(context.Context, string, uuid.UUID, uuid.UUID) (*database.SessionDispatchCleanup, error)
+	FinishSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup, *database.SessionTaskSnapshot) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
 }
@@ -36,21 +43,44 @@ type actorClient interface {
 	substrate.LifecycleClient
 }
 
-// ActorWorkflow runs the imperative Substrate operations behind Session
-// lifecycle RPCs. Only the claiming caller issues lifecycle mutations; others
-// observe current completion or receive a pending/superseded-operation error.
+// ActorWorkflow runs Session lifecycle operations and post-turn suspension using
+// database claims. Canceled dispatches use separate, best-effort local cleanup
+// that yields to newer messages until suspension is claimed.
 type ActorWorkflow struct {
-	store            workflowStore
-	actors           actorClient
-	recoveryInterval time.Duration
-	quiescenceWake   chan struct{}
-	meterProvider    metric.MeterProvider
+	store                workflowStore
+	actors               actorClient
+	recoveryInterval     time.Duration
+	quiescenceWake       chan struct{}
+	meterProvider        metric.MeterProvider
+	dispatchCleanups     chan *dispatchCleanup
+	dispatchCleanupDelay time.Duration
+	// Includes ready, delayed, and executing cleanup requests on this replica.
+	dispatchCleanupCount atomic.Int32
+	dispatchDrops        metric.Int64Counter
 }
 
-// quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
+// ActorWorkflowConfig sets the polling interval for post-turn recovery and the
+// grace period before best-effort cleanup of a canceled dispatch. A zero
+// DispatchCleanupDelay disables dispatch cleanup without affecting post-turn work.
+type ActorWorkflowConfig struct {
+	RecoveryInterval     time.Duration
+	DispatchCleanupDelay time.Duration
+}
+
+// NewActorWorkflow shares a single-slot quiescenceWake hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
-func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, provider metric.MeterProvider) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider}
+func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, config ActorWorkflowConfig, provider metric.MeterProvider) *ActorWorkflow {
+	if provider == nil {
+		provider = noop.NewMeterProvider()
+	}
+	dropped, err := sessionMeter(provider).Int64Counter(conv.KagentSessionDispatchCleanupDropped,
+		metric.WithUnit(conv.KagentSessionDispatchCleanupDroppedUnit), metric.WithDescription(conv.KagentSessionDispatchCleanupDroppedDescription))
+	if err != nil {
+		otel.Handle(fmt.Errorf("create dispatch cleanup counter: %w", err))
+		dropped = noop.Int64Counter{}
+	}
+	return &ActorWorkflow{dispatchDrops: dropped, store: store, actors: actors, recoveryInterval: config.RecoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider,
+		dispatchCleanupDelay: config.DispatchCleanupDelay, dispatchCleanups: make(chan *dispatchCleanup, dispatchCleanupQueueSize)}
 }
 
 // Quiesce durably suspends the runtime without changing the Session's
@@ -69,6 +99,13 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 	if err := w.verifyActor(ctx, session, revision, current); err != nil {
 		return nil, err
 	}
+	return w.suspendVerifiedActor(ctx, revision, current)
+}
+
+// suspendVerifiedActor suspends an actor whose binding the caller has verified.
+// Post-turn quiescence and canceled delivery share snapshot validation.
+func (w *ActorWorkflow) suspendVerifiedActor(ctx context.Context, revision *database.RuntimeRevision, current *ateapipb.Actor) (*database.SessionTaskSnapshot, error) {
+	atespace, name := current.GetMetadata().GetAtespace(), current.GetMetadata().GetName()
 	actor, err := w.actors.SuspendActor(ctx, atespace, name)
 	if err != nil {
 		return nil, fmt.Errorf("suspend Actor %s/%s: %w", atespace, name, err)
@@ -80,6 +117,12 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 	if !validActorIdentity(actor, revision, name) || metadata.GetUid() != current.GetMetadata().GetUid() {
 		return nil, fmt.Errorf("suspend actor %s/%s returned invalid identity", atespace, name)
 	}
+	return actorVolumeSnapshot(actor)
+}
+
+// actorVolumeSnapshot validates the restorable snapshot produced by suspension.
+func actorVolumeSnapshot(actor *ateapipb.Actor) (*database.SessionTaskSnapshot, error) {
+	atespace, name := actor.GetMetadata().GetAtespace(), actor.GetMetadata().GetName()
 	snapshot := substrate.LatestActorSnapshot(actor)
 	if substrate.SnapshotURI(snapshot) == "" {
 		return nil, fmt.Errorf("suspend Actor %s/%s returned no snapshot", atespace, name)

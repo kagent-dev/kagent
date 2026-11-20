@@ -14,6 +14,7 @@ This page lists what the [registry](../../telemetry/registry) defines.
 | `a2a.task.state` | enum | `TASK_STATE_SUBMITTED`, `TASK_STATE_WORKING`, `TASK_STATE_COMPLETED`, `TASK_STATE_FAILED`, `TASK_STATE_CANCELED`, `TASK_STATE_INPUT_REQUIRED`, `TASK_STATE_REJECTED`, `TASK_STATE_AUTH_REQUIRED` | The A2A task state that execution reported. The values are the A2A v1 wire names. An absent state does not mean success. |
 | `kagent.capture.input_truncated` | boolean |  | Whether the captured input messages or tool arguments were shortened to the capture budget. |
 | `kagent.capture.output_truncated` | boolean |  | Whether the captured output messages or tool result were shortened to the capture budget. |
+| `kagent.dispatch_cleanup.drop_reason` | enum | `queue_full`, `retry_budget_exhausted` | Why a controller stopped tracking a failed dispatch cleanup. |
 | `kagent.gc.stage` | enum | `discovery`, `collection` | The stage of a runtime revision garbage collection attempt. |
 | `kagent.genai.producer` | enum | `runtime` | The component that writes the GenAI model and tool spans of an agent. Set on the resource of a native harness process. With the value `runtime`, the kagent harness runtime writes the model and tool spans of this process. Its native spans repeat the same calls, so the reference collector removes their GenAI operation, model, finish reason and token usage attributes. Each call is then counted once. A standalone Claude request keeps them, since the runtime writes no span for it. Absent when the image writes its own native GenAI spans. |
 | `kagent.inference.request_id` | string |  | The provider's request ID of a model call. Lets a backend join the call with the provider's logs. Claude only. A call canceled early can lack it. |
@@ -198,6 +199,14 @@ Instrument: gauge. Unit: `{revision}`. Number of cleanup-eligible runtime revisi
 
 | Attribute | Requirement | Note |
 | --- | --- | --- |
+
+### `kagent.session.dispatch_cleanup.dropped`
+
+Instrument: counter. Unit: `{cleanup}`. Number of dispatch cleanups dropped by a controller replica. Count each queue refusal or exhausted retry budget once. Controller shutdown and superseded cleanups are excluded.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+| `kagent.dispatch_cleanup.drop_reason` | required |  |
 
 ### `kagent.session.quiescence.claimed`
 

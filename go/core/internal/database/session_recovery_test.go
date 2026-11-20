@@ -157,7 +157,7 @@ func TestDispatchReportsUnsettledSuspension(t *testing.T) {
 	require.NotErrorIs(t, busy, ErrDispatchSuspending, "an ordinary dispatch in flight is not a suspension")
 	revoked, err := client.RevokeSessionDispatch(t.Context(), session.Id, dispatch, "unused")
 	require.NoError(t, err)
-	require.True(t, revoked)
+	require.True(t, revoked.NotAccepted)
 
 	for _, state := range []a2a.TaskState{a2a.TaskStateWorking, a2a.TaskStateInputRequired} {
 		task.Status.State = state

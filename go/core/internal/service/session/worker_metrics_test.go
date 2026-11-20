@@ -87,6 +87,49 @@ func workClaimValues(t *testing.T, reader *sdkmetric.ManualReader, metricName st
 	return values
 }
 
+func TestDispatchCleanupDroppedCounter(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, provider, reader, _ := captureWorkTelemetry(t)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		store := &backoffCleanupTestStore{calls: make(map[string][]time.Time)}
+		workflow := NewActorWorkflow(store, nil, nil, ActorWorkflowConfig{DispatchCleanupDelay: time.Second}, provider)
+		for range dispatchCleanupQueueSize {
+			workflow.QueueDispatchCleanup(ctx, "superseded", uuid.New())
+		}
+		workflow.QueueDispatchCleanup(ctx, "overflow", uuid.New())
+		done := make(chan struct{})
+		go func() { workflow.runDispatchCleanups(ctx); close(done) }()
+		time.Sleep(time.Second)
+		synctest.Wait()
+		workflow.QueueDispatchCleanup(ctx, "blocked", uuid.New())
+		time.Sleep(time.Second + dispatchCleanupBudget + dispatchCleanupMaxBackoff)
+		synctest.Wait()
+		workflow.QueueDispatchCleanup(ctx, "shutdown", uuid.New())
+		cancel()
+		<-done
+
+		counts := map[string]int64{}
+		for _, scope := range telemetrytest.Collect(t, reader).ScopeMetrics {
+			for _, m := range scope.Metrics {
+				if m.Name != "kagent.session.dispatch_cleanup.dropped" {
+					continue
+				}
+				require.Equal(t, "{cleanup}", m.Unit)
+				sum := m.Data.(metricdata.Sum[int64])
+				require.True(t, sum.IsMonotonic)
+				for _, pt := range sum.DataPoints {
+					require.Equal(t, 1, pt.Attributes.Len())
+					reason, ok := pt.Attributes.Value(attribute.Key("kagent.dispatch_cleanup.drop_reason"))
+					require.True(t, ok)
+					counts[reason.AsString()] += pt.Value
+				}
+			}
+		}
+		require.Equal(t, map[string]int64{"queue_full": 1, "retry_budget_exhausted": 1}, counts)
+	})
+}
+
 func requireRecoveryLog(t *testing.T, logs *bytes.Buffer, operation string, id string, interval time.Duration) {
 	t.Helper()
 	type logRecord struct {
@@ -173,7 +216,7 @@ func TestQuiescenceWorkClaimTriggers(t *testing.T) {
 				}
 				wake := make(chan struct{}, 1)
 				// Equal recovery and retry delays must still have distinct labels.
-				workflow := NewActorWorkflow(store, nil, wake, time.Second, provider)
+				workflow := NewActorWorkflow(store, nil, wake, ActorWorkflowConfig{RecoveryInterval: time.Second}, provider)
 				done := make(chan error, 1)
 				go func() { done <- workflow.Start(ctx) }()
 				synctest.Wait()
@@ -218,7 +261,9 @@ func TestQuiescenceHandoffsCountAsBacklog(t *testing.T) {
 				}
 				wake := make(chan struct{}, 1)
 				done := make(chan error, 1)
-				go func() { done <- NewActorWorkflow(store, nil, wake, time.Second, provider).Start(ctx) }()
+				go func() {
+					done <- NewActorWorkflow(store, nil, wake, ActorWorkflowConfig{RecoveryInterval: time.Second}, provider).Start(ctx)
+				}()
 				synctest.Wait()
 				require.Equal(t, wantWorkClaims("", 0), workClaimValues(t, reader, "kagent.session.quiescence.claimed"))
 				store.remaining.Store(12)
@@ -447,7 +492,7 @@ func TestWorkerClaimMetricsRemainSeparate(t *testing.T) {
 		push.deliveries = make([]database.PushDelivery, 2)
 		quiescenceDone, pushDone := make(chan error, 1), make(chan error, 1)
 		go func() {
-			quiescenceDone <- NewActorWorkflow(quiescence, nil, make(chan struct{}, 1), time.Hour, provider).Start(ctx)
+			quiescenceDone <- NewActorWorkflow(quiescence, nil, make(chan struct{}, 1), ActorWorkflowConfig{RecoveryInterval: time.Hour}, provider).Start(ctx)
 		}()
 		go func() {
 			pushDone <- NewPushWorker(push, &pushTestSender{}, nil, nil, testPushWorkerConfig(time.Hour), provider).Start(ctx)
