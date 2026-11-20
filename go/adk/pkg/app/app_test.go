@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"iter"
 	"net"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/agent/llmagent"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -170,6 +172,61 @@ func TestBuildAgentCard_LeavesCallerCardUntouched(t *testing.T) {
 	if len(cfg.AgentCard.Capabilities.Extensions) != 0 {
 		t.Errorf("caller extensions = %#v, want the caller's card untouched", cfg.AgentCard.Capabilities.Extensions)
 	}
+}
+
+// TestBuildAgentCardKeepsTheSystemPromptOffTheCard covers the card the pod
+// serves at /.well-known/agent-card.json. Skills built by ADK from the agent
+// copy its instructions, so they must not replace the card's own skills.
+func TestBuildAgentCardKeepsTheSystemPromptOffTheCard(t *testing.T) {
+	scenarios := []struct {
+		given  string
+		skills []a2atype.AgentSkill
+	}{
+		{given: "Given a card without skills"},
+		{
+			given:  "Given a card with its own skills",
+			skills: []a2atype.AgentSkill{{ID: "refunds", Name: "Refunds", Description: "Processes refund requests."}},
+		},
+	}
+
+	for _, s := range scenarios {
+		t.Run(s.given+", when the app builds it from an LLM agent with instructions, assert that the served card keeps its skills and shows no instructions", func(t *testing.T) {
+			agent := newAgentWithInstructions(t)
+
+			card := buildAgentCard(AppConfig{
+				AgentCard: a2atype.AgentCard{Name: "support", Skills: slices.Clone(s.skills)},
+				Agent:     agent,
+			})
+
+			served, err := json.Marshal(card)
+			require.NoError(t, err)
+			for _, secret := range []string{"SECRET-ROOT-RULE", "SECRET-GLOBAL-RULE", "SECRET-CHILD-RULE"} {
+				require.NotContains(t, string(served), secret)
+			}
+			require.Equal(t, s.skills, card.Skills)
+		})
+	}
+}
+
+// newAgentWithInstructions returns an LLM agent and sub-agent whose
+// instructions hold markers that must never reach the agent card.
+func newAgentWithInstructions(t *testing.T) adkagent.Agent {
+	t.Helper()
+	billing, err := llmagent.New(llmagent.Config{
+		Name:        "billing",
+		Description: "Looks up invoices.",
+		Instruction: "SECRET-CHILD-RULE: never refund twice.",
+	})
+	require.NoError(t, err)
+	agent, err := llmagent.New(llmagent.Config{
+		Name:              "support",
+		Description:       "Handles support tickets.",
+		Instruction:       "SECRET-ROOT-RULE: escalate refunds above 500 to a human.",
+		GlobalInstruction: "SECRET-GLOBAL-RULE: answer in English.",
+		SubAgents:         []adkagent.Agent{billing},
+	})
+	require.NoError(t, err)
+	return agent
 }
 
 // admissionServer sends the next message during settlement: the first moment the

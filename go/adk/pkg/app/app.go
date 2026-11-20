@@ -62,8 +62,8 @@ type AppConfig struct {
 	// after the ones the builder creates (task store, push notifications, etc.).
 	HandlerOpts []a2asrv.RequestHandlerOption
 
-	// Agent is the ADK agent used to enrich the agent card with skills via
-	// adka2a.BuildAgentSkills. Optional; when nil, the card is used as-is.
+	// Agent is the ADK agent used to fill gaps in the agent card. Skills are
+	// never taken from it. Optional; when nil, the card is used as-is.
 	Agent adkagent.Agent
 
 	// Telemetry is the compiler-owned telemetry contract for this runtime. Its
@@ -156,7 +156,7 @@ func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallIntercepto
 }
 
 // buildAgentCard returns the card the server serves. The HITL and usage extensions
-// are declared for every app, whether or not an ADK agent was supplied for skill derivation.
+// are declared for every app, whether or not an ADK agent was supplied.
 func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
 	card := cfg.AgentCard
 	a2a.EnsureHITLExtension(&card)

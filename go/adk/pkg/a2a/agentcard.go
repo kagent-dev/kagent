@@ -5,21 +5,17 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/server/adka2a/v2"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
-// EnrichAgentCard populates the agent card with skills derived from the ADK
-// agent using adka2a.BuildAgentSkills. It also fills in the description from
-// the agent when the card has none.
+// EnrichAgentCard fills gaps in the agent card from the ADK agent: a missing
+// description, the HITL and usage extensions, and a default interface. It does
+// not change the card's skills. Skills built from the ADK agent copy its
+// instructions, so they would put the system prompt on the card.
 func EnrichAgentCard(card *a2atype.AgentCard, agent adkagent.Agent) {
 	if card == nil || agent == nil {
 		return
-	}
-
-	if skills := adka2a.BuildAgentSkills(agent); len(skills) > 0 {
-		card.Skills = skills
 	}
 
 	if card.Description == "" && agent.Description() != "" {
