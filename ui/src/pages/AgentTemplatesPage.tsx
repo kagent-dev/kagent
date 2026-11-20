@@ -8,7 +8,7 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { useTheme } from "@emotion/react";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
-import { listTableChange, matchesQuery, paginationFor } from "@/components/table/listTable";
+import { byText, listTableChange, matchesQuery, paginationFor, sortOrderFor } from "@/components/table/listTable";
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { clickableRow } from "@/components/table/rowClick";
@@ -100,6 +100,9 @@ export function AgentTemplatesTab() {
       {
         title: "Template",
         key: "name",
+        // Sortable like the Agents tab's columns.
+        sorter: byText<AgentTemplate>((row) => row.name),
+        sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
           <Link
             to={buildPath(paths.agentTemplateDetail, {
@@ -125,6 +128,8 @@ export function AgentTemplatesTab() {
       {
         title: "Model",
         key: "model",
+        sorter: byText<AgentTemplate>((row) => row.modelConfigRef ?? ""),
+        sortOrder: sortOrderFor(view, "model"),
         render: (_, row) => (
           <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
             {row.modelConfigRef || "—"}
@@ -174,7 +179,7 @@ export function AgentTemplatesTab() {
         ),
       },
     ],
-    [invalidateTemplates, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono],
+    [invalidateTemplates, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono, view],
   );
 
   // The tool counts come from the server list, so refreshing the tab reloads it too.
@@ -223,7 +228,7 @@ export function AgentTemplatesTab() {
               {/* Beside the controls that narrow this list, and it refreshes this list:
                   a control in a table's own filter row that quietly re-read two other
                   tabs would be doing more than it appears to. */}
-              <RefreshButton onRefresh={refreshThisTab} what="Templates" />
+              <RefreshButton onRefresh={refreshThisTab} what="Templates" iconOnly />
             </Space>
           }
         />

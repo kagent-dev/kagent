@@ -89,7 +89,7 @@ it("hides the rows and both pagers when a refresh denies access on page two", as
   expect(await screen.findByText("second-pod")).toBeInTheDocument();
 
   denied = true;
-  fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  fireEvent.click(screen.getByRole("button", { name: "Refresh substrate" }));
   expect(await screen.findByTestId("substrate-actors-error")).toHaveTextContent("You do not have access to actors");
   expect(await screen.findByTestId("substrate-workers-error")).toHaveTextContent("You do not have access to workers");
   expect(screen.queryByText("second-actor")).not.toBeInTheDocument();

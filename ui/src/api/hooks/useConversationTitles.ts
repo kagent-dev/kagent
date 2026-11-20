@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { getChatClient } from "@/api/chat";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
@@ -39,10 +39,17 @@ const TITLE_BUDGET = 30;
  * A conversation can be listed before its first message, so an untitled row is re-read
  * on mount, and the open conversation keeps its transcript's title once it is left.
  */
+export type ConversationTitles = {
+  /** Derived titles by conversation id. */
+  titles: Readonly<Record<string, string>>;
+  /** Ids whose title read is in flight. Rows past the budget are never read, so never here. */
+  loading: ReadonlySet<string>;
+};
+
 export function useConversationTitles(
   instances: readonly AgentInstance[] | undefined,
   open?: { id: string; title?: string },
-): Record<string, string> {
+): ConversationTitles {
   /*
    * Keyed by the ids themselves, so the read repeats when the set changes and not
    * when the array's identity does — a list re-read on a timer hands back a new array
@@ -55,7 +62,7 @@ export function useConversationTitles(
     ? ["conversation-titles", targets.map((t) => t.id).sort().join(",")]
     : null;
 
-  const derived = derivedTitles(useSWRConfig().cache);
+  const { titles: derived, settled } = titleStore(useSWRConfig().cache);
 
   // Open conversation's title, kept after leaving; dropped if its first message is refused.
   const openId = open?.id;
@@ -78,27 +85,29 @@ export function useConversationTitles(
     key,
     async () => {
       const entries = await Promise.all(
-        targets.map(async (instance) => {
-          if (derived.has(instance.id)) return undefined;
+        // `null` is a settled read with no title, which is what lets a row stop loading.
+        targets.map(async (instance): Promise<readonly [string, string | null]> => {
+          // Already known: settled, with the title left in `derived` so it can be taken back.
+          if (derived.has(instance.id)) return [instance.id, null];
           try {
-            if (!instance.agent) return undefined;
+            if (!instance.agent) return [instance.id, null];
             const history = await getChatClient().history({
-
               id: instance.id,
               agent: instance.agent,
             });
             const first = history.messages.find((message) => message.role === "user");
             const title = autoTitleFrom(first && messageSummary(first));
-            if (!title) return undefined;
+            if (!title) return [instance.id, null];
             derived.set(instance.id, title);
-            return [instance.id, title] as const;
+            return [instance.id, title];
           } catch {
             // Deliberately quiet — see this hook's note on failures.
-            return undefined;
+            return [instance.id, null];
           }
         }),
       );
-      return Object.fromEntries(entries.filter((entry) => entry !== undefined));
+      for (const [id] of entries) settled.add(id);
+      return Object.fromEntries(entries) as Record<string, string | null>;
     },
     {
       // A conversation's first message never changes, so a derived title cannot go
@@ -111,23 +120,35 @@ export function useConversationTitles(
     },
   );
 
-  // Titles come from `derived`; `data` is read so that a landed read re-renders this.
-  const titles: Record<string, string> = { ...data };
+  // A row loads only until its first read settles, under any key or mount; re-reads update in place.
+  const titles: Record<string, string> = {};
+  const loading: string[] = [];
   for (const instance of targets) {
-    const title = derived.get(instance.id);
+    const title = derived.get(instance.id) ?? data?.[instance.id];
     if (title) titles[instance.id] = title;
+    else if (!settled.has(instance.id) && !(data && instance.id in data)) loading.push(instance.id);
   }
-  return titles;
+  // Same object until something changes, so callers can memoise on it.
+  const signature = JSON.stringify([titles, loading]);
+  return useMemo(() => {
+    const [t, l] = JSON.parse(signature) as [Record<string, string>, string[]];
+    return { titles: t, loading: new Set(l) };
+  }, [signature]);
 }
 
-/** Titles per conversation, shared by every mount on one SWR cache. */
-const derivedByCache = new WeakMap<object, Map<string, string>>();
+/** Titles, and ids whose read has settled, shared by every mount on one SWR cache. */
+interface TitleStore {
+  titles: Map<string, string>;
+  settled: Set<string>;
+}
 
-function derivedTitles(cache: object): Map<string, string> {
-  let titles = derivedByCache.get(cache);
-  if (!titles) {
-    titles = new Map();
-    derivedByCache.set(cache, titles);
+const storeByCache = new WeakMap<object, TitleStore>();
+
+function titleStore(cache: object): TitleStore {
+  let store = storeByCache.get(cache);
+  if (!store) {
+    store = { titles: new Map(), settled: new Set() };
+    storeByCache.set(cache, store);
   }
-  return titles;
+  return store;
 }
