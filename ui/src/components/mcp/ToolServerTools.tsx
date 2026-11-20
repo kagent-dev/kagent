@@ -2,6 +2,10 @@ import { Empty, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { Wrench } from "lucide-react";
 import type { DiscoveredTool } from "@/api";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { mcpServerTo } from "@/router/routes";
+import type { BackLinkState } from "@/router/backLink";
+import { toolAnchor } from "./toolAnchor";
 
 const { Text } = Typography;
 
@@ -9,6 +13,12 @@ interface ToolServerToolsProps {
   tools: DiscoveredTool[];
   /** Highlighted inside tool names and descriptions, when a filter is active. */
   highlight?: string;
+  /** Links each tool name to its place on this server's details page. */
+  server?: { namespace: string; name: string; groupKind: string };
+  /** Router state for those links, so the details page leads back here. */
+  linkState?: BackLinkState;
+  /** Gives each tool an anchor id, and marks the one named here. */
+  anchors?: { current?: string };
 }
 
 /**
@@ -18,7 +28,7 @@ interface ToolServerToolsProps {
  * may not have completed a handshake yet, or the server may genuinely expose
  * nothing. The copy says which without implying something went wrong.
  */
-export function ToolServerTools({ tools, highlight }: ToolServerToolsProps) {
+export function ToolServerTools({ tools, highlight, server, linkState, anchors }: ToolServerToolsProps) {
   const theme = useTheme();
 
   if (tools.length === 0) {
@@ -46,12 +56,15 @@ export function ToolServerTools({ tools, highlight }: ToolServerToolsProps) {
       {sortToolsByName(tools).map((tool) => (
         <li
           key={tool.name}
+          id={anchors ? toolAnchor(tool.name) : undefined}
           data-testid="tool-server-tool"
+          data-current={anchors?.current === tool.name || undefined}
           css={{
             display: "flex",
             gap: theme.space(3),
             padding: theme.space(3),
-            border: `1px solid ${theme.color.border}`,
+            scrollMarginTop: theme.space(6),
+            border: `1px solid ${anchors?.current === tool.name ? theme.color.primaryText : theme.color.border}`,
             borderRadius: theme.radius.md,
             background: theme.color.bg,
           }}
@@ -63,7 +76,17 @@ export function ToolServerTools({ tools, highlight }: ToolServerToolsProps) {
           />
           <div css={{ minWidth: 0 }}>
             <div css={{ fontFamily: theme.font.mono, wordBreak: "break-word" }}>
-              <Highlighted text={tool.name} term={highlight} />
+              {server ? (
+                <ResourceLink
+                  to={mcpServerTo(server, toolAnchor(tool.name))}
+                  state={linkState}
+                  data-testid="tool-server-tool-link"
+                >
+                  <Highlighted text={tool.name} term={highlight} />
+                </ResourceLink>
+              ) : (
+                <Highlighted text={tool.name} term={highlight} />
+              )}
             </div>
             {tool.description ? (
               <Text

@@ -1,7 +1,7 @@
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
@@ -9,6 +9,8 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   agentDescription,
   agentRevisionState,
@@ -165,7 +167,14 @@ export function AgentsTab() {
         width: 190,
         sorter: byText<Agent>((row) => templateRefName(row) ?? ""),
         sortOrder: sortOrderFor(view, "template"),
-        render: (_, row) => <SourceCell refName={templateRefName(row)} testId={`agent-template-${row.ref}`} />,
+        render: (_, row) => (
+          <SourceCell
+            refName={templateRefName(row)}
+            testId={`agent-template-${row.ref}`}
+            path={paths.agentTemplateDetail}
+            namespace={row.namespace}
+          />
+        ),
       },
       {
         title: "Harness",
@@ -173,7 +182,14 @@ export function AgentsTab() {
         width: 170,
         sorter: byText<Agent>((row) => harnessRefName(row) ?? ""),
         sortOrder: sortOrderFor(view, "harness"),
-        render: (_, row) => <SourceCell refName={harnessRefName(row)} testId={`agent-harness-${row.ref}`} />,
+        render: (_, row) => (
+          <SourceCell
+            refName={harnessRefName(row)}
+            testId={`agent-harness-${row.ref}`}
+            path={paths.harness}
+            namespace={row.namespace}
+          />
+        ),
       },
       {
         title: "Status",
@@ -349,17 +365,30 @@ export function AgentsTab() {
 }
 
 /** A shared resource's name, or an Inline tag when the Agent carries the spec itself. */
-function SourceCell({ refName, testId }: { refName?: string; testId: string }) {
-  const theme = useTheme();
+function SourceCell({
+  refName,
+  testId,
+  path,
+  namespace,
+}: {
+  refName?: string;
+  testId: string;
+  path: string;
+  namespace: string;
+}) {
+  const location = useLocation();
+  // The row's own click ignores links, so this opens the resource rather than a chat.
   return refName ? (
-    <Text
-      ellipsis={{ tooltip: refName }}
+    <ResourceLink
+      mono
+      to={buildPath(path, { namespace, name: refName })}
+      state={backLinkState(location, "Back to agents")}
       data-testid={testId}
       data-source="reference"
-      css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+      css={{ fontSize: 12 }}
     >
       {refName}
-    </Text>
+    </ResourceLink>
   ) : (
     <Tag data-testid={testId} data-source="inline" css={{ marginInlineEnd: 0 }}>
       Inline

@@ -145,7 +145,13 @@ export function SkillsField({
   return (
     <Form.Item
       label="Skills"
-      extra="A skill is a set of instructions the agent loads when a task matches it. Its source must not change: an OCI image pinned by digest, a full Git commit, or an S3 object version. The path selects the skill's directory inside the source."
+      extra={
+        <div css={{ paddingTop: 8 }}>
+          A skill is a set of instructions the agent loads when a task matches it. Its source must not change: an OCI
+          image pinned by digest, a full Git commit, or an S3 object version. The path selects the skill's directory
+          inside the source.
+        </div>
+      }
     >
       <div css={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {readOnly && skills.length === 0 ? <Text css={muted}>No skills.</Text> : null}

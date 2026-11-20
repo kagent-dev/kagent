@@ -7,17 +7,27 @@ import { themeFor } from "@/theme/theme";
 import type { AgentInstance } from "@/api";
 import { AgentContextPanel } from "./AgentContextPanel";
 
-const {useAgentTemplate, useAgent} = vi.hoisted(() => ({useAgentTemplate: vi.fn(), useAgent: vi.fn()}));
+const {useAgentTemplate, useAgent, useMcpServers} = vi.hoisted(() => ({
+  useAgentTemplate: vi.fn(),
+  useAgent: vi.fn(),
+  useMcpServers: vi.fn(),
+}));
 
 vi.mock("@/api", () => ({
   useAgentTemplate,
   useAgent,
+  useMcpServers,
   bareName: (ref: string) => ref.split("/").pop(),
 }));
 
 function LocationState() {
   const location = useLocation();
-  return <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>;
+  return (
+    <>
+      <pre data-testid="location-path">{location.pathname + location.search + location.hash}</pre>
+      <pre data-testid="location-state">{JSON.stringify(location.state)}</pre>
+    </>
+  );
 }
 
 function renderPanel(
@@ -25,7 +35,11 @@ function renderPanel(
   modelNamespace?: string,
   instance?: AgentInstance,
   template: unknown = { ref: { name: "helper-template" } },
+  servers: unknown[] = [],
+  onShowDetails?: () => void,
+  autoTitle?: string,
 ) {
+  useMcpServers.mockReturnValue({ data: servers });
   useAgent.mockReturnValue({data: {resource: {spec: {template, harnessRef: {name: "runner"}}}}});
   useAgentTemplate.mockReturnValue({
     data: {
@@ -49,11 +63,17 @@ function renderPanel(
             element={
               <AgentContextPanel
                 instance={instance}
+                autoTitle={autoTitle}
                 agentRef={{ namespace: "kagent", name: "assistant" }}
+                onShowDetails={onShowDetails}
               />
             }
           />
+          <Route path="/agents/:namespace/:name" element={<LocationState />} />
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
+          <Route path="/harnesses/:namespace/:name" element={<LocationState />} />
+          <Route path="/models/:namespace/:name/edit" element={<LocationState />} />
+          <Route path="/mcp/:namespace/:name" element={<LocationState />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -62,7 +82,7 @@ function renderPanel(
 
 describe("AgentContextPanel", () => {
   it("names the agent template and the harness", () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     expect(screen.getByTestId("chat-agent-context-template").textContent).toBe("kagent/helper-template");
     expect(screen.getByTestId("chat-agent-context-harness").textContent).toBe("kagent/runner");
     expect(screen.getByText("Agent template")).toBeTruthy();
@@ -71,7 +91,7 @@ describe("AgentContextPanel", () => {
   });
 
   it("says an inline agent has no template, and why", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance, {
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance, {
       inline: { modelConfig: { name: "gpt" }, tools: [] },
     });
     expect(screen.queryByTestId("chat-agent-context-template")).toBeNull();
@@ -81,20 +101,56 @@ describe("AgentContextPanel", () => {
   });
 
   it("explains each label in a tooltip", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     await userEvent.hover(screen.getByTestId("chat-agent-context-hint-harness"));
     expect(await screen.findByText(/runtime that executes this agent/)).toBeTruthy();
   });
 
-  it("shortens the prepared revision but copies all of it", () => {
+  it("puts the agent first, as a link to its page", async () => {
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
+    const agent = screen.getByTestId("chat-agent-context-agent");
+    expect(screen.getByTestId("chat-agent-context").querySelector("a")).toBe(agent);
+    expect(agent.textContent).toBe("kagent/assistant");
+    expect(screen.getAllByText("kagent/assistant")).toHaveLength(1);
+    await userEvent.click(agent);
+    expect(screen.getByTestId("location-path").textContent).toBe("/agents/kagent/assistant");
+  });
+
+  it("shows the chat's name, ID and short revision, and opens its details", async () => {
     const revision = "d825540fbe9fbbb38259ace153f7712286baa762bf097b3ca8cc7097c119847b";
-    renderPanel([], undefined, { agent: "kagent/assistant", preparedRevision: revision } as AgentInstance);
+    const onShowDetails = vi.fn();
+    renderPanel(
+      [],
+      undefined,
+      { id: "6f1c9d20-1b7a", name: "Cluster review", agent: "kagent/assistant", preparedRevision: revision } as AgentInstance,
+      undefined,
+      undefined,
+      onShowDetails,
+    );
+    expect(screen.getByText("Chat", { exact: true })).toBeTruthy();
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.queryByText(/conversation/i)).toBeNull();
+    expect(screen.getByTestId("chat-agent-context-session-name").textContent).toBe("Cluster review");
+    expect(screen.getByTestId("chat-agent-context-session").textContent).toContain("6f1c9d20-1b7a");
     expect(screen.getByTestId("chat-agent-context-revision").textContent).toContain("d825540fbe9f");
     expect(screen.getByTestId("chat-agent-context-revision").textContent).not.toContain(revision);
+    await userEvent.click(screen.getByRole("button", { name: /Chat details/ }));
+    expect(onShowDetails).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { autoTitle: "List the pods in the kagent namespace.", shown: "List the pods in the kagent namespace." },
+    { autoTitle: undefined, shown: "Untitled" },
+  ])("titles an unnamed chat $shown, without repeating its id", ({ autoTitle, shown }) => {
+    const id = "01a1ebcf-f6a7-702b-ab50-641bdbf8983f";
+    renderPanel([], undefined, { id, name: "", agent: "kagent/assistant" } as AgentInstance,
+      undefined, undefined, undefined, autoTitle);
+    expect(screen.getByTestId("chat-agent-context-session-name").textContent).toBe(shown);
+    expect(screen.getByTestId("chat-agent-context-session").textContent).toContain(id);
   });
 
   it("opens the template with a way back to this conversation", async () => {
-    renderPanel([], undefined, { agent: "kagent/assistant" } as AgentInstance);
+    renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     await userEvent.click(screen.getByTestId("chat-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toEqual({
       from: "/agents/abc/chat?mock=ok",
@@ -110,6 +166,24 @@ describe("AgentContextPanel", () => {
     });
   });
 
+  it.each([
+    ["chat-agent-context-harness", "/harnesses/kagent/runner"],
+    ["chat-agent-context-model", "/models/shared/gpt/edit"],
+    ["chat-agent-context-server", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev"],
+  ])("opens %s at %s with a way back to this conversation", async (testId, path) => {
+    renderPanel(
+      [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],
+      "shared",
+      { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance,
+    );
+    await userEvent.click(screen.getByTestId("chat-agent-context-server-toggle"));
+    await userEvent.click(screen.getByTestId(testId));
+    expect(screen.getByTestId("location-path").textContent).toBe(path);
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
+      fromLabel: "Back to conversation",
+    });
+  });
+
   it("renders an MCP binding whose optional tools list is omitted", () => {
     renderPanel([
       {
@@ -119,20 +193,42 @@ describe("AgentContextPanel", () => {
       },
     ]);
 
-    expect(screen.getByText("kagent/tools (all tools)")).toBeTruthy();
+    expect(screen.getByTestId("chat-agent-context-server").textContent).toBe("kagent/tools");
+    expect(screen.getByTestId("chat-agent-context-server-count").textContent).toBe("All tools");
   });
 
-  it("renders explicitly selected MCP tools by name", () => {
-    renderPanel([
-      {
-        mcp: {
-          server: { kind: "RemoteMCPServer", name: "tools" },
-          tools: ["list_pods"],
-        },
-      },
+  it("groups tools under their server with a selected-of-total count, collapsed until opened", async () => {
+    renderPanel(
+      [
+        { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } },
+        { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["get_logs", "list_pods"] } },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      [{
+        ref: "kagent/tools",
+        groupKind: "RemoteMCPServer.api.kagent.dev",
+        discoveredTools: ["list_pods", "get_logs", "describe"].map((name) => ({ name, description: `Does ${name}` })),
+      }],
+    );
+    expect(screen.getAllByTestId("chat-agent-context-server")).toHaveLength(1);
+    expect(screen.getByTestId("chat-agent-context-server-count").textContent).toBe("2/3 tools");
+
+    const toggle = screen.getByTestId("chat-agent-context-server-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getAllByTestId("chat-agent-context-tool").map((tool) => tool.textContent)).toEqual([
+      "list_pods",
+      "get_logs",
     ]);
 
-    expect(screen.getByText("kagent/tools: list_pods")).toBeTruthy();
+    // Tools are not links; focus shows what each one does.
+    const tool = screen.getAllByTestId("chat-agent-context-tool")[1];
+    expect(tool.closest("a")).toBeNull();
+    tool.focus();
+    expect(await screen.findByText("Does get_logs")).toBeTruthy();
   });
 });
 
@@ -140,13 +236,19 @@ describe("AgentContextPanel", () => {
    const resolved = namespace || "kagent";
    renderPanel([{ mcp: { server: { kind: "RemoteMCPServer", name: "tools", namespace } } }], namespace);
    expect(screen.getByText(`${resolved}/gpt`)).toBeTruthy();
-   expect(screen.getByText(`${resolved}/tools (all tools)`)).toBeTruthy();
+   expect(screen.getByTestId("chat-agent-context-server").textContent).toBe(`${resolved}/tools`);
  });
 
- it("distinguishes identical tool names from different servers", () => {
+ it("keeps identical tool names from different servers apart", () => {
    renderPanel(["kagent", "shared"].map((namespace) => ({ mcp: {
      server: { kind: "RemoteMCPServer", name: "tools", namespace }, tools: ["list_pods"],
    } })));
-   expect(screen.getByText("kagent/tools: list_pods")).toBeTruthy();
-   expect(screen.getByText("shared/tools: list_pods")).toBeTruthy();
+   expect(screen.getAllByTestId("chat-agent-context-server").map((link) => link.textContent)).toEqual([
+     "kagent/tools",
+     "shared/tools",
+   ]);
+   expect(screen.getAllByTestId("chat-agent-context-server-count").map((count) => count.textContent)).toEqual([
+     "1 tool",
+     "1 tool",
+   ]);
  });

@@ -13,7 +13,7 @@ import {
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import toast from "react-hot-toast";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -29,7 +29,10 @@ import {
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { agentTemplatesTab } from "@/router/routes";
-import { useBackLink } from "@/router/backLink";
+import { BackButton } from "@/components/common/BackButton";
+import { useGoBack } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import {
   apiClient,
   useAgentConversations,
@@ -54,7 +57,7 @@ export function AgentTemplateDetailsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // Back to wherever the reader came from — a conversation's context panel, say — and
   // to the list when they opened this page directly.
-  const back = useBackLink({ to: agentTemplatesTab, label: "Back to templates" });
+  const back = useGoBack({ to: agentTemplatesTab, label: "Back to templates" });
 
   const template = useAgentTemplate(namespace, name);
   const invalidateTemplates = useInvalidateAgentTemplates();
@@ -143,15 +146,8 @@ export function AgentTemplateDetailsPage() {
     }
   }
 
-  /*
-   * Follows the back button. A return steps back through history rather than pushing
-   * the origin again, so it leaves no duplicate entry for the browser's Back button to
-   * land on; tab switches replace their entry, so the one before is still the origin.
-   */
-  function goBack() {
-    if (back.isReturn) navigate(-1);
-    else navigate(back.to);
-  }
+  // Tab switches replace their entry, so stepping back still reaches the origin.
+  const goBack = back.goBack;
 
   /** Leaves the page by its back button, asking first when an unsaved draft would be lost. */
   function leave() {
@@ -229,15 +225,18 @@ export function AgentTemplateDetailsPage() {
           const href = agentPageUrl({
             namespace: row.namespace, name: row.name,
           });
-          const label = (
-            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.name}</span>
-          );
           return href ? (
-            <Link to={href} data-testid={`template-agent-link-${row.name}`}>
-              {label}
-            </Link>
+            <ResourceLink
+              mono
+              to={href}
+              icon={resourceIcons.agent}
+              data-testid={`template-agent-link-${row.name}`}
+              css={{ fontSize: 13 }}
+            >
+              {row.name}
+            </ResourceLink>
           ) : (
-            label
+            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.name}</span>
           );
         },
       },
@@ -327,6 +326,7 @@ export function AgentTemplateDetailsPage() {
   return (
     <PageFrame
       title={name ? `Agent template ${name}` : "Agent template"}
+      icon={resourceIcons.template}
       description={
         namespace && !missing
           ? `What this agent does, in the ${namespace} namespace.`
@@ -367,12 +367,7 @@ export function AgentTemplateDetailsPage() {
             description="Agents referencing this template cannot prepare new configuration until it is restored or replaced. Existing conversations and last successful revisions are retained."
             />
           ) : null}
-          <Button
-            onClick={leave}
-            data-testid="template-back"
-          >
-            {back.label}
-          </Button>
+          <BackButton back={back} onClick={leave} testId="template-back" />
         </Space>
       }
     >

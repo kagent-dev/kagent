@@ -24,7 +24,7 @@ async function expectUsersCounted(page: Page) {
 }
 
 async function backToListSettled(page: Page) {
-  await page.getByRole("link", { name: "Back to policies" }).click();
+  await page.getByTestId("egress-policy-back").click();
   await expect(page).toHaveURL(/\/policies\?tab=egress$/);
   await expectUsersCounted(page);
 }

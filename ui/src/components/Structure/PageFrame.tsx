@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Typography } from "antd";
 import { useTheme } from "@emotion/react";
+import type { LucideIcon } from "lucide-react";
 
 const { Title, Paragraph } = Typography;
 
@@ -13,6 +14,8 @@ interface PageFrameProps {
    * repeating it pushed the composer down for nothing.
    */
   title?: string;
+  /** The resource kind's icon, shown before the title (see `resourceIcons`). */
+  icon?: LucideIcon;
   description?: string;
   /** Rendered at the top right of the frame — page-level actions. */
   actions?: ReactNode;
@@ -22,6 +25,7 @@ interface PageFrameProps {
 /** Shared page chrome: heading, optional blurb, actions, then content. */
 export function PageFrame({
   title,
+  icon: Icon,
   description,
   actions,
   children,
@@ -53,7 +57,12 @@ export function PageFrame({
         >
           <div>
             {title ? (
-              <Title level={2} css={{ margin: 0 }} data-testid="page-title">
+              <Title
+                level={2}
+                css={{ margin: 0, ...(Icon ? { display: "flex", alignItems: "center", gap: theme.space(2) } : {}) }}
+                data-testid="page-title"
+              >
+                {Icon ? <Icon size={24} aria-hidden css={{ flexShrink: 0, color: theme.color.textMuted }} /> : null}
                 {title}
               </Title>
             ) : null}

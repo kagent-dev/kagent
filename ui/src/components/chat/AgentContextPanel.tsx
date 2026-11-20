@@ -1,56 +1,81 @@
+import { useId, useMemo, useState } from "react";
 import { referenceLabel } from "@/api/domain/agentTemplates";
-import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
-import { useTheme } from "@emotion/react";
-import { Info } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
-import { useAgent, useAgentTemplate, bareName, type AgentInstance } from "@/api";
-import { buildPath, paths } from "@/router/routes";
-import { backLinkState } from "@/router/backLink";
+import { Alert, Button, Skeleton, Tooltip, Typography } from "antd";
+import { useTheme, type Theme } from "@emotion/react";
+import { ChevronRight, FileText, Info } from "lucide-react";
+import { useLocation, type To } from "react-router-dom";
+import {
+  bindingGroupKind,
+  groupToolsByServer,
+  indexToolServers,
+  type ServerToolGroup,
+} from "@/api/domain/templateToolCount";
+import { conversationHeading } from "@/components/agent-instances/instanceLabels";
+import { agentPageUrl } from "@/components/agent/agentUrl";
+import { useAgent, useAgentTemplate, useMcpServers, bareName, type AgentInstance, type ObjectReference } from "@/api";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
+import { buildPath, mcpServerTo, paths } from "@/router/routes";
+import { backLinkState, type BackLinkState } from "@/router/backLink";
+import { ToolTooltip } from "@/components/mcp/ToolTooltip";
 
 const { Text, Paragraph } = Typography;
+
+// region Styles
 
 // Model, three rows of tools and a clamped prompt: the tallest of the live agents measured.
 const DETAILS_MIN_HEIGHT = 328;
 
-/**
- * What this agent is, beside the conversation.
- *
- * ## Where it comes from, which is not the conversation
- *
- * A conversation is an `AgentInstance`, and an instance holds no configuration at all —
- * an id, a state, a harness, a template. Everything a reader wants here (what model is
- * answering, what it was told to do, what tools it can reach) lives on the
- * `AgentTemplate` the instance was cut from, so that is what this reads.
- *
- * That is a better answer than the panel it replaces rather than a smaller one. The
- * question somebody asks with a transcript in front of them — "does it even have a tool
- * for that" — is answered by the template, and the template is a thing they can open and
- * change. It is also shared: every conversation with this agent reads the same one, and
- * the link below goes to the page that says so before letting anybody edit it.
- *
- * ## What it does not claim
- *
- * The template's *current* contents, which are not necessarily what this conversation
- * was prepared against — a template can be edited after an instance is cut from it, and
- * the instance keeps running from its prepared revision. The panel says which revision
- * the conversation holds so the two can be told apart, rather than quietly implying
- * they are the same thing.
- */
+/** A tool: focusable for its tooltip, but not a link. */
+const toolPill = (theme: Theme) =>
+  ({
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: 22,
+    padding: "1px 8px",
+    borderRadius: 6,
+    border: `1px solid ${theme.color.borderStrong}`,
+    background: theme.color.bgElevated,
+    color: theme.color.text,
+    fontFamily: theme.font.mono,
+    fontSize: 11.5,
+    lineHeight: 1.5,
+    wordBreak: "break-word",
+    cursor: "default",
+    transition: "background-color 120ms ease",
+    "&:hover": { background: `${theme.color.text}14` },
+    "&:active": { background: `${theme.color.text}24` },
+    "&:focus-visible": { outline: `2px solid ${theme.color.textMuted}`, outlineOffset: 2 },
+  }) as const;
+
+const hintIcon = (theme: Theme) =>
+  ({
+    color: theme.color.textMuted,
+    cursor: "help",
+    flexShrink: 0,
+    borderRadius: 999,
+    transition: "color 120ms ease",
+    "&:hover, &:active": { color: theme.color.text },
+    "&:focus-visible": { outline: `2px solid ${theme.color.textMuted}`, outlineOffset: 2 },
+  }) as const;
+
+// region Component
+
+/** What this agent is, beside the chat: one card per section. */
 export function AgentContextPanel({
   instance,
+  autoTitle,
   agentRef,
+  onShowDetails,
 }: {
   /** A conversation, when there is one open. */
   instance?: AgentInstance;
-  /**
-   * The agent itself, for surfaces with no conversation open.
-   *
-   * The panel is *about* the agent — its model, its instructions, its tools all live on
-   * the template — so an agent's own page can show it without an instance to read them
-   * through. Only the prepared revision needs a conversation, and it is omitted when
-   * there is none rather than guessed at.
-   */
+  /** The title derived from its first message, as the rail shows it. */
+  autoTitle?: string;
+  /** The agent itself, for surfaces with no conversation open. */
   agentRef?: { namespace: string; name?: string };
+  /** Opens the chat details modal. */
+  onShowDetails?: () => void;
 }) {
   const theme = useTheme();
   const location = useLocation();
@@ -61,15 +86,51 @@ export function AgentContextPanel({
   const templateName = definition.data?.resource.spec.template.ref?.name;
   const template = useAgentTemplate(namespace, templateName);
   const templateNamespace = namespace;
-  const templateRef = templateName;
   const harnessRef = definition.data?.resource.spec.harnessRef.name;
   const spec = definition.data?.resource.spec.template.inline ?? template.data?.resource.spec;
   const error = definition.error ?? template.error;
   const loading = definition.isLoading || template.isLoading;
   const tools = spec?.tools ?? [];
+  const subAgents = tools.flatMap((binding) => (binding.subAgent ? [binding.subAgent] : []));
+  const mcpServers = useMcpServers();
+  const serversByRef = useMemo(() => indexToolServers(mcpServers.data ?? []), [mcpServers.data]);
+  const back = backLinkState(location, instance ? "Back to conversation" : "Back to agent");
+  const linkCss = { justifySelf: "start", fontSize: 12 } as const;
+  const agentTo = agentPageUrl({ namespace, name });
+  const refPath = (path: string, ref: ObjectReference) =>
+    buildPath(path, { namespace: ref.namespace || templateNamespace, name: ref.name });
+  const serverTo = (ref: ObjectReference) =>
+    mcpServerTo({ namespace: ref.namespace || templateNamespace, name: ref.name, groupKind: bindingGroupKind(ref) });
 
   return (
-    <div data-testid="chat-agent-context" css={{ display: "grid", gap: theme.space(4) }}>
+    <div
+      data-testid="chat-agent-context"
+      css={{
+        display: "grid",
+        gap: theme.space(2),
+        alignContent: "start",
+        paddingInlineEnd: theme.space(1),
+        paddingBlockEnd: theme.space(4),
+      }}
+    >
+      <Field label="Agent" hint="The Agent this chat runs.">
+        {agentTo ? (
+          <ResourceLink
+            mono
+            css={linkCss}
+            to={agentTo}
+            state={back}
+            icon={resourceIcons.agent}
+            tooltip="Open this agent"
+            data-testid="chat-agent-context-agent"
+          >
+            {`${namespace}/${name}`}
+          </ResourceLink>
+        ) : (
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>Not reported</Text>
+        )}
+      </Field>
+
       <Field
         label="Agent template"
         hint={
@@ -78,20 +139,18 @@ export function AgentContextPanel({
             : "The AgentTemplate that sets the model, tools and instructions below. Every agent built from it shares them."
         }
       >
-        {templateRef && templateNamespace && templateName ? (
-          <RefLink
-            to={buildPath(paths.agentTemplateDetail, {
-              namespace: templateNamespace,
-              name: templateName,
-            })}
-            // So the template page can lead back here rather than only to the
-            // template list. Without a conversation open, "here" is the agent's page.
-            state={backLinkState(location, instance ? "Back to conversation" : "Back to agent")}
+        {templateName && templateNamespace ? (
+          <ResourceLink
+            mono
+            css={linkCss}
+            to={buildPath(paths.agentTemplateDetail, { namespace: templateNamespace, name: templateName })}
+            state={back}
+            icon={resourceIcons.template}
             tooltip="Open the AgentTemplate this agent is built from"
-            testId="chat-agent-context-template"
+            data-testid="chat-agent-context-template"
           >
-            {`${templateNamespace}/${templateRef}`}
-          </RefLink>
+            {`${templateNamespace}/${templateName}`}
+          </ResourceLink>
         ) : (
           <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
             {definition.data?.resource.spec.template.inline
@@ -101,21 +160,27 @@ export function AgentContextPanel({
         )}
       </Field>
 
-      <Field
-        label="Harness"
-        hint="The runtime that executes this agent, such as the built-in kagent engine, Codex or Claude."
-      >
-        <Text data-testid="chat-agent-context-harness" css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-          {harnessRef ? `${namespace}/${harnessRef}` : "Not reported"}
-        </Text>
+      <Field label="Harness" hint="The runtime that executes this agent, such as the built-in kagent engine, Codex or Claude.">
+        {harnessRef && namespace ? (
+          <ResourceLink
+            mono
+            css={linkCss}
+            to={buildPath(paths.harness, { namespace, name: harnessRef })}
+            state={back}
+            icon={resourceIcons.harness}
+            tooltip="Open the Harness this agent runs on"
+            data-testid="chat-agent-context-harness"
+          >
+            {`${namespace}/${harnessRef}`}
+          </ResourceLink>
+        ) : (
+          <Text data-testid="chat-agent-context-harness" css={{ color: theme.color.textMuted, fontSize: 12 }}>
+            Not reported
+          </Text>
+        )}
       </Field>
 
-      <div
-        role="separator"
-        css={{ borderTop: `1px solid ${theme.color.border}`, margin: `${theme.space(1)} 0` }}
-      />
-
-      {/* Both held at a typical template's height, so the actions below stay put when it loads. */}
+      {/* The skeleton holds a typical template's height; the loaded cards take only what they need. */}
       {loading ? (
         <Skeleton
           active
@@ -124,9 +189,6 @@ export function AgentContextPanel({
           css={{ minHeight: DETAILS_MIN_HEIGHT }}
         />
       ) : error ? (
-        /* The conversation above is unaffected — it is read from the gateway, not from
-           the template — so this is a note beside the transcript rather than a failure
-           of the page. */
         <Alert
           type="warning"
           showIcon
@@ -136,134 +198,219 @@ export function AgentContextPanel({
         />
       ) : spec ? (
         <div
-          data-testid="chat-agent-context-details"
-          css={{
-            display: "grid",
-            gap: theme.space(4),
-            alignContent: "start",
-            minHeight: DETAILS_MIN_HEIGHT,
-          }}
+          data-testid="chat-agent-context-spec"
+          css={{ display: "grid", gap: theme.space(2) }}
         >
           <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
-            <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-              {referenceLabel(spec.modelConfig, templateNamespace) || "—"}
-            </Text>
+            {spec.modelConfig?.name ? (
+              <ResourceLink
+                mono
+                css={linkCss}
+                to={refPath(paths.modelEdit, spec.modelConfig)}
+                state={back}
+                icon={resourceIcons.model}
+                data-testid="chat-agent-context-model"
+              >
+                {referenceLabel(spec.modelConfig, templateNamespace)}
+              </ResourceLink>
+            ) : (
+              <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>—</Text>
+            )}
           </Field>
 
           <Field label="Tools" hint="The MCP tools and sub-agents the agent can call.">
             {tools.length === 0 ? (
-              // Said rather than left blank: an agent with no tools is a real and
-              // ordinary configuration, and an empty panel reads as a failed read.
-              <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                None — this agent answers from the model alone.
-              </Text>
+              <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None — this agent answers from the model alone.</Text>
             ) : (
-              <Space
-                size={4}
-                wrap
-                // A long server and tool name would otherwise run past the panel's edge.
-                css={{ maxWidth: "100%", ".ant-tag": { whiteSpace: "normal", wordBreak: "break-word", marginInlineEnd: 0 } }}
-              >
-                {tools.flatMap((binding, index) => {
-                  const mcp = binding.mcp;
-                  return mcp
-                    ? mcp.tools?.length
-                      ? mcp.tools.map((tool) => (
-                          <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)}: {tool}
-                          </Tag>
-                        ))
-                      : [
-                          <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)} (all tools)
-                          </Tag>,
-                        ]
-                    : binding.subAgent
-                      ? [
-                          <Tag key={`${index}-agent`} color="processing">
-                            {binding.subAgent.name}
-                          </Tag>,
-                        ]
-                      : [];
-                })}
-              </Space>
+              <div css={{ display: "grid", gap: theme.space(2) }}>
+                {groupToolsByServer(tools, serversByRef, templateNamespace).map((group) => (
+                  <ServerTools key={`${group.groupKind}|${group.ref}`} group={group} to={serverTo(group.server)} back={back} />
+                ))}
+                {subAgents.length ? (
+                  <div css={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {subAgents.map((subAgent, index) => (
+                      <span key={`${index}-${subAgent.name}`} css={toolPill(theme)} tabIndex={0}>
+                        {subAgent.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             )}
           </Field>
 
           {spec.systemPrompt ? (
-            <Field label="Instructions" hint="The system prompt the agent starts every conversation with.">
+            <Field label="Instructions" hint="The system prompt the agent starts every chat with.">
               <Paragraph
                 data-testid="chat-agent-context-prompt"
-                css={{
-                  margin: 0,
-                  fontSize: 12,
-                  color: theme.color.textMuted,
-                  whiteSpace: "pre-wrap",
-                }}
+                css={{ "&&": { margin: 0 }, fontSize: 12, color: theme.color.textMuted, whiteSpace: "pre-wrap" }}
                 ellipsis={{ rows: 8, expandable: true, symbol: "more" }}
               >
                 {spec.systemPrompt}
               </Paragraph>
             </Field>
           ) : spec.systemPromptFrom ? (
-            <Field label="Instructions" hint="The system prompt the agent starts every conversation with.">
-              {/* A prompt held in a ConfigMap is not on the template and cannot be shown
-                  here. Saying where it is beats an empty box that reads as an agent with
-                  no instructions. */}
+            <Field label="Instructions" hint="The system prompt the agent starts every chat with.">
               <Text css={{ fontSize: 12, color: theme.color.textMuted }}>
-                Read at runtime from the {spec.systemPromptFrom.name} ConfigMap, key{" "}
-                {spec.systemPromptFrom.key}.
+                Read at runtime from the {spec.systemPromptFrom.name} ConfigMap, key {spec.systemPromptFrom.key}.
               </Text>
             </Field>
           ) : null}
         </div>
       ) : null}
-
-      {instance?.preparedRevision ? (
-        <Field
-          label="Prepared revision"
-          hint="The configuration this conversation was prepared with. Later edits to the agent or its template don't apply to it."
-        >
-          {/* What this conversation actually runs. The template above can be edited
-              after an instance is cut from it, and the instance keeps its revision —
-              so the two are shown side by side rather than one standing for both.
-              A full digest is noise at a glance, so it is shortened, with the whole
-              value one copy away. */}
+      {instance ? (
+        <Field label="Chat" hint="This chat's name, ID and prepared revision.">
           <Text
-            data-testid="chat-agent-context-revision"
-            copyable={{ text: instance.preparedRevision, tooltips: ["Copy full revision", "Copied"] }}
-            css={{ fontFamily: theme.font.mono, fontSize: 11, color: theme.color.textMuted }}
+            data-testid="chat-agent-context-session-name"
+            ellipsis={{ tooltip: conversationHeading(instance, autoTitle) }}
+            css={{ fontSize: 12, color: theme.color.text, minWidth: 0 }}
           >
-            {instance.preparedRevision.slice(0, 12)}
+            {conversationHeading(instance, autoTitle)}
           </Text>
+          <Text
+            data-testid="chat-agent-context-session"
+            copyable={{ text: instance.id, tooltips: ["Copy session ID", "Copied"] }}
+            ellipsis={{ tooltip: instance.id }}
+            css={{ fontFamily: theme.font.mono, fontSize: 11, color: theme.color.textMuted, minWidth: 0 }}
+          >
+            {instance.id}
+          </Text>
+          {instance.preparedRevision ? (
+            <span css={{ display: "flex", alignItems: "baseline", gap: theme.space(2), minWidth: 0 }}>
+              <Text css={{ fontSize: 11, color: theme.color.textMuted, flexShrink: 0 }}>Revision</Text>
+              <Text
+                data-testid="chat-agent-context-revision"
+                copyable={{ text: instance.preparedRevision, tooltips: ["Copy full revision", "Copied"] }}
+                css={{ fontFamily: theme.font.mono, fontSize: 11, color: theme.color.textMuted }}
+              >
+                {instance.preparedRevision.slice(0, 12)}
+              </Text>
+            </span>
+          ) : null}
+          {onShowDetails ? (
+            <Button
+              size="small"
+              block
+              icon={<FileText size={14} aria-hidden />}
+              onClick={onShowDetails}
+              data-testid="chat-agent-context-details"
+              css={{ marginTop: theme.space(1), fontSize: 12 }}
+            >
+              Chat details
+            </Button>
+          ) : null}
         </Field>
       ) : null}
     </div>
   );
 }
 
-/** A label, with an info icon explaining what it names when there is a `hint`. */
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
+/** What `count` says for one server: how many of its tools the agent takes. */
+function toolCountLabel({ allTools, selected, discovered }: ServerToolGroup): string {
+  const total = discovered?.length;
+  const tools = (n: number) => (n === 1 ? "tool" : "tools");
+  if (allTools) return total ? `All ${total} ${tools(total)}` : "All tools";
+  return total ? `${selected.length}/${total} ${tools(total)}` : `${selected.length} ${tools(selected.length)}`;
+}
+
+/** One MCP server's row: a link to it, a tool count, and its tools behind a toggle. */
+function ServerTools({ group, to, back }: { group: ServerToolGroup; to: To; back: BackLinkState }) {
   const theme = useTheme();
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  const descriptions = new Map(group.discovered?.map((tool) => [tool.name, tool.description]));
+  const names = group.allTools ? (group.discovered ?? []).map((tool) => tool.name) : group.selected;
+
   return (
-    <div css={{ display: "grid", gap: theme.space(1) }}>
-      <span css={{ display: "inline-flex", alignItems: "center", gap: theme.space(1) }}>
+    <div
+      data-testid="chat-agent-context-server-group"
+      css={{
+        display: "grid",
+        gap: theme.space(2),
+        "& + &": { borderTop: `1px solid ${theme.color.border}`, paddingTop: theme.space(2) },
+      }}
+    >
+      <div css={{ display: "flex", alignItems: "center", gap: theme.space(1), minWidth: 0 }}>
+        <Button
+          type="text"
+          size="small"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-label={`${open ? "Hide" : "Show"} tools from ${group.ref}`}
+          data-testid="chat-agent-context-server-toggle"
+          onClick={() => setOpen((value) => !value)}
+          icon={
+            <ChevronRight
+              size={14}
+              aria-hidden
+              css={{ transition: "transform 150ms ease", transform: open ? "rotate(90deg)" : undefined }}
+            />
+          }
+          css={{ flexShrink: 0, width: 20, minWidth: 20, height: 20, padding: 0, color: theme.color.textMuted }}
+        />
+        <ResourceLink
+          mono
+          icon={resourceIcons.mcpServer}
+          to={to}
+          state={back}
+          tooltip="Open this MCP server"
+          data-testid="chat-agent-context-server"
+          css={{ fontSize: 12, flex: "0 1 auto", minWidth: 0 }}
+        >
+          {group.ref}
+        </ResourceLink>
         <Text
+          data-testid="chat-agent-context-server-count"
           css={{
+            marginInlineStart: "auto",
+            flexShrink: 0,
+            fontSize: 12,
+            lineHeight: "20px",
             color: theme.color.textMuted,
-            fontSize: 11,
-            textTransform: "uppercase",
-            letterSpacing: 0.6,
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
           }}
         >
+          {toolCountLabel(group)}
+        </Text>
+      </div>
+      <div id={listId} hidden={!open} css={{ paddingInlineStart: 24 }}>
+        {names.length ? (
+          <div css={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {names.map((tool) => (
+              <ToolTooltip key={tool} name={tool} description={descriptions.get(tool)} placement="left">
+                <span tabIndex={0} data-testid="chat-agent-context-tool" css={toolPill(theme)}>
+                  {tool}
+                </span>
+              </ToolTooltip>
+            ))}
+          </div>
+        ) : (
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>Every tool this server reports.</Text>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A label, with an info icon explaining what it names when there is a `hint`. */
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const theme = useTheme();
+  return (
+    <section
+      css={{
+        display: "grid",
+        gap: theme.space(2),
+        padding: `${theme.space(2.5)} ${theme.space(3)}`,
+        background: theme.color.surfaceCard,
+        border: `1px solid ${theme.color.border}`,
+        borderRadius: theme.radius.md,
+        boxShadow: "0 1px 2px rgba(0, 0, 0, 0.06)",
+        minWidth: 0,
+      }}
+    >
+      <span css={{ display: "inline-flex", alignItems: "center", gap: theme.space(1) }}>
+        <Text css={{ color: theme.color.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6 }}>
           {label}
         </Text>
         {hint ? (
@@ -274,50 +421,12 @@ function Field({
               aria-label={hint}
               tabIndex={0}
               data-testid={`chat-agent-context-hint-${label.toLowerCase().replace(/\s+/g, "-")}`}
-              css={{ color: theme.color.textMuted, cursor: "help", flexShrink: 0 }}
+              css={hintIcon(theme)}
             />
           </Tooltip>
         ) : null}
       </span>
       {children}
-    </div>
-  );
-}
-
-/** A reference to another resource, styled as a link, with a tooltip saying where it goes. */
-function RefLink({
-  to,
-  state,
-  tooltip,
-  testId,
-  children,
-}: {
-  to: string;
-  state?: unknown;
-  tooltip: string;
-  testId: string;
-  children: React.ReactNode;
-}) {
-  const theme = useTheme();
-  return (
-    <Tooltip title={tooltip} trigger={["hover", "focus"]}>
-      <Link
-        to={to}
-        state={state}
-        data-testid={testId}
-        css={{
-          justifySelf: "start",
-          fontFamily: theme.font.mono,
-          fontSize: 12,
-          // Typography's line height, so the link is as tall as the text it replaces.
-          lineHeight: 1.5714,
-          color: theme.color.primaryText,
-          wordBreak: "break-word",
-          "&:hover, &:focus-visible": { textDecoration: "underline" },
-        }}
-      >
-        {children}
-      </Link>
-    </Tooltip>
+    </section>
   );
 }

@@ -60,6 +60,8 @@ export const paths = {
   harnessNew: "/harnesses/new",
   /** After `new`, whose single static segment must win over this pattern. */
   harnessEdit: "/harnesses/:namespace/:name/edit",
+  /** One harness, read-only. Two segments after `harnesses`, so `new` cannot match it. */
+  harness: "/harnesses/:namespace/:name",
   /*
    * One template, read first.
    *
@@ -79,6 +81,8 @@ export const paths = {
 
   mcpServers: "/mcp",
   mcpServerNew: "/mcp/new",
+  /** One MCP server and the tools it reports. */
+  mcpServer: "/mcp/:namespace/:name",
 
   // One page for every policy kind, with a tab per kind.
   policies: "/policies",
@@ -121,8 +125,23 @@ export const paths = {
  */
 export const agentTemplatesTab = `${paths.agents}?tab=templates`;
 
+/** The harnesses tab of the agents page. */
+export const harnessesTab = `${paths.agents}?tab=harnesses`;
+
 /** The egress tab of the policies page. */
 export const egressPoliciesTab = `${paths.policies}?tab=egress`;
+
+/** The query parameter naming an MCP server's kind on its details page. */
+export const MCP_SERVER_KIND_PARAM = "kind";
+
+/** An MCP server's details page. The kind is in the query, since two kinds can share a namespace and name. */
+export function mcpServerTo(server: { namespace: string; name: string; groupKind: string }, hash?: string) {
+  return {
+    pathname: buildPath(paths.mcpServer, server),
+    search: `?${new URLSearchParams({ [MCP_SERVER_KIND_PARAM]: server.groupKind })}`,
+    hash,
+  };
+}
 
 export function buildPath(
   path: string,

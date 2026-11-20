@@ -1,7 +1,7 @@
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Alert, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
@@ -12,10 +12,15 @@ import { byText, listTableChange, matchesQuery, paginationFor, sortOrderFor } fr
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { clickableRow } from "@/components/table/rowClick";
-import { buildPath, paths } from "@/router/routes";
+import { buildPath, mcpServerTo, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import {
   apiClient,
+  parseRef,
   useAgentTemplatesAcrossNamespaces,
+  bindingGroupKind,
   countTemplateTools,
   indexToolServers,
   useInvalidateAgentTemplates,
@@ -45,6 +50,7 @@ const PAGE_SIZE = 25;
 export function AgentTemplatesTab() {
   const theme = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const namespaces = useNamespaces();
   const namespaceDenied = isPermissionDenied(namespaces.error);
 
@@ -104,15 +110,17 @@ export function AgentTemplatesTab() {
         sorter: byText<AgentTemplate>((row) => row.name),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
-          <Link
+          <ResourceLink
+            mono
             to={buildPath(paths.agentTemplateDetail, {
               namespace: row.namespace,
               name: row.name,
             })}
             data-testid={`template-link-${row.name}`}
+            css={{ fontSize: 13 }}
           >
-            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.name}</span>
-          </Link>
+            {row.name}
+          </ResourceLink>
         ),
       },
       {
@@ -130,30 +138,73 @@ export function AgentTemplatesTab() {
         key: "model",
         sorter: byText<AgentTemplate>((row) => row.modelConfigRef ?? ""),
         sortOrder: sortOrderFor(view, "model"),
-        render: (_, row) => (
-          <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>
-            {row.modelConfigRef || "—"}
-          </Text>
-        ),
+        render: (_, row) => {
+          const model = parseRef(row.modelConfigRef);
+          return model.name ? (
+            <ResourceLink
+              mono
+              to={buildPath(paths.modelEdit, { namespace: model.namespace || row.namespace, name: model.name })}
+              state={backLinkState(location, "Back to templates")}
+              icon={resourceIcons.model}
+              data-testid={`template-model-${row.name}`}
+              css={{ fontSize: 12 }}
+            >
+              {row.modelConfigRef}
+            </ResourceLink>
+          ) : (
+            <Text css={{ fontFamily: theme.font.mono, fontSize: 12 }}>—</Text>
+          );
+        },
       },
       {
         title: "Tools",
         key: "tools",
-        width: 90,
+        width: 180,
         render: (_, row) => {
           const bindings = row.resource.spec.tools ?? [];
           if (bindings.length === 0) return 0;
           const { total, unknownServers } = countTemplateTools(bindings, serversByRef, row.namespace);
           // Until the servers load, or when one has no discovered tools on record, a total would be a guess.
-          if (unknownServers.length > 0 && mcpServers.isLoading) {
-            return <Text css={{ color: theme.color.textMuted }}>…</Text>;
-          }
-          return unknownServers.length === 0 ? (
-            total
-          ) : (
-            <Tooltip title={`Plus all tools of ${unknownServers.join(", ")}, which could not be counted.`}>
-              <span>{total}+</span>
-            </Tooltip>
+          const count =
+            unknownServers.length > 0 && mcpServers.isLoading ? (
+              <Text css={{ color: theme.color.textMuted }}>…</Text>
+            ) : unknownServers.length === 0 ? (
+              total
+            ) : (
+              <Tooltip title={`Plus all tools of ${unknownServers.join(", ")}, which could not be counted.`}>
+                <span>{total}+</span>
+              </Tooltip>
+            );
+          const servers = [
+            ...new Map(
+              bindings.flatMap(({ mcp }) => {
+                if (!mcp?.server.name) return [];
+                const server = {
+                  namespace: mcp.server.namespace || row.namespace,
+                  name: mcp.server.name,
+                  groupKind: bindingGroupKind(mcp.server),
+                };
+                return [[`${server.groupKind}|${server.namespace}/${server.name}`, server] as const];
+              }),
+            ).values(),
+          ];
+          return (
+            <Space orientation="vertical" size={0}>
+              <span data-testid={`template-tool-count-${row.name}`}>{count}</span>
+              {servers.map((server) => (
+                <ResourceLink
+                  key={`${server.groupKind}|${server.namespace}/${server.name}`}
+                  mono
+                  to={mcpServerTo(server)}
+                  state={backLinkState(location, "Back to templates")}
+                  icon={resourceIcons.mcpServer}
+                  data-testid={`template-tool-server-${row.name}-${server.name}`}
+                  css={{ fontSize: 12 }}
+                >
+                  {server.name}
+                </ResourceLink>
+              ))}
+            </Space>
           );
         },
       },
@@ -179,7 +230,7 @@ export function AgentTemplatesTab() {
         ),
       },
     ],
-    [invalidateTemplates, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono, view],
+    [invalidateTemplates, location, mcpServers.isLoading, serversByRef, theme.color.textMuted, theme.font.mono, view],
   );
 
   // The tool counts come from the server list, so refreshing the tab reloads it too.

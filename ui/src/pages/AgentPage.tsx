@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Card, Skeleton, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
@@ -10,6 +10,8 @@ import { AgentSchedules } from "@/components/agent/AgentSchedules";
 import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   ExtensionSlot,
   useExtensionAgentLinks,
@@ -736,6 +738,7 @@ function AgentIdentityCard({ agent }: { agent?: Agent }) {
 
 function AgentIdentityFields({ agent }: { agent: Agent }) {
   const theme = useTheme();
+  const back = backLinkState(useLocation(), "Back to agent");
   const { spec, status } = agent.resource;
   const mono = { fontFamily: theme.font.mono, fontSize: 12 };
 
@@ -743,38 +746,33 @@ function AgentIdentityFields({ agent }: { agent: Agent }) {
     <>
       <IdentityField label="Agent template">
         {spec.template.ref ? (
-          <Link
+          <ResourceLink
+            mono
             to={buildPath(paths.agentTemplateDetail, {
               namespace: agent.namespace,
               name: spec.template.ref.name,
             })}
+            state={back}
             data-testid="agent-template-link"
-            css={{
-              fontFamily: theme.font.mono,
-              color: theme.color.primaryText,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: theme.space(2),
-              minWidth: 0,
-            }}
+            css={{ fontSize: 12 }}
           >
-            <Text
-              ellipsis={{ tooltip: spec.template.ref.name }}
-              css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
-            >
-              {spec.template.ref.name}
-            </Text>
-            <Pencil size={12} aria-hidden color={theme.color.textMuted} />
-          </Link>
+            {spec.template.ref.name}
+          </ResourceLink>
         ) : (
           <Text data-testid="agent-template-inline">Inline</Text>
         )}
       </IdentityField>
 
       <IdentityField label="Harness">
-        <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+        <ResourceLink
+          mono
+          to={buildPath(paths.harness, { namespace: agent.namespace, name: spec.harnessRef.name })}
+          state={back}
+          data-testid="agent-harness-link"
+          css={{ fontSize: 12 }}
+        >
           {spec.harnessRef.name}
-        </Text>
+        </ResourceLink>
       </IdentityField>
 
       <IdentityField label="Revision">

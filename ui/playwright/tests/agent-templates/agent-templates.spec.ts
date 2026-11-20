@@ -33,7 +33,12 @@ test("agent templates: a template is created, read, edited and deleted", async (
 
     await expect(row).toContainText("default-model-config");
     // Two named tools on one server: the column counts tools, not bindings.
-    await expect(row.getByRole("cell").nth(3)).toHaveText("2");
+    await expect(row.getByTestId("template-tool-count-k8s-agent-7f3a91c")).toHaveText("2");
+    // The server each tool comes from is a link to its details page.
+    await expect(row.getByTestId("template-tool-server-k8s-agent-7f3a91c-kagent-tool-server")).toHaveAttribute(
+      "href",
+      "/mcp/kagent/kagent-tool-server?kind=RemoteMCPServer.api.kagent.dev",
+    );
 
     // `note-taker` carries no labels at all. It is a complete, valid template that can
     // never become an agent, and only this column says so.
@@ -176,6 +181,18 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // No Save waiting on a reader who came to look. This is the whole item: a form with
     // a submit button says the values on it are provisional, and they are the cluster's.
     await expect(page.getByTestId("template-submit")).toHaveCount(0);
+    await expect(page.getByTestId("template-edit")).toBeVisible();
+
+    // The model value is itself the link; it opens the model and back returns here.
+    await expect(page.getByTestId("template-form-model-link")).toHaveText("kagent/default-model-config");
+    // The model type sits beside the link, outside it.
+    await expect(page.getByTestId("template-form-model-type")).toBeVisible();
+    await expect(page.getByTestId("template-form-model-link").getByTestId("template-form-model-type")).toHaveCount(0);
+    await page.getByTestId("template-form-model-link").click();
+    await page.waitForURL(/\/models\/kagent\/default-model-config\/edit/);
+    await expect(page.getByTestId("model-back")).toHaveText("Back to template");
+    await page.getByTestId("model-back").click();
+    await page.waitForURL(new RegExp(`/agent-templates/kagent/${CREATED}`));
     await expect(page.getByTestId("template-edit")).toBeVisible();
 
     /*

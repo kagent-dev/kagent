@@ -116,6 +116,9 @@ const CONTEXT_OPEN = "kagent.chat.agentPanel.open";
  */
 const CONTEXT_COLLAPSES_BELOW = 1440;
 
+/** Wider when the window has room, so a `namespace/server` name fits on one line. */
+const CONTEXT_WIDTH = "clamp(272px, 25vw, 368px)";
+
 /** Boundaries saved on this page, and the conversation they were saved in. */
 interface SavedMarks {
   conversation?: string;
@@ -596,13 +599,13 @@ export function AgentChatPage() {
                     meant leaving the conversation to read four facts about it and then
                     finding the way back — reference that costs a navigation is
                     reference nobody consults. */}
-                <Tooltip title="Conversation details" placement="right">
+                <Tooltip title="Chat details" placement="right">
                   <Button
                     type="text"
                     size="small"
                     icon={<FileText size={16} aria-hidden />}
                     onClick={() => setShowingDetails(true)}
-                    aria-label="Conversation details"
+                    aria-label="Chat details"
                     data-testid="chat-details"
                     css={iconControlStyles(theme)}
                   />
@@ -818,7 +821,7 @@ export function AgentChatPage() {
             // Nothing to hold space for when the conversation could not be read: the
             // panel draws from the instance, and the toggle beside it is hidden, so the
             // reader would be left with an empty column they cannot collapse.
-            width: isContextOpen && !instance.error ? 248 : 0,
+            width: isContextOpen && !instance.error ? CONTEXT_WIDTH : 0,
             overflow: "hidden",
             // Sticky on the wrapper, not on the panel inside it: a sticky element
             // travels within its parent's box, and this wrapper is exactly as tall
@@ -844,9 +847,13 @@ export function AgentChatPage() {
                cursor on an edge that did nothing. */
             <div
               data-testid="chat-context-aside"
-              css={{ width: 248, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
+              css={{ width: CONTEXT_WIDTH, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
             >
-              <AgentContextPanel instance={instance.data} />
+              <AgentContextPanel
+                instance={instance.data}
+                autoTitle={autoTitle}
+                onShowDetails={() => setShowingDetails(true)}
+              />
             </div>
           ) : null}
         </div>
@@ -854,6 +861,7 @@ export function AgentChatPage() {
 
       <ConversationDetailsModal
         instance={instance}
+        autoTitle={autoTitle}
         open={isShowingDetails}
         onClose={() => setShowingDetails(false)}
       />
