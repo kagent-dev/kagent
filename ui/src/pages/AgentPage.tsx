@@ -39,7 +39,7 @@ import {
 import { RenameConversationButton } from "@/components/agent-instances/RenameConversationButton";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { FilterBar } from "@/components/table/FilterBar";
-import { useListView } from "@/components/table/useListView";
+import { useListView, type SortState } from "@/components/table/useListView";
 import { clickableRow } from "@/components/table/rowClick";
 import {
   byText,
@@ -53,13 +53,15 @@ const { Paragraph, Text } = Typography;
 
 const FILTER_IDS: readonly string[] = ["state"];
 const PAGE_SIZE = 25;
+// Most recently active first until the reader picks another order.
+const DEFAULT_SORT: SortState = { column: "updatedAt", direction: "desc" };
 
 /** An Agent definition and the conversations pinned to its revisions. */
 export function AgentPage() {
   const theme = useTheme();
   const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const view = useListView(FILTER_IDS);
+  const view = useListView(FILTER_IDS, DEFAULT_SORT);
   const definition = useAgent(namespace, name);
   const invalidateAgents = useInvalidateAgents();
   const conversations = useAgentConversations(namespace, name);
@@ -267,6 +269,8 @@ export function AgentPage() {
         width: 140,
         sorter: byText<AgentInstance>((row) => row.updatedAt),
         sortOrder: sortOrderFor(view, "updatedAt"),
+        // Clearing returns to the newest-first default, so the click cycle starts there.
+        sortDirections: ["descend", "ascend"],
         render: (_, row) =>
           row.updatedAt ? (
             <Tooltip title={row.updatedAt}>

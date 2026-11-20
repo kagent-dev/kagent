@@ -188,6 +188,41 @@ test("agents: the conversations table titles each row as the rail does", async (
   }
 });
 
+test("agents: conversations list the most recently active first, and the reader can reverse it", async ({
+  page,
+}) => {
+  const lastActive = page.getByRole("columnheader", { name: "Last active" });
+  // `ready` was last active a day after `idle`, so their order shows the direction.
+  const order = () =>
+    page
+      .getByTestId("conversations-table")
+      .locator('a[data-testid^="conversation-link-"]')
+      .evaluateAll((links) => links.map((link) => link.getAttribute("data-testid")));
+  const newestFirst = [`conversation-link-${instances.ready}`, `conversation-link-${instances.idle}`];
+  await loadPage(page, agentPage(agents.k8s));
+  await expectSettled(page);
+
+  await test.step("1. with no sort in the address, newest activity is on top", async () => {
+    await expect(lastActive).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(order).toEqual(newestFirst);
+    await expect(page).not.toHaveURL(/sort=/);
+  });
+
+  await test.step("2. one click reverses it, and the address says so", async () => {
+    await lastActive.click();
+    await expect(lastActive).toHaveAttribute("aria-sort", "ascending");
+    await expect.poll(order).toEqual([...newestFirst].reverse());
+    await expect(page).toHaveURL(/sort=updatedAt/);
+  });
+
+  await test.step("3. another click returns to the default", async () => {
+    await lastActive.click();
+    await expect(lastActive).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(order).toEqual(newestFirst);
+    await expect(page).not.toHaveURL(/sort=/);
+  });
+});
+
 /**
  * Item 7: the "include agents created by others" toggle is gone, and the consequence
  * of removing it is handled rather than hidden.
