@@ -1155,8 +1155,8 @@ export function AgentRail({
              list that replaces it, so the first visit to an agent shifted everything
              below it the moment the conversations arrived — and only the first, because
              every visit after that is served from cache with nothing to wait for. */
-          <div css={{ minHeight: 132, paddingInline: theme.space(2) }}>
-            <Skeleton active paragraph={{ rows: 4 }} title={false} data-testid="chat-sessions-loading" />
+          <div data-testid="chat-sessions-loading" css={{ minHeight: 132, paddingInline: theme.space(2) }}>
+            <Skeleton active paragraph={{ rows: 4 }} title={false} />
           </div>
         ) : conversations.error ? (
           <Alert

@@ -62,7 +62,7 @@ export function useConversationTitles(
     ? ["conversation-titles", targets.map((t) => t.id).sort().join(",")]
     : null;
 
-  const derived = derivedTitles(useSWRConfig().cache);
+  const { titles: derived, settled } = titleStore(useSWRConfig().cache);
 
   // Open conversation's title, kept after leaving; dropped if its first message is refused.
   const openId = open?.id;
@@ -106,6 +106,7 @@ export function useConversationTitles(
           }
         }),
       );
+      for (const [id] of entries) settled.add(id);
       return Object.fromEntries(entries) as Record<string, string | null>;
     },
     {
@@ -119,13 +120,13 @@ export function useConversationTitles(
     },
   );
 
-  // Titles come from `derived`; a row is loading until some read of it has settled.
+  // A row loads only until its first read settles, under any key or mount; re-reads update in place.
   const titles: Record<string, string> = {};
   const loading: string[] = [];
   for (const instance of targets) {
     const title = derived.get(instance.id) ?? data?.[instance.id];
     if (title) titles[instance.id] = title;
-    else if (!data || !(instance.id in data)) loading.push(instance.id);
+    else if (!settled.has(instance.id) && !(data && instance.id in data)) loading.push(instance.id);
   }
   // Same object until something changes, so callers can memoise on it.
   const signature = JSON.stringify([titles, loading]);
@@ -135,14 +136,19 @@ export function useConversationTitles(
   }, [signature]);
 }
 
-/** Titles per conversation, shared by every mount on one SWR cache. */
-const derivedByCache = new WeakMap<object, Map<string, string>>();
+/** Titles, and ids whose read has settled, shared by every mount on one SWR cache. */
+interface TitleStore {
+  titles: Map<string, string>;
+  settled: Set<string>;
+}
 
-function derivedTitles(cache: object): Map<string, string> {
-  let titles = derivedByCache.get(cache);
-  if (!titles) {
-    titles = new Map();
-    derivedByCache.set(cache, titles);
+const storeByCache = new WeakMap<object, TitleStore>();
+
+function titleStore(cache: object): TitleStore {
+  let store = storeByCache.get(cache);
+  if (!store) {
+    store = { titles: new Map(), settled: new Set() };
+    storeByCache.set(cache, store);
   }
-  return titles;
+  return store;
 }

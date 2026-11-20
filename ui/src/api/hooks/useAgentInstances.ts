@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { type Cache, unstable_serialize, useSWRConfig } from "swr";
 import { isApiError } from "../ApiError";
 import { apiClient } from "../client";
@@ -25,15 +26,17 @@ async function visibleConversations(
   }
 }
 
+async function ownConversations(): Promise<VisibleConversations> {
+  return { rows: await apiClient.agentInstances.list({ allCreators: false }) };
+}
+
 /** All visible metadata, with an explicit marker when only owned rows are available. */
 export function useAgentInstances(
   allCreators = false,
 ): ApiResource<AgentInstance[]> & { widerReadRefused?: string } {
   const resource = useApiResource<VisibleConversations>(
     ["agentInstances.list", allCreators],
-    async () => allCreators
-      ? visibleConversations({})
-      : { rows: await apiClient.agentInstances.list({ allCreators: false }) },
+    () => allCreators ? visibleConversations({}) : ownConversations(),
   );
   return {
     ...resource,
@@ -95,6 +98,42 @@ export function useAgentConversations(
 }
 
 const FOR_AGENT_PREFIX = unstable_serialize(["agentInstances.forAgent"]);
+const OWN_LIST = ["agentInstances.list", false] as const;
+const OWN_LIST_KEY = unstable_serialize(OWN_LIST);
+
+/**
+ * The caller's conversations with one Agent, for the new-chat rail.
+ * The chat page's cached list stands in until they land, and `refresh` re-reads that list too.
+ */
+export function useOwnAgentConversations(
+  namespace: string | undefined,
+  agent: string | undefined,
+): ApiResource<AgentInstance[]> {
+  const { cache, mutate } = useSWRConfig();
+  const conversations = useAgentConversations(namespace, agent);
+  const listed = conversations.isLoading
+    ? (cache.get(OWN_LIST_KEY)?.data as VisibleConversations | undefined)?.rows
+    : undefined;
+  const own = conversations.data?.own;
+  const cached = useMemo(
+    () => listed?.filter((row) => row.agent === `${namespace}/${agent}`),
+    [listed, namespace, agent],
+  );
+  const data = own ?? cached;
+  return {
+    ...conversations,
+    data,
+    isLoading: conversations.isLoading && !cached,
+    isEmpty: !conversations.error && data?.length === 0,
+    // No hook holds the chat page's list here, so it is written rather than revalidated.
+    refresh: async () => {
+      await Promise.all([
+        conversations.refresh(),
+        mutate(OWN_LIST, ownConversations(), { revalidate: false }),
+      ]);
+    },
+  };
+}
 
 /**
  * The caller's conversations, for the rail beside an open one.

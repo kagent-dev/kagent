@@ -188,6 +188,23 @@ describe("useConversationTitles", () => {
     await waitFor(() => expect(detailsPage.result.current.titles).toEqual({ fresh: "This is twin B." }));
   });
 
+  it("keeps a settled untitled row out of loading when a new mount lists another set", async () => {
+    setChatClientFactory(() => client(new Map(), []));
+    const wrapper = sharedCache();
+
+    const chatPage = renderHook(() => useConversationTitles([conversation("empty")]), { wrapper });
+    await waitFor(() => expect(chatPage.result.current.loading.size).toBe(0));
+    chatPage.unmount();
+
+    // A new conversation re-keys the read; only that row waits for it.
+    const next = renderHook(
+      () => useConversationTitles([conversation("empty"), conversation("created")]),
+      { wrapper },
+    );
+    expect(next.result.current.loading).toEqual(new Set(["created"]));
+    await waitFor(() => expect(next.result.current.loading.size).toBe(0));
+  });
+
   it("answers from a title found under another set of conversations, without reading", async () => {
     const histories = new Map<string, ChatMessage[]>();
     const reads: string[] = [];

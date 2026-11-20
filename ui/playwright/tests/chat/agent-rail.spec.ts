@@ -402,6 +402,47 @@ test("chat agent rail: opening a conversation never flashes its id", async ({ pa
   ).toEqual([]);
 });
 
+/** Chat → New chat → chat keeps the loaded list on every frame; `slow` holds each read open. */
+test("chat agent rail: New chat and back never drops the list to loading", async ({ page }) => {
+  await page.goto(withScenario(AGENT_CHAT, "slow"));
+  const list = page.getByTestId("chat-sessions-list");
+  await expect(list.locator(":scope > li").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid^="conversation-title-loading-"]')).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  const listed = await list.locator(":scope > li").count();
+
+  await page.evaluate(() => {
+    const frames: { rows: number; skeleton: number; placeholders: number }[] = [];
+    Object.assign(window, { railFrames: frames });
+    const tick = () => {
+      frames.push({
+        rows: document.querySelectorAll('[data-testid="chat-sessions-list"] > li').length,
+        skeleton: document.querySelectorAll('[data-testid="chat-sessions-loading"]').length,
+        placeholders: document.querySelectorAll('[data-testid^="conversation-title-loading-"]')
+          .length,
+      });
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  await page.getByTestId("chat-new-session").click();
+  await expect(page.getByTestId("new-chat-empty")).toBeVisible();
+  await page.getByTestId(`chat-session-${instances.ready}`).click();
+  await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat`));
+  await expect(page.getByTestId("chat-message").first()).toBeVisible({ timeout: 30_000 });
+
+  const frames = await page.evaluate(
+    () => (window as unknown as { railFrames: { rows: number; skeleton: number; placeholders: number }[] }).railFrames,
+  );
+  expect(frames.length, "the rail should have been sampled").toBeGreaterThan(0);
+  expect(
+    frames.filter((f) => f.skeleton > 0 || f.placeholders > 0 || f.rows !== listed),
+    `every frame should list all ${listed} conversations, titled`,
+  ).toEqual([]);
+});
+
 /**
  * A new conversation keeps its title once you leave it. Only the Agent Details hop fails
  * without the fix here; the mock re-reads on the sibling hop, so the unit tests cover it.
