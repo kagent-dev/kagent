@@ -1,5 +1,5 @@
 import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { Button, Input } from "antd";
+import { Button, Input, Tooltip } from "antd";
 import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { DataPill } from "./DataPill";
@@ -19,7 +19,7 @@ interface ListInputProps {
   "data-testid"?: string;
 }
 
-/** A text box that turns what is typed into removable pills, with an Add button beside it. */
+/** A text box that turns what is typed into removable pills, with an icon-only Add button beside it. */
 export function ListInput({
   value,
   onChange,
@@ -83,14 +83,16 @@ export function ListInput({
           onBlur={() => flush(text)}
           css={{ flex: 1, minWidth: 0, fontFamily: theme.font.mono }}
         />
-        <Button
-          icon={<Plus size={14} aria-hidden />}
-          disabled={disabled || text.trim() === ""}
-          onClick={() => flush(text)}
-          data-testid={testId ? `${testId}-add` : undefined}
-        >
-          Add
-        </Button>
+        <Tooltip title="Add">
+          <Button
+            aria-label="Add"
+            icon={<Plus size={16} aria-hidden />}
+            disabled={disabled || text.trim() === ""}
+            onClick={() => flush(text)}
+            data-testid={testId ? `${testId}-add` : undefined}
+            css={{ flexShrink: 0 }}
+          />
+        </Tooltip>
       </div>
       {value.length > 0 ? (
         <ul

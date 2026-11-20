@@ -119,7 +119,11 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
   await test.step("6c. command and arguments become pills: spaces split them, quotes keep them whole, a click removes one", async () => {
     const command = page.getByTestId("harness-command");
     await page.getByTestId("harness-command-input").pressSequentially("node server.js");
-    await page.getByTestId("harness-command-add").click();
+    const add = page.getByTestId("harness-command-add");
+    await expect(add).toHaveAccessibleName("Add");
+    await add.hover();
+    await expect(page.getByRole("tooltip", { name: "Add" })).toBeVisible();
+    await add.click();
     await expect(command.getByTestId("harness-command-list").getByRole("listitem")).toHaveText(["node", "server.js"]);
 
     const args = page.getByTestId("harness-args");

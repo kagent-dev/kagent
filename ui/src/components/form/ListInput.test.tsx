@@ -40,6 +40,8 @@ describe("ListInput", () => {
     render(<Field split="spaces" />);
     const input = screen.getByTestId("list-input");
     expect(screen.getByTestId("list-add")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add" })).toBe(screen.getByTestId("list-add"));
+    expect(screen.getByTestId("list-add")).toHaveTextContent("");
 
     await user.type(input, "node -v -v");
     expect(items()).toEqual(["node", "-v"]);
