@@ -132,11 +132,17 @@ jobs:
           mkdir -p "$RUNNER_TEMP/release-charts"
           tar -xzf "dist/kagent-${VERSION}.tgz" -C "$RUNNER_TEMP/release-charts"
           tar -xzf "dist/kagent-crds-${VERSION}.tgz" -C "$RUNNER_TEMP/release-charts"
+          openssl genpkey -algorithm ED25519 -out "$RUNNER_TEMP/push-private-key.pem"
+          kubectl create namespace kagent --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n kagent create secret generic e2e-push-signing --from-file=private-key.pem="$RUNNER_TEMP/push-private-key.pem" --dry-run=client -o yaml | kubectl apply -f -
           cat > "$RUNNER_TEMP/kagent-values.yaml" <<EOF
           registry: localhost:5001
           tag: "${VERSION}"
           imagePullPolicy: Always
           controller:
+            push:
+              signing:
+                secretName: e2e-push-signing
             image:
               pullPolicy: Always
             service:
@@ -157,6 +163,8 @@ jobs:
             sessions:
               automaticRecovery: true
             push:
+              # Exercise prepublication with a 35s wait, including the fixed 30s buffer.
+              signingKeyActivationDelay: 5s
               allowHttp: true
               allowPrivateNetworks: true
             sandboxes:

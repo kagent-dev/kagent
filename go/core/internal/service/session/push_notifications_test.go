@@ -179,7 +179,7 @@ func (p *pushTestSender) SendPush(context.Context, *a2a.PushConfig, a2a.Event) e
 
 func testPushSigner(t *testing.T) *PushJWTSigner {
 	t.Helper()
-	signer, err := NewPushJWTSigner(testPushPrivateKeyPEM, "https://kagent.example")
+	signer, err := NewPushJWTSigner(pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
 	require.NoError(t, err)
 	return signer
 }
@@ -772,7 +772,7 @@ func TestPushWorkerShutdownPersistsOutcomes(t *testing.T) {
 				}
 				return ctx.Err()
 			})
-			restarts := 12 // Exceed the durable ten-attempt limit.
+			restarts := 21 // Exceed the durable 20-attempt limit.
 			if delivered {
 				restarts = 1
 			}

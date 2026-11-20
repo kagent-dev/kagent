@@ -3,8 +3,11 @@ package e2e_test
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +36,9 @@ import (
 	"k8s.io/client-go/transport/spdy"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	controllerconfig "github.com/kagent-dev/kagent/go/core/pkg/config"
 )
 
 func TestSessionHTTPInteraction(t *testing.T) {
@@ -331,11 +338,24 @@ func preparePushLeaderHandoff(t *testing.T) (string, func()) {
 
 func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
 	t.Helper()
+	keys := pushJWKSKeys(t, target)
+	if len(keys) == 0 {
+		return "", nil
+	}
+	require.Len(t, keys, 1)
+	for id, key := range keys {
+		return id, key
+	}
+	return "", nil
+}
+
+func pushJWKSKeys(t *testing.T, target string) map[string]ed25519.PublicKey {
+	t.Helper()
 	response, err := (&http.Client{Timeout: 5 * time.Second}).Get("http://" + target + "/.well-known/jwks.json")
 	require.NoError(t, err)
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
-		return "", nil
+		return nil
 	}
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	var set struct {
@@ -345,27 +365,141 @@ func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
 		} `json:"keys"`
 	}
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&set))
-	require.Len(t, set.Keys, 1)
-	public, err := base64.RawURLEncoding.DecodeString(set.Keys[0].X)
-	require.NoError(t, err)
-	require.Len(t, public, ed25519.PublicKeySize)
-	return set.Keys[0].KID, ed25519.PublicKey(public)
+	keys := make(map[string]ed25519.PublicKey)
+	for _, key := range set.Keys {
+		public, err := base64.RawURLEncoding.DecodeString(key.X)
+		require.NoError(t, err)
+		require.Len(t, public, ed25519.PublicKeySize)
+		keys[key.KID] = ed25519.PublicKey(public)
+	}
+	return keys
+}
+
+// Keep this test sequential: it rotates shared signing material. The callback
+// caches A before rotation, then a later callback verifies against cached A+B.
+func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
+	_ = interactionTarget(t)
+	kube := interactionKubeClient(t)
+	deployments := &appsv1.DeploymentList{}
+	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
+	require.Len(t, deployments.Items, 1)
+	deployment := deployments.Items[0]
+	var signingSecret, configName string
+	for _, volume := range deployment.Spec.Template.Spec.Volumes {
+		if volume.ConfigMap != nil {
+			configName = volume.ConfigMap.Name
+		}
+		if volume.Projected != nil {
+			for _, source := range volume.Projected.Sources {
+				if source.Secret != nil {
+					for _, item := range source.Secret.Items {
+						if item.Path == "push-private-key.pem" {
+							signingSecret = source.Secret.Name
+						}
+					}
+				}
+			}
+		}
+	}
+	if signingSecret == "" {
+		t.Skip("requires controller.push.signing.secretName; enabled in CI")
+	}
+	pods := &corev1.PodList{}
+	require.NoError(t, kube.List(t.Context(), pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels(deployment.Spec.Selector.MatchLabels)))
+	pods.Items = slices.DeleteFunc(pods.Items, func(pod corev1.Pod) bool {
+		return pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
+	})
+	require.Len(t, pods.Items, 1, "rotation E2E requires one controller replica")
+	pod := pods.Items[0]
+	target := forwardPushController(t, &pod)
+	originalID, _ := pushJWKSKey(t, target)
+	configMap := &corev1.ConfigMap{}
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: deployment.Namespace, Name: configName}, configMap))
+	cfg := &configv1.ControllerConfig{}
+	require.NoError(t, controllerconfig.Decode([]byte(configMap.Data["controller.yaml"]), cfg))
+	controllerconfig.DefaultController(cfg)
+	secret := &corev1.Secret{}
+	secretKey := ctrlclient.ObjectKey{Namespace: deployment.Namespace, Name: signingSecret}
+	require.NoError(t, kube.Get(t.Context(), secretKey, secret))
+	original := secret.DeepCopy()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		current := &corev1.Secret{}
+		require.NoError(t, kube.Get(ctx, secretKey, current))
+		current.Data = original.Data
+		require.NoError(t, kube.Update(ctx, current))
+		// Restore a single-key fixture before other sequential replica tests run.
+		require.NoError(t, kube.Delete(ctx, &pod))
+		require.Eventually(t, func() bool {
+			replacement := &corev1.PodList{}
+			if kube.List(ctx, replacement, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels(deployment.Spec.Selector.MatchLabels)) != nil {
+				return false
+			}
+			for _, candidate := range replacement.Items {
+				if candidate.UID == pod.UID || candidate.DeletionTimestamp != nil {
+					continue
+				}
+				for _, condition := range candidate.Status.Conditions {
+					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+						return true
+					}
+				}
+			}
+			return false
+		}, 2*time.Minute, time.Second)
+	})
+	var publishedAt time.Time
+	oldID := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, "", func() {
+		_, private, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		der, err := x509.MarshalPKCS8PrivateKey(private)
+		require.NoError(t, err)
+		secret.Data["private-key.pem"] = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+		require.NoError(t, kube.Update(t.Context(), secret))
+		require.Eventually(t, func() bool {
+			keys := pushJWKSKeys(t, target)
+			return len(keys) == 2 && keys[originalID] != nil
+		}, 2*time.Minute, time.Second, "running pod must publish the replacement from its Secret volume")
+		publishedAt = time.Now()
+	})
+	require.Equal(t, originalID, oldID, "cached original JWKS must verify the callback during staging")
+	// The public configuration controls the wait; the 30s buffer is fixed by the
+	// rotation contract. Waiting from observation is conservative by one HTTP poll.
+	activateAfter := publishedAt.Add(cfg.GetPush().GetSigningKeyActivationDelay().AsDuration() + 30*time.Second)
+	timer := time.NewTimer(max(time.Until(activateAfter), 0))
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-t.Context().Done():
+		t.Fatal("timed out waiting for key activation")
+	}
+	newID := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, false, "", nil)
+	require.NotEqual(t, originalID, newID)
+	require.Contains(t, pushJWKSKeys(t, target), originalID, "old tokens remain verifiable after activation")
+	unchanged := &corev1.Pod{}
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(&pod), unchanged))
+	require.Equal(t, pod.UID, unchanged.UID)
+	for i := range pod.Status.ContainerStatuses {
+		require.Equal(t, pod.Status.ContainerStatuses[i].RestartCount, unchanged.Status.ContainerStatuses[i].RestartCount)
+	}
 }
 
 // exerciseHTTPPush keeps the model blocked until the observation connection is
 // gone. The optional hook replaces the leader before allowing task completion.
-func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget string, afterDisconnect func()) {
+func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget string, afterDisconnect func()) string {
 	t.Helper()
 	modelURL, started, unblock, _ := startScheduledRecoveryModel(t)
 	// Release the model before session cleanup, including on assertion failure.
 	defer unblock()
 	fixture := newInteractionFixture(t, harness, target, modelURL)
-	keyID, publicKey := pushJWKSKey(t, target)
+	publicKeys := pushJWKSKeys(t, target)
+	signingKeys := make(chan string, 8)
 	callbacks := make(chan *a2atype.TaskStatusUpdateEvent, 8)
 	var callbackURL string
 	receiver := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var verified *jwt.Token
-		if publicKey != nil {
+		if len(publicKeys) != 0 {
 			credential, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 			if !found {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -373,7 +507,9 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 			}
 			var err error
 			verified, err = jwt.Parse(credential, func(token *jwt.Token) (any, error) {
-				if token.Header["kid"] != keyID {
+				id, _ := token.Header["kid"].(string)
+				publicKey, found := publicKeys[id]
+				if !found {
 					return nil, fmt.Errorf("unexpected push signing key")
 				}
 				return publicKey, nil
@@ -396,6 +532,9 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 		if verified != nil && verified.Claims.(jwt.MapClaims)["taskId"] != string(envelope.StatusUpdate.TaskID) {
 			http.Error(w, "wrong task", http.StatusUnauthorized)
 			return
+		}
+		if verified != nil {
+			signingKeys <- verified.Header["kid"].(string)
 		}
 		callbacks <- envelope.StatusUpdate
 		w.WriteHeader(http.StatusNoContent)
@@ -460,6 +599,10 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 	task, err := client.GetTask(ctx, &a2atype.GetTaskRequest{ID: taskID})
 	require.NoError(t, err)
 	require.Contains(t, taskText(task), "The answer is 4.")
+	if len(publicKeys) != 0 {
+		return <-signingKeys
+	}
+	return ""
 }
 
 func forwardPushController(t *testing.T, pod *corev1.Pod) string {
