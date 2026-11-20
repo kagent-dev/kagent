@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"iter"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
 	adkmodel "google.golang.org/adk/v2/model"
+	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
@@ -280,7 +283,28 @@ func TestMCPAppCompactionPreservesCacheApprovalAndHistoricalResults(t *testing.T
 type appCompactionContext struct {
 	adkagent.StrictContextMock
 	confirmed bool
+	state     appCompactionState
 }
+
+func (c *appCompactionContext) State() session.State {
+	if c.state == nil {
+		c.state = appCompactionState{}
+	}
+	return c.state
+}
+
+// appCompactionState is the session state of the test's tool calls.
+type appCompactionState map[string]any
+
+func (s appCompactionState) Get(key string) (any, error) {
+	value, ok := s[key]
+	if !ok {
+		return nil, session.ErrStateKeyNotExist
+	}
+	return value, nil
+}
+func (s appCompactionState) Set(key string, value any) error { s[key] = value; return nil }
+func (s appCompactionState) All() iter.Seq2[string, any]     { return maps.All(s) }
 
 func (c *appCompactionContext) ToolConfirmation() *toolconfirmation.ToolConfirmation {
 	return &toolconfirmation.ToolConfirmation{Confirmed: c.confirmed}

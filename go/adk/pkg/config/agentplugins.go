@@ -57,16 +57,19 @@ func MaterializeAgentPlugins(ctx context.Context, agentConfig *configv1.ADKAgent
 func addMCPConfig(agentConfig *configv1.ADKAgentConfig, mcpConfig agentplugins.MCPConfig) {
 	for _, server := range mcpConfig.StreamableHTTP {
 		agentConfig.HttpTools = append(agentConfig.HttpTools, &configv1.ADKHTTPMCPServerConfig{
+			Name:   server.Name,
 			Params: &configv1.ADKHTTPConnectionParams{Url: server.URL, Headers: server.Headers},
 		})
 	}
 	for _, server := range mcpConfig.SSE {
 		agentConfig.SseTools = append(agentConfig.SseTools, &configv1.ADKSSEMCPServerConfig{
+			Name:   server.Name,
 			Params: &configv1.ADKSSEConnectionParams{Url: server.URL, Headers: server.Headers},
 		})
 	}
 	for _, server := range mcpConfig.Stdio {
 		agentConfig.StdioTools = append(agentConfig.StdioTools, &configv1.ADKStdioMCPServerConfig{
+			Name:    server.Name,
 			Command: server.Command,
 			Args:    server.Args,
 			Env:     server.Env,
