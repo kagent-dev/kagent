@@ -184,8 +184,8 @@ test("models: a configuration is created, read, changed and deleted", async ({
     // The provider is picked by the name a reader sees, which is not the enum the
     // draft stores: `providerDisplayName` turns `AmazonBedrock` into "AWS Bedrock".
     await selectOption(page, "model-provider", "Anthropic");
-    // The chosen provider keeps its badge beside its name.
-    await expect(page.getByTestId("model-provider").getByTestId("provider-badge")).toBeVisible();
+    // The chosen provider keeps its logo beside its name.
+    await expect(page.getByTestId("model-provider").getByTestId("provider-logo")).toBeVisible();
     await expect(page.getByTestId("model-provider")).toContainText("Anthropic");
 
     // The model is an AutoComplete, not a Select — the test id is on the wrapper and

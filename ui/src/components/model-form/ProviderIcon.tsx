@@ -1,17 +1,18 @@
 /**
- * Small inline SVG brand icons for each model provider, shown on a tile in the
- * provider's colour. A provider without an icon gets its initial instead.
+ * Small inline SVG brand logos for each model provider, in the provider's own
+ * colours. A provider without a logo gets its initial instead.
  */
 
-import type { ComponentType, ReactElement, ReactNode } from "react";
+import { useId, type ComponentType, type ReactElement, type ReactNode } from "react";
 import { useExtensionProviderIcons } from "@/appExtensions";
 import { useThemeMode } from "@/theme/useThemeMode";
 import type { ThemeMode } from "@/theme/theme";
 
 // region Icon components
 
-/** Google / Gemini coloured G mark. */
+/** Gemini sparkle in the brand's blue-to-coral gradient. */
 function GeminiIcon() {
+  const gradient = `gemini-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`;
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -20,9 +21,16 @@ function GeminiIcon() {
       height="16"
       aria-hidden
     >
+      <defs>
+        <linearGradient id={gradient} x1="0" y1="16" x2="16" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#4285F4" />
+          <stop offset="0.55" stopColor="#9B72CB" />
+          <stop offset="1" stopColor="#D96570" />
+        </linearGradient>
+      </defs>
       <path
         d="M16 8.016A8.522 8.522 0 008.016 16h-.032A8.521 8.521 0 000 8.016v-.032A8.521 8.521 0 007.984 0h.032A8.522 8.522 0 0016 7.984v.032z"
-        fill="currentColor"
+        fill={`url(#${gradient})`}
       />
     </svg>
   );
@@ -62,7 +70,7 @@ function AnthropicIcon() {
   );
 }
 
-/** Azure cloud icon in Microsoft blue. */
+/** Azure "A" mark, in Microsoft blue from its tile colour. */
 function AzureOpenAIIcon() {
   return (
     <svg
@@ -116,7 +124,7 @@ function BedrockIcon() {
   );
 }
 
-/** Mistral pixel-mosaic mark in the brand's orange-to-red gradient. */
+/** Mistral pixel-mosaic mark: a block in the text colour over yellow-to-red rows. */
 function MistralIcon() {
   return (
     <svg
@@ -174,46 +182,43 @@ export function getProviderIcon(
   return <Icon />;
 }
 
-/** Brand-like colours per mode, each at least 4.4:1 against its own tile. */
+/**
+ * Each logo's colour per mode: the brand colour, darkened or lightened where it falls below
+ * 3:1 on the dropdown. Black-and-white marks take the text colour so they show in dark mode.
+ */
+const TEXT: Record<ThemeMode, string> = { light: "#151927", dark: "#f9fafb" };
 const PROVIDER_COLORS: Record<string, Record<ThemeMode, string>> = {
-  Gemini: { light: "#1a5fd6", dark: "#8ab4f8" },
-  GeminiVertexAI: { light: "#1a5fd6", dark: "#8ab4f8" },
-  OpenAI: { light: "#0b7a5e", dark: "#3ccf9e" },
-  Anthropic: { light: "#b4532f", dark: "#e8987a" },
-  AnthropicVertexAI: { light: "#b4532f", dark: "#e8987a" },
-  AzureOpenAI: { light: "#0063b1", dark: "#5aaeff" },
-  Foundry: { light: "#0063b1", dark: "#5aaeff" },
-  Ollama: { light: "#3f3f46", dark: "#e4e4e7" },
-  Bedrock: { light: "#a65800", dark: "#ffa733" },
+  OpenAI: TEXT,
+  Ollama: TEXT,
+  Mistral: TEXT,
+  Anthropic: { light: "#c15f3c", dark: "#d97757" },
+  AnthropicVertexAI: { light: "#c15f3c", dark: "#d97757" },
+  AzureOpenAI: { light: "#0078d4", dark: "#3a96dd" },
+  Foundry: { light: "#0078d4", dark: "#3a96dd" },
+  Bedrock: { light: "#01876f", dark: "#01a88d" },
   SAPAICore: { light: "#0a5bb5", dark: "#6cb6ff" },
-  Mistral: { light: "#c2410c", dark: "#ff8a3d" },
 };
 const NEUTRAL: Record<ThemeMode, string> = { light: "#57534e", dark: "#d6d3d1" };
 
-/** The provider's icon, or its initial, on a tile tinted with its colour. */
-export function ProviderBadge({ type }: { type: string }) {
+/** The provider's logo in its own colours, or its initial. */
+export function ProviderLogo({ type }: { type: string }) {
   const providerIcons = useExtensionProviderIcons();
   const { mode } = useThemeMode();
-  const color = (PROVIDER_COLORS[type] ?? NEUTRAL)[mode];
   return (
     <span
       aria-hidden
-      data-testid="provider-badge"
+      data-testid="provider-logo"
       css={{
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
-        width: 20,
-        height: 20,
-        borderRadius: 5,
-        color,
-        background: `${color}24`,
-        border: `1px solid ${color}59`,
-        fontSize: 11,
+        width: 16,
+        height: 16,
+        color: (PROVIDER_COLORS[type] ?? NEUTRAL)[mode],
+        fontSize: 12,
         fontWeight: 700,
         lineHeight: 1,
-        "& svg": { width: 13, height: 13 },
       }}
     >
       {getProviderIcon(type, providerIcons) ?? type.charAt(0).toUpperCase()}
@@ -221,7 +226,7 @@ export function ProviderBadge({ type }: { type: string }) {
   );
 }
 
-/** The provider's badge, then its name, so colour is never the only cue. */
+/** The provider's logo, then its name, so the logo is never the only cue. */
 export function ProviderIconWithLabel({
   type,
   label,
@@ -237,7 +242,7 @@ export function ProviderIconWithLabel({
         gap: 8,
       }}
     >
-      {type ? <ProviderBadge type={type} /> : null}
+      {type ? <ProviderLogo type={type} /> : null}
       {label}
     </span>
   );
