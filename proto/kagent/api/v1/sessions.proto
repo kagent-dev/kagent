@@ -20,6 +20,11 @@ service SessionService {
   rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   rpc UpdateSessionName(UpdateSessionNameRequest) returns (UpdateSessionNameResponse);
+  // Names a conversation only while it has no name, so a generated title never
+  // replaces one a person chose.
+  rpc SetSessionNameIfEmpty(SetSessionNameIfEmptyRequest) returns (SetSessionNameIfEmptyResponse);
+  // Stores the latest recap of the conversation, replacing any earlier one.
+  rpc SetSessionRecap(SetSessionRecapRequest) returns (SetSessionRecapResponse);
   // Restores a crashed runtime to its last snapshot without replaying its turn.
   rpc RevertSession(RevertSessionRequest) returns (RevertSessionResponse);
   rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
@@ -53,6 +58,17 @@ message Session {
   // Output only. A2A conversation ID, equal to this session's ID.
   // Forks receive a new conversation ID and new task IDs.
   string context_id = 14;
+  // Output only. Latest generated summary of the conversation. Unset until a
+  // runtime writes one.
+  SessionRecap recap = 16;
+}
+
+message SessionRecap {
+  string text = 1;
+  // Number of turns the recap covers. A reader compares it with the
+  // conversation's turn count to tell whether the recap is current.
+  int32 turn_count = 2;
+  google.protobuf.Timestamp generated_at = 3;
 }
 
 message AgentProvenance {
@@ -109,6 +125,34 @@ message UpdateSessionNameRequest {
 }
 
 message UpdateSessionNameResponse {
+  Session session = 1;
+}
+
+message SetSessionNameIfEmptyRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 200
+    pattern: "^[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?$"
+  }];
+}
+
+message SetSessionNameIfEmptyResponse {
+  Session session = 1;
+  // True when this call set the name; false when the Session already had one.
+  bool applied = 2;
+}
+
+message SetSessionRecapRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  string text = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 2000
+  }];
+  int32 turn_count = 3 [(buf.validate.field).int32.gte = 1];
+}
+
+message SetSessionRecapResponse {
   Session session = 1;
 }
 

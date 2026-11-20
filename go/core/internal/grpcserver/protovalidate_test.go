@@ -2,6 +2,7 @@ package grpcserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +62,20 @@ func TestSessionRequestValidation(t *testing.T) {
 		{"invalid template filter", &apiv1.ListSessionsRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
 		{"valid rename", &apiv1.UpdateSessionNameRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
 		{"invalid rename id", &apiv1.UpdateSessionNameRequest{SessionId: "not-a-uuid", Name: "New title"}, false},
+		{"valid set name if empty", &apiv1.SetSessionNameIfEmptyRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "Debugging the ingress"}, true},
+		{"set name if empty without id", &apiv1.SetSessionNameIfEmptyRequest{Name: "Debugging the ingress"}, false},
+		{"set name if empty with invalid id", &apiv1.SetSessionNameIfEmptyRequest{SessionId: "not-a-uuid", Name: "Debugging the ingress"}, false},
+		{"set name if empty with empty name", &apiv1.SetSessionNameIfEmptyRequest{SessionId: "11111111-1111-4111-8111-111111111111"}, false},
+		{"set name if empty with leading whitespace", &apiv1.SetSessionNameIfEmptyRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: " title"}, false},
+		{"set name if empty with control character", &apiv1.SetSessionNameIfEmptyRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "first\nsecond"}, false},
+		{"set name if empty with overlong name", &apiv1.SetSessionNameIfEmptyRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: strings.Repeat("a", 201)}, false},
+		{"valid set recap", &apiv1.SetSessionRecapRequest{SessionId: "11111111-1111-4111-8111-111111111111", Text: "Fixed the ingress.", TurnCount: 1}, true},
+		{"set recap with invalid id", &apiv1.SetSessionRecapRequest{SessionId: "not-a-uuid", Text: "Fixed the ingress.", TurnCount: 1}, false},
+		{"set recap with empty text", &apiv1.SetSessionRecapRequest{SessionId: "11111111-1111-4111-8111-111111111111", TurnCount: 1}, false},
+		{"set recap with maximum text", &apiv1.SetSessionRecapRequest{SessionId: "11111111-1111-4111-8111-111111111111", Text: strings.Repeat("a", 2000), TurnCount: 1}, true},
+		{"set recap with overlong text", &apiv1.SetSessionRecapRequest{SessionId: "11111111-1111-4111-8111-111111111111", Text: strings.Repeat("a", 2001), TurnCount: 1}, false},
+		{"set recap with zero turns", &apiv1.SetSessionRecapRequest{SessionId: "11111111-1111-4111-8111-111111111111", Text: "Fixed the ingress."}, false},
+		{"set recap with negative turns", &apiv1.SetSessionRecapRequest{SessionId: "11111111-1111-4111-8111-111111111111", Text: "Fixed the ingress.", TurnCount: -1}, false},
 		{"valid checkpoint rename", &apiv1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},
 		{"empty checkpoint rename", &apiv1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111"}, true},
 		{"checkpoint without selected task", &apiv1.CreateCheckpointRequest{SessionId: "11111111-1111-4111-8111-111111111111", RequestId: "request"}, false},
@@ -88,6 +103,8 @@ func TestInvalidSessionAndCheckpointIDsNeverReachHandlers(t *testing.T) {
 	requests := []proto.Message{
 		&apiv1.GetSessionRequest{SessionId: "invalid"},
 		&apiv1.UpdateSessionNameRequest{SessionId: "invalid"},
+		&apiv1.SetSessionNameIfEmptyRequest{SessionId: "invalid", Name: "title"},
+		&apiv1.SetSessionRecapRequest{SessionId: "invalid", Text: "recap", TurnCount: 1},
 		&apiv1.RevertSessionRequest{SessionId: "invalid"},
 		&apiv1.DeleteSessionRequest{SessionId: "invalid"},
 		&apiv1.CreateSessionShareRequest{SessionId: "invalid"},

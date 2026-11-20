@@ -104,6 +104,8 @@ export interface ChatController {
    * page that looks alive.
    */
   turnPhase: ChatTurnPhase;
+  /** The answer is in and the runtime is still writing a recap of the chat. */
+  recapping?: boolean;
   phase: ChatPhase;
   /**
    * The turn the agent parked to ask the reader something, if there is one.
@@ -413,6 +415,9 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
               }
               dispatch({ type: "status", state: event.state, taskId: event.taskId });
               break;
+            case "recapping":
+              dispatch({ type: "recapping" });
+              break;
             case "error":
               dispatch({ type: "error", error: event.error });
               refused = true;
@@ -623,6 +628,7 @@ export function useChat(conversation: ChatConversationRef | undefined): ChatCont
       turnError: activeTurn.error,
       turnState: turnStateOf(activeTurn.phase),
       turnPhase: activeTurn.phase,
+      recapping: activeTurn.recapping === true && isActive(activeTurn.phase),
       phase: isActive(activeTurn.phase)
         ? ("streaming" as const)
         : isDismissing

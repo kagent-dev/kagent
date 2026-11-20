@@ -43,6 +43,25 @@ func (s *sessionAuthorizationStore) UpdateSessionName(ctx context.Context, id, o
 	return &apiv1.Session{Id: session.Id, Creator: session.Creator, Agent: session.Agent, Name: name}, nil
 }
 
+func (s *sessionAuthorizationStore) SetSessionNameIfEmpty(ctx context.Context, id, owner, name string) (*apiv1.Session, bool, error) {
+	session, err := s.GetSession(ctx, id, owner)
+	if err != nil {
+		return nil, false, err
+	}
+	if session.Name != "" {
+		return session, false, nil
+	}
+	return &apiv1.Session{Id: session.Id, Creator: session.Creator, Agent: session.Agent, Name: name}, true, nil
+}
+
+func (s *sessionAuthorizationStore) SetSessionRecap(ctx context.Context, id, owner, text string, turnCount int32) (*apiv1.Session, error) {
+	session, err := s.GetSession(ctx, id, owner)
+	if err != nil {
+		return nil, err
+	}
+	return &apiv1.Session{Id: session.Id, Creator: session.Creator, Agent: session.Agent, Recap: &apiv1.SessionRecap{Text: text, TurnCount: turnCount}}, nil
+}
+
 func (s *sessionAuthorizationStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	s.lists.Add(1)
 	var rows []*apiv1.Session
@@ -139,6 +158,17 @@ func TestSessionPermissionsAndOwnershipThroughGeneratedClient(t *testing.T) {
 	require.Equal(t, "owned", renamed.GetSession().GetName())
 	before = store.reads.Load()
 	_, err = client.UpdateSessionName(caller("viewer", false), &apiv1.UpdateSessionNameRequest{SessionId: bobID, Name: "forged"})
+	assertGRPCCode(t, err, codes.PermissionDenied)
+	require.Equal(t, before, store.reads.Load())
+
+	named, err := client.SetSessionNameIfEmpty(caller("bob", false), &apiv1.SetSessionNameIfEmptyRequest{SessionId: bobID, Name: "generated"})
+	require.NoError(t, err)
+	require.True(t, named.GetApplied())
+	require.Equal(t, "generated", named.GetSession().GetName())
+	_, err = client.SetSessionNameIfEmpty(caller("operator", false), &apiv1.SetSessionNameIfEmptyRequest{SessionId: aliceID, Name: "forged"})
+	assertGRPCCode(t, err, codes.NotFound)
+	before = store.reads.Load()
+	_, err = client.SetSessionNameIfEmpty(caller("viewer", false), &apiv1.SetSessionNameIfEmptyRequest{SessionId: bobID, Name: "forged"})
 	assertGRPCCode(t, err, codes.PermissionDenied)
 	require.Equal(t, before, store.reads.Load())
 

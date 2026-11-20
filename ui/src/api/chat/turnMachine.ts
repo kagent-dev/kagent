@@ -71,6 +71,8 @@ export interface TurnState {
   taskId?: string;
   /** Set only in `failed`. */
   error?: Error;
+  /** The answer is in and the runtime is writing the chat's recap. */
+  recapping?: boolean;
 }
 
 /** What can happen to a turn. */
@@ -81,6 +83,8 @@ export type TurnEvent =
   | { type: "status"; state: ChatTurnState; taskId?: string }
   /** A message or a delta arrived — the answer is visibly happening. */
   | { type: "content" }
+  /** The answer is done; the runtime is writing a recap before it ends the stream. */
+  | { type: "recapping" }
   | { type: "error"; error: Error }
   /** The reader pressed stop. */
   | { type: "cancel" }
@@ -166,6 +170,10 @@ export function nextTurn(current: TurnState, event: TurnEvent): TurnState {
       if (isSettled(current.phase) || current.phase === "idle") return current;
       if (current.phase === "streaming") return current;
       return { ...current, phase: "streaming" };
+
+    case "recapping":
+      if (!isActive(current.phase) || current.recapping) return current;
+      return { ...current, recapping: true };
 
     case "error":
       if (isSettled(current.phase)) return current;

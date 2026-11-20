@@ -90,12 +90,15 @@ function statusFrame(options: {
     extensions?: string[];
   };
   seconds?: bigint;
+  /** Metadata on the event itself, not on its message. */
+  metadata?: Record<string, unknown>;
 }) {
   return {
     payload: {
       case: "statusUpdate" as const,
       value: {
         taskId: options.taskId ?? "task-1",
+        metadata: options.metadata,
         contextId: CONVERSATION.contextId,
         status: {
           state: options.state ?? TaskState.WORKING,
@@ -2101,6 +2104,22 @@ describe("A2AGrpcChatClient.send, when the stream breaks", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await outcome;
     expect(subscribed).toEqual([]);
+  });
+});
+
+describe("A2AGrpcChatClient.send, recapping marker", () => {
+  it("reports a working status carrying the marker as recapping, ahead of the completed frame", async () => {
+    const events = await turn([
+      statusFrame({ state: TaskState.WORKING }),
+      statusFrame({ state: TaskState.WORKING, metadata: { [A2A_METADATA.recapping]: true } }),
+      statusFrame({ state: TaskState.COMPLETED }),
+    ]);
+    expect(events.map((event) => event.type)).toEqual(["status", "recapping", "status"]);
+  });
+
+  it("ignores a working status without the marker", async () => {
+    const events = await turn([statusFrame({ state: TaskState.WORKING, metadata: { other: true } })]);
+    expect(events.map((event) => event.type)).toEqual(["status"]);
   });
 });
 
