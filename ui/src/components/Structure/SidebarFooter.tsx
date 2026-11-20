@@ -59,6 +59,9 @@ export function SidebarFooter({
     userSelect: "none" as const,
     justifyContent: "flex-start",
     transition: "none",
+    // While the rail widens the label arrives first; icons keep their size and the label clips.
+    overflow: "hidden",
+    "& svg": { flexShrink: 0 },
     "&:hover": { background: theme.color.navHoverBg, color: theme.color.navHoverText },
     "&:active": { background: theme.color.navPressBg, color: theme.color.navHoverText },
     "&:focus-visible": {
