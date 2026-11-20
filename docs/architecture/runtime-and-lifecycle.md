@@ -369,6 +369,29 @@ sequenceDiagram
     Worker->>DB: record snapshot and finish idle claim
 ```
 
+## Dispatch cleanup
+
+A failed or cancelled send with an unused dispatch schedules best-effort cleanup
+on its replica after `sessions.dispatchCleanupDelay` (default `2m`, `0s` disables
+cleanup). Successful direct replies and continuations that stay waiting skip cleanup
+because delivery succeeded without starting a turn. A new send supersedes cleanup
+until the worker claims suspension.
+
+### Restart tradeoffs
+
+- **Before the claim.** A restart drops queued cleanup and can leave an idle actor
+  consuming capacity. Scanning expired dispatches would also select successful sends.
+- **After the claim.** Substrate can finish a suspend after the worker exits. To protect
+  new turns, the claim persists until the worker saves the snapshot and releases it
+  atomically. If that write never commits, sends and checkpoints can remain blocked
+  until crash recovery or forced deletion.
+
+Ordering independent router resumes and kagent suspends requires coordination with
+Substrate, where cancellation recovery and idle suspension are proposed.
+[Lifecycle completion](https://github.com/agent-substrate/substrate/pull/2558) ·
+[Idle suspension](https://github.com/agent-substrate/substrate/issues/424) ·
+[Self-suspension](https://github.com/agent-substrate/substrate/issues/483)
+
 ## Runtime boundaries
 
 - Port `8083` serves native gRPC, gRPC-Web, A2A, authenticated MCP, and health.

@@ -66,6 +66,8 @@ const (
 	KagentCaptureInputTruncatedKey = attribute.Key("kagent.capture.input_truncated")
 	// KagentCaptureOutputTruncatedKey is "kagent.capture.output_truncated". Whether the captured output messages or tool result were shortened to the capture budget.
 	KagentCaptureOutputTruncatedKey = attribute.Key("kagent.capture.output_truncated")
+	// KagentDispatchCleanupDropReasonKey is "kagent.dispatch_cleanup.drop_reason". Why a controller stopped tracking a failed dispatch cleanup.
+	KagentDispatchCleanupDropReasonKey = attribute.Key("kagent.dispatch_cleanup.drop_reason")
 	// KagentGCStageKey is "kagent.gc.stage". The stage of a runtime revision garbage collection attempt.
 	KagentGCStageKey = attribute.Key("kagent.gc.stage")
 	// KagentGenaiProducerKey is "kagent.genai.producer". The component that writes the GenAI model and tool spans of an agent.
@@ -204,6 +206,14 @@ const (
 	GenAITokenModalityAudio = "audio"
 	// GenAITokenModalityUnknown: The modality is not known.
 	GenAITokenModalityUnknown = "unknown"
+)
+
+// Values of KagentDispatchCleanupDropReasonKey.
+const (
+	// KagentDispatchCleanupDropReasonQueueFull: The replica already held its maximum outstanding cleanups.
+	KagentDispatchCleanupDropReasonQueueFull = "queue_full"
+	// KagentDispatchCleanupDropReasonRetryBudgetExhausted: The cleanup deadline expired before completion.
+	KagentDispatchCleanupDropReasonRetryBudgetExhausted = "retry_budget_exhausted"
 )
 
 // Values of KagentGCStageKey.
@@ -381,6 +391,13 @@ const (
 	KagentRuntimeRevisionGCPending            = "kagent.runtime_revision.gc.pending"
 	KagentRuntimeRevisionGCPendingUnit        = "{revision}"
 	KagentRuntimeRevisionGCPendingDescription = "Number of cleanup-eligible runtime revisions in the last successful discovery."
+)
+
+// KagentSessionDispatchCleanupDropped: Number of dispatch cleanups dropped by a controller replica.
+const (
+	KagentSessionDispatchCleanupDropped            = "kagent.session.dispatch_cleanup.dropped"
+	KagentSessionDispatchCleanupDroppedUnit        = "{cleanup}"
+	KagentSessionDispatchCleanupDroppedDescription = "Number of dispatch cleanups dropped by a controller replica."
 )
 
 // KagentSessionQuiescenceClaimed: Number of session quiescence claims acquired.

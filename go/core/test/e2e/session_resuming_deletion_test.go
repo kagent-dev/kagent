@@ -22,8 +22,8 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
-// The Go ADK startup delay reproduces the router timeout independently of the
-// model protocol. The installed Harness is left intact.
+// The router times out during restore. Ordinary deletion must work while the
+// actor is still RESUMING, even though no runtime can answer the message.
 func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 	t.Parallel()
 	target := interactionTarget(t)
@@ -34,10 +34,11 @@ func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{GenerateName: "interrupted-resume-", Namespace: "kagent"},
 		Spec:       *base.Spec.DeepCopy(),
 	}
-	// The golden actor boots normally and snapshots the marker. Restored startup
-	// exceeds the E2E fixture's 5s parking budget and 10s backend timeout.
+	// The golden actor boots normally. On restore, keep the readiness probe
+	// waiting so neither the router nor cleanup can turn this into deletion of
+	// an already running or suspended actor.
 	harness.Spec.Workload.Command = []string{"/bin/sh", "-c"}
-	harness.Spec.Workload.Args = []string{`if [ -f /data/interrupted-resume ]; then sleep 20; fi; touch /data/interrupted-resume; exec /app`}
+	harness.Spec.Workload.Args = []string{`if [ -f /data/interrupted-resume ]; then exec tail -f /dev/null; fi; touch /data/interrupted-resume; exec /app`}
 	require.NoError(t, kube.Create(t.Context(), harness))
 	t.Cleanup(func() {
 		if err := kube.Delete(context.Background(), harness); err != nil && !apierrors.IsNotFound(err) {
@@ -67,17 +68,13 @@ func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 	_, err = fixture.client.SendMessage(sendCtx, request)
 	require.NoError(t, sendCtx.Err(), "router timeout must precede the client deadline")
 	require.True(t, sendNotAccepted(err), "resume must fail before accepting the message: %v", err)
-	stuck, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
-	require.NoError(t, err)
-	require.NotNil(t, stuck)
-	require.Contains(t, []ateapipb.ActorState{
-		ateapipb.ActorState_ACTOR_STATE_RESUMING, ateapipb.ActorState_ACTOR_STATE_RUNNING,
-		ateapipb.ActorState_ACTOR_STATE_SUSPENDING, ateapipb.ActorState_ACTOR_STATE_SUSPENDED,
-	}, stuck.GetStatus().GetState(), "local cancellation cleanup may already be recovering the actor")
 	current, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
 	require.NoError(t, err)
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, current.GetSession().GetState())
-	t.Logf("actor kagent/%s is %s after message timeout; deleting Session %s", actorName, stuck.GetStatus().GetState(), fixture.sessionID)
+	stuck, err := findSubstrateActor(fixture.ctx, fixture.system, "kagent", actorName)
+	require.NoError(t, err)
+	require.NotNil(t, stuck)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RESUMING, stuck.GetStatus().GetState())
 
 	var deleted *apiv1.DeleteSessionResponse
 	require.NoError(t, wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
@@ -86,14 +83,15 @@ func TestSessionDeletionAfterInterruptedResume(t *testing.T) {
 		if status.Code(err) != codes.Unavailable {
 			return err == nil, err
 		}
-		// Retry backend cleanup only after deletion starts. The old suspension
-		// prerequisite fails while the actor is still RESUMING.
+		// Substrate may still be releasing the interrupted resume. Retry while
+		// the actor is stuck or deleting. A transition through RUNNING or
+		// SUSPENDED would invalidate the regression.
 		actor, readErr := findSubstrateActor(ctx, fixture.system, "kagent", actorName)
 		if readErr != nil {
 			return false, readErr
 		}
-		if actor != nil && actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_DELETING {
-			return false, fmt.Errorf("deletion made no progress from %s: %w", actor.GetStatus().GetState(), err)
+		if state := actor.GetStatus().GetState(); actor != nil && state != ateapipb.ActorState_ACTOR_STATE_RESUMING && state != ateapipb.ActorState_ACTOR_STATE_DELETING {
+			return false, fmt.Errorf("unexpected actor state %s during deletion: %w", state, err)
 		}
 		return false, nil
 	}), "ordinary deletion must recover from an interrupted resume")
@@ -184,7 +182,7 @@ func TestCanceledDispatchSuspendsActorWithoutTurn(t *testing.T) {
 			require.NoError(t, wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
 				actor, err := findSubstrateActor(ctx, fixture.system, "kagent", actorName)
 				return actor != nil && actor.GetMetadata().GetUid() == initial.GetMetadata().GetUid() && actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_SUSPENDED, err
-			}), "canceled delivery must suspend the same actor without an accepted turn; install with sessions.dispatchCleanupDelay: 1s")
+			}), "canceled delivery must suspend the same actor without an accepted turn; use the CI dispatchCleanupDelay of 10s")
 			listed, err := fixture.client.ListTasks(fixture.ctx, &a2apb.ListTasksRequest{Tenant: fixture.tenant, ContextId: fixture.contextID})
 			require.NoError(t, err)
 			require.Empty(t, listed.GetTasks(), "the canceled request must not have admitted a task")

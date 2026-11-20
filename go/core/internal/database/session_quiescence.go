@@ -143,8 +143,8 @@ func (c *Client) FinishSessionQuiescence(ctx context.Context, work *SessionQuies
 		}
 		return execSQL(ctx, tx, `
 			UPDATE session_task_event SET quiescence_pending = FALSE
-			WHERE sequence = $1 AND quiescence_executor_id = $2
-		`, work.Version, work.ExecutorID)
+			WHERE sequence = $1
+		`, work.Version)
 	})
 }
 

@@ -9,11 +9,14 @@ import (
 
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 type workflowStore interface {
@@ -29,7 +32,8 @@ type workflowStore interface {
 	BeginSessionOperation(context.Context, string, apiv1.RuntimeOperation, bool) (*database.SessionOperation, error)
 	ClaimSessionOperation(context.Context, string, uuid.UUID, uuid.UUID) (bool, error)
 	ReleaseRuntimeOperation(context.Context, string, uuid.UUID, uuid.UUID) error
-	GetSessionDispatchCleanup(context.Context, string, uuid.UUID) (*database.SessionDispatchCleanup, error)
+	ClaimSessionDispatchSuspension(context.Context, string, uuid.UUID, uuid.UUID) (*database.SessionDispatchCleanup, error)
+	GetSessionDispatchCleanup(context.Context, string, uuid.UUID, uuid.UUID) (*database.SessionDispatchCleanup, error)
 	FinishSessionDispatchCleanup(context.Context, *database.SessionDispatchCleanup, *database.SessionTaskSnapshot) error
 	FinishSessionOperation(context.Context, string, uuid.UUID, uuid.UUID, string, string, string) (*apiv1.Session, error)
 	GetSessionOperation(context.Context, string, uuid.UUID) (*database.SessionOperation, error)
@@ -41,7 +45,7 @@ type actorClient interface {
 
 // ActorWorkflow runs Session lifecycle operations and post-turn suspension using
 // database claims. Canceled dispatches use separate, best-effort local cleanup
-// that newer messages can supersede without waiting for a claim.
+// that yields to newer messages until suspension is claimed.
 type ActorWorkflow struct {
 	store                workflowStore
 	actors               actorClient
@@ -52,6 +56,7 @@ type ActorWorkflow struct {
 	dispatchCleanupDelay time.Duration
 	// Includes ready, delayed, and executing cleanup requests on this replica.
 	dispatchCleanupCount atomic.Int32
+	dispatchDrops        metric.Int64Counter
 }
 
 // ActorWorkflowConfig sets the polling interval for post-turn recovery and the
@@ -65,7 +70,16 @@ type ActorWorkflowConfig struct {
 // NewActorWorkflow shares a single-slot quiescenceWake hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, config ActorWorkflowConfig, provider metric.MeterProvider) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: config.RecoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider,
+	if provider == nil {
+		provider = noop.NewMeterProvider()
+	}
+	dropped, err := sessionMeter(provider).Int64Counter(conv.KagentSessionDispatchCleanupDropped,
+		metric.WithUnit(conv.KagentSessionDispatchCleanupDroppedUnit), metric.WithDescription(conv.KagentSessionDispatchCleanupDroppedDescription))
+	if err != nil {
+		otel.Handle(fmt.Errorf("create dispatch cleanup counter: %w", err))
+		dropped = noop.Int64Counter{}
+	}
+	return &ActorWorkflow{dispatchDrops: dropped, store: store, actors: actors, recoveryInterval: config.RecoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider,
 		dispatchCleanupDelay: config.DispatchCleanupDelay, dispatchCleanups: make(chan *dispatchCleanup, dispatchCleanupQueueSize)}
 }
 

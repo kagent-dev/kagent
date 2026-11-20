@@ -75,7 +75,8 @@ func (g *Gateway) sendMessage(ctx context.Context, agent types.NamespacedName, r
 		return g.awaitTaskCompletion(ctx, agent, req.Message, task.ID, historyLength)
 	}
 	ctx = a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{apia2a.DispatchHeader: {dispatchID.String()}})
-	defer func() { g.finishSend(ctx, agent, req.Message, dispatchID, err) }()
+	finish := sync.OnceValue(func() error { return g.finishSend(ctx, agent, req.Message, dispatchID, err) })
+	defer finish()
 	client, err := g.dial(ctx, session)
 	if err != nil {
 		return nil, err
@@ -85,7 +86,7 @@ func (g *Gateway) sendMessage(ctx context.Context, agent types.NamespacedName, r
 	result, err = client.SendMessage(ctx, req)
 	if err != nil {
 		_ = closeRuntime()
-		err = g.finishSend(ctx, agent, req.Message, dispatchID, err)
+		err = finish()
 		// Native settlement can pause the runtime before its unary response is
 		// delivered. Recover only this accepted input's durable boundary.
 		// The gRPC SDK maps proxy connection failures to A2A InternalError.
@@ -158,7 +159,8 @@ func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.Namespac
 		// Stopping observation before a result is cancellation, even when the
 		// caller stops iterating without canceling its context.
 		sendErr := error(context.Canceled)
-		defer func() { g.finishSend(ctx, agent, req.Message, dispatchID, sendErr) }()
+		finish := sync.OnceValue(func() error { return g.finishSend(ctx, agent, req.Message, dispatchID, sendErr) })
+		defer finish()
 		client, err := g.dial(ctx, session)
 		if err != nil {
 			sendErr = err
@@ -170,7 +172,7 @@ func (g *Gateway) sendStreamingMessage(ctx context.Context, agent types.Namespac
 			sendErr = err
 			if err != nil {
 				_ = closeRuntime()
-				err = g.finishSend(ctx, agent, req.Message, dispatchID, err)
+				err = finish()
 			}
 			if !yield(event, err) {
 				if err == nil && !isQuiescent(eventTaskState(event)) {

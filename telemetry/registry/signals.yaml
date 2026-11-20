@@ -22,6 +22,17 @@ metrics:
       - ref: kagent.worker.trigger
         requirement_level: required
 
+  - name: kagent.session.dispatch_cleanup.dropped
+    requirement_level: recommended
+    instrument: counter
+    unit: "{cleanup}"
+    brief: Number of dispatch cleanups dropped by a controller replica.
+    note: Count each queue refusal or exhausted retry budget once. Controller shutdown and superseded cleanups are excluded.
+    stability: development
+    attributes:
+      - ref: kagent.dispatch_cleanup.drop_reason
+        requirement_level: required
+
   - name: kagent.push.delivery.claimed
     requirement_level: recommended
     instrument: counter

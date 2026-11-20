@@ -1060,7 +1060,7 @@ func TestGatewayReleasesDispatchAfterCallerDisconnects(t *testing.T) {
 	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
 	_, err := gateway.SendMessage(ctx, gatewayTestRequest())
 	require.Error(t, err)
-	require.Positive(t, store.revokeCalls)
+	require.Equal(t, 1, store.revokeCalls)
 	require.NoError(t, store.revokeContextErr)
 }
 
@@ -1084,7 +1084,7 @@ func TestGatewayClosesRouterBeforeRevokingDispatch(t *testing.T) {
 				_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
 				require.Error(t, err)
 			}
-			require.Positive(t, store.revokeCalls)
+			require.Equal(t, 1, store.revokeCalls)
 		})
 	}
 }
@@ -1131,7 +1131,7 @@ func TestGatewaySuccessfulSendDoesNotQueueDispatchCleanup(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, task, result)
 				}
-				require.Positive(t, store.revokeCalls, "successful sends still revoke unused dispatches")
+				require.Equal(t, 1, store.revokeCalls, "successful sends still revoke unused dispatches")
 				require.Empty(t, store.queuedCleanups, "successful waiting or terminal replies use normal post-turn suspension")
 			})
 		}
@@ -1192,7 +1192,7 @@ func TestGatewayFailedDeliveryQueuesOnlyUnusedDispatch(t *testing.T) {
 			if !scenario.stopEarly {
 				require.Error(t, sendErr)
 			}
-			require.Positive(t, store.revokeCalls)
+			require.Equal(t, 1, store.revokeCalls)
 			require.NoError(t, store.revokeContextErr)
 			if scenario.admitted {
 				require.Empty(t, store.queuedCleanups, "disconnecting must not suspend an active turn")

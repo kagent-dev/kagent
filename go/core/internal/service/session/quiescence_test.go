@@ -289,7 +289,7 @@ func TestCanceledDispatchCleansUpOnlyItsIdleActor(t *testing.T) {
 	}
 }
 
-func TestDispatchCleanupDoesNotBlockNewSendDuringSuspension(t *testing.T) {
+func TestDispatchCleanupBlocksNewTurnOnlyDuringSuspension(t *testing.T) {
 	store, session := lifecycleFixture(t)
 	entered, release := make(chan struct{}), make(chan struct{})
 	actors := &dispatchCleanupTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, beforeSuspend: func(ctx context.Context) {
@@ -316,9 +316,10 @@ func TestDispatchCleanupDoesNotBlockNewSendDuringSuspension(t *testing.T) {
 		t.Fatal("cleanup never reached suspension")
 	}
 	newID := uuid.New()
-	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, newID, ""), "an issued suspension does not block admission")
+	require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, newID, ""), database.ErrDispatchSuspending)
 	close(release)
 	require.Eventually(t, func() bool { return writes.finished.Load() == 1 }, 5*time.Second, time.Millisecond)
+	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, newID, ""))
 	message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("new input"))
 	message.ContextID = session.ContextId
 	task := a2a.NewSubmittedTask(message, message)
@@ -346,7 +347,7 @@ func TestDispatchCleanupRetriesResumeAndSnapshotPersistence(t *testing.T) {
 	require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, id, ""))
 	revoked, err := store.RevokeSessionDispatch(t.Context(), session.Id, id, "canceled")
 	require.NoError(t, err)
-	request := &dispatchCleanup{sessionID: session.Id, cleanupID: revoked.CleanupID, deadline: time.Now().Add(dispatchCleanupBudget)}
+	request := &dispatchCleanup{sessionID: session.Id, cleanupID: revoked.CleanupID, claimID: uuid.New(), deadline: time.Now().Add(dispatchCleanupBudget)}
 	for range 2 {
 		require.Error(t, workflow.attemptDispatchCleanup(t.Context(), request))
 		require.Nil(t, request.work, "a runtime failure retries from current session state")
@@ -354,13 +355,57 @@ func TestDispatchCleanupRetriesResumeAndSnapshotPersistence(t *testing.T) {
 	for range 2 {
 		require.Error(t, workflow.attemptDispatchCleanup(t.Context(), request))
 		require.NotNil(t, request.work, "a successful suspension keeps its outcome for database retries")
+		require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""), database.ErrDispatchSuspending)
 	}
+	checkpoint := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: boundary.TaskId}
+	requestID := uuid.NewString()
+	_, _, err = store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", requestID)
+	require.ErrorIs(t, err, database.ErrSnapshotPending, "a checkpoint must not capture the pre-cleanup snapshot")
 	require.NoError(t, workflow.attemptDispatchCleanup(t.Context(), request))
 	require.EqualValues(t, 3, actors.resumes.Load())
 	require.EqualValues(t, 1, actors.suspends.Load(), "persistence retries must not repeat runtime calls")
-	_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: boundary.TaskId}, "alice", uuid.NewString())
+	_, snapshot, err := store.ReserveSessionCheckpoint(t.Context(), checkpoint, "alice", requestID)
 	require.NoError(t, err)
 	require.Equal(t, "s3://snapshots/snapshot-1", snapshot.URI, "cleanup must replace the prior boundary's snapshot reference")
+}
+
+func TestDispatchCleanupHandlesSuspendFailure(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		code      codes.Code
+		uncertain bool
+	}{
+		{"Given a lost suspend response, when the actor later suspends, assert that cleanup observes it without another call", codes.DeadlineExceeded, true},
+		{"Given a rejected suspend, when the worker retries, assert that it completes the suspension", codes.Aborted, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			store, session := lifecycleFixture(t)
+			actors := &dispatchCleanupTestActors{lifecycleTestActors: &lifecycleTestActors{actors: map[string]*ateapipb.Actor{}}, suspendFailure: scenario.code}
+			workflow := NewActorWorkflow(store, actors, nil, ActorWorkflowConfig{}, nil)
+			session, err := workflow.Create(t.Context(), session)
+			require.NoError(t, err)
+			actor := actors.actors[actorKey("team-a", "session-"+session.Id)]
+			actor.Status.State = ateapipb.ActorState_ACTOR_STATE_RUNNING
+			id := uuid.New()
+			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, id, ""))
+			revoked, err := store.RevokeSessionDispatch(t.Context(), session.Id, id, "cancel")
+			require.NoError(t, err)
+			request := &dispatchCleanup{sessionID: session.Id, cleanupID: revoked.CleanupID, claimID: uuid.New(), deadline: time.Now().Add(dispatchCleanupBudget)}
+			require.Error(t, workflow.attemptDispatchCleanup(t.Context(), request))
+			require.ErrorIs(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""), database.ErrDispatchSuspending)
+			if scenario.uncertain {
+				require.Error(t, workflow.attemptDispatchCleanup(t.Context(), request), "the actor has not completed suspension")
+				actor.Status.State = ateapipb.ActorState_ACTOR_STATE_SUSPENDED
+			}
+			require.NoError(t, workflow.attemptDispatchCleanup(t.Context(), request))
+			if scenario.uncertain {
+				require.EqualValues(t, 1, actors.suspends.Load(), "a late second suspend could interrupt the next turn")
+			} else {
+				require.EqualValues(t, 2, actors.suspends.Load())
+			}
+			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""))
+		})
+	}
 }
 
 func TestDispatchCleanupStopsWhenNewSendSupersedesResume(t *testing.T) {
@@ -380,11 +425,19 @@ func TestDispatchCleanupStopsWhenNewSendSupersedesResume(t *testing.T) {
 			require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, id, ""))
 			revoked, err := store.RevokeSessionDispatch(t.Context(), session.Id, id, "canceled")
 			require.NoError(t, err)
-			request := &dispatchCleanup{sessionID: session.Id, cleanupID: revoked.CleanupID, deadline: time.Now().Add(dispatchCleanupBudget)}
+			request := &dispatchCleanup{sessionID: session.Id, cleanupID: revoked.CleanupID, claimID: uuid.New(), deadline: time.Now().Add(dispatchCleanupBudget)}
 			newID := uuid.New()
+			message := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("new input"))
+			message.ContextID = session.ContextId
+			task := a2a.NewSubmittedTask(message, message)
 			if duringResume {
 				actors.resumeFailures = 0
-				actors.afterResume = func() { require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, newID, "")) }
+				actors.afterResume = func() {
+					require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, newID, ""))
+					hash := sha256.Sum256([]byte(task.ID))
+					_, err := store.CreateRuntimeTask(t.Context(), session.Id, hash[:], task, newID.String())
+					require.NoError(t, err)
+				}
 			} else {
 				require.Error(t, workflow.attemptDispatchCleanup(t.Context(), request))
 				require.NoError(t, store.ReserveSessionDispatch(t.Context(), session.Id, newID, ""))
@@ -392,6 +445,12 @@ func TestDispatchCleanupStopsWhenNewSendSupersedesResume(t *testing.T) {
 			require.NoError(t, workflow.attemptDispatchCleanup(t.Context(), request))
 			require.EqualValues(t, 1, actors.resumes.Load())
 			require.Zero(t, actors.suspends.Load())
+			if duringResume {
+				saved, err := store.GetSessionTask(t.Context(), session.Id, string(task.ID), nil)
+				require.NoError(t, err)
+				require.Equal(t, a2a.TaskStateSubmitted, saved.Status.State)
+				return
+			}
 			current, err := store.RevokeSessionDispatch(t.Context(), session.Id, newID, "new input")
 			require.NoError(t, err)
 			require.NotEqual(t, uuid.Nil, current.CleanupID)
@@ -422,6 +481,7 @@ type dispatchCleanupTestActors struct {
 	resumes        atomic.Int32
 	suspends       atomic.Int32
 	resumeFailures int32
+	suspendFailure codes.Code
 	beforeSuspend  func(context.Context)
 	afterResume    func()
 }
@@ -438,7 +498,9 @@ func (a *dispatchCleanupTestActors) ResumeActor(ctx context.Context, atespace, n
 }
 
 func (a *dispatchCleanupTestActors) SuspendActor(ctx context.Context, atespace, name string) (*ateapipb.Actor, error) {
-	a.suspends.Add(1)
+	if a.suspends.Add(1) == 1 && a.suspendFailure != codes.OK {
+		return nil, status.Error(a.suspendFailure, "suspend failed")
+	}
 	if a.beforeSuspend != nil {
 		a.beforeSuspend(ctx)
 	}
@@ -517,7 +579,7 @@ type backoffCleanupTestStore struct {
 	calls map[string][]time.Time
 }
 
-func (s *backoffCleanupTestStore) GetSessionDispatchCleanup(_ context.Context, sessionID string, _ uuid.UUID) (*database.SessionDispatchCleanup, error) {
+func (s *backoffCleanupTestStore) GetSessionDispatchCleanup(_ context.Context, sessionID string, _, _ uuid.UUID) (*database.SessionDispatchCleanup, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls[sessionID] = append(s.calls[sessionID], time.Now())

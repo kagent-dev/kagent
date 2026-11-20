@@ -473,17 +473,17 @@ func TestDispatchCleanupRejectsLateDeliveryWithoutBlockingNewAdmission(t *testin
 	require.NoError(t, err)
 	require.Equal(t, uuid.Nil, again.CleanupID, "a deferred second revocation must not enqueue cleanup again")
 
-	work, err := client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID)
+	work, err := client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID, uuid.Nil)
 	require.NoError(t, err)
 	_, version, err := client.GetVersionedSessionTask(ctx, session.Id, string(waiting.ID))
 	require.NoError(t, err)
 	waiting.Status.State = a2a.TaskStateWorking
 	_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("late delivery"), waiting, waiting, id.String())
 	require.ErrorIs(t, err, ErrFailedPrecondition, "the canceled dispatch cannot become valid during cleanup")
-	// Cleanup never takes admission. A new send replaces its expired ID.
+	// A new send can replace the revoked dispatch before suspension is claimed.
 	newID := uuid.New()
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, ""))
-	_, err = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID)
+	_, err = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID, uuid.Nil)
 	require.ErrorIs(t, err, ErrNotFound)
 	require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "obsolete", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
 	_, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("new delivery"), waiting, waiting, newID.String())
@@ -499,9 +499,25 @@ func TestDispatchCleanupRecordsOnlyItsCapturedSnapshot(t *testing.T) {
 	require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, id, ""))
 	revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "canceled-input")
 	require.NoError(t, err)
-	work, err := client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID)
+	owner := uuid.New()
+	work, err := client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, owner)
 	require.NoError(t, err)
 	require.Equal(t, string(waiting.ID), work.TaskID)
+	// Even a second replica observing the same failed send cannot acquire or release this claim.
+	_, err = client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, uuid.New())
+	require.ErrorIs(t, err, ErrNotFound)
+	again, err := client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, owner)
+	require.NoError(t, err, "the owner can recover a lost database claim response")
+	require.Equal(t, work.CleanupID, again.CleanupID)
+	attempt := newSessionTask(uuid.NewString(), "next input")
+	attempt.ContextID = session.ContextId
+	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("invalid claim"), attempt, owner.String())
+	require.ErrorIs(t, err, ErrFailedPrecondition, "a suspension claim cannot authorize a turn")
+	_, err = client.RevokeSessionDispatch(ctx, session.Id, owner, "never delivered")
+	require.NoError(t, err)
+	require.Error(t, client.FinishSessionDispatchCleanup(ctx, work, &SessionTaskSnapshot{}))
+	require.ErrorIs(t, client.ReserveSessionDispatch(ctx, session.Id, uuid.New(), ""), ErrDispatchSuspending,
+		"a rolled-back snapshot write must retain the claim")
 	snapshot := &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/after-cleanup", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}
 	require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, snapshot))
 	// Completion is idempotent and can never overwrite a later snapshot.
@@ -542,7 +558,7 @@ func TestDispatchCleanupDefersToPostTurnSuspension(t *testing.T) {
 				owner, err = client.ClaimSessionQuiescence(ctx)
 				require.NoError(t, err)
 			}
-			_, err = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID)
+			_, err = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID, uuid.Nil)
 			require.ErrorIs(t, err, ErrNotFound, "post-turn suspension owns both queued and claimed work")
 			if !claimed {
 				owner, err = client.ClaimSessionQuiescence(ctx)
@@ -579,13 +595,13 @@ func TestDispatchCleanupRacesNewSend(t *testing.T) {
 		revoked, err := client.RevokeSessionDispatch(ctx, session.Id, id, "canceled")
 		require.NoError(t, err)
 		var work *SessionDispatchCleanup
-		var readErr, sendErr error
+		var claimErr, sendErr error
 		newID := uuid.New()
 		start := make(chan struct{})
 		var calls sync.WaitGroup
 		calls.Go(func() {
 			<-start
-			work, readErr = client.GetSessionDispatchCleanup(ctx, session.Id, revoked.CleanupID)
+			work, claimErr = client.ClaimSessionDispatchSuspension(ctx, session.Id, revoked.CleanupID, uuid.New())
 		})
 		calls.Go(func() {
 			<-start
@@ -593,11 +609,13 @@ func TestDispatchCleanupRacesNewSend(t *testing.T) {
 		})
 		close(start)
 		calls.Wait()
-		require.NoError(t, sendErr, "cleanup never blocks a new send")
-		if readErr == nil {
+		if claimErr == nil {
+			require.ErrorIs(t, sendErr, ErrDispatchSuspending)
 			require.NoError(t, client.FinishSessionDispatchCleanup(ctx, work, nil))
+			require.NoError(t, client.ReserveSessionDispatch(ctx, session.Id, newID, ""))
 		} else {
-			require.ErrorIs(t, readErr, ErrNotFound)
+			require.ErrorIs(t, claimErr, ErrNotFound)
+			require.NoError(t, sendErr)
 		}
 		current, err := client.RevokeSessionDispatch(ctx, session.Id, newID, "new input")
 		require.NoError(t, err)

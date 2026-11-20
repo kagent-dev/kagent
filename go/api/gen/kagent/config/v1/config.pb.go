@@ -1269,7 +1269,7 @@ type SessionsConfig struct {
 	ExpirationInterval         *durationpb.Duration `protobuf:"bytes,3,opt,name=expiration_interval,json=expirationInterval,proto3" json:"expiration_interval,omitempty"`
 	QuiescenceRecoveryInterval *durationpb.Duration `protobuf:"bytes,4,opt,name=quiescence_recovery_interval,json=quiescenceRecoveryInterval,proto3" json:"quiescence_recovery_interval,omitempty"`
 	// Grace period before best-effort cleanup of a canceled, unused dispatch.
-	// New messages supersede cleanup. Default 120s; zero disables dispatch cleanup.
+	// New messages supersede cleanup until suspension is claimed. Default 120s; zero disables cleanup.
 	DispatchCleanupDelay *durationpb.Duration `protobuf:"bytes,6,opt,name=dispatch_cleanup_delay,json=dispatchCleanupDelay,proto3" json:"dispatch_cleanup_delay,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache

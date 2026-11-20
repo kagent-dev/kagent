@@ -23,7 +23,7 @@ import (
 // or idle lifecycle operation currently owns the session.
 var ErrDispatchBusy = errors.New("session temporarily unavailable for dispatch")
 
-// ErrDispatchSuspending is ErrDispatchBusy because a post-turn suspension holds its
+// ErrDispatchSuspending is ErrDispatchBusy because a session suspension holds its
 // claim. The suspension is running, or its worker was lost and its outcome is
 // unknown: the idle worker keeps the claim rather than guess, and nothing takes it
 // over on a timeout. Only a crash recovery or Delete retires it, so the send path
@@ -120,7 +120,7 @@ func (c *Client) RevokeSessionDispatch(ctx context.Context, sessionID string, di
 		tag, err := tx.Exec(ctx, `
 			UPDATE session SET dispatch_id = $3,
 			    dispatch_expires_at = LEAST(dispatch_expires_at, clock_timestamp())
-			WHERE id = $1 AND dispatch_id = $2
+			WHERE id = $1 AND dispatch_id = $2 AND isfinite(dispatch_expires_at)
 		`, session.ID, dispatchID, cleanupID)
 		if err != nil || tag.RowsAffected() == 0 {
 			return err
@@ -228,7 +228,7 @@ func (c *Client) writeRuntimeTask(ctx context.Context, sessionID string, expecte
 			tag, err := tx.Exec(ctx, `
 				UPDATE session SET dispatch_id = CASE WHEN $3 THEN dispatch_id END,
 				    dispatch_expires_at = CASE WHEN $3 THEN dispatch_expires_at END
-				WHERE id = $1 AND dispatch_id = $2 AND dispatch_expires_at > clock_timestamp()
+				WHERE id = $1 AND dispatch_id = $2 AND isfinite(dispatch_expires_at) AND dispatch_expires_at > clock_timestamp()
 			`, session.ID, dispatchID, stored != nil && stored.Status.State == task.Status.State)
 			if err != nil {
 				return err
@@ -860,11 +860,13 @@ func requireSettledRuntime(ctx context.Context, db dbExecutor, historyID uuid.UU
 		Suspending, Pending bool
 	}
 	state, err := queryOne(ctx, db, `
-		SELECT EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
-		        AND quiescence_pending AND quiescence_executor_id IS NOT NULL) AS suspending,
+		SELECT COALESCE(s.dispatch_expires_at = 'infinity', FALSE)
+		        OR EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1
+		            AND quiescence_pending AND quiescence_executor_id IS NOT NULL) AS suspending,
 		    EXISTS (SELECT 1 FROM session_task_event WHERE history_id = $1 AND NOT published)
-		    OR EXISTS (SELECT 1 FROM session WHERE history_id = $1 AND dispatch_expires_at > clock_timestamp()
-		        AND ($2::text = '' OR dispatch_id::text <> $2)) AS pending
+		        OR COALESCE(s.dispatch_expires_at > clock_timestamp()
+		            AND ($2::text = '' OR s.dispatch_id::text <> $2), FALSE) AS pending
+		FROM session s WHERE s.history_id = $1
 	`, pgx.RowToStructByName[unsettled], historyID, dispatchID)
 	if err != nil {
 		return err

@@ -88,6 +88,9 @@ KAGENT_CAPTURE_INPUT_TRUNCATED: Final = "kagent.capture.input_truncated"
 KAGENT_CAPTURE_OUTPUT_TRUNCATED: Final = "kagent.capture.output_truncated"
 """Whether the captured output messages or tool result were shortened to the capture budget."""
 
+KAGENT_DISPATCH_CLEANUP_DROP_REASON: Final = "kagent.dispatch_cleanup.drop_reason"
+"""Why a controller stopped tracking a failed dispatch cleanup."""
+
 KAGENT_GC_STAGE: Final = "kagent.gc.stage"
 """The stage of a runtime revision garbage collection attempt."""
 
@@ -193,6 +196,12 @@ KAGENT_RUNTIME_REVISION_GC_PENDING: Final = "kagent.runtime_revision.gc.pending"
 KAGENT_RUNTIME_REVISION_GC_PENDING_UNIT: Final = "{revision}"
 KAGENT_RUNTIME_REVISION_GC_PENDING_DESCRIPTION: Final = (
     "Number of cleanup-eligible runtime revisions in the last successful discovery."
+)
+
+KAGENT_SESSION_DISPATCH_CLEANUP_DROPPED: Final = "kagent.session.dispatch_cleanup.dropped"
+KAGENT_SESSION_DISPATCH_CLEANUP_DROPPED_UNIT: Final = "{cleanup}"
+KAGENT_SESSION_DISPATCH_CLEANUP_DROPPED_DESCRIPTION: Final = (
+    "Number of dispatch cleanups dropped by a controller replica."
 )
 
 KAGENT_SESSION_QUIESCENCE_CLAIMED: Final = "kagent.session.quiescence.claimed"
@@ -306,6 +315,15 @@ class GenAiProviderNameValues(StrEnum):
     """[Mistral AI](https://mistral.ai/)"""
     MOONSHOT_AI = "moonshot_ai"
     """[Moonshot AI](https://www.moonshot.ai/)"""
+
+
+class KagentDispatchCleanupDropReasonValues(StrEnum):
+    """Values of KAGENT_DISPATCH_CLEANUP_DROP_REASON."""
+
+    QUEUE_FULL = "queue_full"
+    """The replica already held its maximum outstanding cleanups."""
+    RETRY_BUDGET_EXHAUSTED = "retry_budget_exhausted"
+    """The cleanup deadline expired before completion."""
 
 
 class KagentGcStageValues(StrEnum):

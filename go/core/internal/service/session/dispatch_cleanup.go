@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/client-go/util/workqueue"
@@ -16,6 +17,7 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 const (
@@ -32,6 +34,9 @@ const (
 type dispatchCleanup struct {
 	sessionID string
 	cleanupID uuid.UUID
+	claimID   uuid.UUID
+	uncertain bool // An unanswered SuspendActor may still finish. Only observe it on retry.
+	notBefore time.Time
 	deadline  time.Time
 	work      *database.SessionDispatchCleanup
 	snapshot  *database.SessionTaskSnapshot
@@ -39,8 +44,7 @@ type dispatchCleanup struct {
 
 // QueueDispatchCleanup schedules best-effort cleanup after an unused dispatch is
 // revoked and its router connection is closed. A configurable grace period lets
-// users retry first; zero disables cleanup. New sends supersede cleanup without
-// waiting for it.
+// users retry first; zero disables cleanup. New sends supersede cleanup until it claims suspension.
 func (w *ActorWorkflow) QueueDispatchCleanup(ctx context.Context, sessionID string, cleanupID uuid.UUID) {
 	if w.dispatchCleanupDelay == 0 {
 		return
@@ -48,10 +52,12 @@ func (w *ActorWorkflow) QueueDispatchCleanup(ctx context.Context, sessionID stri
 	// Bound the whole queue, including retries waiting in the delaying queue.
 	if w.dispatchCleanupCount.Add(1) > dispatchCleanupQueueSize {
 		w.dispatchCleanupCount.Add(-1)
+		w.dispatchDrops.Add(ctx, 1, metric.WithAttributes(conv.KagentDispatchCleanupDropReasonKey.String(conv.KagentDispatchCleanupDropReasonQueueFull)))
 		logging.FromContext(ctx).WarnContext(ctx, "dispatch cleanup queue full", "session_id", sessionID)
 		return
 	}
-	request := &dispatchCleanup{sessionID: sessionID, cleanupID: cleanupID, deadline: time.Now().Add(w.dispatchCleanupDelay).Add(dispatchCleanupBudget)}
+	notBefore := time.Now().Add(w.dispatchCleanupDelay)
+	request := &dispatchCleanup{sessionID: sessionID, cleanupID: cleanupID, claimID: uuid.New(), notBefore: notBefore, deadline: notBefore.Add(dispatchCleanupBudget)}
 	w.dispatchCleanups <- request // A counted request always has room in this buffer.
 }
 
@@ -76,7 +82,8 @@ func (w *ActorWorkflow) runDispatchCleanups(ctx context.Context) {
 				} else {
 					queue.Forget(request)
 					w.dispatchCleanupCount.Add(-1)
-					if err != nil {
+					if err != nil && ctx.Err() == nil {
+						w.dispatchDrops.Add(ctx, 1, metric.WithAttributes(conv.KagentDispatchCleanupDropReasonKey.String(conv.KagentDispatchCleanupDropReasonRetryBudgetExhausted)))
 						logging.FromContext(ctx).WarnContext(ctx, "dispatch cleanup stopped", "session_id", request.sessionID, "error", err)
 					}
 				}
@@ -87,7 +94,7 @@ func (w *ActorWorkflow) runDispatchCleanups(ctx context.Context) {
 	for {
 		select {
 		case request := <-w.dispatchCleanups:
-			queue.AddAfter(request, time.Until(request.deadline.Add(-dispatchCleanupBudget)))
+			queue.AddAfter(request, time.Until(request.notBefore))
 		case <-ctx.Done():
 			queue.ShutDown()
 			workers.Wait()
@@ -107,9 +114,9 @@ func (w *ActorWorkflow) attemptDispatchCleanup(ctx context.Context, request *dis
 	if request.work == nil {
 		attempt, cancelAttempt := context.WithTimeout(ctx, dispatchCleanupAttemptTimeout)
 		defer cancelAttempt()
-		work, err := w.store.GetSessionDispatchCleanup(attempt, request.sessionID, request.cleanupID)
+		work, err := w.store.GetSessionDispatchCleanup(attempt, request.sessionID, request.cleanupID, request.claimID)
 		if err == nil {
-			request.snapshot, err = w.cleanAbandonedActor(attempt, work)
+			request.snapshot, err = w.cleanAbandonedActor(attempt, request, work)
 		}
 		if err != nil {
 			if errors.Is(err, database.ErrNotFound) || errors.Is(err, database.ErrFailedPrecondition) {
@@ -122,7 +129,7 @@ func (w *ActorWorkflow) attemptDispatchCleanup(ctx context.Context, request *dis
 	finish, cancelFinish := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancelFinish()
 	err := w.store.FinishSessionDispatchCleanup(finish, request.work, request.snapshot)
-	if errors.Is(err, database.ErrNotFound) || errors.Is(err, database.ErrConflict) {
+	if errors.Is(err, database.ErrNotFound) {
 		return nil
 	}
 	return err
@@ -130,7 +137,7 @@ func (w *ActorWorkflow) attemptDispatchCleanup(ctx context.Context, request *dis
 
 // cleanAbandonedActor leaves crashed, missing, or replaced actors to explicit
 // recovery. A RESUMING actor must finish resuming before Substrate can suspend it.
-func (w *ActorWorkflow) cleanAbandonedActor(ctx context.Context, work *database.SessionDispatchCleanup) (*database.SessionTaskSnapshot, error) {
+func (w *ActorWorkflow) cleanAbandonedActor(ctx context.Context, request *dispatchCleanup, work *database.SessionDispatchCleanup) (*database.SessionTaskSnapshot, error) {
 	revision, err := w.store.GetRuntimeRevision(ctx, work.Session.GetPreparedRevision())
 	if err != nil {
 		return nil, err
@@ -151,7 +158,8 @@ func (w *ActorWorkflow) cleanAbandonedActor(ctx context.Context, work *database.
 		}
 		return nil, err
 	}
-	switch actor.GetStatus().GetState() {
+	state := actor.GetStatus().GetState()
+	switch state {
 	case ateapipb.ActorState_ACTOR_STATE_CRASHED:
 		return nil, nil
 	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
@@ -159,6 +167,13 @@ func (w *ActorWorkflow) cleanAbandonedActor(ctx context.Context, work *database.
 			return nil, nil
 		}
 		return actorVolumeSnapshot(actor)
+	}
+	// A suspend whose reply was lost may still finish. Observe its outcome
+	// without issuing another mutation that could arrive after admission reopens.
+	if request.uncertain {
+		return nil, fmt.Errorf("awaiting issued suspension: actor is %s", state)
+	}
+	switch state {
 	case ateapipb.ActorState_ACTOR_STATE_RESUMING:
 		resumed, err := w.actors.ResumeActor(ctx, revision.ActorTemplateAtespace, substrate.ActorName(work.Session.Id))
 		if err != nil {
@@ -173,11 +188,15 @@ func (w *ActorWorkflow) cleanAbandonedActor(ctx context.Context, work *database.
 	default:
 		return nil, fmt.Errorf("actor is busy in state %s", actor.GetStatus().GetState())
 	}
-	// Resume can take time. A message admitted meanwhile supersedes this work.
-	// This check cannot retract a Suspend already issued: Substrate may complete
-	// it after our timeout, and an overlapping message may need a client retry.
-	if _, err := w.store.GetSessionDispatchCleanup(ctx, work.Session.Id, work.CleanupID); err != nil {
+	claimed, err := w.store.ClaimSessionDispatchSuspension(ctx, work.Session.Id, request.cleanupID, request.claimID)
+	if err != nil {
 		return nil, err
 	}
-	return w.suspendVerifiedActor(ctx, revision, actor)
+	*work = *claimed
+	snapshot, err := w.suspendVerifiedActor(ctx, revision, actor)
+	// Substrate returns these application errors when it rejects or aborts the
+	// operation. A retry can continue under the claim. A transport error leaves
+	// execution uncertain, so subsequent attempts only read the actor.
+	request.uncertain = err != nil && status.Code(err) != codes.Aborted && status.Code(err) != codes.FailedPrecondition
+	return snapshot, err
 }

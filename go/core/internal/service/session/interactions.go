@@ -295,7 +295,7 @@ func (s *InteractionService) reserveDispatch(ctx context.Context, sessionID, ini
 	}
 }
 
-// errSuspensionUnsettled is reserveDispatch's answer when a claimed post-turn
+// errSuspensionUnsettled is reserveDispatch's answer when a claimed
 // suspension still held the Session at the end of the wait. PrepareSend recovers
 // it or answers ErrSendNotAccepted, so it never reaches a client.
 var errSuspensionUnsettled = errors.New("runtime suspension has not settled")

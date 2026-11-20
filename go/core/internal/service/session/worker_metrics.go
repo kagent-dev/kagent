@@ -26,9 +26,12 @@ const (
 	workBacklog  workTrigger = conv.KagentWorkerTriggerBacklog
 )
 
+func sessionMeter(provider metric.MeterProvider) metric.Meter {
+	return provider.Meter("github.com/kagent-dev/kagent/go/core/internal/service/session", metric.WithInstrumentationVersion(version.Version))
+}
+
 func newWorkClaimCounter(ctx context.Context, provider metric.MeterProvider, name, unit, description string) (metric.Int64Counter, error) {
-	counter, err := provider.Meter("github.com/kagent-dev/kagent/go/core/internal/service/session",
-		metric.WithInstrumentationVersion(version.Version)).Int64Counter(name,
+	counter, err := sessionMeter(provider).Int64Counter(name,
 		metric.WithDescription(description),
 		metric.WithUnit(unit))
 	if err != nil {
