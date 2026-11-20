@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 /** The note beside a submit button that invalid fields hold back. */
-export const FIX_FIELDS_MESSAGE = "Fill in the required (*) fields. Fix any errors.";
+export const FIX_FIELDS_MESSAGE = "Fill in the required (*) fields.";
 
 /** One problem with a draft, tied to the field that shows it. */
 export interface FieldIssue<F extends string = string> {

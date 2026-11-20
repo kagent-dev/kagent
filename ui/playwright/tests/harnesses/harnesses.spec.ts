@@ -95,7 +95,7 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     // A tag can move under a running agent, and the CRD refuses one.
     await expect(page.getByText("The workload image must be pinned by sha256 digest.")).toBeVisible();
     await expect(page.getByTestId("harness-submit")).toHaveAttribute("aria-disabled", "true");
-    await expect(page.getByTestId("harness-blocked")).toHaveText("Fill in the required (*) fields. Fix any errors.");
+    await expect(page.getByTestId("harness-blocked")).toHaveText("Fill in the required (*) fields.");
     await expect(page).toHaveURL(/\/harnesses\/new(\?|$)/);
     await page.getByTestId("harness-image").fill("");
   });
