@@ -70,8 +70,8 @@ CLI binaries, checksums, and commit-specific chart archives.
 - **Git**
 - **Go** (v1.27.3+)
 - **Helm**
-- **Kind** (v0.27.0+)
-- **kubectl** (v1.33.4+)
+- **Kind** (v0.33.0+)
+- **kubectl** (v1.36.0+)
 - **Make**
 - **Node.js** (v24.13.0+) with **Corepack/Yarn**
 - **uv** (v0.10.4+)
