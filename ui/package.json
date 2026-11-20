@@ -67,7 +67,8 @@
     "vitest": "^4.1.12"
   },
   "resolutions": {
-    "minimatch": "^11.0.1"
+    "minimatch": "^11.0.1",
+    "dompurify": "^3.4.18"
   },
   "msw": {
     "workerDirectory": [
