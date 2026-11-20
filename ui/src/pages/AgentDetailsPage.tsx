@@ -80,7 +80,7 @@ export function AgentDetailsPage() {
   const agent = useAgent(agentNamespace, data?.agent ? bareName(data.agent) : undefined);
   const agentSpec = agent.data?.resource.spec;
   const egressRefs = agentSpec?.egressPolicyRefs ?? [];
-  const back = backLinkState(useLocation(), "Back to conversation details");
+  const back = backLinkState(useLocation(), "Back to chat details");
 
   // A 404 is a different answer from a failed request: the controller told us this
   // instance does not exist — or that it is not ours, which the API reports the same

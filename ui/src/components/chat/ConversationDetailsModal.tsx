@@ -55,7 +55,7 @@ export function ConversationDetailsModal({
       onCancel={onClose}
       footer={null}
       width={720}
-      title="Conversation details"
+      title="Chat details"
       data-testid="conversation-details-modal"
     >
       {instance.error ? (

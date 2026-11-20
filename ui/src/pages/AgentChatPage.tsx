@@ -602,13 +602,13 @@ export function AgentChatPage() {
                     meant leaving the conversation to read four facts about it and then
                     finding the way back — reference that costs a navigation is
                     reference nobody consults. */}
-                <Tooltip title="Conversation details" placement="right">
+                <Tooltip title="Chat details" placement="right">
                   <Button
                     type="text"
                     size="small"
                     icon={<FileText size={16} aria-hidden />}
                     onClick={() => setShowingDetails(true)}
-                    aria-label="Conversation details"
+                    aria-label="Chat details"
                     data-testid="chat-details"
                     css={iconControlStyles(theme)}
                   />
