@@ -556,16 +556,17 @@ export function AgentTemplateForm({
                       />
                     )}
                   </Field>
-                  <Field readOnly={readOnly} label="When to use it" required {...fieldFor(`subAgent:${index}:description`)}>
-                    <Input
-                      data-testid={`template-form-sub-agent-description-${index}`}
-                      value={tool.description}
-                      placeholder={placeholder("Review a change before it merges.")}
-                      onChange={(event) => updateSubAgent(index, { description: event.target.value })}
-                      {...readOnlyInput}
-                    />
-                  </Field>
                 </FieldRow>
+                <Field readOnly={readOnly} label="When to use it" required {...fieldFor(`subAgent:${index}:description`)} css={rowField}>
+                  <Input.TextArea
+                    data-testid={`template-form-sub-agent-description-${index}`}
+                    value={tool.description}
+                    placeholder={placeholder("Review a change before it merges.")}
+                    autoSize={{ minRows: 2, maxRows: 6 }}
+                    onChange={(event) => updateSubAgent(index, { description: event.target.value })}
+                    {...readOnlyInput}
+                  />
+                </Field>
               </FormRow>
             ))}
           </FormRowList>

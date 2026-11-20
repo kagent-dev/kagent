@@ -136,12 +136,13 @@ describe("new agent template page", () => {
     for (const field of ["Model configuration", "Description", "System prompt", "MCP server tools", "Agent templates as tools", "Labels"]) {
       expect(markOn(field), field).toBe("optional");
     }
-    // An agent template tool card leads with its Name.
+    // An agent template tool card leads with its Name, and "When to use it" is a text area.
     const card = screen.getByTestId("template-form-sub-agent-0");
     expect([...card.querySelectorAll(".ant-form-item-label label")].map((label) => label.textContent?.replace("*(required)", ""))).toEqual(
       ["Name", "Agent template", "When to use it"],
     );
     expect(within(card).getByText("What the agent calls this tool.")).toBeInTheDocument();
+    expect(screen.getByTestId("template-form-sub-agent-description-0").tagName).toBe("TEXTAREA");
     // Label rows share one pair of column titles: Key is required, Value optional.
     const labels = screen.getByTestId("template-form-labels");
     expect(within(labels).getByText("Key").querySelector('[data-testid="field-required"]')).not.toBeNull();
