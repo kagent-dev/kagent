@@ -2,9 +2,9 @@
 import json
 import logging
 import os
+from pathlib import Path
 from random import randint
 
-import uvicorn
 from crewai.flow import Flow, listen, persist, start
 from kagent.core import materialize_from_bootstrap
 from kagent.crewai import KAgentApp
@@ -15,7 +15,6 @@ from poem_flow.crews.poem_crew.poem_crew import PoemCrew
 os.makedirs("output", exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class PoemState(BaseModel):
@@ -78,24 +77,11 @@ def plot():
 # To integrate with Kagent, just replace the kickoff above with the KAgentApp code below
 def main():
     """Main entry point to run the KAgent CrewAI server."""
-    with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
-        agent_card = json.load(f)
-
     materialize_from_bootstrap("/config")
+    agent_card = json.loads(Path("/config/agent-card.json").read_text())
     app = KAgentApp(crew=PoemFlow(), agent_card=agent_card)
 
-    server = app.build()
-
-    port = int(os.getenv("PORT", "8080"))
-    host = os.getenv("HOST", "0.0.0.0")
-    logger.info(f"Starting server on {host}:{port}")
-
-    uvicorn.run(
-        server,
-        host=host,
-        port=port,
-        log_level="info",
-    )
+    app.build().run()
 
 
 if __name__ == "__main__":

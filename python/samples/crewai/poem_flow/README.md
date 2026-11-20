@@ -26,61 +26,21 @@ If you wish to use the memory persistence integration with KAgent, edit `poem_fl
      --dry-run=client -o yaml | kubectl apply -f -
    ```
 
-3. Run the image through a BYO `Harness` and matching `AgentTemplate`; see the
-   current examples and E2E fixtures for the resource shape.
+3. Configure a BYO `Harness` with this image and create an `Agent` that references it.
+   Send messages to the Agent through the [A2A gateway](../../../../docs/architecture/a2a-transports.md).
 
 When interacting with the agent, you do not need to provide any input because the design of the flow does not take in user input for its tasks.
-
-## Local Development
-
-1. **Install dependencies from the parent Python directory**:
-
-   Navigate to the main Python directory and install all workspace dependencies:
-
-   ```bash
-   cd ../../..  # Go to /kagent/python
-   uv sync --all-extras
-   ```
-
-2. **Set environment variables**:
-
-   ```bash
-   # Load process settings from /config/config.json (see Configuration).
-   export OPENAI_API_KEY="..."
-   ```
-
-3. **Run the agent server**:
-
-   From the main Python directory:
-
-   ```bash
-   uv run poem-flow
-   ```
-
-   Or from the sample directory:
-
-   ```bash
-   cd samples/crewai/poem_flow
-   uv run poem-flow
-   ```
 
 ## Configuration
 
 The agent can be configured via environment variables:
 
 - `GEMINI_API_KEY`: Required for LLM access
-- `PORT`: Server port (default: 8080)
-- `HOST`: Server host (default: 0.0.0.0)
+
+The runtime configuration selects the A2A gRPC address (default `[::]:80`). Substrate probes `GET /readyz` on port `8081`.
 
 ### Runtime configuration file
 
 Managed entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
 to fetch and materialize the controller bundle before `KAgentConfig.from_file()`.
-The file loader does not bootstrap. For a standalone process, create the file and
-load it directly:
-
-```json
-{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
-```
-
 Provider credentials and standard `OTEL_*` overrides remain environment inputs.

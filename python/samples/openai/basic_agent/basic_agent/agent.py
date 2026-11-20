@@ -7,17 +7,14 @@ This sample demonstrates how to create a simple OpenAI agent that can:
 - Maintain conversation history via sessions
 """
 
+import json
 import logging
 from pathlib import Path
 
-from a2a.types import AgentCard
 from agents.agent import Agent
 from agents.tool import function_tool
-from google.protobuf.json_format import ParseDict
 from kagent.core import KAgentConfig, materialize_from_bootstrap
 from kagent.openai import KAgentApp
-
-logger = logging.getLogger(__name__)
 
 SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
@@ -77,48 +74,17 @@ agent = Agent(
 )
 
 
-# Agent card for A2A protocol
-agent_card = ParseDict(
-    {
-        "name": "basic-openai-agent",
-        "description": "A basic OpenAI agent with calculator and weather tools",
-        "version": "0.1.0",
-        "supportedInterfaces": [{"url": "http://localhost:8080", "protocolBinding": "JSONRPC"}],
-        "capabilities": {"streaming": True},
-        "defaultInputModes": ["text/plain"],
-        "defaultOutputModes": ["text/plain"],
-        "skills": [
-            {
-                "id": "basic",
-                "name": "Basic Assistant",
-                "description": "Can perform calculations and get weather information",
-                "tags": ["calculator", "weather", "assistant"],
-            }
-        ],
-    },
-    AgentCard(),
-)
-
 materialize_from_bootstrap("/config")
 config = KAgentConfig.from_file()
 
 # Create KAgent app
 app = KAgentApp(
     agent=agent,
-    agent_card=agent_card,
+    agent_card=json.loads(Path("/config/agent-card.json").read_text()),
     config=config,
 )
 
 
-# Build the FastAPI application
-fastapi_app = app.build()
-
-
 if __name__ == "__main__":
-    import uvicorn
-
     logging.basicConfig(level=logging.INFO)
-    logger.info("Starting Basic OpenAI Agent...")
-    logger.info("Server will be available at http://0.0.0.0:8080")
-
-    uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
+    app.build().run()

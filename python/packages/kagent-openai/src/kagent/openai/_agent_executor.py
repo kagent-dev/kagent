@@ -31,8 +31,8 @@ from a2a.types import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from agents import SQLiteSession
 from agents.agent import Agent
-from agents.memory.session import SessionABC
 from agents.run import Runner
 from kagent.core.a2a import now_timestamp
 from pydantic import BaseModel
@@ -67,23 +67,21 @@ class OpenAIAgentExecutor(AgentExecutor):
         self,
         *,
         agent: Agent | Callable[[], Agent],
-        app_name: str,
-        session_factory: Callable[[str, str], SessionABC] | None = None,
         config: OpenAIAgentExecutorConfig | None = None,
+        session_db_path: str | None = None,
     ):
         """Initialize the executor.
 
         Args:
             agent: OpenAI Agent instance or factory function that returns an agent
-            app_name: Application name for session management
-            session_factory: Optional factory for creating OpenAI Agents SDK sessions
             config: Optional executor configuration
+            session_db_path: SQLite file holding conversation history per A2A context;
+                without it each turn sees only the current message
         """
         super().__init__()
         self._agent = agent
-        self.app_name = app_name
-        self._session_factory = session_factory
         self._config = config or OpenAIAgentExecutorConfig()
+        self._session_db_path = session_db_path
 
     def _resolve_agent(self) -> Agent:
         """Resolve the agent, handling both instances and factory functions."""
@@ -96,12 +94,12 @@ class OpenAIAgentExecutor(AgentExecutor):
         self,
         agent: Agent,
         user_input: str,
-        session: SessionABC | None,
         context: RequestContext,
         event_queue: EventQueue,
     ) -> None:
         """Stream agent execution events and convert them to A2A events."""
-        session_context = SessionContext(session_id=session.session_id)
+        session_context = SessionContext(session_id=context.context_id)
+        session = SQLiteSession(context.context_id, self._session_db_path) if self._session_db_path else None
         emitted_text = False
 
         try:
@@ -155,6 +153,9 @@ class OpenAIAgentExecutor(AgentExecutor):
         except Exception as e:
             logger.error(f"Error during agent execution: {e}", exc_info=True)
             raise
+        finally:
+            if session is not None:
+                session.close()
 
     @override
     async def cancel(self, context: RequestContext, event_queue: EventQueue):
@@ -186,10 +187,6 @@ class OpenAIAgentExecutor(AgentExecutor):
                 )
             )
 
-        # Extract session ID from context
-        session_id = getattr(context, "session_id", None) or context.context_id
-        user_id = getattr(context, "user_id", "admin@kagent.dev")
-
         # Send working status
         await event_queue.enqueue_event(
             TaskStatusUpdateEvent(
@@ -209,17 +206,11 @@ class OpenAIAgentExecutor(AgentExecutor):
             # Get user input from A2A message
             user_input = context.get_user_input()
 
-            # Create session if factory is provided
-            session = None
-            if self._session_factory:
-                session = self._session_factory(session_id, user_id)
-
             # Stream agent execution
             await asyncio.wait_for(
                 self._stream_agent_events(
                     agent,
                     user_input,
-                    session,
                     context,
                     event_queue,
                 ),

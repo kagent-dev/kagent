@@ -34,11 +34,11 @@ The registry describes the contract the runtimes are moving to. The next section
 | --- | --- | --- | --- | --- | --- |
 | Go ADK | `adk-go` | `otelgrpc` or `otelhttp` SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's own | `gcp.vertex.agent.*`, written by the ADK itself |
 | Claude Code, Codex | `claude`, `codex` | `otelgrpc` or `otelhttp` SERVER span | kagent's wrapper, `invoke_agent <agent>` | kagent's harness runtime, `chat <model>` and `execute_tool <tool>` | None |
-| Python ADK | `adk-python` | gRPC or FastAPI SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's `generate_content` | `gcp.vertex.agent.*`, and usage repeated on `call_llm`, both written by the ADK itself |
-| LangGraph | `langgraph` | gRPC or FastAPI SERVER span | kagent's wrapper, `invoke_agent <agent>` | `opentelemetry-instrumentation-genai-langchain` | None |
-| CrewAI | `crewai` | gRPC or FastAPI SERVER span | kagent's wrapper, `invoke_agent <agent>` | `opentelemetry-instrumentation-genai-openai` and `-genai-anthropic` | None |
-| OpenAI Agents | `openai-agents` | gRPC or FastAPI SERVER span and kagent's `a2a.request` | `opentelemetry-instrumentation-genai-openai-agents` | `opentelemetry-instrumentation-genai-openai` | None |
-| BYO on `kagent-core` | `byo` | gRPC or FastAPI SERVER span | kagent's wrapper, `invoke_agent <agent>` | Whatever the image installs | Whatever the image installs |
+| Python ADK | `adk-python` | gRPC SERVER span and kagent's `a2a.request` | The ADK's own | The ADK's `generate_content` | `gcp.vertex.agent.*`, and usage repeated on `call_llm`, both written by the ADK itself |
+| LangGraph | `langgraph` | gRPC SERVER span | kagent's wrapper, `invoke_agent <agent>` | `opentelemetry-instrumentation-genai-langchain` | None |
+| CrewAI | `crewai` | gRPC SERVER span | kagent's wrapper, `invoke_agent <agent>` | `opentelemetry-instrumentation-genai-openai` and `-genai-anthropic` | None |
+| OpenAI Agents | `openai-agents` | gRPC SERVER span and kagent's `a2a.request` | `opentelemetry-instrumentation-genai-openai-agents` | `opentelemetry-instrumentation-genai-openai` | None |
+| BYO on `kagent-core` | `byo` | gRPC SERVER span with the shared server | kagent's wrapper, `invoke_agent <agent>` | Whatever the image installs | Whatever the image installs |
 
 ## Enabling export
 
@@ -169,7 +169,7 @@ body logging; its own OTEL content switches can override the defaults.
 
 kagent records `gen_ai.invoke_agent.duration` with every invoke_agent span it opens, with the same start and end, carrying `gen_ai.agent.name`, the compiled `gen_ai.request.model` and, on failure, `error.type`. A runtime that emits its own invoke_agent span reports its own metric, if any; the [reference collector](#reference-collector) derives it for the ADK. The Claude Code and Codex harness runtime also records metrics with the spans it writes. A chat span records `gen_ai.client.inference.duration` and the `gen_ai.client.inference.operation.*_tokens` histograms, and adds to the `gen_ai.client.inference.usage.*` counters. A zero-length call records no duration, and a partial call records no output count per call. An execute_tool span records `gen_ai.execute_tool.duration`. The end of the invoke_agent span records the agent's own model and tool calls in `gen_ai.invoke_agent.inference_calls` and `gen_ai.invoke_agent.tool_calls`. The controller records `kagent.runtime_revision.gc.*`. Everything else comes from instrumentation: kagent exports otelgrpc's `rpc.server.call.duration` and `rpc.client.call.duration` and otelhttp's `http.*.request.duration`, in seconds, over OTLP. The controller also serves them on `/metrics` when `controller.metrics.enabled` is on, so ingest one path per backend. `rpc_server_call_duration_seconds` replaces the removed `kagent_grpc_server_*` metrics.
 
-The Python runtimes export the same HTTP metrics from FastAPI and httpx and the GenAI client metrics of their instrumentations. The Python gRPC server instrumentation records no metrics.
+The packaged Python runtimes export outbound HTTP metrics from httpx and the GenAI client metrics of their instrumentations. The Python gRPC server instrumentation records no metrics.
 
 Go and Python logs are single-line JSON. Records inside a span carry `trace_id`, `span_id` and `trace_flags`, and an exception's stack trace stays in one `exception.stacktrace` field. Neither bridges logs to OTLP.
 
@@ -195,7 +195,7 @@ The runtime resource carries `service.name` and `service.namespace` from the com
 
 The Go ADK stamps `gen_ai.conversation.id`, `a2a.task.id` and a trusted `user.id` on the spans beneath the request span. `user.id` is the user ID the gateway forwards in `x-user-id`. Hashing it is an operator decision. Earlier releases sent it as `enduser.id`, which semantic conventions v1.45.0 deprecated. Claude Code spans carry their own `user.id`, a hash of the Claude account, so read the trusted user from the invocation span.
 
-The Python runtimes open the same span in the scope `kagent.core.a2a`, from the request handler every `kagent.*` package builds, with the same names, attributes and completion rules. `a2a.request` belongs to the Python ADK and OpenAI Agents, which emit their own `invoke_agent`, and `invoke_agent <agent>` to LangGraph, CrewAI and BYO images. The a2a-sdk runs every request of a task on one long-lived producer, so execution takes its request's span from the call context rather than from the ambient context. The span flushes before a quiescent event leaves the process on both the gRPC and the JSON-RPC paths. Python keeps `kagent.runtime` on the resource only.
+The Python runtimes open the same span in the scope `kagent.core.a2a`, from the request handler every `kagent.*` package builds, with the same names, attributes and completion rules. `a2a.request` belongs to the Python ADK and OpenAI Agents, which emit their own `invoke_agent`, and `invoke_agent <agent>` to LangGraph, CrewAI and BYO images. The a2a-sdk runs every request of a task on one long-lived producer, so execution takes its request's span from the call context rather than from the ambient context. The span flushes before a quiescent event leaves the Python runtime over gRPC. Python keeps `kagent.runtime` on the resource only.
 
 ## Completion and ownership
 
