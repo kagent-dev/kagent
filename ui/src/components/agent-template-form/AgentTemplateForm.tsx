@@ -234,7 +234,12 @@ export function AgentTemplateForm({
           />
         </Field>
 
-        <Field readOnly={readOnly} label="Description" required={false}>
+        <Field
+          readOnly={readOnly}
+          label="Description"
+          required={false}
+          help={readOnly ? undefined : "Helps people pick the right template."}
+        >
           <Input
             data-testid="template-form-description"
             value={draft.description}
@@ -275,9 +280,7 @@ export function AgentTemplateForm({
                 onChange={(event) => set("systemPrompt", event.target.value)}
                 // Three rows is room to write in; reading, one row avoids a blank block.
                 autoSize={{ minRows: readOnly ? 1 : 3, maxRows: 12 }}
-                placeholder={placeholder(
-                  "You are a Kubernetes operations assistant. Never guess.",
-                )}
+                placeholder={placeholder("You are a Kubernetes operations assistant.")}
                 {...readOnlyInput}
               />
             ) : (
@@ -501,7 +504,7 @@ export function AgentTemplateForm({
               <FormRow
                 key={index}
                 data-testid={`template-form-sub-agent-${index}`}
-                title={`Agent tool ${index + 1}`}
+                title={`Agent template tool ${index + 1}`}
                 onRemove={readOnly ? undefined : () =>
                   set("subAgentTools", draft.subAgentTools.filter((_, at) => at !== index))
                 }
