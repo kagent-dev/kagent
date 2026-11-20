@@ -32,7 +32,13 @@ function ApprovalIcon({ label, testId }: { label: string; testId: string }) {
 function serverIconLabel(group: Group): string | undefined {
   if (group.approval === "all") return "Every tool asks first";
   if (group.approval === "some") {
-    return `${group.askCount} ask first, ${group.freeCount} run without asking`;
+    const parts = [
+      group.askCount > 0 && `${group.askCount} ask first`,
+      group.freeCount > 0 && `${group.freeCount} run without asking`,
+      group.otherAsks !== undefined &&
+        `all others ${group.otherAsks ? "ask first" : "run without asking"}`,
+    ];
+    return parts.filter(Boolean).join(", ");
   }
   return undefined;
 }

@@ -13,12 +13,17 @@ export type ServerApproval = "none" | "some" | "all";
 
 /** Every binding for one MCP server, merged. */
 export interface ToolServerGroup {
+  /** Kind and label, so two servers of different kinds with one name stay apart. */
+  key: string;
   server: string;
   rows: ToolRow[];
   /** How many named tools the agent lists for this server. */
   namedCount: number;
+  /** Named tools only; the all-other-tools row has no count. */
   askCount: number;
   freeCount: number;
+  /** Set next to named tools: whether every other tool on the server asks first. */
+  otherAsks?: boolean;
   approval: ServerApproval;
 }
 
@@ -32,11 +37,12 @@ export function groupMcpTools(
   bindings: readonly McpToolBinding[],
   namespace: string,
 ): ToolServerGroup[] {
-  const byServer = new Map<string, { named: Map<string, boolean>; all?: boolean }>();
+  const byServer = new Map<string, { server: string; named: Map<string, boolean>; all?: boolean }>();
 
   for (const binding of bindings) {
     const server = referenceLabel(binding.server, namespace);
-    const entry = byServer.get(server) ?? { named: new Map<string, boolean>() };
+    const key = `${binding.server.kind ?? "RemoteMCPServer"}/${server}`;
+    const entry = byServer.get(key) ?? { server, named: new Map<string, boolean>() };
     const requires = binding.requireApproval === true;
     if (binding.tools?.length) {
       for (const tool of binding.tools) {
@@ -45,10 +51,10 @@ export function groupMcpTools(
     } else {
       entry.all = (entry.all ?? false) || requires;
     }
-    byServer.set(server, entry);
+    byServer.set(key, entry);
   }
 
-  return [...byServer].map(([server, { named, all }]) => {
+  return [...byServer].map(([key, { server, named, all }]) => {
     const rows: ToolRow[] = [...named].map(([name, requiresApproval]) => ({
       kind: "tool",
       name,
@@ -57,9 +63,13 @@ export function groupMcpTools(
     if (all !== undefined) {
       rows.push({ kind: named.size > 0 ? "allOther" : "all", name: "", requiresApproval: all });
     }
-    const askCount = rows.filter((row) => row.requiresApproval).length;
-    const freeCount = rows.length - askCount;
-    const approval: ServerApproval = askCount === 0 ? "none" : freeCount === 0 ? "all" : "some";
-    return { server, rows, namedCount: named.size, askCount, freeCount, approval };
+    const tools = rows.filter((row) => row.kind === "tool");
+    const askCount = tools.filter((row) => row.requiresApproval).length;
+    const freeCount = tools.length - askCount;
+    const asking = rows.filter((row) => row.requiresApproval).length;
+    const approval: ServerApproval =
+      asking === 0 ? "none" : asking === rows.length ? "all" : "some";
+    const otherAsks = named.size > 0 && all !== undefined ? all : undefined;
+    return { key, server, rows, namedCount: named.size, askCount, freeCount, otherAsks, approval };
   });
 }

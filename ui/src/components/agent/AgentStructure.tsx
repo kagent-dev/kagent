@@ -213,7 +213,7 @@ function TemplateParts({
         >
           <div css={{ display: "grid", gap: theme.space(3) }}>
             {groupMcpTools(servers, namespace).map((group) => (
-              <ToolServerGroup key={group.server} group={group} />
+              <ToolServerGroup key={group.key} group={group} />
             ))}
           </div>
         </StructureNode>
