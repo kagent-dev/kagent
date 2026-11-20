@@ -511,36 +511,15 @@ export function AgentTemplateForm({
                 }
                 removeLabel={`Remove agent template tool ${tool.name.trim() || index + 1}`}
               >
-                <div css={{ ...rowFields, alignItems: "flex-start" }}>
-                  <Field readOnly={readOnly} label="Agent template" required {...fieldFor(`subAgent:${index}:template`)} css={rowField}>
-                    {readOnly ? (
-                      <Input value={tool.refName} data-testid={`template-form-sub-agent-template-${index}`} {...readOnlyInput} />
-                    ) : templates.error ? (
-                      // The list could not be read, so the name is typed instead.
-                      <Input
-                        css={{ width: 200 }}
-                        data-testid={`template-form-sub-agent-template-${index}`}
-                        value={tool.refName}
-                        placeholder="Type a template name"
-                        onChange={(event) => updateSubAgent(index, { refName: event.target.value })}
-                      />
-                    ) : (
-                      <div css={{ minWidth: 200 }}>
-                        <ResourceSelect
-                          kind="agent template"
-                          names={templateNames}
-                          loading={templates.isLoading}
-                          value={tool.refName || undefined}
-                          onChange={(refName) => updateSubAgent(index, { refName })}
-                          empty="This namespace has no other agent templates."
-                          data-testid={`template-form-sub-agent-template-${index}`}
-                        />
-                      </div>
-                    )}
-                  </Field>
-                  <Field readOnly={readOnly} label="Tool name" required {...fieldFor(`subAgent:${index}:name`)} css={rowField}>
+                <FieldRow>
+                  <Field
+                    readOnly={readOnly}
+                    label="Name"
+                    required
+                    help={readOnly ? undefined : "What the agent calls this tool."}
+                    {...fieldFor(`subAgent:${index}:name`)}
+                  >
                     <Input
-                      css={{ width: 160 }}
                       data-testid={`template-form-sub-agent-name-${index}`}
                       value={tool.name}
                       placeholder={placeholder("review")}
@@ -548,9 +527,37 @@ export function AgentTemplateForm({
                       {...readOnlyInput}
                     />
                   </Field>
-                  <Field readOnly={readOnly} label="When to use it" required {...fieldFor(`subAgent:${index}:description`)} css={rowField}>
+                  <Field
+                    readOnly={readOnly}
+                    label="Agent template"
+                    required
+                    help={readOnly ? undefined : "The agent template this tool runs."}
+                    {...fieldFor(`subAgent:${index}:template`)}
+                  >
+                    {readOnly ? (
+                      <Input value={tool.refName} data-testid={`template-form-sub-agent-template-${index}`} {...readOnlyInput} />
+                    ) : templates.error ? (
+                      // The list could not be read, so the name is typed instead.
+                      <Input
+                        data-testid={`template-form-sub-agent-template-${index}`}
+                        value={tool.refName}
+                        placeholder="Type a template name"
+                        onChange={(event) => updateSubAgent(index, { refName: event.target.value })}
+                      />
+                    ) : (
+                      <ResourceSelect
+                        kind="agent template"
+                        names={templateNames}
+                        loading={templates.isLoading}
+                        value={tool.refName || undefined}
+                        onChange={(refName) => updateSubAgent(index, { refName })}
+                        empty="This namespace has no other agent templates."
+                        data-testid={`template-form-sub-agent-template-${index}`}
+                      />
+                    )}
+                  </Field>
+                  <Field readOnly={readOnly} label="When to use it" required {...fieldFor(`subAgent:${index}:description`)}>
                     <Input
-                      css={{ width: 260 }}
                       data-testid={`template-form-sub-agent-description-${index}`}
                       value={tool.description}
                       placeholder={placeholder("Review a change before it merges.")}
@@ -558,7 +565,7 @@ export function AgentTemplateForm({
                       {...readOnlyInput}
                     />
                   </Field>
-                </div>
+                </FieldRow>
               </FormRow>
             ))}
           </FormRowList>
