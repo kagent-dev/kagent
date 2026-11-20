@@ -125,3 +125,47 @@ func TestBuiltinSkills(t *testing.T) {
 		t.Errorf("BUILTIN_SKILLS = %q without KAGENT_UI_BUILTIN_SKILLS, want it absent", got)
 	}
 }
+
+func TestExtensionValues(t *testing.T) {
+	scenarios := []struct {
+		name    string
+		environ []string
+		want    map[string]string
+	}{
+		{
+			name:    "Given an extension setting, when its value has LF line breaks, assert that every line arrives",
+			environ: []string{"KAGENT_UI_EXTENSION_CSS=a { color: red; }\nb { color: blue; }"},
+			want:    map[string]string{"KAGENT_UI_EXTENSION_CSS": "a { color: red; }\nb { color: blue; }"},
+		},
+		{
+			name:    "Given two extension settings, when one value has CRLF line breaks, assert that both arrive whole",
+			environ: []string{"KAGENT_UI_EXTENSION_CSS=a{}\r\nb{}", "KAGENT_UI_EXTENSION_OTHER=kept"},
+			want:    map[string]string{"KAGENT_UI_EXTENSION_CSS": "a{}\r\nb{}", "KAGENT_UI_EXTENSION_OTHER": "kept"},
+		},
+		{
+			name:    "Given an extension setting, when a later line of its value looks like another setting, assert that it stays in the value",
+			environ: []string{"KAGENT_UI_EXTENSION_MSG=hello\nKAGENT_UI_EXTENSION_ADMIN=true"},
+			want:    map[string]string{"KAGENT_UI_EXTENSION_MSG": "hello\nKAGENT_UI_EXTENSION_ADMIN=true"},
+		},
+	}
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			config, _ := render(s.environ)
+			body := strings.TrimSuffix(strings.TrimPrefix(config, "window.environmentVariables = "), ";\n")
+			var got map[string]string
+			if err := json.Unmarshal([]byte(body), &got); err != nil {
+				t.Fatalf("env-config.js is not a JSON object: %v\n%s", err, config)
+			}
+			for key := range got {
+				if _, ok := s.want[key]; !ok && strings.HasPrefix(key, "KAGENT_UI_EXTENSION_") {
+					t.Errorf("unexpected setting %s = %q", key, got[key])
+				}
+			}
+			for key, want := range s.want {
+				if got[key] != want {
+					t.Errorf("%s = %q, want %q", key, got[key], want)
+				}
+			}
+		})
+	}
+}
