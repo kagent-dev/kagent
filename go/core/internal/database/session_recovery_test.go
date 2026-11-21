@@ -80,7 +80,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 				require.ErrorIs(t, err, ErrConflict)
 			}
 			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
-			_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
+			_, _, err = reserveCheckpoint(t.Context(), client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 			require.ErrorIs(t, err, ErrConflict)
 		})
 	}
@@ -108,7 +108,7 @@ func TestCrashedRecoveryAdmissionRespectsFences(t *testing.T) {
 				require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{
 					Atespace: "team-a", URI: "s3://snapshots/completed", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES",
 				}))
-				_, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
+				_, _, err := reserveCheckpoint(t.Context(), client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 				require.NoError(t, err)
 			case test.superseded:
 				// Another revert finishes on the same Actor UID, and a new turn

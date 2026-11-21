@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
-	"golang.org/x/sync/singleflight"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -22,18 +21,25 @@ import (
 )
 
 const (
-	defaultPageSize = 50
-	maxPageSize     = 100
+	defaultPageSize          = 50
+	maxPageSize              = 100
+	checkpointFailureMessage = "Checkpoint snapshot copy could not be verified"
 )
 
 type store interface {
-	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
-	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
+	GetCheckpointOperation(context.Context, string, string) (*database.CheckpointOperation, error)
+	ListPendingCheckpoints(context.Context, string, int) ([]*database.CheckpointOperation, error)
+	ClaimCheckpointOperation(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error)
+	ReleaseCheckpointOperation(context.Context, string, uuid.UUID) error
+	ReleaseCheckpointReservation(context.Context, string, string, uuid.UUID) error
+	ClearFailedCheckpointTag(context.Context, string, string, string, uuid.UUID) error
+	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string, uuid.UUID) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
+	FinalizeClaimedSessionCheckpoint(context.Context, *apiv1.Checkpoint, uuid.UUID, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpointForkSource(context.Context, string, string) (*database.SessionCheckpointForkSource, error)
 	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
-	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
-	DeleteSessionCheckpoint(context.Context, string, string) error
+	BeginDeleteSessionCheckpoint(context.Context, string, string, uuid.UUID) (*database.CheckpointOperation, error)
+	DeleteClaimedSessionCheckpoint(context.Context, string, string, uuid.UUID) error
 	ForkSession(context.Context, string, string, string, string) (*apiv1.Session, bool, error)
 	UpdateCheckpointName(context.Context, string, string, string) (*apiv1.Checkpoint, error)
 }
@@ -49,11 +55,10 @@ type tagClient interface {
 	DeleteTag(context.Context, string, string, string) error
 }
 
+var _ store = (*database.Client)(nil)
+var _ tagClient = (*substrate.Client)(nil)
+
 type Service struct {
-	// creates coalesces identical requests within this service session.
-	// TODO: route tag creation and cleanup through durable session ownership
-	// so retries on different replicas cannot race.
-	creates    singleflight.Group
 	store      store
 	authorizer auth.Authorizer
 	tags       tagClient
@@ -75,7 +80,35 @@ func NewService(store store, authorizer auth.Authorizer, tags tagClient, workflo
 	return &Service{store: store, authorizer: authorizer, tags: tags, workflow: workflow}
 }
 
-func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
+// Create executes new work in the request. The reservation owns its bounded
+// claim from INSERT, so the normal path needs no subsequent acquisition query.
+func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHeadTaskID string) (result *apiv1.Checkpoint, err error) {
+	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancel()
+	executor := uuid.New()
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
+	}
+	op, err := s.reserveCreate(ctx, sessionID, requestID, expectedHeadTaskID, id.String(), executor)
+	if err != nil {
+		return nil, err
+	}
+	if op.Checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_CREATING {
+		return createOutcome(op.Checkpoint)
+	}
+	if op.Checkpoint.Id != id.String() {
+		result, err = s.claimAndExecute(ctx, op)
+	} else {
+		result, err = s.execute(ctx, op, executor, true)
+	}
+	if err == nil && result == nil {
+		return nil, serviceerrors.NewNotFound("Checkpoint no longer exists", nil)
+	}
+	return result, err
+}
+
+func (s *Service) reserveCreate(ctx context.Context, sessionID, requestID, expectedHeadTaskID, id string, executor uuid.UUID) (*database.CheckpointOperation, error) {
 	sessionID, err := validateCreate(sessionID, requestID)
 	if err != nil {
 		return nil, err
@@ -90,22 +123,14 @@ func (s *Service) Create(ctx context.Context, sessionID, requestID, expectedHead
 	if _, err := s.authorize(ctx, auth.VerbGet, auth.Resource{Type: "Session", Name: sessionID}); err != nil {
 		return nil, err
 	}
-	key := fmt.Sprintf("%q/%q/%q/%q", userID, sessionID, requestID, expectedHeadTaskID)
-	result, err, _ := s.creates.Do(key, func() (any, error) {
-		return s.create(ctx, userID, sessionID, requestID, expectedHeadTaskID)
-	})
-	if err != nil {
-		return nil, err
+	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: id, SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID, executor)
+	if err != nil && !definiteAcquisitionError(err) {
+		// The INSERT may still be committing after its reply was lost. Its
+		// source Session lock makes the new row visible before retiring the claim.
+		err = errors.Join(err, releaseClaim(ctx, id, func(releaseCtx context.Context) error {
+			return s.store.ReleaseCheckpointReservation(releaseCtx, sessionID, id, executor)
+		}))
 	}
-	return result.(*apiv1.Checkpoint), nil
-}
-
-func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expectedHeadTaskID string) (*apiv1.Checkpoint, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to generate checkpoint identifier", err)
-	}
-	checkpoint, snapshot, err := s.store.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: id.String(), SessionId: sessionID, HeadTaskId: expectedHeadTaskID}, userID, requestID)
 	if errors.Is(err, database.ErrCheckpointAdvanced) || errors.Is(err, database.ErrSnapshotPending) {
 		reason := "KAGENT_CHECKPOINT_CONVERSATION_ADVANCED"
 		if errors.Is(err, database.ErrSnapshotPending) {
@@ -129,62 +154,73 @@ func (s *Service) create(ctx context.Context, userID, sessionID, requestID, expe
 	if err != nil {
 		return nil, serviceerrors.NewInternal("Failed to reserve checkpoint", err)
 	}
-	if checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_CREATING {
-		return checkpoint, nil
-	}
-
-	tag, err := s.ensureTag(ctx, checkpoint, snapshot)
-	if err != nil {
-		cleanupErr := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpoint.GetId()), "")
-		if cleanupErr == nil || status.Code(cleanupErr) == codes.NotFound {
-			_, finalizeErr := s.store.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "", "", err.Error())
-			err = errors.Join(err, finalizeErr)
-		} else {
-			err = errors.Join(err, fmt.Errorf("cleanup checkpoint tag: %w", cleanupErr))
-		}
-		return nil, serviceerrors.NewUnavailable("Failed to retain checkpoint snapshot", err)
-	}
-	checkpoint, err = s.store.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), tag.GetMetadata().GetUid(), substrate.SnapshotURI(tag.GetStatus().GetSnapshot()), "")
-	if err != nil {
-		return nil, serviceerrors.NewInternal("Failed to publish checkpoint", err)
-	}
-	return checkpoint, nil
+	return &database.CheckpointOperation{Checkpoint: checkpoint, Snapshot: snapshot, Creator: userID}, nil
 }
 
-// The CREATING reservation blocks task admission and lifecycle changes while
-// CreateTag copies the Actor's current snapshot. Verify both sides of the copy
-// because ate-api also permits Actors to be changed outside kagent.
-func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1.Checkpoint, reference *database.SessionTaskSnapshot) (*ateapipb.Tag, error) {
-	actorName := substrate.ActorName(checkpoint.GetSessionId())
-	actor, err := s.verifySnapshot(ctx, actorName, reference)
-	if err != nil {
-		return nil, err
+var errTagCopyFailed = errors.New("snapshot tag copy cannot be published")
+
+// ensureTag synchronizes with any prior backend copy and verifies both sides
+// of the copy because ate-api also permits Actors to change outside kagent.
+// The CREATING reservation keeps source admission closed until finalization.
+func (s *Service) ensureTag(ctx context.Context, checkpoint *apiv1.Checkpoint, reference *database.SessionTaskSnapshot, firstAttempt bool) (*ateapipb.Tag, error) {
+	actorName := substrate.ActorName(checkpoint.SessionId)
+	actor, beforeErr := s.verifySnapshot(ctx, actorName, reference)
+	if beforeErr != nil && status.Code(beforeErr) != codes.FailedPrecondition && status.Code(beforeErr) != codes.NotFound {
+		return nil, beforeErr
 	}
-	name := tagName(checkpoint.GetId())
+	if beforeErr != nil && firstAttempt {
+		// No copy has been requested for this newly reserved checkpoint.
+		return nil, errors.Join(errTagCopyFailed, beforeErr)
+	}
+	name := tagName(checkpoint.Id)
+	// Recovery may have an earlier copy: synchronize through the Actor/Tag leases
+	// before interpreting an existing pending tag. A fresh invalid source never
+	// starts a copy; completed tags still require full identity verification.
 	tag, err := s.tags.CreateTag(ctx, reference.Atespace, name, actorName)
 	if err != nil {
-		tag, err = s.tags.GetTag(ctx, reference.Atespace, name)
-		if err != nil {
+		switch status.Code(err) {
+		case codes.AlreadyExists, codes.FailedPrecondition, codes.NotFound:
+			createErr := err
+			tag, err = s.tags.GetTag(ctx, reference.Atespace, name)
+			if status.Code(err) == codes.NotFound && status.Code(createErr) != codes.AlreadyExists {
+				return nil, errors.Join(errTagCopyFailed, createErr)
+			}
+			if err != nil {
+				return nil, fmt.Errorf("read snapshot tag after create: %w", err)
+			}
+		default:
+			// A canceled or unavailable RPC may still own the copy. Keep its
+			// reservation and retry through the same backend serialization barrier.
 			return nil, fmt.Errorf("create snapshot tag: %w", err)
 		}
 	}
-	metadata, source, snapshot := tag.GetMetadata(), tag.GetSourceActor(), tag.GetStatus().GetSnapshot()
-	if metadata.GetAtespace() != reference.Atespace || metadata.GetName() != name || metadata.GetUid() == "" ||
-		source.GetAtespace() != reference.Atespace || source.GetName() != actorName ||
+	if beforeErr != nil {
+		return tag, errors.Join(errTagCopyFailed, beforeErr)
+	}
+	snapshot := tag.GetStatus().GetSnapshot()
+	if !validTagSource(tag, checkpoint, reference) ||
 		tag.GetStatus().GetActorTemplateUid() != substrate.LatestActorSnapshot(actor).GetActorTemplateUid() ||
-		substrate.SnapshotURI(snapshot) == "" ||
-		snapshot.GetFidelity().String() != reference.Fidelity ||
-		tag.GetScope() != ateapipb.TagScope_TAG_SCOPE_ATESPACE {
-		return nil, fmt.Errorf("snapshot tag %s/%s returned invalid identity", reference.Atespace, name)
+		substrate.SnapshotURI(snapshot) == "" || snapshot.GetFidelity().String() != reference.Fidelity {
+		return tag, fmt.Errorf("snapshot tag returned invalid identity or incomplete copy: %w", errTagCopyFailed)
 	}
 	verified, err := s.verifySnapshot(ctx, actorName, reference)
 	if err != nil {
+		if status.Code(err) == codes.FailedPrecondition || status.Code(err) == codes.NotFound {
+			return tag, errors.Join(errTagCopyFailed, err)
+		}
 		return nil, err
 	}
 	if verified.GetMetadata().GetUid() != actor.GetMetadata().GetUid() {
-		return nil, fmt.Errorf("checkpoint Actor identity changed while copying snapshot")
+		return tag, fmt.Errorf("checkpoint Actor changed while copying: %w", errTagCopyFailed)
 	}
 	return tag, nil
+}
+
+func validTagSource(tag *ateapipb.Tag, checkpoint *apiv1.Checkpoint, snapshot *database.SessionTaskSnapshot) bool {
+	metadata, source := tag.GetMetadata(), tag.GetSourceActor()
+	return metadata.GetAtespace() == snapshot.Atespace && metadata.GetName() == tagName(checkpoint.Id) && metadata.GetUid() != "" &&
+		source.GetAtespace() == snapshot.Atespace && source.GetName() == substrate.ActorName(checkpoint.SessionId) &&
+		tag.GetScope() == ateapipb.TagScope_TAG_SCOPE_ATESPACE
 }
 
 func (s *Service) verifySnapshot(ctx context.Context, actorName string, reference *database.SessionTaskSnapshot) (*ateapipb.Actor, error) {
@@ -196,10 +232,10 @@ func (s *Service) verifySnapshot(ctx context.Context, actorName string, referenc
 	if metadata.GetAtespace() != reference.Atespace || metadata.GetName() != actorName || metadata.GetUid() == "" ||
 		actor.GetStatus().GetState() != ateapipb.ActorState_ACTOR_STATE_SUSPENDED ||
 		reference.URI == "" || substrate.SnapshotURI(snapshot) != reference.URI || snapshot.GetActorTemplateUid() == "" {
-		return nil, fmt.Errorf("checkpoint Actor %s/%s snapshot changed", reference.Atespace, actorName)
+		return nil, status.Errorf(codes.FailedPrecondition, "checkpoint Actor %s/%s snapshot changed", reference.Atespace, actorName)
 	}
 	if fidelity := snapshot.GetFidelity().String(); fidelity != reference.Fidelity {
-		return nil, fmt.Errorf("checkpoint Actor %s/%s snapshot fidelity changed", reference.Atespace, actorName)
+		return nil, status.Errorf(codes.FailedPrecondition, "checkpoint Actor %s/%s snapshot fidelity changed", reference.Atespace, actorName)
 	}
 	return actor, nil
 }
@@ -254,8 +290,10 @@ func (s *Service) List(ctx context.Context, request ListRequest) (ListResult, er
 	return result, nil
 }
 
-func (s *Service) Delete(ctx context.Context, checkpointID string) error {
-	checkpointID, err := validateIdentity(checkpointID)
+func (s *Service) Delete(ctx context.Context, checkpointID string) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, database.RuntimeOperationTimeout)
+	defer cancel()
+	checkpointID, err = validateIdentity(checkpointID)
 	if err != nil {
 		return err
 	}
@@ -263,31 +301,64 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil {
 		return err
 	}
-	snapshot, tagUID, err := s.store.BeginDeleteSessionCheckpoint(ctx, checkpointID, userID)
-	if errors.Is(err, database.ErrNotFound) {
-		return serviceerrors.NewNotFound("Checkpoint not found", err)
-	}
+	executor := uuid.New()
+	op, err := s.store.BeginDeleteSessionCheckpoint(ctx, checkpointID, userID, executor)
 	if err != nil {
+		if errors.Is(err, database.ErrConflict) {
+			_, err = s.claimAndExecute(ctx, &database.CheckpointOperation{Checkpoint: &apiv1.Checkpoint{Id: checkpointID}, Creator: userID})
+			return err
+		}
+		if errors.Is(err, database.ErrNotFound) {
+			return serviceerrors.NewNotFound("Checkpoint not found", err)
+		}
+		if !definiteAcquisitionError(err) {
+			err = errors.Join(err, s.release(ctx, checkpointID, executor))
+		}
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
+	_, err = s.execute(ctx, op, executor, false)
+	return err
+}
+
+func (s *Service) finishDelete(ctx context.Context, op *database.CheckpointOperation, executor uuid.UUID) error {
+	checkpointID, userID := op.Checkpoint.Id, op.Creator
+	if err := s.deleteTag(ctx, op); err != nil {
+		return err
+	}
+	if err := s.store.DeleteClaimedSessionCheckpoint(ctx, checkpointID, userID, executor); err != nil {
+		if errors.Is(err, database.ErrConflict) {
+			_, readErr := s.store.GetCheckpointOperation(ctx, checkpointID, userID)
+			if errors.Is(readErr, database.ErrNotFound) {
+				return nil
+			}
+			if readErr != nil {
+				return serviceerrors.NewInternal("Failed to observe checkpoint deletion", readErr)
+			}
+			return serviceerrors.NewAborted("Checkpoint deletion is still pending; retry the same request", nil)
+		}
+		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
+	}
+	return nil
+}
+
+func (s *Service) deleteTag(ctx context.Context, op *database.CheckpointOperation) error {
+	checkpointID := op.Checkpoint.Id
+	snapshot, tagUID := op.Snapshot, op.TagUID
 	tag, err := s.tags.GetTag(ctx, snapshot.Atespace, tagName(checkpointID))
 	if err != nil && status.Code(err) != codes.NotFound {
-		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
+		return publicOperationError(fmt.Errorf("get checkpoint snapshot tag: %w", err))
 	}
 	if err == nil {
-		// Failed creation records no tag UID after compensation. An unexpected tag
-		// at that name is not ours to delete, even if its snapshot URI matches.
+		// The retained UID is authoritative for failed partial copies too:
+		// their storage may still be PENDING and has no completed snapshot URI.
 		if tagUID == "" || tag.GetMetadata().GetUid() != tagUID ||
 			tag.GetMetadata().GetAtespace() != snapshot.Atespace || tag.GetMetadata().GetName() != tagName(checkpointID) ||
-			substrate.SnapshotURI(tag.GetStatus().GetSnapshot()) != snapshot.URI {
+			(op.Checkpoint.State != apiv1.CheckpointState_CHECKPOINT_STATE_FAILED && op.Checkpoint.Failure == nil && substrate.SnapshotURI(tag.GetStatus().GetSnapshot()) != snapshot.URI) {
 			return serviceerrors.NewFailedPrecondition("Checkpoint snapshot tag identity changed", nil)
 		}
 		if err := s.tags.DeleteTag(ctx, snapshot.Atespace, tagName(checkpointID), tagUID); err != nil && status.Code(err) != codes.NotFound {
-			return serviceerrors.NewUnavailable("Failed to delete checkpoint snapshot tag", err)
+			return publicOperationError(fmt.Errorf("delete checkpoint snapshot tag: %w", err))
 		}
-	}
-	if err := s.store.DeleteSessionCheckpoint(ctx, checkpointID, userID); err != nil {
-		return serviceerrors.NewInternal("Failed to delete checkpoint", err)
 	}
 	return nil
 }
@@ -442,4 +513,33 @@ func decodePageToken(token string) (string, error) {
 		return "", err
 	}
 	return validateIdentity(string(value))
+}
+
+func createOutcome(checkpoint *apiv1.Checkpoint) (*apiv1.Checkpoint, error) {
+	switch checkpoint.State {
+	case apiv1.CheckpointState_CHECKPOINT_STATE_READY:
+		return checkpoint, nil
+	case apiv1.CheckpointState_CHECKPOINT_STATE_FAILED:
+		return nil, status.Error(codes.FailedPrecondition, "Checkpoint creation failed")
+	default:
+		return nil, serviceerrors.NewAborted("Checkpoint operation is still pending; retry the same request", nil)
+	}
+}
+
+// Semantic rejections cannot have committed a reservation or execution claim.
+func definiteAcquisitionError(err error) bool {
+	return errors.Is(err, database.ErrFailedPrecondition) || errors.Is(err, database.ErrConflict) ||
+		errors.Is(err, database.ErrNotFound) || errors.Is(err, database.ErrIdempotencyConflict)
+}
+
+// Backend status text/details can contain private storage configuration. Keep
+// current status codes while exposing only a service-owned public message.
+func publicOperationError(err error) error {
+	if err == nil || serviceerrors.CodeOf(err) != "" || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if backend, ok := status.FromError(err); ok {
+		return status.Error(backend.Code(), "Checkpoint operation could not complete")
+	}
+	return serviceerrors.NewInternal("Checkpoint operation could not complete", err)
 }

@@ -101,6 +101,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 	}{
 		{name: "ready", tagUID: "tag-uid", snapshotURI: "s3://tags/checkpoint"},
 		{name: "failed", failure: "tag creation failed"},
+		{name: "partial tag", tagUID: "partial-uid", failure: "copy failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := NewClient(setupTestDB(t), "public")
@@ -133,7 +134,7 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 			task.Status.State = a2a.TaskStateCompleted
 			require.NoError(t, saveRuntimeTask(t, client, session.GetId(), task, task,
 				&SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/task", Fidelity: "SNAPSHOT_FIDELITY_MEMORY"}))
-			checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
+			checkpoint, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{
 				Id: uuid.NewString(), SessionId: session.GetId(), HeadTaskId: string(task.ID),
 			}, "alice", "checkpoint")
 			require.NoError(t, err)
@@ -144,24 +145,24 @@ func TestRuntimeRevisionCollectionPreservesSessionAndCheckpoint(t *testing.T) {
 			// A checkpoint retains the runtime throughout creation, use, and deletion,
 			// even after the source session and active template pair are gone.
 			assertRetained()
-			_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+			_, _, err = beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice")
 			require.ErrorIs(t, err, ErrNotFound, "an in-flight checkpoint must not be deleted")
-			_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), tc.tagUID, tc.snapshotURI, tc.failure)
+			_, err = finalizeCheckpoint(ctx, client, checkpoint.GetId(), tc.tagUID, tc.snapshotURI, tc.failure)
 			require.NoError(t, err)
 			require.NoError(t, deleteSession(ctx, client, session.GetId()))
 			assertRetained()
-			_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "mallory")
+			_, _, err = beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "mallory")
 			require.ErrorIs(t, err, ErrNotFound, "only the owner can delete the checkpoint")
-			_, _, err = client.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+			_, _, err = beginDeleteCheckpoint(ctx, client, checkpoint.GetId(), "alice")
 			require.NoError(t, err)
 			assertRetained()
 			// A new store instance must resume a deletion without losing its references.
 			restarted := NewClient(sharedDB, "public")
-			_, tagUID, err := restarted.BeginDeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice")
+			_, tagUID, err := beginDeleteCheckpoint(ctx, restarted, checkpoint.GetId(), "alice")
 			require.NoError(t, err)
 			require.Equal(t, tc.tagUID, tagUID)
 			assertRetained()
-			require.NoError(t, client.DeleteSessionCheckpoint(ctx, checkpoint.GetId(), "alice"))
+			require.NoError(t, deleteCheckpoint(ctx, client, checkpoint.GetId(), "alice"))
 			revisions, err := client.ListUnreferencedRuntimeRevisions(ctx)
 			require.NoError(t, err)
 			require.Len(t, revisions, 1)

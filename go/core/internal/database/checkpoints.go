@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -181,11 +182,16 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 // ReserveSessionCheckpoint captures the terminal task named by HeadTaskId,
 // provided it is still the latest boundary. ErrSnapshotPending permits retry;
 // ErrCheckpointAdvanced requires a new selection. The session must be READY.
-// A repeated owner/requestID returns the same reservation for the same source
-// and task, or ErrIdempotencyConflict otherwise. A
+// The INSERT takes executor ownership under the caller deadline. A repeated
+// owner/requestID returns the same reservation for the same source and task
+// without taking a new claim, or ErrIdempotencyConflict otherwise. A
 // CREATING reservation blocks new task writes and lifecycle operations while the caller
 // retains the external snapshot.
-func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, userID, requestID string) (*apiv1.Checkpoint, *SessionTaskSnapshot, error) {
+func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, userID, requestID string, executor uuid.UUID) (*apiv1.Checkpoint, *SessionTaskSnapshot, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok || executor == uuid.Nil || time.Until(deadline) > RuntimeOperationTimeout {
+		return nil, nil, ErrFailedPrecondition
+	}
 	if checkpoint == nil {
 		return nil, nil, fmt.Errorf("missing checkpoint")
 	}
@@ -289,8 +295,8 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 		row, err := queryOne(ctx, tx, `
 			INSERT INTO session_checkpoint (id, source_session_id, user_id, request_id, head_task_id,
 			    history_sequence, snapshot_atespace, snapshot_uri, snapshot_fidelity, source_history_id,
-			    prepared_revision, data, state) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-			    $10, $11, $12, 'CREATING')
+			    prepared_revision, data, state, executor_id, executor_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+			    $10, $11, $12, 'CREATING', $13, clock_timestamp() + $14 * interval '1 millisecond')
 			ON CONFLICT DO NOTHING
 			RETURNING id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
 			    snapshot_uri, snapshot_fidelity, tag_uid, state, data, source_history_id, prepared_revision
@@ -298,12 +304,12 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 			pgx.RowToStructByName[sessionCheckpointRow], checkpoint.GetId(),
 			checkpoint.GetSessionId(), userID, requestID, boundary.ID, *boundary.HistorySequence,
 			*boundary.SnapshotAtespace, *boundary.SnapshotURI, *boundary.SnapshotFidelity, session.HistoryID,
-			session.PreparedRevision, data,
+			session.PreparedRevision, data, executor, time.Until(deadline).Milliseconds()+1,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			existing, existingErr := readCheckpointRequest(ctx, tx, userID, requestID)
 			if existingErr == nil {
-				if existing.SourceSessionID != sourceID {
+				if existing.SourceSessionID != sourceID || existing.HeadTaskID != checkpoint.HeadTaskId {
 					return ErrIdempotencyConflict
 				}
 				snapshot = checkpointSnapshot(existing)
@@ -328,67 +334,61 @@ func (c *Client) ReserveSessionCheckpoint(ctx context.Context, checkpoint *apiv1
 	return result, snapshot, nil
 }
 
-// FinalizeSessionCheckpoint records either a retained tag UID and snapshot URI as
-// READY, or a failure as FAILED. An identical terminal retry returns the existing
-// checkpoint; a different terminal result returns ErrNotFound. This internal operation
-// does not check ownership or create the external snapshot.
-func (c *Client) FinalizeSessionCheckpoint(ctx context.Context, id, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
-	if (tagUID == "") == (failure == "") || (tagUID == "") != (snapshotURI == "") {
-		return nil, fmt.Errorf("finalize Session checkpoint requires tag UID and snapshot URI, or failure")
+// FinalizeClaimedSessionCheckpoint atomically publishes READY or FAILED and clears
+// the claim. Only a current, unexpired executor can complete CREATING work.
+// A failed copy retains its tag UID for UID-conditional deletion, even if its
+// storage is incomplete. Its saved URI remains the source snapshot in that case.
+func (c *Client) FinalizeClaimedSessionCheckpoint(ctx context.Context, checkpoint *apiv1.Checkpoint, executor uuid.UUID, tagUID, snapshotURI, failure string) (*apiv1.Checkpoint, error) {
+	if checkpoint == nil || executor == uuid.Nil || (failure == "" && (tagUID == "" || snapshotURI == "")) {
+		return nil, ErrFailedPrecondition
 	}
-	var result *apiv1.Checkpoint
-	err := c.withTx(ctx, func(tx pgx.Tx) error {
-		row, err := lockCheckpoint(ctx, tx, id, true, "", nil)
-		if err != nil {
-			return notFoundOr(err)
-		}
-		result, err = toSessionCheckpoint(row)
-		if err != nil {
-			return err
-		}
-		if row.State != "CREATING" {
-			if (row.State == "READY" && row.TagUID == tagUID && row.SnapshotURI == snapshotURI && failure == "") ||
-				(row.State == "FAILED" && tagUID == "" && result.GetFailure().GetMessage() == failure) {
-				return nil
-			}
-			return ErrNotFound
-		}
-		result.State = apiv1.CheckpointState_CHECKPOINT_STATE_READY
-		if failure != "" {
-			result.State = apiv1.CheckpointState_CHECKPOINT_STATE_FAILED
-			result.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: failure}
-		}
-		data, err := proto.Marshal(result)
-		if err != nil {
-			return fmt.Errorf("encode checkpoint: %w", err)
-		}
-		tag, err := tx.Exec(ctx, `
-			UPDATE session_checkpoint
-			SET state = CASE WHEN $2::text <> '' THEN 'READY' ELSE 'FAILED' END,
-			    tag_uid = $2,
-			    snapshot_uri = CASE WHEN $2::text <> '' THEN $3::text ELSE snapshot_uri END,
-			    data = $4
-			WHERE id = $1
-			  AND state = 'CREATING'
-		`, row.ID, tagUID, snapshotURI, data)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
-			return ErrNotFound
-		}
-		return nil
-	})
+	result := proto.Clone(checkpoint).(*apiv1.Checkpoint)
+	result.State = apiv1.CheckpointState_CHECKPOINT_STATE_READY
+	result.Failure = nil
+	state := "READY"
+	if failure != "" {
+		state = "FAILED"
+		result.State = apiv1.CheckpointState_CHECKPOINT_STATE_FAILED
+		result.Failure = &apiv1.Failure{Reason: "SnapshotTagFailed", Message: failure}
+	}
+	data, err := proto.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("encode checkpoint: %w", err)
+	}
+	// Check expiry after taking the row lock. A blocker that leaves the row
+	// unchanged does not trigger PostgreSQL's predicate recheck.
+	tag, err := c.db.Exec(ctx, `
+        WITH locked AS MATERIALIZED (
+            SELECT id, executor_expires_at FROM session_checkpoint
+            WHERE id = $1 AND state = 'CREATING' AND executor_id = $6
+            FOR UPDATE
+        )
+        UPDATE session_checkpoint
+        SET state = $2, tag_uid = $3,
+            snapshot_uri = CASE WHEN $4::text <> '' THEN $4::text ELSE snapshot_uri END,
+            data = $5, executor_id = NULL, executor_expires_at = NULL
+        FROM locked
+        WHERE session_checkpoint.id = locked.id
+            AND locked.executor_expires_at > clock_timestamp()
+    `, checkpoint.Id, state, tagUID, snapshotURI, data, executor)
 	if err != nil {
 		return nil, fmt.Errorf("finalize Session checkpoint: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return nil, ErrConflict
 	}
 	return result, nil
 }
 
-// GetSessionCheckpoint returns an owned READY checkpoint. Missing checkpoints, other
-// owners, and other lifecycle states return ErrNotFound.
+// GetSessionCheckpoint returns an owned READY checkpoint. All other lifecycle
+// states and other owners return ErrNotFound.
 func (c *Client) GetSessionCheckpoint(ctx context.Context, id, userID string) (*apiv1.Checkpoint, error) {
-	row, err := readCheckpoint(ctx, c.db, id, userID, new("READY"))
+	row, err := queryOne(ctx, c.db, `
+		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence,
+		    snapshot_atespace, snapshot_uri, snapshot_fidelity, tag_uid, state, data,
+		    source_history_id, prepared_revision
+		FROM session_checkpoint WHERE id = $1 AND user_id = $2 AND state = 'READY'
+	`, pgx.RowToStructByName[sessionCheckpointRow], id, userID)
 	if err != nil {
 		return nil, fmt.Errorf("get Session checkpoint: %w", notFoundOr(err))
 	}
@@ -454,8 +454,7 @@ func checkpointSnapshot(row sessionCheckpointRow) *SessionTaskSnapshot {
 }
 
 // ListSessionCheckpoints returns an owner's READY checkpoints for the source
-// session in ascending ID order after afterID, up to limit. Retained checkpoints remain
-// listable after the source session is deleted.
+// session in ascending ID order. Retained checkpoints outlive source deletion.
 func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, afterID string, limit int) ([]*apiv1.Checkpoint, error) {
 	rows, err := queryMany(ctx, c.db, `
 		SELECT id, source_session_id, user_id, request_id, head_task_id, history_sequence, snapshot_atespace,
@@ -484,17 +483,23 @@ func (c *Client) ListSessionCheckpoints(ctx context.Context, sessionID, userID, 
 	return result, nil
 }
 
-// BeginDeleteSessionCheckpoint marks an owned READY or FAILED checkpoint DELETING and returns
-// the snapshot and tag identity for external cleanup. Retrying a DELETING checkpoint is
-// allowed. A fork reference, another lifecycle state, or a missing/unowned checkpoint
-// returns ErrNotFound.
-func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID string) (*SessionTaskSnapshot, string, error) {
-	var snapshot *SessionTaskSnapshot
-	var tagUID string
+// BeginDeleteSessionCheckpoint atomically marks an owned READY or FAILED
+// checkpoint DELETING and takes its initial bounded claim. DELETING returns
+// ErrConflict so a retry can acquire expired work. A checkpoint with dependent
+// forks cannot be deleted; missing, unowned or ineligible rows return ErrNotFound.
+func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID string, executor uuid.UUID) (*CheckpointOperation, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok || executor == uuid.Nil || time.Until(deadline) > RuntimeOperationTimeout {
+		return nil, ErrFailedPrecondition
+	}
+	var operation *CheckpointOperation
 	err := c.withTx(ctx, func(tx pgx.Tx) error {
 		row, err := lockCheckpoint(ctx, tx, id, false, userID, nil)
 		if err != nil {
 			return notFoundOr(err)
+		}
+		if row.State == "DELETING" {
+			return ErrConflict
 		}
 		checkpoint, err := toSessionCheckpoint(row)
 		if err != nil {
@@ -506,38 +511,53 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 			return fmt.Errorf("encode checkpoint: %w", err)
 		}
 		tag, err := tx.Exec(ctx, `
-			UPDATE session_checkpoint
-			SET state = 'DELETING', data = $3
-			WHERE session_checkpoint.id = $1 AND session_checkpoint.user_id = $2
-			  AND session_checkpoint.state IN ('READY', 'FAILED', 'DELETING')
-			  AND NOT EXISTS (
-			      SELECT 1 FROM session i WHERE i.pinned_checkpoint_id = session_checkpoint.id
-			  )
-		`, row.ID, userID, data)
+            UPDATE session_checkpoint
+            SET state = 'DELETING', data = $3, executor_id = $4,
+                executor_expires_at = clock_timestamp() + $5 * interval '1 millisecond'
+            WHERE session_checkpoint.id = $1 AND session_checkpoint.user_id = $2
+                AND session_checkpoint.state IN ('READY', 'FAILED')
+                AND NOT EXISTS (
+                    SELECT 1 FROM session i WHERE i.pinned_checkpoint_id = session_checkpoint.id
+                )
+        `, row.ID, userID, data, executor, time.Until(deadline).Milliseconds()+1)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() != 1 {
 			return ErrNotFound
 		}
-		snapshot, tagUID = checkpointSnapshot(row), row.TagUID
+		operation = &CheckpointOperation{Checkpoint: checkpoint, Snapshot: checkpointSnapshot(row), TagUID: row.TagUID, Creator: userID}
 		return nil
 	})
 	if err != nil {
-		return nil, "", fmt.Errorf("begin delete Session checkpoint: %w", err)
+		return nil, fmt.Errorf("begin delete Session checkpoint: %w", err)
 	}
-	return snapshot, tagUID, nil
+	return operation, nil
 }
 
-// DeleteSessionCheckpoint removes an owned DELETING checkpoint after the caller
-// cleans up its external tag. No matching row is a successful no-op.
-func (c *Client) DeleteSessionCheckpoint(ctx context.Context, id, userID string) error {
-	_, err := c.db.Exec(ctx, `
-		DELETE FROM session_checkpoint
-		WHERE id = $1 AND user_id = $2 AND state = 'DELETING'
-	`, id, userID)
+// DeleteClaimedSessionCheckpoint removes an owned DELETING checkpoint after
+// external cleanup. Only its current, unexpired executor can remove the row;
+// a missing or superseded operation returns ErrConflict for the caller to reread.
+// Expiry is checked after acquiring the row lock, even if the wait changed no data.
+func (c *Client) DeleteClaimedSessionCheckpoint(ctx context.Context, id, userID string, executor uuid.UUID) error {
+	if executor == uuid.Nil {
+		return ErrFailedPrecondition
+	}
+	tag, err := c.db.Exec(ctx, `
+        WITH locked AS MATERIALIZED (
+            SELECT id, executor_expires_at FROM session_checkpoint
+            WHERE id = $1 AND user_id = $2 AND state = 'DELETING' AND executor_id = $3
+            FOR UPDATE
+        )
+        DELETE FROM session_checkpoint USING locked
+        WHERE session_checkpoint.id = locked.id
+            AND locked.executor_expires_at > clock_timestamp()
+    `, id, userID, executor)
 	if err != nil {
 		return fmt.Errorf("delete Session checkpoint: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrConflict
 	}
 	return nil
 }

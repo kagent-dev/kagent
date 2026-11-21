@@ -79,7 +79,7 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 	task.Status = a2a.TaskStatus{State: a2a.TaskStateInputRequired, Message: question}
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	assertReplay()
-	_, _, err = client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
+	_, _, err = reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "hitl-checkpoint")
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 
 	// Both a user reply and an immediate message result must persist their status.
@@ -97,9 +97,9 @@ func TestTaskViewsRebuildFromEvents(t *testing.T) {
 		require.NoError(t, saveRuntimeTask(t, client, session.Id, task, message, snapshot))
 		assertReplay()
 	}
-	checkpoint, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
+	checkpoint, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, "alice", "checkpoint")
 	require.NoError(t, err)
-	_, err = client.FinalizeSessionCheckpoint(ctx, checkpoint.Id, "tag", "retained", "")
+	_, err = finalizeCheckpoint(ctx, client, checkpoint.Id, "tag", "retained", "")
 	require.NoError(t, err)
 	boundaryEvents, err := readCheckpointEvents(ctx, q, uuid.MustParse(checkpoint.Id))
 	require.NoError(t, err)
