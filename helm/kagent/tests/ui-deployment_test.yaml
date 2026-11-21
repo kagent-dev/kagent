@@ -312,6 +312,17 @@ tests:
             name: BACKEND_INTERNAL_URL
             value: "http://RELEASE-NAME-controller.NAMESPACE.svc:8083/api"
 
+  - it: should expose the install namespace to the ui
+    template: ui-deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KAGENT_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+
   - it: should allow overriding ui.backendInternalUrl
     template: ui-deployment.yaml
     set:

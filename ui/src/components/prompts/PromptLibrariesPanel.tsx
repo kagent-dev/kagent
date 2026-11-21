@@ -3,19 +3,27 @@
 import Link from "next/link";
 import { NamespaceCombobox } from "@/components/NamespaceCombobox";
 import type { PromptTemplateSummary } from "@/types";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/LoadingState";
-import { ScrollText, Plus, ChevronRight } from "lucide-react";
+import { AlertCircle, ScrollText, Plus, ChevronRight } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 
 export type PromptLibrariesPanelProps = {
   namespace: string;
   loading: boolean;
   items: PromptTemplateSummary[] | null;
+  error?: string | null;
   onNamespaceChange: (ns: string) => void;
 };
 
-export function PromptLibrariesPanel({ namespace, loading, items, onNamespaceChange }: PromptLibrariesPanelProps) {
+export function PromptLibrariesPanel({
+  namespace,
+  loading,
+  items,
+  error,
+  onNamespaceChange,
+}: PromptLibrariesPanelProps) {
   return (
     <div>
       <PageHeader
@@ -54,15 +62,26 @@ export function PromptLibrariesPanel({ namespace, loading, items, onNamespaceCha
         }
       />
 
-      {!namespace && (
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" aria-hidden />
+          <AlertTitle>Could not load prompt libraries</AlertTitle>
+          <AlertDescription>
+            <p>{error}</p>
+            <p className="mt-2">Choose another namespace above to try again.</p>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!error && !namespace && (
         <p className="text-sm text-muted-foreground" role="status">
           Choose a namespace to list prompt libraries…
         </p>
       )}
 
-      {namespace && loading && <LoadingState />}
+      {!error && namespace && loading && <LoadingState />}
 
-      {namespace && !loading && items && items.length === 0 && (
+      {!error && namespace && !loading && items && items.length === 0 && (
         <div
           className="rounded-xl border border-dashed border-border/60 bg-card/20 px-6 py-12 text-center"
           role="status"
@@ -79,7 +98,7 @@ export function PromptLibrariesPanel({ namespace, loading, items, onNamespaceCha
         </div>
       )}
 
-      {namespace && !loading && items && items.length > 0 && (
+      {!error && namespace && !loading && items && items.length > 0 && (
         <ul className="grid gap-4 sm:grid-cols-2">
           {items.map((cm) => (
             <li key={`${cm.namespace}/${cm.name}`}>
