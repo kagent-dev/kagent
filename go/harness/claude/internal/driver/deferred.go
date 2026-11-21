@@ -111,13 +111,11 @@ func (r *deferredRecord) validate() error {
 	}
 	if r.Answer != nil {
 		q, ok := request.(*runtime.AskUserRequest)
-		if !ok || r.Answer.ID != r.RequestID || len(r.Answer.Answers) != len(q.Questions) {
+		if !ok || r.Answer.ID != r.RequestID {
 			return fmt.Errorf("invalid Claude deferred answer")
 		}
-		for i, answer := range r.Answer.Answers {
-			if len(answer) == 0 || !q.Questions[i].Multiple && len(answer) != 1 {
-				return fmt.Errorf("invalid Claude deferred answer selection")
-			}
+		if err := runtime.ValidateAskUserAnswers(q, r.Answer); err != nil {
+			return fmt.Errorf("invalid Claude deferred answer: %w", err)
 		}
 	}
 	switch r.Phase {
@@ -308,6 +306,30 @@ func (d *ProcessDriver) cancelReplay(tool *DeferredTool) error {
 	return saveDeferred(b.directory, d.config.MaxEventBytes, r)
 }
 
+// refuse rejects a response that does not answer the parked request, before
+// any of it is committed. The same rules decide it in every harness, so a
+// client's answer is accepted or refused the same way whichever one is running.
+func (p *deferredTurn) refuse(response runtime.InputResponse) error {
+	switch value := response.(type) {
+	case *runtime.ApprovalDecision:
+		if _, ok := p.request.(*runtime.ApprovalRequest); !ok {
+			return fmt.Errorf("Claude is waiting for an answer, not a tool approval")
+		}
+		if value.ID != p.record.RequestID {
+			return fmt.Errorf("tool approval response ID %q does not match pending ID %q", value.ID, p.record.RequestID)
+		}
+		return nil
+	case *runtime.AskUserResponse:
+		question, ok := p.request.(*runtime.AskUserRequest)
+		if !ok {
+			return fmt.Errorf("Claude is waiting for a tool approval, not an answer")
+		}
+		return runtime.ValidateAskUserAnswers(question, value)
+	default:
+		return fmt.Errorf("unsupported Claude deferred response %T", response)
+	}
+}
+
 // beginResume commits the response before native replay. Its lock covers only
 // the journal transition; process execution and failure cleanup happen outside it.
 func (p *deferredTurn) beginResume(response runtime.InputResponse) (*deferredRecord, error) {
@@ -369,10 +391,16 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		}
 	}()
 	defer func() {
-		if returnErr != nil && returnErr != context.Canceled {
+		// A refused response was never used, so there is nothing uncertain to
+		// abandon: the parked turn stays exactly as it was and the question it
+		// refused can still be answered.
+		if returnErr != nil && returnErr != context.Canceled && !errors.Is(returnErr, runtime.ErrInvalidInputResponse) {
 			returnErr = p.abandon(returnErr)
 		}
 	}()
+	if err := p.refuse(response); err != nil {
+		return runtime.Outcome{}, fmt.Errorf("%w: %w", runtime.ErrInvalidInputResponse, err)
+	}
 	r, err := p.beginResume(response)
 	if err != nil {
 		return runtime.Outcome{}, err
