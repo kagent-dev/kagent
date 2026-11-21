@@ -63,6 +63,7 @@
 
 - [Your first agent](https://kagent.dev/docs/kagent/1.x/get-started/your-first-agent/)
 - [Installation guide](https://kagent.dev/docs/kagent/1.x/setup/installation/)
+- Let your AI agent manage kagent for you: run `kagent skill install` to add the kagent [Agent Skill](https://agentskills.io).
 
 ## Technical Details
 
