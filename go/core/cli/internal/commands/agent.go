@@ -47,6 +47,7 @@ type AgentManifestCfg struct {
 type agentLifecycleClient interface {
 	CreateAgent(context.Context, *apiv1.CreateAgentRequest) (*apiv1.CreateAgentResponse, error)
 	UpdateAgent(context.Context, *apiv1.UpdateAgentRequest) (*apiv1.UpdateAgentResponse, error)
+	DeleteAgent(context.Context, *apiv1.DeleteAgentRequest) (*apiv1.DeleteAgentResponse, error)
 }
 
 type agentManifestOperation func(context.Context, agentLifecycleClient, *apiv1.ResourceReference, *apiv1.StructuredObject, clioutput.Format, io.Writer) error
@@ -308,6 +309,61 @@ func newAgentReadCmd(list bool) *cobra.Command {
 		cmd.Flags().StringVar(&cfg.PageToken, "page-token", "", "Token returned by the previous page")
 	}
 	return cmd
+}
+
+func deleteAgent(ctx context.Context, client agentLifecycleClient, ref *apiv1.ResourceReference, format clioutput.Format, out io.Writer) error {
+	if _, err := client.DeleteAgent(ctx, &apiv1.DeleteAgentRequest{Ref: ref}); err != nil {
+		return fmt.Errorf("delete Agent %q: %w", ref.GetName(), err)
+	}
+	return writeDeleted(out, format, agentKind, ref)
+}
+
+// writeDeleted reports a deletion whose response carries no resource.
+func writeDeleted(w io.Writer, format clioutput.Format, kind string, ref *apiv1.ResourceReference) error {
+	if format == clioutput.FormatJSON {
+		return clioutput.WriteProto(w, ref)
+	}
+	_, err := fmt.Fprintf(w, "Deleted %s %s/%s.\n", kind, ref.GetNamespace(), ref.GetName())
+	return err
+}
+
+func newAgentDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete NAME",
+		Short: "Delete an Agent",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			session, format, err := openAPI(cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { err = errors.Join(err, session.Close()) }()
+			ref := &apiv1.ResourceReference{Namespace: session.Namespace, Name: args[0]}
+			return deleteAgent(cmd.Context(), session.API.Agent, ref, format, cmd.OutOrStdout())
+		},
+	}
+}
+
+// openAPI connects a command to the control-plane API. The caller must Close
+// the session.
+func openAPI(cmd *cobra.Command) (*connection.Session, clioutput.Format, error) {
+	options, err := connection.OptionsFromCommand(cmd)
+	if err != nil {
+		return nil, "", err
+	}
+	value, err := clioutput.FromCommand(cmd)
+	if err != nil {
+		return nil, "", err
+	}
+	format, err := clioutput.Parse(value)
+	if err != nil {
+		return nil, "", err
+	}
+	session, err := connection.OpenAPI(cmd.Context(), options)
+	if err != nil {
+		return nil, "", err
+	}
+	return session, format, nil
 }
 
 // NewApplyAgentCmd constructs the Agent apply command.

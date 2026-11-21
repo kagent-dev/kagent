@@ -9,8 +9,8 @@ import (
 // NewAgentCmd groups agent discovery, invocation, and conversations.
 func NewAgentCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "agent", Short: "Discover agents and work with their conversations"}
-	templates := &cobra.Command{Use: "template", Short: "Discover reusable agent templates"}
-	templates.AddCommand(newAgentTemplateReadCmd(true), newAgentTemplateReadCmd(false))
-	cmd.AddCommand(newAgentReadCmd(true), newAgentReadCmd(false), session.NewInvokeCmd(), session.NewCmd(), templates)
+	templates := &cobra.Command{Use: "template", Short: "Discover and delete reusable agent templates"}
+	templates.AddCommand(newAgentTemplateReadCmd(true), newAgentTemplateReadCmd(false), newAgentTemplateDeleteCmd())
+	cmd.AddCommand(newAgentReadCmd(true), newAgentReadCmd(false), newAgentDeleteCmd(), session.NewInvokeCmd(), session.NewCmd(), templates)
 	return cmd
 }
