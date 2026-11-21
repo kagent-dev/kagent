@@ -44,6 +44,12 @@ is an `AgentTemplate` paired with a `Harness` and is not created, so the old
 "declarative agent create blocks submit" assertion has no page to run against. If a
 create-an-agent surface lands, its validation belongs in that change.
 
+## Live specs not run in CI
+
+`live/agent-lifecycle.spec.ts` and `live/agent-template-skills.spec.ts` stay local-only.
+They need an `assistant` AgentTemplate and Harness and a model that really replies,
+which the `test-e2e` cluster does not have. The workflow names the three specs it runs.
+
 ## Not started by request
 
 App extension-point specs. The framework is still being edited and its
