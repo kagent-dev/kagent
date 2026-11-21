@@ -446,6 +446,23 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			object: unstructuredStrictTemplate(namespace, "strict-true-schema-from", true, nil, &ConfigMapKeyReference{Name: "schemas", Key: "output.json"}),
 		},
 		{
+			name:   "AgentTemplate accepts a Session subagent",
+			object: subAgentTemplate(namespace, "subagent-session", SubAgentIsolationSession),
+		},
+		{
+			name:   "AgentTemplate accepts a Shared subagent",
+			object: subAgentTemplate(namespace, "subagent-shared", SubAgentIsolationShared),
+		},
+		{
+			name:   "AgentTemplate accepts a subagent without isolation",
+			object: subAgentTemplate(namespace, "subagent-default", ""),
+		},
+		{
+			name:       "AgentTemplate rejects an unknown subagent isolation",
+			object:     subAgentTemplate(namespace, "subagent-isolated", SubAgentIsolation("Isolated")),
+			wantReject: "Unsupported value",
+		},
+		{
 			name: "AgentTemplate admits other MCP server kinds for the controller to reject",
 			object: validAgentTemplate(namespace, "other-mcp-kind", []ToolBinding{{
 				MCP: &MCPToolBinding{Server: MCPServerReference{Group: new("example.com"), Kind: new("Service"), Name: "tools"}},
@@ -718,6 +735,12 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 			Tools:       tools,
 		},
 	}
+}
+
+func subAgentTemplate(namespace, name string, isolation SubAgentIsolation) *AgentTemplate {
+	return validAgentTemplate(namespace, name, []ToolBinding{{SubAgent: &SubAgentToolBinding{
+		Name: "reviewer", Description: "Reviews work.", TemplateRef: &corev1.LocalObjectReference{Name: "reviewer"}, Isolation: isolation,
+	}}})
 }
 
 func unstructuredStrictTemplate(namespace, name string, strict bool, schema *apiextensionsv1.JSON, schemaFrom *ConfigMapKeyReference) ctrlclient.Object {

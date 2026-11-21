@@ -57,6 +57,7 @@ type resolvedTemplate struct {
 type resolvedTemplateBinding struct {
 	Name        string
 	Description string
+	Isolation   v1alpha3.SubAgentIsolation
 	Agent       *resolvedTemplate
 }
 
@@ -88,6 +89,7 @@ type ResolvedMCPTool struct {
 type AgentInputBinding struct {
 	Name        string
 	Description string
+	Isolation   v1alpha3.SubAgentIsolation
 	Agent       *AgentInput
 }
 
@@ -242,7 +244,7 @@ func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguratio
 			if child {
 				return nil, NewValidationError("consecutive Shared AgentTemplate tools exceed the kagent runtime boundary")
 			}
-			resolved.Shared = append(resolved.Shared, resolvedTemplateBinding{Name: binding.Name, Description: binding.Description, Agent: agent})
+			resolved.Shared = append(resolved.Shared, resolvedTemplateBinding{Name: binding.Name, Description: binding.Description, Isolation: binding.Isolation, Agent: agent})
 		}
 		return resolved, nil
 	}
@@ -314,7 +316,10 @@ func (c *Compiler) buildInputs(ctx context.Context, tree *resolvedTemplateTree) 
 			if err != nil {
 				return nil, err
 			}
-			input.Shared = append(input.Shared, AgentInputBinding{Name: binding.Name, Description: binding.Description, Agent: child})
+			if err := validateSubAgentIsolation(harnessType(tree.Harness), binding.Name, binding.Isolation, child); err != nil {
+				return nil, err
+			}
+			input.Shared = append(input.Shared, AgentInputBinding{Name: binding.Name, Description: binding.Description, Isolation: binding.Isolation, Agent: child})
 		}
 		return input, nil
 	}

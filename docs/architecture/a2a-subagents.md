@@ -33,6 +33,52 @@ tools:
 
 Tree resolution detects missing references and cycles before compilation.
 
+### Session isolation
+
+By default a subagent shares the parent's Session: the parent transfers control
+and the subagent answers in the same conversation history. `isolation: Session`
+on the binding changes the call model. The parent calls the subagent as a tool and
+receives its answer, and every call runs in a session of its own, seeded with a
+copy of the parent's state:
+
+```yaml
+tools:
+  - subAgent:
+      name: reviewer
+      description: Review proposed changes before applying them.
+      isolation: Session
+      templateRef:
+        name: review-context
+```
+
+| | `Shared` (default) | `Session` |
+| --- | --- | --- |
+| Call model | The parent transfers the conversation | The parent calls a tool and gets a result |
+| History the subagent sees | The whole conversation | Only the request it was given |
+| Parallel calls | Share one conversation | One session each |
+| State | Shared | A copy; writes are not copied back |
+| Human input and approvals | Reach the person through the parent | Not possible |
+
+Use `Session` to fan out to the same subagent in parallel, to keep a long parent
+conversation out of the subagent's context, or to keep the subagent from seeing
+what the parent was told. The copy of the parent's state is what the subagent
+starts from, so do not keep values there that it should not see.
+
+The controller rejects a `Session` binding that cannot work, with
+`Compatible=False`:
+
+- Only the kagent and BYO Harnesses support it. Codex and Claude do not.
+- The subagent's MCP bindings cannot set `requireApproval`, and it is not offered
+  `ask_user`: its session ends with the tool call, so a request for a person
+  would never be answered.
+- It cannot be combined with STS token exchange. The exchanged token is cached by
+  session ID and a `Session` subagent runs in a new session, so its MCP requests
+  would carry the caller's own credential instead. Plain token propagation works,
+  because the credential travels with the request.
+
+The root agent has no parent and must leave isolation unset. A `Shared` or
+omitted binding keeps its previous behavior, and its revisions do not change.
+
 ## Dedicated agent tools
 
 Dedicated bindings would select an independently configured Agent with its own
