@@ -45,10 +45,6 @@ jobs:
           echo "key=${BRANCH_KEY}" >> $GITHUB_OUTPUT
           echo "::notice title=Cache Key::Branch: ${BRANCH_KEY}"
   test-e2e:
-    # initialize-environment cancels superseded runs with the job token.
-    permissions:
-      contents: read
-      actions: write
     strategy:
       fail-fast: false
       matrix:
@@ -403,10 +399,6 @@ jobs:
           path: docs/**/*.svg
 
   upgrade-tests:
-    # initialize-environment cancels superseded runs with the job token.
-    permissions:
-      contents: read
-      actions: write
     needs:
       - setup
     env:
@@ -454,10 +446,6 @@ jobs:
           kubectl logs -n kagent deployment/kagent-controller || true
 
   rolling-upgrade-tests:
-    # initialize-environment cancels superseded runs with the job token.
-    permissions:
-      contents: read
-      actions: write
     needs:
       - setup
     env:
