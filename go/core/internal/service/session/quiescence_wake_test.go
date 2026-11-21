@@ -33,6 +33,11 @@ type observedQuiescenceStore struct {
 
 var _ workflowStore = (*observedQuiescenceStore)(nil)
 
+// No stranded claim to reconcile: these tests drive the ordinary idle path.
+func (s *observedQuiescenceStore) ClaimStaleSessionQuiescence(context.Context, time.Duration) (*database.SessionQuiescence, error) {
+	return nil, database.ErrNotFound
+}
+
 func (s *observedQuiescenceStore) HasPendingSessionQuiescence(ctx context.Context) (bool, error) {
 	pending, err := s.Client.HasPendingSessionQuiescence(ctx)
 	s.idle.Add(1)

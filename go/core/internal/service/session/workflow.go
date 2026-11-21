@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	"go.opentelemetry.io/otel/metric"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -20,6 +22,9 @@ type workflowStore interface {
 	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
 	RecordLostSessionRuntime(context.Context, string, uuid.UUID, string) (*apiv1.Session, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
+	ClaimStaleSessionQuiescence(context.Context, time.Duration) (*database.SessionQuiescence, error)
+	ReleaseSessionQuiescence(context.Context, *database.SessionQuiescence) error
+	RetireSessionQuiescence(context.Context, *database.SessionQuiescence) error
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
 	GetSessionForRuntime(context.Context, string, string) (*apiv1.Session, error)
@@ -45,12 +50,15 @@ type ActorWorkflow struct {
 	recoveryInterval time.Duration
 	quiescenceWake   chan struct{}
 	meterProvider    metric.MeterProvider
+	// staleClaim is how old an unrecorded quiescence claim must be before this
+	// workflow reconciles it against Substrate.
+	staleClaim time.Duration
 }
 
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
 func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, provider metric.MeterProvider) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider}
+	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider, staleClaim: defaultStaleQuiescenceClaim}
 }
 
 // Quiesce durably suspends the runtime without changing the Session's
@@ -92,6 +100,68 @@ func (w *ActorWorkflow) Quiesce(ctx context.Context, session *apiv1.Session) (*d
 		Atespace: atespace, URI: substrate.SnapshotURI(snapshot),
 		Fidelity: fidelity.String(),
 	}, nil
+}
+
+// quiescenceOutcome is what a stranded suspension turned out to be.
+type quiescenceOutcome int
+
+const (
+	// quiescenceUnknown keeps the claim: something is still in flight, or the
+	// snapshot is not durable yet, and reopening the session would race it.
+	quiescenceUnknown quiescenceOutcome = iota
+	// quiescenceSuspended means the Actor was suspended after all and the
+	// snapshot it left behind is the one the boundary owes.
+	quiescenceSuspended
+	// quiescenceNotSuspended means the suspension did not happen and can be
+	// retried, so the session is admitted again in the meantime.
+	quiescenceNotSuspended
+	// quiescenceGone means there is no Actor left to suspend, now or later.
+	quiescenceGone
+)
+
+// reconcileQuiescence reads what became of a suspension whose outcome was never
+// recorded. It never issues a suspension of its own: the claim it reconciles was
+// taken from a worker whose call may still be in flight, and Substrate's view of
+// the Actor is the only account of that call either side can trust.
+//
+// Everything that is not plainly settled reads as unknown, which keeps the
+// session closed. That is the state this recovery exists to end, so it is worth
+// being explicit: a claim is only given up for an Actor that is running with no
+// suspension in progress, or for one that no longer exists.
+func (w *ActorWorkflow) reconcileQuiescence(ctx context.Context, session *apiv1.Session) (*database.SessionTaskSnapshot, quiescenceOutcome, error) {
+	revision, err := w.store.GetRuntimeRevision(ctx, session.GetPreparedRevision())
+	if err != nil {
+		return nil, quiescenceUnknown, fmt.Errorf("load prepared revision: %w", err)
+	}
+	atespace, name := revision.ActorTemplateAtespace, substrate.ActorName(session.GetId())
+	actor, err := w.actors.GetActor(ctx, atespace, name)
+	if status.Code(err) == codes.NotFound {
+		return nil, quiescenceGone, nil
+	}
+	if err != nil {
+		return nil, quiescenceUnknown, err
+	}
+	if err := w.verifyActor(ctx, session, revision, actor); err != nil {
+		return nil, quiescenceUnknown, err
+	}
+	switch actor.GetStatus().GetState() {
+	case ateapipb.ActorState_ACTOR_STATE_SUSPENDED:
+		snapshot := substrate.LatestActorSnapshot(actor)
+		uri, fidelity := substrate.SnapshotURI(snapshot), snapshot.GetFidelity()
+		if uri == "" || fidelity != ateapipb.SnapshotFidelity_SNAPSHOT_FIDELITY_VOLUMES {
+			// Suspended with an upload still in flight or a weaker snapshot than
+			// the boundary owes. A later pass reads the finished one.
+			return nil, quiescenceUnknown, nil
+		}
+		return &database.SessionTaskSnapshot{Atespace: atespace, URI: uri, Fidelity: fidelity.String()}, quiescenceSuspended, nil
+	case ateapipb.ActorState_ACTOR_STATE_RUNNING:
+		return nil, quiescenceNotSuspended, nil
+	default:
+		// Suspending, resuming, reverting, deleting or crashed. A suspension may
+		// be in progress, and a crash has its own recovery, which retires this
+		// claim rather than racing it.
+		return nil, quiescenceUnknown, nil
+	}
 }
 
 // Create provisions the persisted session once, using its pinned checkpoint for
