@@ -101,6 +101,7 @@ class OpenAIAgentExecutor(AgentExecutor):
         session_context = SessionContext(session_id=context.context_id)
         session = SQLiteSession(context.context_id, self._session_db_path) if self._session_db_path else None
         emitted_text = False
+        tool_names: dict[str, str] = {}
 
         try:
             # Use run_streamed for streaming support
@@ -118,6 +119,7 @@ class OpenAIAgentExecutor(AgentExecutor):
                     event,
                     context.task_id,
                     context.context_id,
+                    tool_names=tool_names,
                 )
 
                 for a2a_event in a2a_events:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from typing import Any
 
 from a2a.server.events import Event as A2AEvent
 from a2a.types import (
@@ -52,6 +53,7 @@ def convert_openai_event_to_a2a_events(
     event: StreamEvent,
     task_id: str,
     context_id: str,
+    tool_names: dict[str, str] | None = None,
 ) -> list[A2AEvent]:
     """Convert an OpenAI Agents SDK event to A2A events.
 
@@ -59,6 +61,9 @@ def convert_openai_event_to_a2a_events(
         event: OpenAI SDK streaming event
         task_id: A2A task ID
         context_id: A2A context ID
+        tool_names: Tool name by call ID, shared across the events of one run. Tool calls
+            are recorded here so their outputs, which do not carry the tool name, can be
+            labelled with it.
     Returns:
         List of A2A events (may be empty if event doesn't need conversion)
     """
@@ -67,7 +72,7 @@ def convert_openai_event_to_a2a_events(
     try:
         # Handle RunItemStreamEvent (messages, tool calls, tool outputs)
         if isinstance(event, RunItemStreamEvent):
-            a2a_events.extend(_convert_run_item_event(event, task_id, context_id))
+            a2a_events.extend(_convert_run_item_event(event, task_id, context_id, tool_names))
 
         # Handle RawResponsesStreamEvent (raw LLM responses)
         elif isinstance(event, RawResponsesStreamEvent):
@@ -89,6 +94,7 @@ def _convert_run_item_event(
     event: RunItemStreamEvent,
     task_id: str,
     context_id: str,
+    tool_names: dict[str, str] | None = None,
 ) -> list[A2AEvent]:
     """Convert a RunItemStreamEvent to A2A events.
 
@@ -96,6 +102,7 @@ def _convert_run_item_event(
         event: OpenAI run item stream event
         task_id: A2A task ID
         context_id: A2A context ID
+        tool_names: Tool name by call ID for the current run
     Returns:
         List containing A2A events based on the item type
     """
@@ -105,11 +112,11 @@ def _convert_run_item_event(
 
     # Handle tool calls
     elif isinstance(event.item, ToolCallItem):
-        return _convert_tool_call(event.item, task_id, context_id)
+        return _convert_tool_call(event.item, task_id, context_id, tool_names)
 
     # Handle tool outputs
     elif isinstance(event.item, ToolCallOutputItem):
-        return _convert_tool_output(event.item, task_id, context_id)
+        return _convert_tool_output(event.item, task_id, context_id, tool_names)
 
     # Handle handoff calls (map to subagent-style function_call for the UI)
     elif isinstance(event.item, HandoffCallItem):
@@ -171,6 +178,7 @@ def _convert_tool_call(
     item: ToolCallItem,
     task_id: str,
     context_id: str,
+    tool_names: dict[str, str] | None = None,
 ) -> list[A2AEvent]:
     """Convert a tool call item to A2A event.
 
@@ -201,6 +209,9 @@ def _convert_tool_call(
             logger.warning(f"Failed to parse arguments: {raw_call.arguments}")
             tool_arguments = {"raw": str(raw_call.arguments)}
 
+    if tool_names is not None:
+        tool_names[call_id] = tool_name
+
     # Create a DataPart for the function call
     # Note: Frontend expects 'args' not 'arguments', and 'id' for the call ID
     function_data = {
@@ -229,26 +240,29 @@ def _convert_tool_output(
     item: ToolCallOutputItem,
     task_id: str,
     context_id: str,
+    tool_names: dict[str, str] | None = None,
 ) -> list[A2AEvent]:
     """Convert a tool output item to A2A event.
 
     ToolCallOutputItem contains:
     - raw_item: FunctionCallOutput | ComputerCallOutput | LocalShellCallOutput
+      (a function tool's FunctionCallOutput is a plain dict)
     - output: The actual Python object returned by the tool
     """
     raw_output = item.raw_item
 
     # Extract tool output details from the raw item
-    call_id = raw_output.call_id if hasattr(raw_output, "call_id") else str(uuid.uuid4())
-
-    # item.output is the actual return value (Any)
-    actual_output: str = item.output
+    if isinstance(raw_output, dict):
+        call_id = raw_output.get("call_id") or str(uuid.uuid4())
+    else:
+        call_id = getattr(raw_output, "call_id", None) or str(uuid.uuid4())
 
     # Create a DataPart for the function response
     function_data = {
         "id": call_id,
-        "name": call_id,  # Name is not returned by the tool
-        "response": {"result": actual_output},
+        # The output does not carry the tool name; take it from the matching call
+        "name": (tool_names or {}).get(call_id, call_id),
+        "response": {"result": _tool_result(item)},
     }
 
     message = Message(
@@ -265,6 +279,18 @@ def _convert_tool_output(
     )
 
     return [_artifact_event(message, task_id, context_id)]
+
+
+def _tool_result(item: ToolCallOutputItem) -> Any:
+    """The tool's return value as JSON data, or the output the SDK sent to the model."""
+    try:
+        return json.loads(json.dumps(item.output))
+    except (TypeError, ValueError):
+        # Not JSON data (e.g. a ToolOutputText), so it cannot go into a protobuf Value as is
+        raw_output = item.raw_item
+        if isinstance(raw_output, dict) and "output" in raw_output:
+            return raw_output["output"]
+        return str(item.output)
 
 
 def _agent_tool_name(agent_name: str) -> str:
