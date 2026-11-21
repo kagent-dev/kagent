@@ -109,7 +109,14 @@ Runtime TaskStore calls require Actor JWTs injected by Substrate egress. Set
 default to `https://idp.ate-system.svc`). The controller uses
 `config.substrate.caFile` to verify discovery and JWKS TLS; enabling
 `controller.substrateClientCertificate.enabled` supplies the Substrate ServiceDNS
-trust bundle. Discovery and signing keys must be reachable at controller startup.
+trust bundle. When the issuer is served under a URL signed by a different CA,
+set `controller.actorJwksCA.configMap.name` (and `.key`, default `ca.crt`) to a
+ConfigMap in the Kagent namespace holding that CA in PEM form. The chart mounts
+it and sets `config.substrate.actorJwksCaFile`. The controller trusts that
+bundle, in addition to `caFile`, only when fetching discovery and JWKS; ate-api
+and router connections never use it. The controller reads both bundles at
+startup, so restart it after rotating either CA. Discovery and signing keys must
+be reachable at controller startup.
 Upgrade controller and runtime images together and recreate snapshots of older
 runtime images that sent unsigned identity headers.
 

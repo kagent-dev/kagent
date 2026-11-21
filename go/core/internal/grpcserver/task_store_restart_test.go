@@ -43,7 +43,7 @@ func TestRuntimeTaskStoreSaveOutlastsAControllerRestart(t *testing.T) {
 	t.Cleanup(db.Close)
 	store := database.NewClient(db, "public")
 	issuer := jwttest.New(t)
-	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.CAFile, substrate.RuntimeJWTAudience)
+	verifier, err := substrate.NewActorJWTVerifier(t.Context(), issuer.URL, issuer.RootCAs, substrate.RuntimeJWTAudience)
 	require.NoError(t, err)
 
 	// A runtime dialing the controller itself loses its connection, so

@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
@@ -21,10 +22,12 @@ import (
 )
 
 type Issuer struct {
-	URL    string
-	CAFile string
-	Key    *ecdsa.PrivateKey
-	keys   atomic.Value
+	URL string
+	// RootCAs trusts only this issuer's TLS certificate.
+	RootCAs *x509.CertPool
+	CAFile  string
+	Key     *ecdsa.PrivateKey
+	keys    atomic.Value
 }
 
 func New(t *testing.T) *Issuer {
@@ -47,6 +50,8 @@ func New(t *testing.T) *Issuer {
 	}))
 	t.Cleanup(server.Close)
 	i.URL = server.URL
+	i.RootCAs = x509.NewCertPool()
+	i.RootCAs.AddCert(server.Certificate())
 	i.CAFile = filepath.Join(t.TempDir(), "ca.pem")
 	require.NoError(t, os.WriteFile(i.CAFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0o600))
 	return i
