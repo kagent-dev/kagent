@@ -337,7 +337,7 @@ class KAgentRemoteA2ATool(BaseTool):
         return {"result": result_text or "", "subagent_session_id": context_id}
 
     def _handle_input_required(
-        self, task: Task, tool_context: ToolContext, context_id: str | None = None
+        self, task: Task, tool_context: ToolContext, context_id: str | None = None, resumed: bool = False
     ) -> dict[str, Any]:
         """Handle a subagent that returned input_required (HITL).
 
@@ -345,6 +345,13 @@ class KAgentRemoteA2ATool(BaseTool):
         the HITL prompt to the UI.  The subagent's task_id and context_id
         are stored in the confirmation payload so the resume path can
         forward the user's decision.
+
+        ``resumed`` marks the second pause of one subagent run, which cannot be
+        surfaced: this call is already confirmed, so another
+        request_confirmation() raises no new prompt, and a pending result
+        reads to the model as an invitation to call the subagent again. That
+        starts a separate run and leaves the paused task waiting for an
+        approval nobody is asked for, so it is reported instead.
         """
         state = build_remote_hitl_state(task, self.name)
         if state is None:
@@ -354,6 +361,24 @@ class KAgentRemoteA2ATool(BaseTool):
                 "error": f"Remote agent '{self.name}' requested input without a valid HITL extension.",
                 "subagent_session_id": task.context_id or context_id,
             }
+        if resumed:
+            logger.error(
+                "Subagent %s needs another approval for task %s after its decision was forwarded, "
+                "which cannot be surfaced on a confirmed call",
+                self.name,
+                task.id,
+            )
+            return {
+                "status": "failed",
+                "error": (
+                    f"Remote agent '{self.name}' asked for another approval while continuing task {task.id}, "
+                    f"which cannot be requested during this call. Do not call '{self.name}' again for this work: "
+                    "that would start a separate run and leave this task waiting. Report that the task needs an "
+                    "approval that could not be surfaced."
+                ),
+                "subagent_session_id": task.context_id or context_id,
+            }
+
         hint = remote_hitl_hint(state)
 
         logger.info(
@@ -430,7 +455,7 @@ class KAgentRemoteA2ATool(BaseTool):
         task_state = task.status.state if task.status else None
 
         if task_state == TaskState.TASK_STATE_INPUT_REQUIRED:
-            return self._handle_input_required(task, tool_context)
+            return self._handle_input_required(task, tool_context, resumed=True)
 
         if task_state == TaskState.TASK_STATE_FAILED:
             error_text = _extract_text_from_task(task)
