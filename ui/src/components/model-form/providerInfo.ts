@@ -70,6 +70,11 @@ export const PROVIDER_INFO: Record<string, ProviderInfo> = {
     apiKeyLink: "https://console.mistral.ai/api-keys",
     modelDocsLink: "https://docs.mistral.ai/getting-started/models/models_overview/",
   },
+  xAI: {
+    displayName: "xAI",
+    apiKeyLink: "https://console.x.ai/",
+    modelDocsLink: "https://docs.x.ai/developers/models",
+  },
   Foundry: {
     displayName: "Azure AI Foundry",
     apiKeyLink: "https://ai.azure.com/",
@@ -99,6 +104,7 @@ export const PASSTHROUGH_ALLOWED_PROVIDERS = new Set([
   "Bedrock",
   "SAPAICore",
   "Mistral",
+  "xAI",
   "Foundry",
 ]);
 

@@ -254,6 +254,70 @@ func TestOpenAIConfigValidation(t *testing.T) {
 			wantReject: "maxTokens",
 		},
 		{
+			name: "xAI config with matching provider accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-xai-ok", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "grok-4.7",
+						Provider:        ModelProviderXAI,
+						APIKeySecret:    "xai-secret",
+						APIKeySecretKey: "api-key",
+						XAI: &XAIConfig{
+							BaseURL:     new("https://api.x.ai/v1"),
+							Temperature: new("0.3"),
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "xAI config without any provider-specific block accepted",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-xai-plain", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "grok-4.7",
+						Provider:        ModelProviderXAI,
+						APIKeySecret:    "xai-secret",
+						APIKeySecretKey: "api-key",
+					},
+				}
+			},
+		},
+		{
+			name: "xAI config with mismatched provider rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-xai-bad-provider", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "grok-4.7",
+						Provider:        ModelProviderOpenAI,
+						APIKeySecret:    "openai-secret",
+						APIKeySecretKey: "api-key",
+						XAI:             &XAIConfig{},
+					},
+				}
+			},
+			wantReject: "provider.xAI must be nil if the provider is not xAI",
+		},
+		{
+			name: "xAI maxTokens below minimum rejected",
+			build: func() ctrl_client.Object {
+				return &ModelConfig{
+					ObjectMeta: metav1.ObjectMeta{Name: "mc-xai-maxtokens-neg", Namespace: ns},
+					Spec: ModelConfigSpec{
+						Model:           "grok-4.7",
+						Provider:        ModelProviderXAI,
+						APIKeySecret:    "xai-secret",
+						APIKeySecretKey: "api-key",
+						XAI:             &XAIConfig{MaxTokens: new(-1)},
+					},
+				}
+			},
+			wantReject: "maxTokens",
+		},
+		{
 			name: "azure apiVersion omitted on chat completions rejected",
 			build: func() ctrl_client.Object {
 				return &ModelConfig{

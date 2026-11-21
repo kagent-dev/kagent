@@ -655,6 +655,7 @@ spec:
                 - SAPAICore
                 - Foundry
                 - Mistral
+                - xAI
                 type: string
               sapAICore:
                 description: SAP AI Core-specific configuration
@@ -701,6 +702,27 @@ spec:
                   with federated identity that want to avoid separate secret management.
                   Mutually exclusive with apiKeySecret.
                 type: boolean
+              xAI:
+                description: xAI-specific configuration
+                properties:
+                  baseUrl:
+                    description: Base URL for the xAI API (overrides default https://api.x.ai/v1)
+                    type: string
+                  maxTokens:
+                    description: Maximum tokens to generate
+                    minimum: 1
+                    type: integer
+                  temperature:
+                    description: Temperature for sampling
+                    type: string
+                  timeout:
+                    description: Timeout in seconds for the underlying HTTP client
+                    minimum: 1
+                    type: integer
+                  topP:
+                    description: Top-p sampling parameter
+                    type: string
+                type: object
             required:
             - model
             type: object
@@ -729,6 +751,8 @@ spec:
               rule: '!(has(self.foundry) && self.provider != ''Foundry'')'
             - message: provider.mistral must be nil if the provider is not Mistral
               rule: '!(has(self.mistral) && self.provider != ''Mistral'')'
+            - message: provider.xAI must be nil if the provider is not xAI
+              rule: '!(has(self.xAI) && self.provider != ''xAI'')'
             - message: apiKeySecret must be set if apiKeySecretKey is set
               rule: '!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))'
             - message: apiKeySecretKey must be set if apiKeySecret is set (except

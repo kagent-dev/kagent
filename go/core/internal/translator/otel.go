@@ -100,6 +100,8 @@ func ProviderName(provider v1alpha3.ModelProvider) string {
 		return "ollama"
 	case v1alpha3.ModelProviderSAPAICore:
 		return "sap.ai_core"
+	case v1alpha3.ModelProviderXAI:
+		return conv.GenAIProviderNameXAI
 	default:
 		return strings.ToLower(string(provider))
 	}

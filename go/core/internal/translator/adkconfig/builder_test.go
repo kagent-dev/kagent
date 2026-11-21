@@ -202,6 +202,36 @@ func TestMistralEgressDestination(t *testing.T) {
 	}
 }
 
+func TestXAIEgressDestination(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		xai  *v1alpha3.XAIConfig
+		want string
+	}{
+		{name: "Given an xAI ModelConfig without a base URL, when the harness is built, assert that egress allows api.x.ai", want: "https://api.x.ai:443"},
+		{name: "Given an xAI ModelConfig with a base URL, when the harness is built, assert that egress allows only that origin", xai: &v1alpha3.XAIConfig{BaseURL: new("https://xai.example.com/v1")}, want: "https://xai.example.com:443"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "xai", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderXAI, Model: "grok-4.7", XAI: test.xai,
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&translator.HarnessInput{
+					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root: &translator.AgentInput{
+						Template:            &translator.TemplateConfiguration{Name: "pi", Namespace: "test"},
+						ResolvedModelConfig: resolvedModel(t, collections, "xai"),
+					}})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, result.Egress)
+		})
+	}
+}
+
 // TestOllamaEgressDestination covers the one provider whose endpoint is not
 // reachable through the serialized model: it lives on the ModelConfig's own
 // Ollama field, so the generic walk over the model never sees it. Without an
