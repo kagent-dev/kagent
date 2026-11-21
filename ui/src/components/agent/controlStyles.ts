@@ -1,6 +1,29 @@
 import type { Theme } from "@emotion/react";
 
 /**
+ * Hover and pressed for a row or list item: the row tint, hover at half the press, instant.
+ * `base` is a fill the row keeps under the tint, so a selected row stays distinct while hovered.
+ */
+export function rowStateStyles(theme: Theme, base?: string) {
+  const over = (tint: string) => (base ? `linear-gradient(${tint}, ${tint}), ${base}` : tint);
+  return {
+    transition: "none",
+    "&:hover": { background: over(theme.color.rowHoverBg) },
+    "&:active": { background: over(theme.color.rowPressBg) },
+  } as const;
+}
+
+/** An option card: the row tint plus a purple edge, both at half strength on hover. */
+export function cardStateStyles(theme: Theme, surface?: string) {
+  const { "&:hover": hover, "&:active": active } = rowStateStyles(theme, surface);
+  return {
+    transition: "none",
+    "&:hover": { ...hover, borderColor: `${theme.color.primary}53` },
+    "&:active": { ...active, borderColor: `${theme.color.primary}A6` },
+  } as const;
+}
+
+/**
  * How a row in the agent navigation reacts to a pointer.
  *
  * Shared because three lists use it — the rail's conversations, the switcher's agents,
@@ -11,6 +34,8 @@ import type { Theme } from "@emotion/react";
  * and lightens on the dark one.
  */
 export function rowStyles(theme: Theme, isActive: boolean) {
+  const selected = `${theme.color.primary}24`;
+  const states = rowStateStyles(theme, isActive ? selected : undefined);
   return {
     display: "flex",
     alignItems: "center",
@@ -26,36 +51,16 @@ export function rowStyles(theme: Theme, isActive: boolean) {
      *
      * Outlined, it read as a selected field rather than the place you are — a hard
      * edge a few pixels from the menu button beside it, in a column of rows that have
-     * none. The tint is deeper than hover so the two are never confused, and the
-     * heavier text is what carries it when a row is scrolled past at speed.
+     * none. Its purple differs from the greyed hover tint, and the heavier text carries
+     * it when a row is scrolled past at speed.
      */
-    background: isActive ? `${theme.color.primary}24` : "transparent",
+    background: isActive ? selected : "transparent",
     border: "1px solid transparent",
     fontWeight: isActive ? 600 : 400,
-    transition: "background 100ms ease, color 100ms ease",
-    /*
-     * A tint of the foreground, not a named surface.
-     *
-     * Hover used to be `bgElevated`, which works on the page but vanishes inside the
-     * agent switcher — that panel *is* `bgElevated`, so hovering a row there changed it
-     * to the colour it was already sitting on and the rows looked inert. A tint darkens
-     * on the light theme and lightens on the dark one from one declaration, and shows
-     * against either ground.
-     */
-    "&:hover": { background: `${theme.color.text}14`, color: theme.color.text },
-    /*
-     * Pressed, deeper than hover and instant.
-     *
-     * A row had hover and nothing for the click, so on a slow route the press did not
-     * register visually and the reader clicked again. A tint of the brand for the row
-     * you are on — which must not appear to lose its highlight while being pressed —
-     * and the border colour for the rest.
-     */
-    "&:active": {
-      background: isActive ? `${theme.color.primary}40` : `${theme.color.text}29`,
-      color: theme.color.text,
-      transition: "none",
-    },
+    // A translucent tint, so it shows inside the bgElevated switcher panel as well as on the page.
+    transition: states.transition,
+    "&:hover": { ...states["&:hover"], color: theme.color.text },
+    "&:active": { ...states["&:active"], color: theme.color.text },
   } as const;
 }
 
@@ -73,7 +78,7 @@ export function rowStyles(theme: Theme, isActive: boolean) {
 export function iconControlStyles(theme: Theme) {
   return {
     color: theme.color.textMuted,
-    transition: "background 100ms ease, color 100ms ease",
+    transition: "none",
     "&:hover": {
       background: `${theme.color.text}14`,
       color: theme.color.text,
@@ -81,7 +86,6 @@ export function iconControlStyles(theme: Theme) {
     "&:active": {
       background: `${theme.color.text}29`,
       color: theme.color.text,
-      transition: "none",
     },
   } as const;
 }
@@ -102,7 +106,7 @@ export function searchInputStyles(theme: Theme) {
     borderRadius: theme.radius.md,
     paddingBlock: theme.space(1),
     paddingInline: theme.space(2),
-    transition: "background 100ms ease, border-color 100ms ease",
+    transition: "none",
     "&:hover": { background: `${theme.color.text}14` },
     "&:focus-within": {
       background: theme.color.bg,
@@ -123,25 +127,24 @@ export function searchInputStyles(theme: Theme) {
  * grows is the target around it. The padding does that and a negative margin of the
  * same size cancels it, so nothing beside the box moves.
  *
- * Hover tints the box and strengthens its edge, and pressing takes the darker brand
- * purple, so a press is distinct from the hover that preceded it. Both are stated for
- * the checked box too, which antd fills and otherwise leaves inert under the pointer.
+ * Hover rings the box in the brand purple at half strength and pressing takes it at
+ * full, instantly. Both apply to the checked box too, which antd otherwise leaves inert.
  */
 export function checkboxStyles(theme: Theme) {
   return {
     // antd's own 16px box, untouched: growing it moved the tick it positions against,
     // and a checkbox that changes size under the pointer is a target that moves.
     "& .ant-checkbox": {
-      transition: "outline-color 80ms ease, outline-width 80ms ease",
+      transition: "none",
       outline: "2px solid transparent",
       outlineOffset: 2,
     },
     "&:hover .ant-checkbox:not(.ant-checkbox-disabled)": {
-      outline: `2px solid ${theme.color.accentBorder}`,
+      outline: `2px solid ${theme.color.primary}80`,
       outlineOffset: 2,
     },
     "&:active .ant-checkbox:not(.ant-checkbox-disabled)": {
-      outline: `3px solid ${theme.color.primary}`,
+      outline: `2px solid ${theme.color.primary}`,
       outlineOffset: 2,
     },
     // A keyboard reader has no hover to fall back on, and this is the only thing

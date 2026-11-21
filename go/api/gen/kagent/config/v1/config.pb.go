@@ -1384,7 +1384,7 @@ func (x *GatewayConfig) GetPublicUrl() string {
 // PushConfig controls callback delivery and authentication in the controller.
 type PushConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
+	// Optional unencrypted PKCS#8 Ed25519 PEM key, reloaded every 15s. Empty disables signing.
 	SigningPrivateKeyFile string  `protobuf:"bytes,1,opt,name=signing_private_key_file,json=signingPrivateKeyFile,proto3" json:"signing_private_key_file,omitempty"`
 	Issuer                *string `protobuf:"bytes,2,opt,name=issuer,proto3,oneof" json:"issuer,omitempty"`
 	AllowHttp             bool    `protobuf:"varint,3,opt,name=allow_http,json=allowHttp,proto3" json:"allow_http,omitempty"`
@@ -1394,9 +1394,12 @@ type PushConfig struct {
 	// Maximum concurrent callback deliveries per controller replica. Defaults to 10.
 	MaxConcurrency *int32 `protobuf:"varint,6,opt,name=max_concurrency,json=maxConcurrency,proto3,oneof" json:"max_concurrency,omitempty"`
 	// Timeout for each callback attempt. Defaults to 5s.
-	SendTimeout   *durationpb.Duration `protobuf:"bytes,7,opt,name=send_timeout,json=sendTimeout,proto3" json:"send_timeout,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SendTimeout *durationpb.Duration `protobuf:"bytes,7,opt,name=send_timeout,json=sendTimeout,proto3" json:"send_timeout,omitempty"`
+	// Prepublication wait before using a replacement key, plus a fixed 30s buffer.
+	// Defaults to 300s, at most 86400s (24h). Must cover receivers' JWKS refresh intervals.
+	SigningKeyActivationDelay *durationpb.Duration `protobuf:"bytes,8,opt,name=signing_key_activation_delay,json=signingKeyActivationDelay,proto3" json:"signing_key_activation_delay,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *PushConfig) Reset() {
@@ -1474,6 +1477,13 @@ func (x *PushConfig) GetMaxConcurrency() int32 {
 func (x *PushConfig) GetSendTimeout() *durationpb.Duration {
 	if x != nil {
 		return x.SendTimeout
+	}
+	return nil
+}
+
+func (x *PushConfig) GetSigningKeyActivationDelay() *durationpb.Duration {
+	if x != nil {
+		return x.SigningKeyActivationDelay
 	}
 	return nil
 }
@@ -2278,7 +2288,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\rGatewayConfig\x12?\n" +
 	"\n" +
 	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01B\r\n" +
-	"\v_public_url\"\xd4\x03\n" +
+	"\v_public_url\"\xc0\x04\n" +
 	"\n" +
 	"PushConfig\x127\n" +
 	"\x18signing_private_key_file\x18\x01 \x01(\tR\x15signingPrivateKeyFile\x128\n" +
@@ -2290,7 +2300,8 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x10recoveryInterval\x125\n" +
 	"\x0fmax_concurrency\x18\x06 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x01R\x0emaxConcurrency\x88\x01\x01\x12N\n" +
 	"\fsend_timeout\x18\a \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\vsendTimeoutB\t\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\vsendTimeout\x12j\n" +
+	"\x1csigning_key_activation_delay\x18\b \x01(\v2\x19.google.protobuf.DurationB\x0e\xbaH\v\xaa\x01\b\"\x04\b\x80\xa3\x05*\x00R\x19signingKeyActivationDelayB\t\n" +
 	"\a_issuerB\x12\n" +
 	"\x10_max_concurrency\"\x8e\x04\n" +
 	"\rSandboxConfig\x12\x1f\n" +
@@ -2455,26 +2466,27 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	30, // 37: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
 	30, // 38: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
 	30, // 39: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
-	30, // 40: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	30, // 41: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	30, // 42: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 43: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	30, // 44: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	30, // 45: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	25, // 46: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	25, // 47: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	25, // 48: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	29, // 49: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	30, // 50: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	4,  // 51: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	24, // 52: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	28, // 53: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	27, // 54: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	55, // [55:55] is the sub-list for method output_type
-	55, // [55:55] is the sub-list for method input_type
-	55, // [55:55] is the sub-list for extension type_name
-	55, // [55:55] is the sub-list for extension extendee
-	0,  // [0:55] is the sub-list for field type_name
+	30, // 40: kagent.config.v1.PushConfig.signing_key_activation_delay:type_name -> google.protobuf.Duration
+	30, // 41: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	30, // 42: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	30, // 43: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 44: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	30, // 45: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	30, // 46: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	25, // 47: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	25, // 48: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	25, // 49: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	29, // 50: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	30, // 51: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	4,  // 52: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	24, // 53: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	28, // 54: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	27, // 55: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }

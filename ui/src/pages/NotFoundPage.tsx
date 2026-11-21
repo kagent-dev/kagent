@@ -2,6 +2,7 @@ import { Button, Space, Typography } from "antd";
 import { Compass } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { Link, useLocation } from "react-router-dom";
+import { cardStateStyles } from "@/components/agent/controlStyles";
 import { agentTemplatesTab, egressPoliciesTab, paths } from "@/router/routes";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 
@@ -97,7 +98,7 @@ export function NotFoundPage() {
               borderRadius: theme.radius.md,
               border: `1px solid ${theme.color.border}`,
               background: theme.color.bgElevated,
-              "&:hover": { borderColor: theme.color.primary },
+              ...cardStateStyles(theme, theme.color.bgElevated),
             }}
           >
             <Text css={{ color: theme.color.text, fontWeight: 500 }}>

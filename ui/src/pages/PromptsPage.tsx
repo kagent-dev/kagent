@@ -191,12 +191,12 @@ export function PromptsPage() {
       }
       actions={
         <Space size={8}>
-          <RefreshButton onRefresh={refresh} what="Prompt libraries" loading={isLoading} />
           <Link to={paths.promptNew}>
             <Button type="primary" icon={<Plus size={14} />} data-testid="prompts-new">
               New Library
             </Button>
           </Link>
+          <RefreshButton onRefresh={refresh} what="Prompt libraries" loading={isLoading} iconOnly />
         </Space>
       }
     >

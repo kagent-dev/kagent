@@ -41,10 +41,11 @@ import {
 } from "@/api";
 import {
   conversationTitle,
+  isConversationTitlePending,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
-import { useThemeMode } from "@/theme/useThemeMode";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
 import {
   useExtensionAgentLinks,
@@ -69,6 +70,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import {
   checkboxStyles,
   iconControlStyles,
+  rowStateStyles,
   rowStyles,
   scrollbarStyles,
   searchInputStyles,
@@ -186,7 +188,6 @@ export function AgentRail({
   onDeleted,
 }: AgentRailProps) {
   const theme = useTheme();
-  const { mode } = useThemeMode();
   const location = useLocation();
   const [query, setQuery] = useState("");
 
@@ -399,7 +400,7 @@ export function AgentRail({
    * list very nearly unusable: the one row a reader could identify was the one they
    * were already looking at.
    */
-  const derivedTitles = useConversationTitles(
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(
     chats,
     ref.id ? { id: ref.id, title: autoTitle } : undefined,
   );
@@ -579,7 +580,11 @@ export function AgentRail({
     try {
       // The title, not the row's label: that carries the age too, and a copy called
       // "… · 2 minutes ago (copy)" is stamped with the age of the thing it came from.
-      const title = conversationTitle(target, derivedTitles[target.id]);
+      const title = conversationTitle(
+        target,
+        derivedTitles[target.id],
+        loadingTitles.has(target.id),
+      );
       const copy = await apiClient.agentInstances.fork(target.id, `${title} (copy)`);
       await conversations.refresh();
       toast.success(`Duplicated "${title}"`);
@@ -762,27 +767,8 @@ export function AgentRail({
           background: theme.color.bgElevated,
           border: `1px solid ${theme.color.border}`,
           minWidth: 0,
-          transition: "background 100ms ease, border-color 100ms ease",
-          /*
-           * Surface only, and lighter on the light theme.
-           *
-           * Moving the border as well made the whole card look redrawn on hover,
-           * beside rail rows whose borders hold still. And the same percentage does
-           * not read the same on both themes: layering near-black over white at 12%
-           * is a solid grey step, where near-white over near-black at 12% is barely a
-           * lift. So the mix is stated per theme rather than shared and wrong on one.
-           */
-          "&:hover": {
-            background: `color-mix(in srgb, ${theme.color.text} ${
-              mode === "light" ? "3.5%" : "6%"
-            }, ${theme.color.bgElevated})`,
-          },
-          "&:active": {
-            background: `color-mix(in srgb, ${theme.color.text} ${
-              mode === "light" ? "7%" : "12%"
-            }, ${theme.color.bgElevated})`,
-            transition: "none",
-          },
+          // Surface only, like the rail rows below it: the border holds still.
+          ...rowStateStyles(theme, theme.color.bgElevated),
         }}
       >
         <span
@@ -1051,6 +1037,8 @@ export function AgentRail({
                * but the same jump, at the same moment.
                */
               minHeight: 38,
+              // Tucked between the heading and the list: the 38px is for the button, not for space around it.
+              marginBlock: -8,
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
@@ -1141,6 +1129,8 @@ export function AgentRail({
             textTransform: "uppercase",
             letterSpacing: 0.6,
             paddingInline: theme.space(2),
+            // A little more room above the heading than the rail's gap, so it reads as a section start.
+            marginTop: 4,
           }}
         >
           Chats
@@ -1165,8 +1155,8 @@ export function AgentRail({
              list that replaces it, so the first visit to an agent shifted everything
              below it the moment the conversations arrived — and only the first, because
              every visit after that is served from cache with nothing to wait for. */
-          <div css={{ minHeight: 132, paddingInline: theme.space(2) }}>
-            <Skeleton active paragraph={{ rows: 4 }} title={false} data-testid="chat-sessions-loading" />
+          <div data-testid="chat-sessions-loading" css={{ minHeight: 132, paddingInline: theme.space(2) }}>
+            <Skeleton active paragraph={{ rows: 4 }} title={false} />
           </div>
         ) : conversations.error ? (
           <Alert
@@ -1237,17 +1227,22 @@ export function AgentRail({
           >
             {chats.map((candidate) => {
               const href = url.chat({ id: candidate.id });
+              /* The open row prefers its transcript's title, and keeps the listed one
+                 until that transcript loads, so opening a row never shows its id. */
+              const candidateTitle =
+                (candidate.id === ref.id ? autoTitle : undefined) ??
+                derivedTitles[candidate.id];
 
               return (
               <ChatEntry
                 key={candidate.id}
                 instance={candidate}
-                /* The open conversation's title comes from the transcript already on
-                   screen; the rest are read for. Both are derived the same way from the
-                   same first message, so a row does not change its name when opened. */
-                autoTitle={
-                  candidate.id === ref.id ? autoTitle : derivedTitles[candidate.id]
-                }
+                autoTitle={candidateTitle}
+                isTitleLoading={isConversationTitlePending(
+                  candidate,
+                  candidateTitle,
+                  loadingTitles,
+                )}
                 href={href}
                 /*
                  * Lit only where the reader actually is, not wherever the id appears.
@@ -1339,7 +1334,15 @@ export function AgentRail({
           id="app_agents_agentRail_gutter_actions"
           context={{
             instanceId: instance.id,
-            label: conversationLabel(instance, autoTitle),
+            label: conversationLabel(
+              instance,
+              autoTitle ?? derivedTitles[instance.id],
+              isConversationTitlePending(
+                instance,
+                autoTitle ?? derivedTitles[instance.id],
+                loadingTitles,
+              ),
+            ),
           }}
         />
       ) : null}
@@ -1360,9 +1363,16 @@ export function AgentRail({
  * label, so how long ago a conversation started is the only other thing that
  * distinguishes two untitled ones. A table has a column for it instead.
  */
-function conversationLabel(instance: AgentInstance, autoTitle?: string) {
-  const age = instance.createdAt ? ` · ${relativeAge(instance.createdAt)}` : "";
-  return `${conversationTitle(instance, autoTitle)}${age}`;
+function conversationLabel(
+  instance: AgentInstance,
+  autoTitle?: string,
+  isTitleLoading = false,
+) {
+  return `${conversationTitle(instance, autoTitle, isTitleLoading)}${ageSuffix(instance)}`;
+}
+
+function ageSuffix(instance: AgentInstance) {
+  return instance.createdAt ? ` · ${relativeAge(instance.createdAt)}` : "";
 }
 
 function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
@@ -1386,6 +1396,7 @@ function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
 function ChatEntry({
   instance,
   autoTitle,
+  isTitleLoading,
   href,
   isActive,
   onDelete,
@@ -1398,6 +1409,8 @@ function ChatEntry({
 }: {
   instance: AgentInstance;
   autoTitle?: string;
+  /** The title read is in flight, so the row shows a placeholder rather than "Untitled". */
+  isTitleLoading: boolean;
   href: string;
   isActive: boolean;
   onDelete: (instance: AgentInstance, force: boolean) => void;
@@ -1437,7 +1450,7 @@ function ChatEntry({
    */
   const slotContext = {
     instanceId: instance.id,
-    label: conversationLabel(instance, autoTitle),
+    label: conversationLabel(instance, autoTitle, isTitleLoading),
   };
 
   /*
@@ -1456,7 +1469,7 @@ function ChatEntry({
     /* Room between the three things on a row. At 2px the checkbox, the name and the
        menu were one undifferentiated strip, and the open conversation's outline ran
        straight into the button beside it. */
-    <li css={{ display: "flex", alignItems: "center", gap: theme.space(2), minWidth: 0 }}>
+    <li css={{ display: "flex", alignItems: "center", gap: theme.space(1), minWidth: 0 }}>
       <Modal
         open={isConfirming}
         onCancel={() => { setConfirming(false); setForceDelete(false); }}
@@ -1468,7 +1481,7 @@ function ChatEntry({
         okText="Delete"
         okButtonProps={{ danger: true, loading: isDeleting }}
         cancelText="Keep"
-        title={`Delete "${conversationLabel(instance, autoTitle)}"?`}
+        title={`Delete "${conversationLabel(instance, autoTitle, isTitleLoading)}"?`}
         data-testid={`chat-session-confirm-${instance.id}`}
       >
         <Text css={{ color: theme.color.textMuted }}>
@@ -1516,7 +1529,7 @@ function ChatEntry({
         <Checkbox
           checked={isSelected}
           data-testid={`chat-session-select-${instance.id}`}
-          aria-label={`Select ${conversationLabel(instance, autoTitle)}`}
+          aria-label={`Select ${conversationLabel(instance, autoTitle, isTitleLoading)}`}
           onClick={(event) => {
             // Read from the event rather than a keydown listener: the shift state that
             // matters is the one at the moment of the click.
@@ -1555,15 +1568,24 @@ function ChatEntry({
           // row, and what the ellipsis hides is the name. To the right, so it opens
           // into the page rather than back over the list it is explaining one of.
           ellipsis={{
-            tooltip: {
-              title: conversationTitle(instance, autoTitle),
-              placement: "right",
-              styles: TITLE_TOOLTIP_STYLES,
-            },
+            tooltip: isTitleLoading
+              ? false
+              : {
+                  title: conversationTitle(instance, autoTitle),
+                  placement: "right",
+                  styles: TITLE_TOOLTIP_STYLES,
+                },
           }}
           css={{ color: "inherit", fontSize: "inherit", flex: 1, minWidth: 0 }}
         >
-          {conversationLabel(instance, autoTitle)}
+          {isTitleLoading ? (
+            <>
+              <ConversationTitlePlaceholder instanceId={instance.id} width="6em" />
+              {ageSuffix(instance)}
+            </>
+          ) : (
+            conversationLabel(instance, autoTitle)
+          )}
         </Text>
       </Link>
       {/*
@@ -1676,7 +1698,7 @@ function ChatEntry({
           size="small"
           loading={isDeleting || isDuplicating}
           data-testid={`chat-session-menu-${instance.id}`}
-          aria-label={`Actions for ${conversationLabel(instance, autoTitle)}`}
+          aria-label={`Actions for ${conversationLabel(instance, autoTitle, isTitleLoading)}`}
           icon={
             <MoreVertical
               size={14}
@@ -1764,7 +1786,8 @@ function menuButtonStyles(theme: Theme, isOpen: boolean) {
     "&.ant-btn.ant-btn-variant-text.ant-btn-color-default": {
       border: `1px solid ${theme.color.primary}`,
       background: "transparent",
-      "&:hover, &:active": { background: theme.color.accentBg },
+      "&:hover": { background: theme.color.rowHoverBg },
+      "&:active": { background: theme.color.rowPressBg },
     },
   } as const;
 }

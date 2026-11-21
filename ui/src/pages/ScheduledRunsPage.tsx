@@ -35,10 +35,11 @@ export function ScheduledRunsPage() {
   const scheduledRuns = runs.data?.scheduledRuns ?? [];
 
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
-    actions={<Space size={8}><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
+    actions={<Space size={8}>
       <Link to={paths.scheduledRunNew}>
         <Button type="primary" icon={<Plus size={14} />} data-testid="schedules-new">New Schedule</Button>
-      </Link></Space>}>
+      </Link>
+      <RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} iconOnly /></Space>}>
     <Space orientation="vertical" css={{ display: "flex", ...linkStyles(theme) }} size="middle">
       {runs.error && <Alert data-testid="schedules-error" type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
       {/* The width floor is what the columns need, and an empty table has no columns to
@@ -153,11 +154,10 @@ function ScheduledRunDetails({ id }: { id: string }) {
   }
 
   /* Top right, not under the description list: there Run sat below the fold on any
-     schedule with a few firings. Ordered leaving-to-doing, so the filled Run — the
-     action this page exists for — is rightmost and Delete is not beside it at all. */
+     schedule with a few firings. Ordered leaving-to-doing, with the filled Run last
+     before Refresh, and Delete not beside it at all. */
   const controls = <div css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2), justifyContent: "flex-end" }}>
     <Link to={paths.scheduledRuns}><Button data-testid="schedule-back" icon={<ArrowLeft size={14} />}>Back</Button></Link>
-    <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} />
     <Button data-testid="schedule-edit" icon={<Pencil size={14} />} disabled={disabled}
       onClick={() => void navigate(buildPath(paths.scheduledRunEdit, { id }))}>Edit</Button>
     {/* One control, two labels: it is the same toggle whichever way it reads, so a
@@ -166,6 +166,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
       onClick={() => void act("pause")}>{config?.paused ? "Resume" : "Pause"}</Button>
     <Button data-testid="schedule-run" type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
       onClick={() => void act("trigger")}>Run</Button>
+    <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} iconOnly />
   </div>;
 
   /* Its own header: `PageFrame` holds actions at a fixed width, which squeezed this

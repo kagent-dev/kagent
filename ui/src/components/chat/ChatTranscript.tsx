@@ -372,6 +372,7 @@ export function ChatTranscript({
          * render in local state.
          */
         groups.flatMap((group, index) => {
+          // TODO: add day separators here once the backend sends a sent time per message (#3746; UI work in 432c174).
           const drawn: ReactNode[] = group.messages.map((message) => {
             const taskId = message.taskId;
             return (
@@ -586,19 +587,9 @@ export function ChatTranscript({
                 "&.ant-btn": {
                   color: theme.color.primaryText,
                   borderColor: `color-mix(in srgb, ${theme.color.primaryText} 45%, transparent)`,
-                  // Quicker than antd's 200ms: three steps that each take a fifth of a
-                  // second read as the button catching up rather than responding.
-                  transition:
-                    "background 80ms ease, border-color 80ms ease, color 80ms ease",
+                  transition: "none",
                 },
-                /*
-                 * Three steps, not two: a wash under the pointer, the full fill under
-                 * the press. Hovering used to land on the fill, which was as loud as a
-                 * click and left the click with nowhere further to go.
-                 *
-                 * The variant class is in the selector to outrank antd's own hover rule,
-                 * which carries three classes of its own and otherwise wins.
-                 */
+                // A purple wash, with hover at half the press. The variant class outranks antd's own hover rule.
                 "&.ant-btn.ant-btn-variant-outlined:not(:disabled):hover, &.ant-btn.ant-btn-variant-outlined:not(:disabled):focus-visible":
                   {
                     color: theme.color.primaryText,
@@ -606,9 +597,9 @@ export function ChatTranscript({
                     background: `color-mix(in srgb, ${theme.color.primary} 14%, ${theme.color.bgElevated})`,
                   },
                 "&.ant-btn.ant-btn-variant-outlined:not(:disabled):active": {
-                  color: theme.color.textOnPrimary,
-                  borderColor: theme.color.primaryHover,
-                  background: theme.color.primaryHover,
+                  color: theme.color.primaryText,
+                  borderColor: theme.color.primaryText,
+                  background: `color-mix(in srgb, ${theme.color.primary} 28%, ${theme.color.bgElevated})`,
                 },
               }}
             />

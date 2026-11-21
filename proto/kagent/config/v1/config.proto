@@ -268,7 +268,7 @@ message GatewayConfig {
 
 // PushConfig controls callback delivery and authentication in the controller.
 message PushConfig {
-  // Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
+  // Optional unencrypted PKCS#8 Ed25519 PEM key, reloaded every 15s. Empty disables signing.
   string signing_private_key_file = 1;
   optional string issuer = 2 [(buf.validate.field).string = {
     uri: true
@@ -287,6 +287,12 @@ message PushConfig {
   google.protobuf.Duration send_timeout = 7 [(buf.validate.field).duration = {
     gt: {}
     lte: {seconds: 9223372036}
+  }];
+  // Prepublication wait before using a replacement key, plus a fixed 30s buffer.
+  // Defaults to 300s, at most 86400s (24h). Must cover receivers' JWKS refresh intervals.
+  google.protobuf.Duration signing_key_activation_delay = 8 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 86400}
   }];
 }
 

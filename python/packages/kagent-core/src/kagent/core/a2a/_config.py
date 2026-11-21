@@ -1,4 +1,4 @@
-"""HTTP request limits for the A2A adapters."""
+"""Request size limits for the A2A adapters."""
 
 DEFAULT_A2A_MAX_CONTENT_LENGTH = 10 * 1024 * 1024
 

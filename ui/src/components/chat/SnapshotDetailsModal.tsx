@@ -5,6 +5,7 @@ import { useTheme } from "@emotion/react";
 import { canForkFrom, type Checkpoint, type CheckpointState } from "@/api";
 import { relativeAge } from "@/components/agent-instances/instanceLabels";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
+import { halfway } from "@/theme/theme";
 import { SnapshotRenameDialog } from "./SnapshotRenameDialog";
 import { snapshotLabel } from "./snapshotLabel";
 
@@ -205,13 +206,14 @@ export function SnapshotDetailsModal({
                 data-testid="snapshot-details-fork"
                 onClick={() => void act(() => onFork(checkpoint.id))}
                 css={{
+                  transition: "none",
                   "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
-                    background: theme.color.primaryHover,
-                    borderColor: theme.color.primaryHover,
+                    background: halfway(theme.color.primary, theme.color.primaryHover),
+                    borderColor: halfway(theme.color.primary, theme.color.primaryHover),
                   },
                   "&:active:not(:disabled)": {
                     background: theme.color.primaryHover,
-                    opacity: 0.85,
+                    borderColor: theme.color.primaryHover,
                   },
                 }}
               >
@@ -236,11 +238,17 @@ export function SnapshotDetailsModal({
               disabled={isBusy}
               data-testid="snapshot-details-delete"
               css={{
+                transition: "none",
                 "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
+                  color: theme.color.dangerText,
+                  background: halfway("transparent", theme.color.dangerBg),
+                  borderColor: theme.color.dangerBorder,
+                },
+                "&:active:not(:disabled)": {
+                  color: theme.color.dangerText,
                   background: theme.color.dangerBg,
                   borderColor: theme.color.dangerBorder,
                 },
-                "&:active:not(:disabled)": { background: theme.color.dangerBg, opacity: 0.85 },
               }}
             >
               Delete

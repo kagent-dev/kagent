@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Layout, Menu } from "antd";
-import { useTheme } from "@emotion/react";
+import { useTheme, type Theme } from "@emotion/react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useThemeMode } from "@/theme/useThemeMode";
 import { SidebarFooter } from "./SidebarFooter";
-import { coreNavItems } from "./navItems";
+import { coreNavItems, NAV_INSET } from "./navItems";
 import type { NavItem } from "./navItems";
 import {
   ExtensionSlot,
@@ -28,12 +27,61 @@ function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
   return match ? [match.key] : [];
 }
 
+function navEntry(item: NavItem) {
+  const Icon = item.icon;
+  return {
+    key: item.key,
+    icon: <Icon size={16} />,
+    // A real link so the entry can be opened in a new tab; it inherits the row's colour.
+    label: (
+      <Link to={item.path} css={{ color: "inherit" }}>
+        {item.label}
+      </Link>
+    ),
+    "data-testid": `nav-${item.key}`,
+  };
+}
+
+/** Type roles and states for the rail. Colours come from the theme's nav tokens. */
+function navRailStyles(theme: Theme) {
+  return {
+    "& .ant-menu-inline, & .ant-menu-vertical": { background: "transparent", borderInlineEnd: "none" },
+    "& .ant-menu-item": {
+      fontWeight: 400,
+      lineHeight: "20px",
+      userSelect: "none" as const,
+    },
+    "& .ant-menu-item-selected": { fontWeight: 500 },
+    "& .ant-menu-item-selected .ant-menu-item-icon": { color: theme.color.navActiveIcon },
+    "& .ant-menu-item-selected:hover": { background: theme.color.navActiveHoverBg },
+    "& .ant-menu-item-selected:active": { background: theme.color.navActivePressBg },
+    // antd's dark menu clears the press fill and no token reaches it.
+    "& .ant-menu-dark:not(.ant-menu-horizontal) .ant-menu-item:not(.ant-menu-item-selected):active": {
+      background: theme.color.navPressBg,
+    },
+    "& .ant-menu-item:has(a:focus-visible)": {
+      outline: `2px solid ${theme.color.navFocus}`,
+      outlineOffset: 0,
+    },
+    "& .ant-menu-item a:focus-visible": { outline: "none" },
+    "& .ant-menu:focus-visible": { outline: `2px solid ${theme.color.navFocus}`, outlineOffset: -2 },
+    "& .ant-menu-item::after": { display: "none" },
+    // Left-aligned at the expanded inset, which already centres the icon in the collapsed
+    // rail; centring instead made icons sweep in from the right while the rail shrank.
+    "& .ant-menu-inline-collapsed .ant-menu-item": {
+      paddingInline: `${NAV_INSET}px 0`,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "flex-start",
+    },
+  };
+}
+
 export function AppSidebar() {
   const theme = useTheme();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const extensionNavItems = useExtensionNavItems();
-  const { mode } = useThemeMode();
   const [collapsed, setCollapsed] = useState(false);
   const navOverrides = useExtensionNavOverrides();
 
@@ -62,81 +110,22 @@ export function AppSidebar() {
       css={{
         borderRight: `1px solid ${theme.color.border}`,
         paddingTop: theme.space(2),
-        // A very shallow gradient, which is what keeps the rail from reading as a
-        // flat block beside the page without becoming a decoration of its own.
         background: theme.color.surfaceNav,
-        // Exactly the viewport, and held there while the page scrolls past it.
-        //
-        // The rail is a column with a footer pinned to its bottom, so its height has
-        // to be the window's — not the document's. Left to grow with the page, an
-        // expanded tool server pushed the footer below the fold and the only way to
-        // reach it was to scroll the whole page down. Sticky rather than fixed so it
-        // still occupies its column in the layout's flex row and the content beside
-        // it keeps its width.
+        // Viewport height and sticky, so the footer stays reachable on long pages.
         position: "sticky",
-        // Below the header, which stays put, so this is a constant rather than
-        // something that has to be measured as the header leaves.
         top: theme.layout.headerHeight,
         height: `calc(100vh - ${theme.layout.headerHeight}px)`,
         alignSelf: "flex-start",
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
-        // antd puts its own background on the inner wrapper, which would cover the
-        // gradient above.
         "& .ant-layout-sider-children": {
           display: "flex",
           flexDirection: "column",
           minHeight: 0,
           background: "transparent",
         },
-        // The nav rows: inset from both edges and rounded, so the selected row reads
-        // as a pill inside the rail instead of a band spanning it. antd lays these
-        // out full-width with a right-hand active marker, which is the look this
-        // replaces.
-        "& .ant-menu-item": {
-          width: "auto",
-          marginInline: theme.space(2),
-          marginBlock: 2,
-          paddingInline: theme.space(3),
-          borderRadius: theme.radius.md,
-          // Collapsed, the row is a square holding one icon, so the icon is what has to
-          // be centred in it. The padding above is measured from the left for a row that
-          // also has a label, and it displaced the library's own collapsed centring —
-          // every icon sat a few pixels left of the rail's centre line, which is the kind
-          // of misalignment that reads as sloppiness without being obvious enough to
-          // name. Centred by the box rather than by a padding calculation, so it holds
-          // whatever the rail's collapsed width is set to.
-
-          // A nav row is a destination, not prose. Dragging across the rail used to
-          // select the labels, which on a double-click left blue highlight sitting
-          // over the navigation the click had just performed.
-          userSelect: "none",
-        },
-        // Pressed. antd gives a menu row hover and selected states and nothing in
-        // between, so a click on a slow route looked like it had not registered.
-        // Deeper than hover, lighter than selected, and instant.
-        "& .ant-menu-item:active": {
-          background:
-            mode === "light"
-              ? "rgba(109, 40, 217, 0.14)"
-              : "rgba(139, 92, 246, 0.3)",
-          transition: "none",
-        },
-        // Collapsed: the row is a square holding one icon, so the icon is what has to be
-        // centred in it. The padding above is measured from the left for a row that also
-        // has a label, and it displaced the library's own collapsed centring — every icon
-        // sat a few pixels left of the rail's centre line, which reads as sloppiness
-        // without being obvious enough to name. Centred by the box rather than by a
-        // padding calculation, so it holds at whatever the collapsed width is set to.
-        "& .ant-menu-inline-collapsed .ant-menu-item": {
-          paddingInline: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        },
-        "& .ant-menu-item::after": { display: "none" },
-        "& .ant-menu-inline": { background: "transparent", borderInlineEnd: "none" },
+        ...navRailStyles(theme),
       }}
     >
       {/* The nav list is the part that gives.
@@ -158,11 +147,9 @@ export function AppSidebar() {
           section.kind === "core" ? (
           <Menu
             key={section.key}
-            // Follows the palette. Pinned to "dark", the library paints item
-            // text near-white, which on a light rail left every unselected entry
-            // invisible — only the selected pill could be read.
-            theme={mode === "light" ? "light" : "dark"}
+            // Colours come from the Menu tokens in both modes, so the light menu is used for both.
             mode="inline"
+            inlineIndent={NAV_INSET}
             inlineCollapsed={collapsed}
             selectedKeys={activeKeyFor(pathname, section.items)}
             css={{ borderInlineEnd: "none" }}
@@ -183,22 +170,7 @@ export function AppSidebar() {
               const target = section.items.find((item) => item.key === key);
               if (target) navigate(target.path);
             }}
-            items={section.items.map((item) => {
-              const Icon = item.icon;
-              return {
-                key: item.key,
-                icon: <Icon size={16} />,
-                label: (
-                  // Inherits the menu's own colour rather than the link palette: this
-                  // reads as a menu entry, and antd has already decided what that
-                  // looks like in each theme and in the selected state.
-                  <Link to={item.path} css={{ color: "inherit" }}>
-                    {item.label}
-                  </Link>
-                ),
-                "data-testid": `nav-${item.key}`,
-              };
-            })}
+            items={section.items.map(navEntry)}
           />
           ) : (
             <section.item.Component

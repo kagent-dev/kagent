@@ -42,7 +42,7 @@ export interface ListView {
    */
   deselect(filterId: string, value: string): void;
 
-  /** The order asked for, or `undefined` for the list's own default order. */
+  /** The order asked for, else the page's default sort, else `undefined` for the rows' own order. */
   readonly sort?: SortState;
   setSort(next: SortState | undefined): void;
 
@@ -75,8 +75,12 @@ const NO_VALUES: readonly string[] = Object.freeze([]);
  * @param filterIds the parameter name of each filter this page offers, which is also
  * the id its definition carries. Kept stable by the caller — a literal, or a `useMemo`
  * — since it names what `clear()` clears.
+ * @param defaultSort the order used while the address names none.
  */
-export function useListView(filterIds: readonly string[]): ListView {
+export function useListView(
+  filterIds: readonly string[],
+  defaultSort?: SortState,
+): ListView {
   const [searchParams] = useSearchParams();
   const write = useUrlStateWriter();
   const values = useUrlListStates(filterIds);
@@ -97,8 +101,8 @@ export function useListView(filterIds: readonly string[]): ListView {
             direction:
               searchParams.get(DIRECTION_PARAM) === "desc" ? "desc" : "asc",
           }
-        : undefined,
-    [sortColumn, searchParams],
+        : defaultSort,
+    [sortColumn, searchParams, defaultSort],
   );
 
   const isNarrowed =

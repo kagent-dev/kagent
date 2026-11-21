@@ -51,6 +51,12 @@ func TestControllerConfig(t *testing.T) {
 		{"old gateway push configuration", "gateway: {push: {allowHttp: true}}", true},
 		{"push configuration", "push: {issuer: https://issuer.example, allowHttp: true, allowPrivateNetworks: true}", false},
 		{"invalid push issuer", "push: {issuer: invalid}", true},
+		{"push key activation delay", "push: {signingKeyActivationDelay: 60s}", false},
+		{"maximum push key activation delay", "push: {signingKeyActivationDelay: 86400s}", false},
+		{"overlong push key activation delay", "push: {signingKeyActivationDelay: 86400.000000001s}", true},
+		{"zero push key activation delay", "push: {signingKeyActivationDelay: 0s}", true},
+		{"negative push key activation delay", "push: {signingKeyActivationDelay: -1s}", true},
+		{"overflowing push key activation delay", "push: {signingKeyActivationDelay: 9223372007s}", true},
 		{"push recovery interval", "push: {recoveryInterval: 15s}", false},
 		{"zero push recovery interval", "push: {recoveryInterval: 0s}", true},
 		{"negative push recovery interval", "push: {recoveryInterval: -60s}", true},
@@ -140,6 +146,7 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 	require.Equal(t, "kagent", cfg.Database.GetSchema())
 	require.Equal(t, "extensions", cfg.Database.GetVectorSchema())
 	require.Empty(t, cfg.Push.SigningPrivateKeyFile)
+	require.Equal(t, 5*time.Minute, cfg.Push.SigningKeyActivationDelay.AsDuration())
 	require.Equal(t, time.Minute, cfg.Push.RecoveryInterval.AsDuration())
 	require.EqualValues(t, 10, cfg.Push.GetMaxConcurrency())
 	require.Equal(t, 5*time.Second, cfg.Push.SendTimeout.AsDuration())
