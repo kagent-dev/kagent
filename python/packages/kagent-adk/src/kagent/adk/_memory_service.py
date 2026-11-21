@@ -345,8 +345,10 @@ Summary (JSON List):"""
             from google.adk.models.llm_request import LlmRequest
             from google.genai.types import Content, Part
 
-            # Build LLM request using ADK types
+            # Build LLM request using ADK types. Name the model: google-adk's
+            # Gemini models read it from the request and reject one without it.
             llm_request = LlmRequest(
+                model=model.model,
                 contents=[
                     Content(
                         role="user",
