@@ -122,6 +122,28 @@ This covers Go ADK MCP servers and models, OpenAI, Azure and Foundry memory
 embeddings, and Python OpenAI and Anthropic models. Python MCP, Claude and
 Codex still do not support passthrough.
 
+## Session ID header
+
+`RemoteMCPServer.spec.sessionIdHeader` is an optional header name. Requests to
+that MCP server carry the kagent session ID in this header. When it is unset,
+no session ID is sent. Tool discovery has no session, so the header is left out
+there. For Claude agents, the header is sent with an empty value when no session
+ID exists. The name cannot be `Authorization` or a reserved header, and it
+cannot repeat a name in `headersFrom`.
+
+The header is guaranteed on request and response calls. A long-lived background
+stream keeps the session ID of the call that opened it. If the same header name
+is also in `allowedHeaders`, the session ID value wins.
+
+For Claude and Codex, the session ID is also visible in the environment of the
+native CLI process and its child processes, such as the Bash tool, stdio MCP
+servers, and hooks.
+
+```yaml
+spec:
+  sessionIdHeader: X-Kagent-Session-Id
+```
+
 ## Actor JWT authentication
 
 `ModelConfig.spec.actorJwt` and `RemoteMCPServer.spec.actorJwt` select the

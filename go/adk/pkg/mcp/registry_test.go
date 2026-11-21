@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -835,5 +837,253 @@ func TestCreateTransportPreservesFractionalTimeout(t *testing.T) {
 				t.Fatalf("unexpected transport %T", transport)
 			}
 		})
+	}
+}
+
+func captureSessionHeaders(t *testing.T, rt *headerRoundTripper, ctx context.Context) http.Header {
+	t.Helper()
+	var captured http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	rt.base = newTestTransport(t)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequestWithContext failed: %v", err)
+	}
+	resp, err := rt.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("RoundTrip failed: %v", err)
+	}
+	resp.Body.Close()
+	return captured
+}
+
+func TestSessionIDHeader(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		rt     *headerRoundTripper
+		ctx    context.Context
+		header string
+		want   string
+	}{
+		{name: "sends the session ID when configured", rt: &headerRoundTripper{sessionIDHeader: "X-Kagent-Session-Id"}, ctx: WithPublicContextID(context.Background(), "sess-1"), header: "X-Kagent-Session-Id", want: "sess-1"},
+		{name: "sends nothing when not configured", rt: &headerRoundTripper{headers: map[string]string{"X-Other": "v"}}, ctx: WithPublicContextID(context.Background(), "sess-1"), header: "X-Kagent-Session-Id", want: ""},
+		{name: "omits the header when the context has no public context ID", rt: &headerRoundTripper{sessionIDHeader: "X-Kagent-Session-Id"}, ctx: context.Background(), header: "X-Kagent-Session-Id", want: ""},
+		{name: "omits the header when the session ID is empty", rt: &headerRoundTripper{sessionIDHeader: "X-Kagent-Session-Id"}, ctx: WithPublicContextID(context.Background(), ""), header: "X-Kagent-Session-Id", want: ""},
+		{name: "overrides a forwarded request header of the same name", rt: &headerRoundTripper{sessionIDHeader: "X-Kagent-Session-Id", allowedHeaders: []string{"X-Kagent-Session-Id"}}, ctx: WithPublicContextID(a2aCtx(map[string][]string{"X-Kagent-Session-Id": {"forged"}}), "sess-1"), header: "X-Kagent-Session-Id", want: "sess-1"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := captureSessionHeaders(t, tc.rt, tc.ctx)
+			if v := got.Get(tc.header); v != tc.want {
+				t.Errorf("%s: got %q, want %q", tc.header, v, tc.want)
+			}
+		})
+	}
+}
+
+func TestSessionIDHeader_DoesNotOverwriteAuthorization(t *testing.T) {
+	t.Parallel()
+	rt := &headerRoundTripper{
+		sessionIDHeader: "X-Kagent-Session-Id",
+		headerProvider:  func(context.Context) map[string]string { return map[string]string{"Authorization": "Bearer sts"} },
+		headers:         map[string]string{"X-Tenant": "t"},
+	}
+	got := captureSessionHeaders(t, rt, WithPublicContextID(context.Background(), "sess-1"))
+	if got.Get("Authorization") != "Bearer sts" || got.Get("X-Tenant") != "t" || got.Get("X-Kagent-Session-Id") != "sess-1" {
+		t.Errorf("headers = %v", got)
+	}
+}
+
+func TestCreateToolsetsSessionIDHeader(t *testing.T) {
+	t.Parallel()
+	const header = "X-Kagent-Session-Id"
+
+	newFakeServer := func(t *testing.T, sse bool) (*httptest.Server, func() []string) {
+		t.Helper()
+		mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fake", Version: "0"}, nil)
+		mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "echo"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{}, nil
+		})
+		var inner http.Handler
+		if sse {
+			inner = mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server { return mcpServer }, nil)
+		} else {
+			inner = mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return mcpServer }, nil)
+		}
+		var mu sync.Mutex
+		var seen []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			seen = append(seen, r.Header.Get(header))
+			mu.Unlock()
+			inner.ServeHTTP(w, r)
+		}))
+		t.Cleanup(func() {
+			srv.CloseClientConnections()
+			srv.Close()
+		})
+		return srv, func() []string {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]string(nil), seen...)
+		}
+	}
+
+	build := func(t *testing.T, sse bool, url, sessionHeader string) []tool.Toolset {
+		t.Helper()
+		params := &configv1.ADKHTTPConnectionParams{Url: url}
+		if sse {
+			return CreateToolsets(t.Context(), nil, []*configv1.ADKSSEMCPServerConfig{{Params: &configv1.ADKSSEConnectionParams{Url: url}, SessionIdHeader: sessionHeader}}, nil, false, nil)
+		}
+		return CreateToolsets(t.Context(), []*configv1.ADKHTTPMCPServerConfig{{Params: params, SessionIdHeader: sessionHeader}}, nil, nil, false, nil)
+	}
+
+	for _, protocol := range []struct {
+		name string
+		sse  bool
+	}{{name: "http"}, {name: "sse", sse: true}} {
+		t.Run(protocol.name+" sends the session ID when configured", func(t *testing.T) {
+			t.Parallel()
+			srv, seen := newFakeServer(t, protocol.sse)
+			sets := build(t, protocol.sse, srv.URL, header)
+			if len(sets) != 1 {
+				t.Fatalf("toolsets = %d, want 1", len(sets))
+			}
+			if _, err := sets[0].Tools(testReadonlyContext{Context: WithPublicContextID(WithDiscoveryScope(t.Context()), "test-session")}); err != nil {
+				t.Fatalf("Tools() error = %v", err)
+			}
+			if !slices.Contains(seen(), "test-session") {
+				t.Errorf("no request carried %s: test-session, saw %q", header, seen())
+			}
+		})
+		t.Run(protocol.name+" sends no header when not configured", func(t *testing.T) {
+			t.Parallel()
+			srv, seen := newFakeServer(t, protocol.sse)
+			sets := build(t, protocol.sse, srv.URL, "")
+			if len(sets) != 1 {
+				t.Fatalf("toolsets = %d, want 1", len(sets))
+			}
+			ctx := WithPublicContextID(WithDiscoveryScope(t.Context()), "test-session")
+			if _, err := sets[0].Tools(testReadonlyContext{Context: ctx}); err != nil {
+				t.Fatalf("Tools() error = %v", err)
+			}
+			for _, value := range seen() {
+				if value != "" {
+					t.Errorf("request carried %s = %q with the field unset", header, value)
+				}
+			}
+		})
+	}
+}
+
+type concurrentToolContext struct {
+	adkagent.Context
+	ctx       context.Context
+	sessionID string
+}
+
+func (c concurrentToolContext) Deadline() (time.Time, bool)                        { return c.ctx.Deadline() }
+func (c concurrentToolContext) Done() <-chan struct{}                              { return c.ctx.Done() }
+func (c concurrentToolContext) Err() error                                         { return c.ctx.Err() }
+func (c concurrentToolContext) Value(key any) any                                  { return c.ctx.Value(key) }
+func (c concurrentToolContext) SessionID() string                                  { return c.sessionID }
+func (concurrentToolContext) ToolConfirmation() *toolconfirmation.ToolConfirmation { return nil }
+func (c concurrentToolContext) FunctionCallID() string                             { return "call-" + c.sessionID }
+
+type recordedMCPRequest struct {
+	method  string
+	session string
+	tag     string
+}
+
+func TestCreateToolsetsSessionIDHeaderConcurrentSessions(t *testing.T) {
+	t.Parallel()
+	const header = "X-Kagent-Session-Id"
+
+	given := func(t *testing.T) (*httptest.Server, func() []recordedMCPRequest) {
+		t.Helper()
+		mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fake", Version: "0"}, nil)
+		mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "echo"}, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{}, nil
+		})
+		inner := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return mcpServer }, nil)
+		var mu sync.Mutex
+		var seen []recordedMCPRequest
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rec := recordedMCPRequest{method: r.Method, session: r.Header.Get(header)}
+			if r.Method == http.MethodPost {
+				body, _ := io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewReader(body))
+				var msg struct {
+					Method string `json:"method"`
+					Params struct {
+						Arguments struct {
+							Who string `json:"who"`
+						} `json:"arguments"`
+					} `json:"params"`
+				}
+				_ = json.Unmarshal(body, &msg)
+				rec.method, rec.tag = msg.Method, msg.Params.Arguments.Who
+			}
+			mu.Lock()
+			seen = append(seen, rec)
+			mu.Unlock()
+			inner.ServeHTTP(w, r)
+		}))
+		t.Cleanup(func() {
+			srv.CloseClientConnections()
+			srv.Close()
+		})
+		return srv, func() []recordedMCPRequest {
+			mu.Lock()
+			defer mu.Unlock()
+			return append([]recordedMCPRequest(nil), seen...)
+		}
+	}
+
+	srv, seen := given(t)
+	sets := CreateToolsets(t.Context(), []*configv1.ADKHTTPMCPServerConfig{{Params: &configv1.ADKHTTPConnectionParams{Url: srv.URL}, SessionIdHeader: header}}, nil, nil, false, nil)
+	require.Len(t, sets, 1)
+	tools, err := sets[0].Tools(testReadonlyContext{Context: WithDiscoveryScope(t.Context())})
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	runnable, ok := tools[0].(functionTool)
+	require.True(t, ok)
+
+	sessions := []string{"session-a", "session-b"}
+	var wg sync.WaitGroup
+	for _, id := range sessions {
+		for range 5 {
+			wg.Go(func() {
+				ctx := concurrentToolContext{ctx: WithPublicContextID(t.Context(), id), sessionID: "native-" + id}
+				_, runErr := runnable.Run(ctx, map[string]any{"who": id})
+				if runErr != nil {
+					t.Errorf("Run(%s) error = %v", id, runErr)
+				}
+			})
+		}
+	}
+	wg.Wait()
+
+	calls := 0
+	for _, rec := range seen() {
+		if rec.method == "tools/call" {
+			calls++
+			if rec.session != rec.tag {
+				t.Errorf("tools/call for %q carried %s = %q", rec.tag, header, rec.session)
+			}
+			continue
+		}
+		t.Logf("setup request %s %q carried %s = %q", rec.method, rec.tag, header, rec.session)
+	}
+	if calls != len(sessions)*5 {
+		t.Errorf("tools/call requests = %d, want %d", calls, len(sessions)*5)
 	}
 }

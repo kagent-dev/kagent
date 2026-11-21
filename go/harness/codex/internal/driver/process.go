@@ -119,7 +119,7 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, tool *toolCo
 		return runtime.Outcome{}, fmt.Errorf("find Codex executable %q: %w", d.config.Executable, err)
 	}
 	command := exec.Command(executable, "app-server", "--strict-config", "--stdio")
-	command.Dir, command.Env = d.config.Workspace, append([]string(nil), d.config.Environment...)
+	command.Dir, command.Env = d.config.Workspace, runtime.SessionEnvironment(d.config.Environment, turn.ContextID)
 	utils.ConfigureProcessGroup(command)
 	stdin, err := command.StdinPipe()
 	if err != nil {

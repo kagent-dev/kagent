@@ -16,6 +16,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	codexconfig "github.com/kagent-dev/kagent/go/harness/codex/config"
+	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
 
 type mcpCompilation struct {
@@ -63,6 +64,13 @@ func (c *Compiler) compileMCP(ctx context.Context, namespace string, tools []tra
 		}
 		if server.Spec.ActorJWT != nil {
 			headers = translator.MCPActorJWTHeaders(headers)
+		}
+
+		if server.Spec.SessionIDHeader != "" {
+			if headers == nil {
+				headers = make(map[string]string, 1)
+			}
+			headers[server.Spec.SessionIDHeader] = "${" + runtime.SessionIDEnvVar + "}"
 		}
 
 		selected := append([]string(nil), tool.Binding.Tools...)

@@ -646,3 +646,32 @@ func TestCompileMCPRejectsTokenPassthrough(t *testing.T) {
 		t.Fatalf("expected %q, got %v", want, err)
 	}
 }
+
+func TestCompileMCPSessionIDHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   map[string]string
+	}{
+		{name: "unset sends nothing", want: map[string]string{"X-Tenant": "test"}},
+		{name: "set expands the session environment variable", header: "X-Kagent-Session-Id", want: map[string]string{"X-Tenant": "test", "X-Kagent-Session-Id": "${KAGENT_SESSION_ID:-}"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := &v1alpha3.RemoteMCPServer{ObjectMeta: metav1.ObjectMeta{Name: "tools", Namespace: "test"}, Spec: v1alpha3.RemoteMCPServerSpec{
+				URL: "https://mcp.example.com/mcp", SessionIDHeader: tc.header,
+				HeadersFrom: []v1alpha3.ValueRef{{Name: "X-Tenant", Value: "test"}},
+			}}
+			result, err := (&Compiler{}).compileMCP(t.Context(), "test", []translator.ResolvedMCPTool{{Server: server}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]string
+			for _, compiled := range result.servers {
+				got = compiled.Headers
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("headers = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
