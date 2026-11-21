@@ -325,3 +325,36 @@ func argNames(t *testing.T, contents []*genai.Content) []string {
 	}
 	return out
 }
+
+// TestConvertGenaiContentsToOllamaToolResultCarriesToolName checks that tool
+// results tell Ollama which tool produced them. Ollama's chat templates and
+// renderers read tool_name to label each result for the model.
+func TestConvertGenaiContentsToOllamaToolResultCarriesToolName(t *testing.T) {
+	contents := []*genai.Content{
+		{Role: "user", Parts: []*genai.Part{{Text: "what is the weather and time in Paris?"}}},
+		{Role: "model", Parts: []*genai.Part{
+			{FunctionCall: &genai.FunctionCall{ID: "call_1", Name: "get_weather", Args: map[string]any{"city": "Paris"}}},
+			{FunctionCall: &genai.FunctionCall{ID: "call_2", Name: "get_time", Args: map[string]any{"city": "Paris"}}},
+		}},
+		{Role: "user", Parts: []*genai.Part{
+			{FunctionResponse: &genai.FunctionResponse{ID: "call_1", Name: "get_weather", Response: map[string]any{"result": "sunny"}}},
+			{FunctionResponse: &genai.FunctionResponse{ID: "call_2", Name: "get_time", Response: map[string]any{"result": "10:00"}}},
+		}},
+	}
+
+	msgs, _ := convertGenaiContentsToOllamaMessages(contents, nil)
+
+	var got []api.Message
+	for _, m := range msgs {
+		if m.Role == "tool" {
+			got = append(got, m)
+		}
+	}
+	want := []api.Message{
+		{Role: "tool", Content: "sunny", ToolName: "get_weather"},
+		{Role: "tool", Content: "10:00", ToolName: "get_time"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tool messages = %+v, want %+v", got, want)
+	}
+}

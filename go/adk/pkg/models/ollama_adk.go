@@ -253,9 +253,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 
 		var textParts []string
 		var toolCalls []api.ToolCall
-		var toolResults []struct {
-			content string
-		}
+		var toolResults []api.Message
 
 		for _, part := range content.Parts {
 			if part == nil {
@@ -289,11 +287,11 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 
 			// Handle function response (tool result)
 			if part.FunctionResponse != nil {
-				// Extract response content
-				content := extractFunctionResponseContent(part.FunctionResponse.Response)
-				toolResults = append(toolResults, struct {
-					content string
-				}{content: content})
+				toolResults = append(toolResults, api.Message{
+					Role:     "tool",
+					Content:  extractFunctionResponseContent(part.FunctionResponse.Response),
+					ToolName: part.FunctionResponse.Name,
+				})
 				continue
 			}
 
@@ -312,16 +310,7 @@ func convertGenaiContentsToOllamaMessages(contents []*genai.Content, config *gen
 			messages = append(messages, msg)
 		}
 
-		if len(toolResults) > 0 {
-			// Tool result messages
-			for _, tr := range toolResults {
-				msg := api.Message{
-					Role:    "tool",
-					Content: tr.content,
-				}
-				messages = append(messages, msg)
-			}
-		}
+		messages = append(messages, toolResults...)
 
 		if len(textParts) > 0 {
 			// Regular text message
