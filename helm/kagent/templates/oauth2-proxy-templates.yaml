@@ -1,4 +1,7 @@
 {{- if index .Values "oauth2-proxy" "enabled" }}
+{{- if not .Values.ui.enabled }}
+{{- fail "oauth2-proxy.enabled requires ui.enabled=true: oauth2-proxy fronts the UI Service, which is not deployed when the UI is disabled" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

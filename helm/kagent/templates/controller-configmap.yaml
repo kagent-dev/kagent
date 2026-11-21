@@ -23,7 +23,7 @@
 {{- $_ := set $config.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
 {{- end -}}
 {{- if not (hasKey $config.push "issuer") -}}
-{{- $_ := set $config.push "issuer" (coalesce .Values.ui.externalUrl $config.gateway.publicUrl | trimSuffix "/") -}}
+{{- $_ := set $config.push "issuer" (coalesce (ternary .Values.ui.externalUrl "" .Values.ui.enabled) $config.gateway.publicUrl | trimSuffix "/") -}}
 {{- end -}}
 {{- if not (include "kagent.controller.metricsEnabled" .) -}}
 {{- $_ := set $config.metrics "bindAddress" "0" -}}

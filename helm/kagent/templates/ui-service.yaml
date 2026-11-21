@@ -19,4 +19,4 @@ spec:
       name: ui
   selector:
     {{- include "kagent.ui.selectorLabels" . | nindent 4 }}
-{{ end }}
+{{- end }}

@@ -23,5 +23,4 @@ data:
   {{- with include "kagent.builtinSkillsCatalog" . }}
   KAGENT_UI_BUILTIN_SKILLS: {{ . | quote }}
   {{- end }}
-
-{{ end }}
+{{- end }}

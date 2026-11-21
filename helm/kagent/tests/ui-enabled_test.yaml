@@ -7,6 +7,7 @@ templates:
   - ui-serviceaccount.yaml
   - ui-pdb.yaml
   - ui-httproute.yaml
+  - openshift-route.yaml
 tests:
   - it: renders the UI Deployment by default
     template: ui-deployment.yaml
@@ -34,6 +35,30 @@ tests:
       ui.enabled: false
       ui.pdb.enabled: true
       ui.pdb.minAvailable: 5
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render the OpenShift Route when ui.enabled is true but ui.route.enabled is false
+    template: openshift-route.yaml
+    capabilities:
+      apiVersions:
+        - route.openshift.io/v1
+    set:
+      ui.enabled: true
+      ui.route.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: does not render the OpenShift Route when ui.enabled is false even if ui.route.enabled is true
+    template: openshift-route.yaml
+    capabilities:
+      apiVersions:
+        - route.openshift.io/v1
+    set:
+      ui.enabled: false
+      ui.route.enabled: true
     asserts:
       - hasDocuments:
           count: 0
