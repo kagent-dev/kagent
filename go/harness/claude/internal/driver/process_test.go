@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
@@ -170,6 +172,46 @@ func TestProcessDriverArgumentsAndStream(t *testing.T) {
 	if len(sink.sessions) != 1 || sink.sessions[0].ContinuationID != turn.ContinuationID {
 		t.Errorf("session events = %#v", sink.sessions)
 	}
+}
+
+func TestProcessDriverDrainsStdoutWhileSinkBlocks(t *testing.T) {
+	// Given a CLI that gives up on writing stdout at its exit deadline.
+	dir, executable := writeFakeClaude(t, `#!/bin/sh
+cat "$STREAM" &
+writer=$!
+(sleep 2; kill "$writer" 2>/dev/null) >/dev/null 2>&1 &
+deadline=$!
+wait "$writer"
+kill "$deadline" 2>/dev/null
+: > "$DONE"
+`)
+	stream, done := filepath.Join(dir, "stream"), filepath.Join(dir, "done")
+	const first = `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"start "}}}` + "\n"
+	const last = `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"finish"}}}` + "\n"
+	const result = `{"type":"result","subtype":"success"}` + "\n"
+	// The backlog exceeds both the old 64-line queue and the OS pipe capacity.
+	line := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"x"}},"padding":"` + strings.Repeat("x", 2048) + `"}` + "\n"
+	require.NoError(t, os.WriteFile(stream, []byte(first+strings.Repeat(line, 1024)+last+result), 0o600))
+	d := NewProcessDriver(ProcessConfig{
+		Executable: executable, Workspace: dir, Environment: []string{"STREAM=" + stream, "DONE=" + done},
+		MaxEventBytes: 4096, MaxStderrBytes: 1024, InterruptGrace: 50 * time.Millisecond,
+	})
+	sink := &recordingSink{onText: sync.OnceFunc(func() {
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(done)
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond, "Claude did not finish writing stdout")
+	})}
+
+	// When the first text delivery blocks until the CLI stops writing.
+	started := time.Now()
+	outcome, err := d.Run(t.Context(), runtime.Turn{Prompt: "hello"}, sink)
+	t.Logf("Run finished in %s", time.Since(started))
+
+	// Assert that the final text and terminal result both reach the driver.
+	require.NoError(t, err)
+	require.Nil(t, outcome.Failure)
+	require.Equal(t, "start "+strings.Repeat("x", 1024)+"finish", sink.text.String())
 }
 
 func TestProcessDriverParserFailureIncludesStderr(t *testing.T) {

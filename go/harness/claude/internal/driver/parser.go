@@ -273,27 +273,23 @@ func parseJSONL(ctx context.Context, r io.Reader, maxEventBytes int, startUsage 
 	return nil
 }
 
-// waitingLines bounds the queue between the reader and parser. Beyond this limit,
-// reading pauses and later lines receive their timestamp when reading resumes.
-const waitingLines = 64
-
 type stampedLine struct {
 	line    []byte
 	arrived time.Time
 	err     error
 }
 
-// readStamped timestamps each line before queuing it for parsing.
-// The bounded queue still applies backpressure when the consumer falls behind.
+// readStamped timestamps each line as it is read. An in-memory queue lets the
+// reader keep draining stdout while the parser waits on a slow event sink.
 func readStamped(r io.Reader, max int, done <-chan struct{}) <-chan stampedLine {
-	lines := make(chan stampedLine, waitingLines)
+	incoming := make(chan stampedLine)
 	go func() {
-		defer close(lines)
+		defer close(incoming)
 		reader := bufio.NewReaderSize(r, min(max+1, 64*1024))
 		for {
 			line, err := readBoundedLine(reader, max)
 			select {
-			case lines <- stampedLine{line: line, arrived: time.Now(), err: err}:
+			case incoming <- stampedLine{line: line, arrived: time.Now(), err: err}:
 			case <-done:
 				return
 			}
@@ -302,6 +298,35 @@ func readStamped(r io.Reader, max int, done <-chan struct{}) <-chan stampedLine 
 			}
 		}
 	}()
+
+	lines := make(chan stampedLine)
+	go func(input <-chan stampedLine) {
+		defer close(lines)
+		var queue []stampedLine
+		for input != nil || len(queue) > 0 {
+			var output chan<- stampedLine
+			var next stampedLine
+			if len(queue) > 0 {
+				output, next = lines, queue[0]
+			}
+			select {
+			case item, ok := <-input:
+				if !ok {
+					input = nil
+					continue
+				}
+				queue = append(queue, item)
+			case output <- next:
+				queue[0] = stampedLine{}
+				queue = queue[1:]
+				if len(queue) == 0 {
+					queue = nil
+				}
+			case <-done:
+				return
+			}
+		}
+	}(incoming)
 	return lines
 }
 
