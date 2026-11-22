@@ -300,8 +300,8 @@ func sessionToolCall(t *testing.T, server *mcp.Server, name string, arguments ma
 
 func toolTurn(id string, user, reply string, response any) *a2atype.Task {
 	userMessage := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(user))
-	call := a2atype.NewMessage(a2atype.MessageRoleAgent, apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"}))
-	result := a2atype.NewMessage(a2atype.MessageRoleAgent, apia2a.NewToolResultPart("call-1", "read_file", response))
+	call := a2atype.NewMessage(a2atype.MessageRoleAgent, toolCallPart())
+	result := a2atype.NewMessage(a2atype.MessageRoleAgent, toolResultPart(response))
 	return &a2atype.Task{
 		ID: a2atype.TaskID(id), ContextID: testSessionID,
 		Status: a2atype.TaskStatus{
@@ -325,8 +325,8 @@ func artifactTurn(id string, response any) *a2atype.Task {
 	status := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("done"))
 	at(status, 4)
 	artifacts := []*a2atype.Artifact{
-		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
-		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", response)}},
+		{ID: "a-call", Parts: a2atype.ContentParts{toolCallPart()}},
+		{ID: "a-result", Parts: a2atype.ContentParts{toolResultPart(response)}},
 		{ID: "a-text", Parts: a2atype.ContentParts{a2atype.NewTextPart("the file has two lines")}},
 	}
 	for i, artifact := range artifacts {
@@ -396,7 +396,7 @@ func TestGetTaskAnswersToolCallParts(t *testing.T) {
 	require.Equal(t, "task-0", output.TaskID)
 	require.NotNil(t, output.ToolCall)
 	require.False(t, output.Truncated)
-	require.JSONEq(t, jsonText(t, apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})), jsonText(t, output.ToolCall.Call))
+	require.JSONEq(t, jsonText(t, toolCallPart()), jsonText(t, output.ToolCall.Call))
 	require.Contains(t, jsonText(t, output.ToolCall.Result), `{\"id\":9007199254740993}`, "a tool's JSON text reaches the client as written")
 
 	items := structured[GetTaskOutput](t, callTool(t, server, getTaskToolName, map[string]any{
@@ -441,8 +441,8 @@ func TestGetSessionReadsToolCallsFromArtifacts(t *testing.T) {
 func TestReadTurnCountsActivityRecordedTwiceOnce(t *testing.T) {
 	task := toolTurn("task-0", "read it", "done", "ok")
 	task.Artifacts = []*a2atype.Artifact{
-		{ID: "a-call", Parts: a2atype.ContentParts{apia2a.NewToolCallPart("call-1", "read_file", map[string]any{"path": "/etc/hosts"})}},
-		{ID: "a-result", Parts: a2atype.ContentParts{apia2a.NewToolResultPart("call-1", "read_file", "ok")}},
+		{ID: "a-call", Parts: a2atype.ContentParts{toolCallPart()}},
+		{ID: "a-result", Parts: a2atype.ContentParts{toolResultPart("ok")}},
 	}
 	turn := readTurn(task)
 	require.Len(t, turn.calls, 1)
@@ -785,4 +785,20 @@ func TestListTasksOfAnotherCallerIsNotFound(t *testing.T) {
 	result := callTool(t, server, listTasksToolName, map[string]any{"session_id": testSessionID})
 	require.True(t, result.IsError)
 	require.Equal(t, "not_found", result.Meta["kagent.dev/error-code"])
+}
+
+// toolCallPart and toolResultPart record the fixtures' read_file activity.
+func toolCallPart() *a2atype.Part {
+	return must(apia2a.NewToolCallPart("call-1", "read_file", "", map[string]any{"path": "/etc/hosts"}))
+}
+
+func toolResultPart(output any) *a2atype.Part {
+	return must(apia2a.NewToolResultPart("call-1", "read_file", "", must(apia2a.NewToolResponse(output, false))))
+}
+
+func must[T any](value T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return value
 }

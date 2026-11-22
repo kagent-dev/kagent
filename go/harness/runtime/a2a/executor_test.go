@@ -125,10 +125,10 @@ func TestExecuteStreamsCompletesAndPersistsSession(t *testing.T) {
 		"id": "tool-1", "name": "Read", "args": map[string]any{"file_path": "/data/workspace/README.md"},
 	})
 	assertToolActivity(t, events, "function_response", map[string]any{
-		"id": "tool-1", "name": "Read", "response": map[string]any{"result": "contents"},
+		"id": "tool-1", "name": "Read", "response": map[string]any{"output": "contents"},
 	})
 	assertToolActivity(t, events, "function_response", map[string]any{
-		"id": "tool-2", "name": "Edit", "response": map[string]any{"result": "file not found", "isError": true},
+		"id": "tool-2", "name": "Edit", "response": map[string]any{"error": "file not found"},
 	})
 	last := events[len(events)-1].(*a2atype.TaskStatusUpdateEvent)
 	if last.Status.State != a2atype.TaskStateCompleted {
@@ -216,6 +216,12 @@ func TestExecuteRejectsMalformedToolActivity(t *testing.T) {
 	tests := []func(runtime.EventSink) error{
 		func(sink runtime.EventSink) error { return sink.ToolCall(runtime.ToolCall{Name: "Read"}) },
 		func(sink runtime.EventSink) error { return sink.ToolResult(runtime.ToolResult{ID: "tool-1"}) },
+		func(sink runtime.EventSink) error {
+			return sink.ToolCall(runtime.ToolCall{ID: "tool-1", Name: "lookup", MCPTool: "lookup"})
+		},
+		func(sink runtime.EventSink) error {
+			return sink.ToolResult(runtime.ToolResult{ID: "tool-1", Name: "lookup", MCPTool: "lookup"})
+		},
 	}
 	for _, emit := range tests {
 		executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
@@ -445,7 +451,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 			request: &runtime.ApprovalRequest{ID: "7", CallID: "call-1", Name: "tools.write", Args: map[string]any{"value": 7}, Hint: "Allow tools.write?"},
 			resume: func(_ context.Context, response runtime.InputResponse, sink runtime.EventSink) (runtime.Outcome, error) {
 				decision, _ = response.(*runtime.ApprovalDecision)
-				return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", IsError: true,
+				return runtime.Outcome{}, sink.ToolResult(runtime.ToolResult{ID: "call-1", Name: "tools.write", MCPServer: "tools", MCPTool: "write", IsError: true,
 					Result: &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: "denied"}}, StructuredContent: map[string]any{"count": 7, "items": []string{"pod-1"}}}})
 			},
 		}}, nil
@@ -470,7 +476,7 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		t.Fatal("pending approval did not reserve its native session")
 	}
 	decisionMessage.TaskID, decisionMessage.ContextID = first.TaskID, first.ContextID
-	if err := apia2a.AttachHITL(decisionMessage, apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: "7", Approved: false, RejectionReason: "production is still serving traffic"}}}); err != nil {
+	if err := apia2a.AttachHITL(decisionMessage, &apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []*apia2a.ToolApproval{{Id: "7", Approved: false, RejectionReason: "production is still serving traffic"}}}); err != nil {
 		t.Fatal(err)
 	}
 	second := &a2asrv.ExecutorContext{TaskID: first.TaskID, ContextID: first.ContextID, Message: decisionMessage, StoredTask: &a2atype.Task{ID: first.TaskID, ContextID: first.ContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: update.Status.Message}}}
@@ -484,8 +490,8 @@ func TestExecutePublishesAndConsumesStructuredApproval(t *testing.T) {
 		}
 	}
 	assertToolActivity(t, resumedEvents, "function_response", map[string]any{
-		"id": "call-1", "name": "tools.write", "response": map[string]any{"isError": true,
-			"result": map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "denied"}}, "structuredContent": map[string]any{"count": float64(7), "items": []any{"pod-1"}}}},
+		"id": "call-1", "name": "write", "mcp_server": "tools", "response": map[string]any{
+			"error": map[string]any{"count": float64(7), "items": []any{"pod-1"}}},
 	})
 	if reservedTaskID(t, executor) != "" {
 		t.Fatal("completed approval kept its native session reserved")
@@ -521,7 +527,7 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 		t.Fatalf("input-required event = %#v", events[1])
 	}
 	request, err := apia2a.ParseAskUserRequest(update.Status.Message)
-	if err != nil || request == nil || request.ID != "ask-1" || len(request.Questions) != 1 {
+	if err != nil || request == nil || request.Id != "ask-1" || len(request.Questions) != 1 {
 		t.Fatalf("ask-user request = %#v, %v", request, err)
 	}
 	if got := request.Questions[0].Choices; !reflect.DeepEqual(got, []string{"default"}) {
@@ -529,9 +535,9 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 	}
 	answer := a2atype.NewMessage(a2atype.MessageRoleUser)
 	answer.TaskID, answer.ContextID = first.TaskID, first.ContextID
-	if err := apia2a.AttachHITL(answer, apia2a.AskUserResponse{
-		Type: apia2a.HITLTypeAskUserResponse, ID: "ask-1",
-		Answers: []apia2a.AskUserAnswer{{Answer: []string{"default"}}},
+	if err := apia2a.AttachHITL(answer, &apia2a.AskUserResponse{
+		Type: apia2a.HITLTypeAskUserResponse, Id: "ask-1",
+		Answers: []*apia2a.AskUserAnswer{{Answer: []string{"default"}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -542,8 +548,8 @@ func TestExecutePublishesAndConsumesAskUser(t *testing.T) {
 		}},
 	}
 	invalid := a2atype.NewMessage(a2atype.MessageRoleUser)
-	require.NoError(t, apia2a.AttachHITL(invalid, apia2a.AskUserResponse{
-		Type: apia2a.HITLTypeAskUserResponse, ID: "ask-1", Answers: []apia2a.AskUserAnswer{{}},
+	require.NoError(t, apia2a.AttachHITL(invalid, &apia2a.AskUserResponse{
+		Type: apia2a.HITLTypeAskUserResponse, Id: "ask-1", Answers: []*apia2a.AskUserAnswer{{}},
 	}))
 	second.Message = invalid
 	invalidEvents, invalidErrs := collect(executor.Execute(t.Context(), second))
@@ -608,7 +614,7 @@ func TestExecutorRecoversTaskOwnershipAfterConstruction(t *testing.T) {
 	status, err := inputRequiredMessage(requestContext("task-1", "write"), request)
 	require.NoError(t, err)
 	message := a2atype.NewMessage(a2atype.MessageRoleUser)
-	require.NoError(t, apia2a.AttachHITL(message, apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: request.ID, Approved: true}}}))
+	require.NoError(t, apia2a.AttachHITL(message, &apia2a.ToolApprovalResponse{Type: apia2a.HITLTypeToolApprovalResponse, Approvals: []*apia2a.ToolApproval{{Id: request.ID, Approved: true}}}))
 	ctx := &a2asrv.ExecutorContext{TaskID: "task-1", ContextID: testContextID, Message: message, StoredTask: &a2atype.Task{ID: "task-1", ContextID: testContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: status}}}
 	events, errs := collect(executor.Execute(t.Context(), ctx))
 	require.Empty(t, errs)
