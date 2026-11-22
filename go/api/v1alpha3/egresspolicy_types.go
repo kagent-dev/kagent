@@ -23,7 +23,8 @@ type EgressPolicySpec struct {
 }
 
 // EgressDestination grants access to one HTTP(S) origin, including all its paths.
-// +kubebuilder:validation:XValidation:rule="!has(self.authentication) || !self.origin.contains('*')",message="authentication requires an exact HTTP(S) origin"
+// +kubebuilder:validation:XValidation:rule="(!has(self.authentication) && !has(self.authentications)) || !self.origin.contains('*')",message="authentication requires an exact HTTP(S) origin"
+// +kubebuilder:validation:XValidation:rule="!(has(self.authentication) && has(self.authentications))",message="authentication and authentications are mutually exclusive in an egresspolicy destination"
 type EgressDestination struct {
 	// Origin is a scheme, DNS hostname, and optional port. A wildcard replaces
 	// exactly one leftmost DNS label, for example https://*.example.com.
@@ -33,8 +34,17 @@ type EgressDestination struct {
 	Origin string `json:"origin"`
 	// Authentication replaces a placeholder header at the gateway. Requests
 	// must send the header; its credential value is never supplied to the runtime.
+	// Deprecated; use Authentications. Mutually exclusive with Authentications.
 	// +optional
 	Authentication *EgressAuthentication `json:"authentication,omitempty"`
+	// Authentications replace placeholder headers at the gateway, one
+	// credential per header. Header names must be unique, ignoring case.
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=atomic
+	// +kubebuilder:validation:XValidation:rule="self.all(a, self.exists_one(b, b.header.lowerAscii() == a.header.lowerAscii()))",message="authentication headers must be unique (case-insensitive)"
+	Authentications []EgressAuthentication `json:"authentications,omitempty"`
 }
 
 // EgressAuthentication replaces a request header with a prefix and credential.

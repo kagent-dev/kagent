@@ -61,6 +61,26 @@ func TestEgressPolicyHTTPCredentials(t *testing.T) {
 	require.Equal(t, []egress.Credential{{Origin: "http://tickets.example.com:8080", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/test/ticket-auth/token"}}, access.Credentials)
 }
 
+func TestEgressPolicyMultipleCredentials(t *testing.T) {
+	t.Run("Given a destination with two authentications, when its policy is compiled, assert that each header gets its own credential", func(t *testing.T) {
+		policy, secret := egressPolicy()
+		destination := &policy.Spec.Destinations[0]
+		bearer := *destination.Authentication
+		destination.Authentication = nil
+		destination.Authentications = []v1alpha3.EgressAuthentication{
+			bearer,
+			{Header: "X-API-Key", SecretKeyRef: bearer.SecretKeyRef},
+		}
+		resolution := translator.CompileEgressPolicies(krt.TestingDummyContext{}, mockCollections(t, policy, secret), "test", []corev1.LocalObjectReference{{Name: policy.Name}})
+		require.Empty(t, resolution.Issues)
+		require.Equal(t, []string{"https://tickets.example.com:443"}, resolution.Access.Destinations)
+		require.Equal(t, []egress.Credential{
+			{Origin: "https://tickets.example.com:443", Header: "authorization", Prefix: "Bearer ", URI: "ate-secret://k8s.io/default/test/ticket-auth/token"},
+			{Origin: "https://tickets.example.com:443", Header: "x-api-key", URI: "ate-secret://k8s.io/default/test/ticket-auth/token"},
+		}, resolution.Access.Credentials)
+	})
+}
+
 func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 	for _, kind := range []string{"kagent", "codex", "claude", "byo"} {
 		t.Run(kind, func(t *testing.T) {
@@ -156,7 +176,7 @@ func TestAgentEgressPoliciesDoNotChangeRuntimeAcrossHarnesses(t *testing.T) {
 }
 
 func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
-	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "wildcard auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix"} {
+	for _, name := range []string{"missing policy", "other namespace", "missing secret", "missing key", "optional secret", "wildcard auth", "empty auth", "missing header", "protected header", "invalid prefix", "conflicting auth", "conflicting prefix", "wildcard authentications", "invalid entry in authentications", "missing key in authentications", "duplicate header in authentications"} {
 		t.Run(name, func(t *testing.T) {
 			policy, secret := egressPolicy()
 			objects := []any{policy, secret}
@@ -182,6 +202,21 @@ func TestEgressPolicyResolutionFailsClosed(t *testing.T) {
 				policy.Spec.Destinations[0].Authentication.Header = "Host"
 			case "invalid prefix":
 				policy.Spec.Destinations[0].Authentication.Prefix = new("Bearer\r\nInjected: ")
+			case "wildcard authentications", "invalid entry in authentications", "missing key in authentications", "duplicate header in authentications":
+				auth := *policy.Spec.Destinations[0].Authentication
+				policy.Spec.Destinations[0].Authentication = nil
+				second := v1alpha3.EgressAuthentication{Header: "X-API-Key", SecretKeyRef: auth.SecretKeyRef.DeepCopy()}
+				switch name {
+				case "wildcard authentications":
+					policy.Spec.Destinations[0].Origin = "https://*.example.com"
+				case "invalid entry in authentications":
+					second.Header = "Host"
+				case "missing key in authentications":
+					second.SecretKeyRef.Key = "absent"
+				case "duplicate header in authentications":
+					second.Header, second.Prefix = "authorization", new("Token ")
+				}
+				policy.Spec.Destinations[0].Authentications = []v1alpha3.EgressAuthentication{auth, second}
 			case "conflicting auth", "conflicting prefix":
 				other := policy.DeepCopy()
 				other.Name = "other"

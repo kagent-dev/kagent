@@ -16,6 +16,11 @@ import (
 func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace string) {
 	secret := corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "auth"}, Key: "token"}
 	bearer := &EgressAuthentication{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: &secret}
+	apiKey := EgressAuthentication{Header: "X-API-Key", SecretKeyRef: &secret}
+	tooMany := make([]EgressAuthentication, 17)
+	for i := range tooMany {
+		tooMany[i] = EgressAuthentication{Header: fmt.Sprintf("X-Key-%d", i), SecretKeyRef: &secret}
+	}
 	for i, tc := range []struct {
 		name        string
 		destination EgressDestination
@@ -33,6 +38,14 @@ func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace st
 		{"wildcard auth", EgressDestination{Origin: "https://*.example.com", Authentication: bearer}, true},
 		{"empty auth", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{}}, true},
 		{"missing header", EgressDestination{Origin: "https://api.example.com", Authentication: &EgressAuthentication{SecretKeyRef: &secret}}, true},
+		{"multiple headers", EgressDestination{Origin: "https://api.example.com", Authentications: []EgressAuthentication{*bearer, apiKey}}, false},
+		{"single-entry list", EgressDestination{Origin: "https://api.example.com", Authentications: []EgressAuthentication{apiKey}}, false},
+		{"duplicate header ignoring case", EgressDestination{Origin: "https://api.example.com", Authentications: []EgressAuthentication{*bearer, {Header: "authorization", SecretKeyRef: &secret}}}, true},
+		{"wildcard authentications", EgressDestination{Origin: "https://*.example.com", Authentications: []EgressAuthentication{apiKey}}, true},
+		{"both auth fields", EgressDestination{Origin: "https://api.example.com", Authentication: bearer, Authentications: []EgressAuthentication{apiKey}}, true},
+		{"too many authentications", EgressDestination{Origin: "https://api.example.com", Authentications: tooMany}, true},
+		{"protected header in list", EgressDestination{Origin: "https://api.example.com", Authentications: []EgressAuthentication{apiKey, {Header: "Host", SecretKeyRef: &secret}}}, true},
+		{"two credentials in one entry", EgressDestination{Origin: "https://api.example.com", Authentications: []EgressAuthentication{{Header: "X-API-Key", SecretKeyRef: &secret, ActorJWT: &ActorJWT{Audiences: []string{"service"}}}}}, true},
 		{"path", EgressDestination{Origin: "https://api.example.com/v1"}, true},
 		{"userinfo", EgressDestination{Origin: "https://user@api.example.com"}, true},
 		{"query", EgressDestination{Origin: "https://api.example.com?"}, true},
@@ -52,6 +65,7 @@ func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace st
 				require.NoError(t, err)
 				require.NoError(t, cl.Get(t.Context(), ctrlclient.ObjectKeyFromObject(policy), policy))
 				require.Equal(t, tc.destination.Authentication, policy.Spec.Destinations[0].Authentication)
+				require.Equal(t, tc.destination.Authentications, policy.Spec.Destinations[0].Authentications)
 			}
 		})
 	}
@@ -67,6 +81,14 @@ func testEgressPolicyValidation(t *testing.T, cl ctrlclient.Client, namespace st
 		policy := &EgressPolicy{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: fmt.Sprintf("bad-secret-%d", i)}, Spec: EgressPolicySpec{Destinations: []EgressDestination{{Origin: "https://api.example.com", Authentication: &EgressAuthentication{Header: "Authorization", SecretKeyRef: &ref}}}}}
 		require.Error(t, cl.Create(t.Context(), policy))
 	}
+	t.Run("Given an EgressPolicy, when a destination sends an empty authentications list, assert that the API server rejects it", func(t *testing.T) {
+		resource := &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": GroupVersion.String(), "kind": EgressPolicyKind,
+			"metadata": map[string]any{"namespace": namespace, "name": "empty-authentications"},
+			"spec":     map[string]any{"destinations": []any{map[string]any{"origin": "https://api.example.com", "authentications": []any{}}}},
+		}}
+		require.Error(t, cl.Create(t.Context(), resource))
+	})
 	for _, kind := range []string{"Agent", "SandboxTemplate", "AgentTemplate", "Harness"} {
 		t.Run(kind+" attachment", func(t *testing.T) {
 			var object ctrlclient.Object

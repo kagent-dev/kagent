@@ -94,15 +94,15 @@ metadata:
 spec:
   destinations:
     - origin: https://tickets.example.com
-      authentication:
-        header: Authorization
+      authentications:
+      - header: Authorization
         prefix: "Bearer "
         secretKeyRef:
           name: ticket-auth
           key: token
     - origin: https://search.example.com:8443
-      authentication:
-        header: X-API-Key
+      authentications:
+      - header: X-API-Key
         secretKeyRef:
           name: search-auth
           key: api-key

@@ -55,6 +55,7 @@ spec:
                       description: |-
                         Authentication replaces a placeholder header at the gateway. Requests
                         must send the header; its credential value is never supplied to the runtime.
+                        Deprecated; use Authentications. Mutually exclusive with Authentications.
                       properties:
                         actorJwt:
                           description: ActorJWT authenticates as the executing Actor.
@@ -146,6 +147,112 @@ spec:
                           must be set
                         rule: (has(self.secretKeyRef)?1:0)+(has(self.actorJwt)?1:0)
                           == 1
+                    authentications:
+                      description: |-
+                        Authentications replace placeholder headers at the gateway, one
+                        credential per header. Header names must be unique, ignoring case.
+                      items:
+                        description: EgressAuthentication replaces a request header
+                          with a prefix and credential.
+                        properties:
+                          actorJwt:
+                            description: ActorJWT authenticates as the executing Actor.
+                              The gateway mints and injects the token.
+                            properties:
+                              audiences:
+                                description: |-
+                                  Audiences names the services permitted to accept this token. The runtime
+                                  control-plane audience is reserved and cannot be exported downstream.
+                                items:
+                                  maxLength: 512
+                                  minLength: 1
+                                  type: string
+                                maxItems: 16
+                                minItems: 1
+                                type: array
+                                x-kubernetes-list-type: set
+                                x-kubernetes-validations:
+                                - message: the runtime control-plane audience is reserved
+                                  rule: '!self.exists(a, a == ''kagent-runtime'')'
+                              expirationSeconds:
+                                default: 900
+                                description: |-
+                                  ExpirationSeconds requests a token lifetime. Substrate refreshes tokens at
+                                  the gateway independently of the invocation caller's token lifetime.
+                                format: int64
+                                maximum: 3600
+                                minimum: 300
+                                type: integer
+                            required:
+                            - audiences
+                            type: object
+                          header:
+                            description: |-
+                              Header is the request header carrying the credential, for example
+                              Authorization or X-API-Key.
+                            maxLength: 256
+                            pattern: ^[!#$%&'*+.^_|~0-9A-Za-z-]+$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: this header cannot carry an egress credential
+                              rule: '!(self.lowerAscii() in [''host'', ''connection'',
+                                ''content-length'', ''transfer-encoding'', ''te'',
+                                ''trailer'', ''upgrade'', ''keep-alive'', ''proxy-authorization'',
+                                ''proxy-authenticate'', ''cookie''])'
+                          prefix:
+                            description: |-
+                              Prefix is prepended verbatim to the credential value, for example "Bearer ".
+                              Include any separating space. Omitted or empty means no prefix.
+                            maxLength: 256
+                            pattern: ^[^\x00-\x08\x0a-\x1f\x7f]*$
+                            type: string
+                          secretKeyRef:
+                            description: SecretKeyRef selects a required key in the
+                              EgressPolicy's namespace.
+                            properties:
+                              key:
+                                description: The key of the secret to select from.  Must
+                                  be a valid secret key.
+                                type: string
+                              name:
+                                default: ""
+                                description: |-
+                                  Name of the referent.
+                                  This field is effectively required, but due to backwards compatibility is
+                                  allowed to be empty. Instances of this type with an empty value here are
+                                  almost certainly wrong.
+                                  More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                                type: string
+                              optional:
+                                description: Specify whether the Secret or its key
+                                  must be defined
+                                type: boolean
+                            required:
+                            - key
+                            type: object
+                            x-kubernetes-map-type: atomic
+                            x-kubernetes-validations:
+                            - message: secretKeyRef requires a name and key
+                              rule: has(self.name) && self.name != '' && self.key
+                                != ''
+                            - message: egress credentials cannot be optional
+                              rule: '!has(self.optional) || !self.optional'
+                        required:
+                        - header
+                        type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of the fields in [secretKeyRef actorJwt]
+                            must be set
+                          rule: (has(self.secretKeyRef)?1:0)+(has(self.actorJwt)?1:0)
+                            == 1
+                      maxItems: 16
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-type: atomic
+                      x-kubernetes-validations:
+                      - message: authentication headers must be unique (case-insensitive)
+                        rule: self.all(a, self.exists_one(b, b.header.lowerAscii()
+                          == a.header.lowerAscii()))
                     origin:
                       description: |-
                         Origin is a scheme, DNS hostname, and optional port. A wildcard replaces
@@ -158,7 +265,11 @@ spec:
                   type: object
                   x-kubernetes-validations:
                   - message: authentication requires an exact HTTP(S) origin
-                    rule: '!has(self.authentication) || !self.origin.contains(''*'')'
+                    rule: (!has(self.authentication) && !has(self.authentications))
+                      || !self.origin.contains('*')
+                  - message: authentication and authentications are mutually exclusive
+                      in an egresspolicy destination
+                    rule: '!(has(self.authentication) && has(self.authentications))'
                 maxItems: 64
                 minItems: 1
                 type: array

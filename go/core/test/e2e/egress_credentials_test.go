@@ -20,6 +20,32 @@ import (
 
 func TestEgressPolicyCredentialDelivery(t *testing.T) {
 	t.Parallel()
+	testEgressCredentialDelivery(t, func(origin string, ref *corev1.SecretKeySelector) []v1alpha3.EgressPolicySpec {
+		var specs []v1alpha3.EgressPolicySpec
+		for _, authentication := range []*v1alpha3.EgressAuthentication{
+			{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: ref},
+			{Header: "X-API-Key", SecretKeyRef: ref},
+		} {
+			specs = append(specs, v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: origin, Authentication: authentication}}})
+		}
+		return specs
+	})
+}
+
+// Given one EgressPolicy whose destination lists two authentications, when an agent
+// selects it, assert that the gateway injects both headers on a single request.
+func TestEgressPolicyMultiHeaderCredentialDelivery(t *testing.T) {
+	t.Parallel()
+	testEgressCredentialDelivery(t, func(origin string, ref *corev1.SecretKeySelector) []v1alpha3.EgressPolicySpec {
+		return []v1alpha3.EgressPolicySpec{{Destinations: []v1alpha3.EgressDestination{{Origin: origin, Authentications: []v1alpha3.EgressAuthentication{
+			{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: ref},
+			{Header: "X-API-Key", SecretKeyRef: ref},
+		}}}}}
+	})
+}
+
+func testEgressCredentialDelivery(t *testing.T, policies func(origin string, ref *corev1.SecretKeySelector) []v1alpha3.EgressPolicySpec) {
+	t.Helper()
 	target := interactionTarget(t)
 	kube := interactionKubeClient(t)
 	const token = "explicit-policy-test-token"
@@ -40,11 +66,8 @@ func TestEgressPolicyCredentialDelivery(t *testing.T) {
 		t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), secret))) })
 		ref := corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: secret.Name}, Key: "token"}
 		var refs []corev1.LocalObjectReference
-		for _, authentication := range []*v1alpha3.EgressAuthentication{
-			{Header: "Authorization", Prefix: new("Bearer "), SecretKeyRef: &ref},
-			{Header: "X-API-Key", SecretKeyRef: &ref},
-		} {
-			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, Spec: v1alpha3.EgressPolicySpec{Destinations: []v1alpha3.EgressDestination{{Origin: destination, Authentication: authentication}}}}
+		for _, spec := range policies(destination, &ref) {
+			policy := &v1alpha3.EgressPolicy{ObjectMeta: metav1.ObjectMeta{GenerateName: "egress-header-", Namespace: "kagent"}, Spec: spec}
 			require.NoError(t, kube.Create(t.Context(), policy))
 			t.Cleanup(func() { assert.NoError(t, ctrlclient.IgnoreNotFound(kube.Delete(context.Background(), policy))) })
 			refs = append(refs, corev1.LocalObjectReference{Name: policy.Name})
