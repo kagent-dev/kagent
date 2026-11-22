@@ -424,6 +424,14 @@ func TestE2ECompletedChatFlushesTraces(t *testing.T) {
 				t.Fatalf("invoke_agent spans = %d, want exactly one before suspension: %s", len(spans), receiver.diagnostic(traceID))
 			}
 			invocation := spans[0]
+			saves := receiver.selectSpans(traceID, agentName, "", "kagent.runtime.v1.TaskStoreService/UpdateTask", nil)
+			// This turn's terminal save starts after the native invocation ends.
+			if !slices.ContainsFunc(saves, func(save capturedSpan) bool {
+				return save.span.GetKind() == tracepb.Span_SPAN_KIND_CLIENT &&
+					save.span.GetStartTimeUnixNano() >= invocation.span.GetEndTimeUnixNano()
+			}) {
+				t.Errorf("no final task save span was exported before suspension: %s", receiver.diagnostic(traceID))
+			}
 			if got, want := invocation.span.GetName(), "invoke_agent "+agentName; got != want {
 				t.Errorf("invocation span name = %q, want %q", got, want)
 			}
