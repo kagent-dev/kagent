@@ -20,10 +20,12 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 	adkagent "google.golang.org/adk/v2/agent"
+	"google.golang.org/adk/v2/model"
 	adkplugin "google.golang.org/adk/v2/plugin"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
 
@@ -34,6 +36,70 @@ import (
 	"github.com/kagent-dev/kagent/go/adk/pkg/sts"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 )
+
+func TestSameNamedToolsReachTheirOwnMCPServer(t *testing.T) {
+	// Given two MCP servers exposing search, when ADK packs and invokes their
+	// tools, assert that each call reaches its own server under the original name.
+	var bindings []*configv1.ADKHTTPMCPServerConfig
+	for _, source := range []string{"books", "articles"} {
+		server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: source}, nil)
+		search := &mcpsdk.Tool{Name: "search"}
+		if source == "books" {
+			search.Meta = mcpsdk.Meta{"ui": map[string]any{"resourceUri": "ui://books/search"}}
+		}
+		mcpsdk.AddTool(server, search, func(context.Context, *mcpsdk.CallToolRequest, map[string]any) (*mcpsdk.CallToolResult, map[string]any, error) {
+			return nil, map[string]any{"source": source}, nil
+		})
+		listener := serveDiscoveryServer(t, server, nil, nil, true)
+		bindings = append(bindings, &configv1.ADKHTTPMCPServerConfig{
+			Params: &configv1.ADKHTTPConnectionParams{Url: listener.URL}, Tools: []string{"search"}, RequireApproval: source == "books",
+		})
+	}
+	sets := CreateToolsets(t.Context(), bindings, nil, nil, false, nil)
+	require.Len(t, sets, 2)
+	const appName = "search-test"
+	var results []any
+	a, err := adkagent.New(adkagent.Config{Name: appName, Run: func(ic adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
+		return func(func(*session.Event, error) bool) {
+			var request model.LLMRequest
+			ctx := adkagent.NewContext(ic)
+			for _, set := range sets {
+				tools, err := set.Tools(ctx)
+				require.NoError(t, err)
+				require.Len(t, tools, 1)
+				require.NoError(t, tools[0].(functionTool).ProcessRequest(ctx, &request))
+			}
+			require.Len(t, request.Tools, 2)
+			require.Len(t, request.Config.Tools, 1)
+			decls := request.Config.Tools[0].FunctionDeclarations
+			require.Len(t, decls, 2)
+			require.Equal(t, map[string]bool{decls[0].Name: true}, MCPAppToolNamesFromToolsets(ic, sets))
+			for i, decl := range decls {
+				require.Contains(t, request.Tools, decl.Name)
+				registered := request.Tools[decl.Name].(functionTool)
+				ctx := adkagent.NewToolContext(ic, fmt.Sprintf("search-%d", i), nil, nil)
+				if i == 0 {
+					_, err := registered.Run(ctx, map[string]any{})
+					require.ErrorIs(t, err, tool.ErrConfirmationRequired)
+					ctx = adkagent.NewToolContext(ic, ctx.FunctionCallID(), nil, &toolconfirmation.ToolConfirmation{Confirmed: true})
+				}
+				result, err := registered.Run(ctx, map[string]any{})
+				require.NoError(t, err)
+				results = append(results, result["output"])
+			}
+		}
+	}})
+	require.NoError(t, err)
+	sessions := session.InMemoryService()
+	created, err := sessions.Create(t.Context(), &session.CreateRequest{AppName: appName, UserID: "reader"})
+	require.NoError(t, err)
+	r, err := runner.New(runner.Config{AppName: appName, Agent: a, SessionService: sessions})
+	require.NoError(t, err)
+	for _, err := range r.Run(t.Context(), "reader", created.Session.ID(), genai.NewContentFromText("search", genai.RoleUser), adkagent.RunConfig{}) {
+		require.NoError(t, err)
+	}
+	require.Equal(t, []any{map[string]any{"source": "books"}, map[string]any{"source": "articles"}}, results)
+}
 
 func TestSTSDelegatedTokenReachesMCP(t *testing.T) {
 	for _, transport := range []string{"http", "sse"} {

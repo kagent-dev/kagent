@@ -50,8 +50,9 @@ type mcpAppDiscovery struct {
 }
 
 type mcpAppToolset struct {
-	inner     tool.Toolset
-	discovery *mcpAppDiscovery
+	inner      tool.Toolset
+	discovery  *mcpAppDiscovery
+	toolPrefix string
 }
 
 var _ tool.Toolset = (*mcpAppToolset)(nil)
@@ -78,19 +79,24 @@ func (m *mcpAppToolset) Tools(ctx adkagent.ReadonlyContext) ([]tool.Tool, error)
 		logging.FromContext(ctx).WarnContext(ctx, "failed to discover MCP tools; omitting toolset for this invocation", "error", err)
 		return nil, nil
 	}
+	aliased, err := m.aliasTools(tools)
+	if err != nil {
+		return nil, err
+	}
 	m.discovery.mu.Lock()
-	for _, t := range tools {
+	for i, t := range tools {
+		name := aliased[i].Name()
 		if m.discovery.listedAppNames[t.Name()] {
-			m.discovery.appToolNames[t.Name()] = true
+			m.discovery.appToolNames[name] = true
 		} else {
-			delete(m.discovery.appToolNames, t.Name())
+			delete(m.discovery.appToolNames, name)
 		}
 	}
 	m.discovery.mu.Unlock()
 	if scope != nil && scope.isOmitted(m) {
 		return nil, nil
 	}
-	return tools, nil
+	return aliased, nil
 }
 
 // MCPAppToolNamesFromToolsets returns successfully discovered MCP App-capable

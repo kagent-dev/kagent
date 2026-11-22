@@ -110,7 +110,7 @@ func CreateToolsets(
 	headerProvider DynamicHeaderProvider,
 ) []tool.Toolset {
 	log := logging.FromContext(ctx)
-	var toolsets []tool.Toolset
+	var toolsets []*mcpAppToolset
 
 	log.InfoContext(ctx, "processing stdio MCP tools", "stdio_tools_count", len(stdioTools))
 	for i, stdioTool := range stdioTools {
@@ -170,11 +170,21 @@ func CreateToolsets(
 		toolsets = append(toolsets, ts)
 	}
 
-	return toolsets
+	if len(toolsets) == 0 {
+		return nil
+	}
+	result := make([]tool.Toolset, 0, len(toolsets))
+	for i, ts := range toolsets {
+		if len(toolsets) > 1 {
+			ts.toolPrefix = fmt.Sprintf("mcp%d_", i+1)
+		}
+		result = append(result, ts)
+	}
+	return result
 }
 
 // addToolset logs, initializes, and returns a single MCP toolset.
-func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, tools []string, requireApproval bool, label string, index int) (tool.Toolset, error) {
+func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, tools []string, requireApproval bool, label string, index int) (*mcpAppToolset, error) {
 	if params.Headers == nil {
 		params.Headers = make(map[string]string)
 	}
