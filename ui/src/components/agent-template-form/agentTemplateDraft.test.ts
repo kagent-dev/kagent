@@ -67,6 +67,7 @@ function templateWithExtras(): AgentTemplate {
         ],
         plugins: [{ source: { git: { url: "https://example.com/p", commit: "a".repeat(40) } } }],
         promptTemplate: { dataSources: [{ name: "runbooks" }] },
+        toolchains: [{ name: "go", oci: `ghcr.io/example/go@sha256:${"b".repeat(64)}` }],
       },
     },
   };
@@ -82,6 +83,7 @@ describe("the agent template draft", () => {
 
     expect(spec.plugins, "an edit must not delete plugins it never showed").toEqual(template.resource.spec.plugins);
     expect(spec.promptTemplate).toEqual(template.resource.spec.promptTemplate);
+    expect(spec.toolchains).toEqual(template.resource.spec.toolchains);
   });
 
   it("round-trips the fields it does show", () => {

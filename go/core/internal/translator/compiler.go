@@ -153,6 +153,10 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	if err != nil {
 		return nil, err
 	}
+	toolImages, err := treeToolchains(tree)
+	if err != nil {
+		return nil, err
+	}
 	input, err := c.buildInputs(ctx, tree)
 	if err != nil {
 		return nil, err
@@ -180,10 +184,40 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	// Normalize once after the complete harness configuration has been compiled.
 	slices.Sort(result.SkillImages)
 	result.SkillImages = slices.Compact(result.SkillImages)
-	for _, image := range harness.Spec.Workload.ToolImages {
-		result.ToolImages = append(result.ToolImages, ToolImage{Name: image.Name, Reference: image.OCI})
-	}
+	result.ToolImages = toolImages
 	return result, nil
+}
+
+// treeToolchains collects the toolchains of the root template and its Shared
+// children in declaration order. Shared children run in the parent's runtime,
+// so an entry repeated with the same image is mounted once, and the same name
+// with a different image has no single mount and is rejected.
+func treeToolchains(tree *resolvedTemplateTree) ([]ToolImage, error) {
+	var images []ToolImage
+	byName := map[string]string{}
+	var collect func(*resolvedTemplate) error
+	collect = func(agent *resolvedTemplate) error {
+		for _, toolchain := range agent.Template.Spec.Toolchains {
+			if reference, ok := byName[toolchain.Name]; ok {
+				if reference != toolchain.OCI {
+					return NewValidationError("toolchain %q names two images: %q and %q", toolchain.Name, reference, toolchain.OCI)
+				}
+				continue
+			}
+			byName[toolchain.Name] = toolchain.OCI
+			images = append(images, ToolImage{Name: toolchain.Name, Reference: toolchain.OCI})
+		}
+		for _, binding := range agent.Shared {
+			if err := collect(binding.Agent); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := collect(tree.Root); err != nil {
+		return nil, err
+	}
+	return images, nil
 }
 
 func harnessType(harness *HarnessConfiguration) HarnessType {

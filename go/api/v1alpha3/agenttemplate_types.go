@@ -173,6 +173,24 @@ type PluginBundle struct {
 	Skills []string `json:"skills,omitempty"`
 }
 
+// Toolchain is one read-only image volume added to the runtime container.
+type Toolchain struct {
+	// Name selects the mount directory /opt/kagent/tools/<name>. It must be a
+	// DNS label of at most 58 characters: the controller prefixes it with
+	// "tool-" to form the volume name, which is itself limited to 63.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=58
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +required
+	Name string `json:"name"`
+
+	// OCI is the image reference pinned by sha256 digest. Tags are not resolved.
+	// +kubebuilder:validation:MaxLength=512
+	// +kubebuilder:validation:Pattern=`^[^[:space:]@]+@sha256:[a-f0-9]{64}$`
+	// +required
+	OCI string `json:"oci"`
+}
+
 // AgentTemplateSpec defines portable agent behavior.
 // +kubebuilder:validation:AtMostOneOf=systemPrompt;systemPromptFrom
 // +kubebuilder:validation:AtMostOneOf=outputSchema;outputSchemaFrom
@@ -216,6 +234,18 @@ type AgentTemplateSpec struct {
 	// +kubebuilder:validation:MaxItems=20
 	// +optional
 	Plugins []PluginBundle `json:"plugins,omitempty"`
+	// Toolchains are digest-pinned OCI images mounted read-only at
+	// /opt/kagent/tools/<name> in the runtime of every Agent that uses this
+	// template, including as a Shared subagent. KAGENT_TOOL_PATHS carries the
+	// colon-joined /opt/kagent/tools/<name>/bin directories; each runtime
+	// appends them to PATH after the image's own binaries. A Shared subagent's
+	// toolchains join its parent's: an entry with the same name and image is
+	// mounted once, and the same name with a different image is rejected.
+	// +kubebuilder:validation:MaxItems=16
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Toolchains []Toolchain `json:"toolchains,omitempty"`
 }
 
 // +genclient

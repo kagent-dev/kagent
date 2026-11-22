@@ -86,13 +86,7 @@ export interface HarnessSpec {
   /** Bring your own: an image that serves kagent's A2A contract itself. */
   byo?: Record<string, never>;
   /** Optional for the built-in adapters, which default to this release's image; BYO needs an image and a command. */
-  workload?: {
-    image?: string;
-    command?: string[];
-    args?: string[];
-    /** Digest-pinned images mounted read-only at /opt/kagent/tools/<name>; the controller puts their bin/ on KAGENT_TOOL_PATHS. */
-    toolImages?: { name: string; oci: string }[];
-  };
+  workload?: { image?: string; command?: string[]; args?: string[] };
   substrate: {
     workerPoolRef: { name: string };
     snapshotPolicy: { location: string };

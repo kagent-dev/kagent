@@ -8,7 +8,7 @@ from ._bootstrap import load_bundle
 
 logger = logging.getLogger(__name__)
 
-# Bin directories of the Harness tool images, colon-joined by the controller.
+# Bin directories of the Agent's toolchains, colon-joined by the controller.
 _KAGENT_TOOL_PATHS_ENV = "KAGENT_TOOL_PATHS"
 
 # The bearer token is materialized to a fixed path outside the config dir, matching the Go ADK.

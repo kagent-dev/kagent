@@ -1,5 +1,5 @@
 // Package toolpath is the contract between the controller and every runtime
-// for Harness tool images: where the controller mounts them and how a runtime
+// for AgentTemplate toolchains: where the controller mounts them and how a runtime
 // exposes their binaries on PATH.
 package toolpath
 
