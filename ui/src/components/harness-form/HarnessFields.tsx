@@ -54,7 +54,7 @@ export function HarnessFields({
         label="Runtime adapter"
         required
         htmlFor="harness-adapter"
-        extra="How kagent runs the agent: its own runtime, Codex, Claude, or your own image."
+        extra="Decides how the agent template is compiled and which program runs it."
       >
         <Select<HarnessAdapter>
           id="harness-adapter"

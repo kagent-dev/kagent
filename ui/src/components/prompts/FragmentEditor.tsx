@@ -49,7 +49,7 @@ export function FragmentEditor({ rows, onChange, library, disabled }: FragmentEd
               <Input
                 data-testid="fragment-key"
                 aria-label={`Fragment key ${index + 1}`}
-                placeholder="safety-rules"
+                placeholder="example-key"
                 value={row.key}
                 disabled={disabled}
                 onChange={(event) => update(row.id, { key: event.target.value })}

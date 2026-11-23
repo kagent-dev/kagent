@@ -158,8 +158,9 @@ export function DestinationEditor({
             </>
           ) : (
             <>
+              <div css={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: theme.space(4) }}>
               <FormField
-                css={{ gridColumn: "1 / -1" }}
+                css={{ flex: "2 1 260px", minWidth: 0 }}
                 htmlFor={fieldId("audiences")}
                 label={egressCopy.form.audiences}
                 required
@@ -178,6 +179,7 @@ export function DestinationEditor({
                 />
               </FormField>
               <FormField
+                css={{ flex: "1 1 140px", minWidth: 0 }}
                 htmlFor={fieldId("lifetime")}
                 label={egressCopy.form.lifetime}
                 required={false}
@@ -195,6 +197,7 @@ export function DestinationEditor({
                   onChange={(event) => update({ expirationSeconds: event.target.value })}
                 />
               </FormField>
+              </div>
             </>
           )}
         </OptionPanel>

@@ -239,13 +239,14 @@ export function AgentTemplateForm({
           readOnly={readOnly}
           label="Description"
           required={false}
-          help={readOnly ? undefined : "Helps people pick the right template."}
+          help={readOnly ? undefined : "A summary of this agent template."}
         >
-          <Input
+          <Input.TextArea
             data-testid="template-form-description"
+            autoSize={{ minRows: 1 }}
             value={draft.description}
             onChange={(event) => set("description", event.target.value)}
-            placeholder={placeholder("What this agent is for.")}
+            placeholder={placeholder("What this agent template is for.")}
             {...readOnlyInput}
           />
         </Field>
@@ -312,7 +313,7 @@ export function AgentTemplateForm({
         <Field readOnly={readOnly}
           label="Output format"
           required
-          extra={readOnly ? undefined : "A schema sets the final answer's shape. Only kagent harnesses support it."}
+          extra={readOnly ? undefined : "Text works with any harness. JSON schemas only work with kagent harnesses. If a JSON schema is used, it will shape the agent's final answer. The exception is if the template runs as a subagent, in which case it will always use text."}
         >
           <Space orientation="vertical" size={8} css={{ display: "flex" }}>
             <div data-testid="template-form-output-source">
@@ -516,7 +517,7 @@ export function AgentTemplateForm({
                     readOnly={readOnly}
                     label="Name"
                     required
-                    help={readOnly ? undefined : "What the agent calls this tool."}
+                    help={readOnly ? undefined : "Pick a name to refer to this tool."}
                     {...fieldFor(`subAgent:${index}:name`)}
                   >
                     <Input

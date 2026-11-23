@@ -21,10 +21,6 @@ export function dataPillButtonStates(theme: Theme) {
     cursor: "pointer",
     "&:hover:not(:disabled)": { background: `${theme.color.text}29`, borderColor: theme.color.text },
     "&:active:not(:disabled)": { background: `${theme.color.text}3d`, borderColor: theme.color.text },
-    "&:hover:not(:disabled) [data-pill-x], &:active:not(:disabled) [data-pill-x]": {
-      background: theme.color.dangerBg,
-      color: theme.color.dangerText,
-    },
     "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}`, outlineOffset: 1 },
     "&:disabled": { cursor: "not-allowed", opacity: 0.6 },
   };

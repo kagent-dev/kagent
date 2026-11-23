@@ -141,7 +141,7 @@ describe("new agent template page", () => {
     expect([...card.querySelectorAll(".ant-form-item-label label")].map((label) => label.textContent?.replace("*(required)", ""))).toEqual(
       ["Name", "Agent template", "When to use it"],
     );
-    expect(within(card).getByText("What the agent calls this tool.")).toBeInTheDocument();
+    expect(within(card).getByText("Pick a name to refer to this tool.")).toBeInTheDocument();
     expect(screen.getByTestId("template-form-sub-agent-description-0").tagName).toBe("TEXTAREA");
     // Label rows share one pair of column titles: Key is required, Value optional.
     const labels = screen.getByTestId("template-form-labels");

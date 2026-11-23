@@ -1,9 +1,15 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { ReadError } from "@/components/common/ReadError";
-import { Alert, Button, Form, Modal, Radio, Select, Skeleton } from "antd";
-import { useTheme } from "@emotion/react";
-import { Plus } from "lucide-react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import {
+  apiClient,
+  useAgent,
+  useAgentTemplates,
+  useHarnesses,
+  useInvalidateAgents,
+  useModel,
+  useNamespaceEgressPolicies,
+  useNamespaces,
+  type Agent,
+  type AgentSpec,
+} from "@/api";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
 import {
@@ -14,8 +20,10 @@ import {
   type TemplateField,
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
+import { ReadError } from "@/components/common/ReadError";
 import { SubmitError } from "@/components/common/SubmitError";
 import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
+import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 import { BackLink } from "@/components/form/BackLink";
 import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
@@ -23,29 +31,21 @@ import { NameInput } from "@/components/form/NameInput";
 import { NamespaceSelect } from "@/components/form/NamespaceSelect";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
 import { SectionHeader } from "@/components/form/SectionHeader";
-import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { toastSaved } from "@/components/form/saveToast";
 import { useSubmitValidation, type FieldIssue, type FieldValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
-import {
-  apiClient,
-  useAgent,
-  useAgentTemplates,
-  useNamespaceEgressPolicies,
-  useHarnesses,
-  useInvalidateAgents,
-  useModel,
-  useNamespaces,
-  type Agent,
-  type AgentSpec,
-} from "@/api";
-import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
-import { CopyNotice } from "@/components/table/CopyNotice";
-import { paths } from "@/router/routes";
-import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
-import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
+import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { harnessModelConflict, preferredHarness } from "@/components/harness-form/harnessChoice";
+import { CopyNotice } from "@/components/table/CopyNotice";
+import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
+import { paths } from "@/router/routes";
+import { useTheme } from "@emotion/react";
+import { Alert, Button, Form, Modal, Radio, Select, Skeleton } from "antd";
+import { Plus } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 type Source = "reference" | "inline";
 
@@ -250,7 +250,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         "& > section .ant-form:last-child > .ant-form-item:last-child": { marginBottom: 0 },
       }}
     >
-      <section data-testid="agent-form-identity" css={island}>
+      <section data-testid="agent-form-identity">
         <Form
           layout="vertical"
           component="div"
@@ -307,7 +307,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         <SectionHeader
           id="agent-form-harness-title"
           title="Harness"
-          hint="Where the agent runs: runtime, image, worker pool. Shared with other agents."
+          hint="Where the agent runs: the runtime adapter, its image, and the Substrate worker pool."
           actions={
             // An agent can only reference a harness, so creating one is a side action rather than a source toggle.
             <Button
@@ -378,7 +378,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         <SectionHeader
           id="agent-form-template-title"
           title="Agent template"
-          hint="What the agent does: model, prompt and tools. Pick a shared one or define it here."
+          hint="What the agent does: its model, prompt and tools. Pick a shared one or define it here."
           actions={
             <Radio.Group
               optionType="button"

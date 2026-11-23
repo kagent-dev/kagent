@@ -140,6 +140,11 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
           title={`Could not read agents in ${entry.namespace}`} description={entry.reason} />)}
       </>}
       <FieldRow>
+        <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}
+          help="Leave empty to show the schedule's ID.">
+          <Input id="schedule-name-input" data-testid="schedule-name" placeholder="e.g. Morning health summary" maxLength={200} status={status("name")}
+            value={draft.name} onChange={(event) => update({ name: event.target.value })} />
+        </FormField>
         {!schedule && <FormField htmlFor="schedule-agent-input" label="Agent" required {...validation.field("agent")}
           help="The agent that runs on this schedule.">
           <Select id="schedule-agent-input" data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }}
@@ -152,11 +157,6 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
                 label: `${agent.namespace}/${agent.name}${blocked ? ` — ${blocked}` : ""}` };
             })} />
         </FormField>}
-        <FormField htmlFor="schedule-name-input" label="Schedule name" required={false} {...validation.field("name")}
-          help="Leave empty to show the schedule's ID.">
-          <Input id="schedule-name-input" data-testid="schedule-name" placeholder="e.g. Morning health summary" maxLength={200} status={status("name")}
-            value={draft.name} onChange={(event) => update({ name: event.target.value })} />
-        </FormField>
       </FieldRow>
       <FieldRow>
         <FormField htmlFor="schedule-frequency-input" label="Repeat" required help="How often the agent runs.">
