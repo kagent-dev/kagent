@@ -73,6 +73,7 @@ export function ResourceSelect({
       status={error ? "error" : undefined}
       aria-invalid={error ? true : ariaInvalid}
       aria-describedby={ariaDescribedBy}
+      autoComplete="off"
       showSearch={allowTyped ? { onSearch: setSearch } : true}
       options={options}
       notFoundContent={

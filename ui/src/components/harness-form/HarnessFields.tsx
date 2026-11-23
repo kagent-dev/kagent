@@ -1,6 +1,7 @@
 import { Alert, Input, Select } from "antd";
 import { useTheme } from "@emotion/react";
 import { DEFAULT_HARNESS_WORKER_POOL, HARNESS_ADAPTERS, type HarnessAdapter } from "@/api/domain/harnesses";
+import { FieldRow } from "@/components/form/FieldRow";
 import { FormField } from "@/components/form/FormField";
 import { ListInput } from "@/components/form/ListInput";
 import type { FieldValidation } from "@/components/form/useSubmitValidation";
@@ -86,17 +87,13 @@ export function HarnessFields({
       </FormField>
 
       {adapterSupportsCommand(draft.adapter) && (
-        <>
+        <FieldRow>
           <FormField
             label="Command"
             required={byo}
             htmlFor="harness-command"
             {...fieldFor("command")}
-            extra={
-              byo
-                ? "Required for bring-your-own images. Spaces split command parts. Quotes keep spaces."
-                : "Overrides the image entrypoint. Spaces split command parts. Quotes keep spaces."
-            }
+            extra={byo ? "Required for bring-your-own images." : "Overrides the image entrypoint."}
           >
             <ListInput
               id="harness-command"
@@ -112,7 +109,7 @@ export function HarnessFields({
             label="Arguments"
             required={false}
             htmlFor="harness-args"
-            extra="Replaces the image arguments. Spaces split arguments. Quotes keep spaces."
+            extra="Replaces the image arguments."
           >
             <ListInput
               id="harness-args"
@@ -123,9 +120,10 @@ export function HarnessFields({
               placeholder="--port=8080"
             />
           </FormField>
-        </>
+        </FieldRow>
       )}
 
+      <FieldRow>
       <FormField
         label="Worker pool"
         required
@@ -175,6 +173,7 @@ export function HarnessFields({
           placeholder="s3://ate-snapshots/kagent/"
         />
       </FormField>
+      </FieldRow>
     </>
   );
 }

@@ -147,7 +147,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         </FormField>
         {!schedule && <FormField htmlFor="schedule-agent-input" label="Agent" required {...validation.field("agent")}
           help="The agent that runs on this schedule.">
-          <Select id="schedule-agent-input" data-testid="schedule-agent" showSearch={{ optionFilterProp: "label" }}
+          <Select id="schedule-agent-input" data-testid="schedule-agent" autoComplete="off" showSearch={{ optionFilterProp: "label" }}
             loading={namespaces.isLoading || definitions.isLoading} status={status("agent")}
             placeholder="Choose an agent" value={draft.agent || undefined}
             onChange={(agent: string) => update({ agent })}
@@ -172,7 +172,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         </FormField>
         <FormField htmlFor="schedule-timezone-input" label="Time zone" required={false} {...validation.field("timeZone")}
           help="Includes daylight-saving changes.">
-          <AutoComplete id="schedule-timezone-input" data-testid="schedule-timezone" options={timeZones} placeholder="e.g. Europe/London"
+          <AutoComplete autoComplete="off" id="schedule-timezone-input" data-testid="schedule-timezone" options={timeZones} placeholder="e.g. Europe/London"
             maxLength={253} status={status("timeZone")} value={draft.timeZone} onChange={(timeZone) => update({ timeZone })}
             filterOption={(input, option) => !!option?.value.toLowerCase().includes(input.toLowerCase())} />
         </FormField>

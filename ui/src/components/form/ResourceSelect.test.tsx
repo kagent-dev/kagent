@@ -12,6 +12,11 @@ function open(props: Partial<ResourceSelectProps>) {
 }
 
 describe("ResourceSelect", () => {
+  it("keeps the browser's own suggestions off the search box", () => {
+    open({});
+    expect(screen.getByRole("combobox")).toHaveAttribute("autocomplete", "off");
+  });
+
   it("says it is loading while the list is read", () => {
     open({ loading: true });
     expect(screen.getByText("Loading harnesses…")).toBeInTheDocument();

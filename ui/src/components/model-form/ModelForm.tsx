@@ -454,6 +454,7 @@ export function ModelForm({
                   disabled={identityLocked && !allowProviderSelectionWhenIdentityLocked}
                   css={{ flex: 1, minWidth: 0 }}
                   options={providerSelectOptions}
+                  autoComplete="off"
                   showSearch={{ optionFilterProp: "label" }}
                   onChange={changeProvider}
                   optionRender={(o) => (
@@ -503,6 +504,7 @@ export function ModelForm({
               help="Pick from the list, or type a model name."
             >
               <AutoComplete
+                autoComplete="off"
                 data-testid="model-model"
                 placeholder={draft.provider ? "Select or type a model" : "Pick a provider first"}
                 value={draft.model}
@@ -651,6 +653,7 @@ export function ModelForm({
                 type="info"
                 showIcon
                 data-testid="model-passthrough-note"
+                css={{ marginBottom: theme.space(5) }}
                 title="The credential on each incoming request is forwarded to the provider; nothing is stored in the cluster."
               />
             ) : null}

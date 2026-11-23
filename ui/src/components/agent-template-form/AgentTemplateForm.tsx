@@ -220,6 +220,7 @@ export function AgentTemplateForm({
           </FieldRow>
         ) : namespaceField}
 
+        <FieldRow>
         <Field readOnly={readOnly} label="Model configuration" required={modelRequired} extra={modelHelp} {...fieldFor("model")}>
           <Select
             data-testid="template-form-model"
@@ -228,12 +229,104 @@ export function AgentTemplateForm({
             loading={models.isLoading}
             placeholder={placeholder("Choose a model configuration")}
             popupMatchSelectWidth={false}
+            autoComplete="off"
             showSearch={!readOnly && { optionFilterProp: "title" }}
             onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
             options={modelOptions}
             {...readOnlySelect}
           />
         </Field>
+        <Field readOnly={readOnly}
+          label="Output format"
+          required
+          extra={readOnly ? undefined : "Text works with any harness. JSON schemas only work with kagent harnesses. If a JSON schema is used, it will shape the agent's final answer. The exception is if the template runs as a subagent, in which case it will always use text."}
+        >
+            <div data-testid="template-form-output-source">
+              <Select
+                css={{ minWidth: 240 }}
+                value={draft.outputSource}
+                onChange={(value: OutputSource) => set("outputSource", value)}
+                options={[
+                  { value: "text", title: "Text", label: "Text" },
+                  {
+                    value: "inline",
+                    title: "Inline JSON Schema",
+                    label: "Inline JSON Schema",
+                  },
+                  {
+                    value: "configMap",
+                    title: "JSON Schema from a ConfigMap",
+                    label: "JSON Schema from a ConfigMap",
+                  },
+                ]}
+                {...readOnlySelect}
+              />
+            </div>
+        </Field>
+        </FieldRow>
+        <Space orientation="vertical" size={8} css={{ display: "flex" }}>
+
+            {draft.outputSource === "inline" ? (
+              <Field readOnly={readOnly} label="Output schema" required {...fieldFor("outputSchema")} css={rowField}>
+                <Input.TextArea
+                  data-testid="template-form-output-schema"
+                  value={draft.outputSchema}
+                  onChange={(event) => set("outputSchema", event.target.value)}
+                  autoSize={{ minRows: readOnly ? 1 : 8, maxRows: 20 }}
+                  placeholder={placeholder(
+                    '{\n  "type": "object",\n  "properties": {\n    "status": { "type": "string" }\n  },\n  "required": ["status"]\n}',
+                  )}
+                  css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+                  {...readOnlyInput}
+                />
+              </Field>
+            ) : draft.outputSource === "configMap" ? (
+              <div css={rowFields}>
+                <Field readOnly={readOnly} label="ConfigMap name" required {...fieldFor("outputConfigMap")} css={rowField}>
+                  <Input
+                    data-testid="template-form-output-configmap"
+                    value={draft.outputSchemaConfigMap}
+                    onChange={(event) => set("outputSchemaConfigMap", event.target.value)}
+                    placeholder={placeholder("agent-schemas")}
+                    {...readOnlyInput}
+                  />
+                </Field>
+                <Field readOnly={readOnly} label="Key" required {...fieldFor("outputKey")} css={rowField}>
+                  <Input
+                    data-testid="template-form-output-key"
+                    value={draft.outputSchemaKey}
+                    onChange={(event) => set("outputSchemaKey", event.target.value)}
+                    placeholder={placeholder("schema.json")}
+                    {...readOnlyInput}
+                  />
+                </Field>
+              </div>
+            ) : readOnly ? (
+              none("Successful final answers are returned as text.")
+            ) : null}
+
+            {draft.outputSource === "text" ? null : readOnly ? (
+              draft.outputStrict ? <DataPill>Strict schema adherence</DataPill> : null
+            ) : (
+              <Space orientation="vertical" size={4}>
+                <Checkbox
+                  checked={draft.outputStrict}
+                  data-testid="template-form-output-strict"
+                  onChange={(event) => set("outputStrict", event.target.checked)}
+                >
+                  Strict schema adherence
+                </Checkbox>
+                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  Asks OpenAI, Azure OpenAI and Foundry (OpenAI format) to follow the schema while
+                  generating. Support depends on the vendor, so the model may not respect it. Other
+                  providers never receive it, and OpenAI-compatible endpoints may ignore it. Every
+                  answer is still checked against the schema. Strict requires a <code>type</code> on
+                  every node, every property in <code>required</code> and{" "}
+                  <code>additionalProperties: false</code> on every object.
+                </Text>
+              </Space>
+            )}
+        </Space>
 
         <Field
           readOnly={readOnly}
@@ -310,96 +403,6 @@ export function AgentTemplateForm({
           </Space>
         </Field>
 
-        <Field readOnly={readOnly}
-          label="Output format"
-          required
-          extra={readOnly ? undefined : "Text works with any harness. JSON schemas only work with kagent harnesses. If a JSON schema is used, it will shape the agent's final answer. The exception is if the template runs as a subagent, in which case it will always use text."}
-        >
-          <Space orientation="vertical" size={8} css={{ display: "flex" }}>
-            <div data-testid="template-form-output-source">
-              <Select
-                css={{ minWidth: 240 }}
-                value={draft.outputSource}
-                onChange={(value: OutputSource) => set("outputSource", value)}
-                options={[
-                  { value: "text", title: "Text", label: "Text" },
-                  {
-                    value: "inline",
-                    title: "Inline JSON Schema",
-                    label: "Inline JSON Schema",
-                  },
-                  {
-                    value: "configMap",
-                    title: "JSON Schema from a ConfigMap",
-                    label: "JSON Schema from a ConfigMap",
-                  },
-                ]}
-                {...readOnlySelect}
-              />
-            </div>
-
-            {draft.outputSource === "inline" ? (
-              <Field readOnly={readOnly} label="Output schema" required {...fieldFor("outputSchema")} css={rowField}>
-                <Input.TextArea
-                  data-testid="template-form-output-schema"
-                  value={draft.outputSchema}
-                  onChange={(event) => set("outputSchema", event.target.value)}
-                  autoSize={{ minRows: readOnly ? 1 : 8, maxRows: 20 }}
-                  placeholder={placeholder(
-                    '{\n  "type": "object",\n  "properties": {\n    "status": { "type": "string" }\n  },\n  "required": ["status"]\n}',
-                  )}
-                  css={{ fontFamily: theme.font.mono, fontSize: 12 }}
-                  {...readOnlyInput}
-                />
-              </Field>
-            ) : draft.outputSource === "configMap" ? (
-              <div css={rowFields}>
-                <Field readOnly={readOnly} label="ConfigMap name" required {...fieldFor("outputConfigMap")} css={rowField}>
-                  <Input
-                    data-testid="template-form-output-configmap"
-                    value={draft.outputSchemaConfigMap}
-                    onChange={(event) => set("outputSchemaConfigMap", event.target.value)}
-                    placeholder={placeholder("agent-schemas")}
-                    {...readOnlyInput}
-                  />
-                </Field>
-                <Field readOnly={readOnly} label="Key" required {...fieldFor("outputKey")} css={rowField}>
-                  <Input
-                    data-testid="template-form-output-key"
-                    value={draft.outputSchemaKey}
-                    onChange={(event) => set("outputSchemaKey", event.target.value)}
-                    placeholder={placeholder("schema.json")}
-                    {...readOnlyInput}
-                  />
-                </Field>
-              </div>
-            ) : readOnly ? (
-              none("Successful final answers are returned as text.")
-            ) : null}
-
-            {draft.outputSource === "text" ? null : readOnly ? (
-              draft.outputStrict ? <DataPill>Strict schema adherence</DataPill> : null
-            ) : (
-              <Space orientation="vertical" size={4}>
-                <Checkbox
-                  checked={draft.outputStrict}
-                  data-testid="template-form-output-strict"
-                  onChange={(event) => set("outputStrict", event.target.checked)}
-                >
-                  Strict schema adherence
-                </Checkbox>
-                <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
-                  Asks OpenAI, Azure OpenAI and Foundry (OpenAI format) to follow the schema while
-                  generating. Support depends on the vendor, so the model may not respect it. Other
-                  providers never receive it, and OpenAI-compatible endpoints may ignore it. Every
-                  answer is still checked against the schema. Strict requires a <code>type</code> on
-                  every node, every property in <code>required</code> and{" "}
-                  <code>additionalProperties: false</code> on every object.
-                </Text>
-              </Space>
-            )}
-          </Space>
-        </Field>
 
         <Field readOnly={readOnly}
           label="MCP server tools"
@@ -433,6 +436,7 @@ export function AgentTemplateForm({
                       loading={servers.isLoading}
                       placeholder={placeholder("Choose an MCP server")}
                       popupMatchSelectWidth={false}
+                      autoComplete="off"
                       showSearch={!readOnly && { optionFilterProp: "title" }}
                       // The tools belong to the server, so changing it clears them.
                       onChange={(value: string) =>
