@@ -34,6 +34,12 @@ export interface ExtensionNavOverride {
    * destination and wants the familiar entry to lead there.
    */
   path?: string;
+  /**
+   * Adds path prefixes under which the entry is highlighted, for a page a product
+   * adds that belongs to it. Appended to the entry's own, never replacing them, so a
+   * product cannot unclaim a page the application files under the entry.
+   */
+  activePaths?: readonly string[];
   icon?: LucideIcon;
   order?: number;
 }
@@ -93,6 +99,7 @@ export function applyNavOverrides(
         ...item,
         label: override.label ?? item.label,
         path: override.path ?? item.path,
+        activePaths: [...(item.activePaths ?? []), ...(override.activePaths ?? [])],
         icon: override.icon ?? item.icon,
         order: override.order ?? item.order,
       };

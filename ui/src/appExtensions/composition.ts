@@ -63,3 +63,21 @@ export function buildSidebarSections(
 export function isNavPathActive(path: string, pathname: string): boolean {
   return path === "/" ? pathname === "/" : pathname.startsWith(path);
 }
+
+/**
+ * Picks the nav key with the longest path or `activePaths` prefix of the current
+ * location, so /agents/foo/chat still highlights "Agents" while "/" only matches
+ * itself. Ranking every prefix by length, rather than preferring `path`, keeps an
+ * entry's own page ahead of another entry's broader `activePaths` claim.
+ */
+export function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
+  let best: { key: string; length: number } | undefined;
+  for (const item of items) {
+    for (const prefix of [item.path, ...(item.activePaths ?? [])]) {
+      if (isNavPathActive(prefix, pathname) && prefix.length > (best?.length ?? -1)) {
+        best = { key: item.key, length: prefix.length };
+      }
+    }
+  }
+  return best ? [best.key] : [];
+}

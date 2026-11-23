@@ -19,6 +19,13 @@ export interface NavItem {
   key: string;
   label: string;
   path: string;
+  /**
+   * Further path prefixes under which this entry is the current one. For a page that
+   * belongs to the entry but lives at a URL outside `path`: an agent template opens at
+   * `/agent-templates/...`, which does not start with `/agents`, so without this the
+   * reader lands on a template and no entry is highlighted.
+   */
+  activePaths?: readonly string[];
   icon: LucideIcon;
   /** Lower sorts first. Core items use multiples of 100 to leave gaps. */
   order: number;
@@ -36,7 +43,17 @@ export const coreNavItems: NavItem[] = [
     icon: LayoutDashboard,
     order: 100,
   },
-  { key: "agents", label: "Agents", path: paths.agents, icon: Bot, order: 200 },
+  {
+    key: "agents",
+    label: "Agents",
+    path: paths.agents,
+    // Templates and harnesses are what an agent is made of, and their pages are
+    // reached from the agents page. Prefixes rather than single routes, so a page
+    // added under either later (a harness details page) highlights here unchanged.
+    activePaths: [paths.agentTemplates, "/harnesses"],
+    icon: Bot,
+    order: 200,
+  },
   { key: "scheduledRuns", label: "Schedules", path: paths.scheduledRuns, icon: CalendarClock, order: 275 },
   
   { key: "models", label: "Models", path: paths.models, icon: Cpu, order: 300 },

@@ -107,7 +107,7 @@ export type {
   ExtensionFormPayload,
 } from "./formFields";
 
-export { buildSidebarSections, isNavPathActive } from "./composition";
+export { activeKeyFor, buildSidebarSections, isNavPathActive } from "./composition";
 export type { SidebarSection } from "./composition";
 
 // One deployment setting, by name. An extension's own settings are named

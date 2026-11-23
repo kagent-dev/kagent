@@ -16,6 +16,8 @@ import {
   extensionRowActions,
   extensionTableColumns,
   initialExtensionFieldValues,
+  activeKeyFor,
+  applyNavOverrides,
   isNavPathActive,
   installExtensionApi,
   installExtensionApis,
@@ -33,6 +35,7 @@ import {
   applyResponseTransforms,
 } from "@/api/extensionPoints";
 import type { ApiCallId, ApiRequestContext, ApiResponseContext } from "@/api";
+import { coreNavItems } from "@/components/Structure/navItems";
 import type { NavItem } from "@/components/Structure/navItems";
 import { reservedRoutePaths } from "@/router/router";
 
@@ -216,6 +219,45 @@ describe("buildSidebarSections", () => {
     expect(isNavPathActive("/agents", "/agents/foo/chat")).toBe(true);
     expect(isNavPathActive("/", "/agents")).toBe(false);
     expect(isNavPathActive("/", "/")).toBe(true);
+  });
+});
+
+describe("active nav entry", () => {
+  const item = (key: string, path: string, activePaths?: string[]): NavItem => ({
+    key,
+    label: key,
+    path,
+    activePaths,
+    icon: (() => null) as unknown as NavItem["icon"],
+    order: 0,
+  });
+
+  it("highlights Agents on template and harness pages, which live outside /agents", () => {
+    for (const pathname of [
+      "/agents",
+      "/agent-templates/kagent/k8s",
+      "/harnesses/new",
+      "/harnesses/kagent/default/edit",
+      // A page that does not exist yet, so a future harness page needs no nav change.
+      "/harnesses/kagent/default",
+    ]) {
+      expect(activeKeyFor(pathname, coreNavItems), pathname).toEqual(["agents"]);
+    }
+    expect(activeKeyFor("/models", coreNavItems)).toEqual(["models"]);
+  });
+
+  it("prefers the longest prefix across paths and activePaths", () => {
+    const items = [item("broad", "/x", ["/y"]), item("narrow", "/y/z")];
+    expect(activeKeyFor("/y/z/1", items)).toEqual(["narrow"]);
+    expect(activeKeyFor("/y/1", items)).toEqual(["broad"]);
+    expect(activeKeyFor("/q", items)).toEqual([]);
+  });
+
+  it("appends an override's activePaths to the entry's own", () => {
+    const [agents] = applyNavOverrides([item("agents", "/agents", ["/agent-templates"])], {
+      agents: { activePaths: ["/builder"] },
+    });
+    expect(agents.activePaths).toEqual(["/agent-templates", "/builder"]);
   });
 });
 

@@ -9,23 +9,13 @@ import {
   ExtensionSlot,
   applyNavOverrides,
   buildSidebarSections,
+  activeKeyFor,
   isNavPathActive,
   useExtensionNavItems,
   useExtensionNavOverrides,
 } from "@/appExtensions";
 
 const { Sider } = Layout;
-
-/**
- * Picks the nav key whose path is the longest prefix of the current location,
- * so /agents/foo/chat still highlights "Agents" while "/" only matches itself.
- */
-function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
-  const match = items
-    .filter((item) => isNavPathActive(item.path, pathname))
-    .sort((a, b) => b.path.length - a.path.length)[0];
-  return match ? [match.key] : [];
-}
 
 function navEntry(item: NavItem) {
   const Icon = item.icon;
