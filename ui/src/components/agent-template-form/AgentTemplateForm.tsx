@@ -220,7 +220,7 @@ export function AgentTemplateForm({
           </FieldRow>
         ) : namespaceField}
 
-        <FieldRow>
+        <FieldRow alignInputs={false}>
         <Field readOnly={readOnly} label="Model configuration" required={modelRequired} extra={modelHelp} {...fieldFor("model")}>
           <Select
             data-testid="template-form-model"

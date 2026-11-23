@@ -4,6 +4,7 @@ import { useTheme } from "@emotion/react";
 import { isWildcardOrigin } from "@/api";
 import { FormField } from "@/components/form/FormField";
 import { ListInput } from "@/components/form/ListInput";
+import { FieldRow } from "@/components/form/FieldRow";
 import { OptionPanel } from "@/components/form/OptionPanel";
 import type { FieldValidation } from "@/components/form/useSubmitValidation";
 import { egressCopy } from "./egressPolicyCopy";
@@ -158,10 +159,10 @@ export function DestinationEditor({
             </>
           ) : (
             <>
-              <div css={{ gridColumn: "1 / -1", display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: theme.space(4) }}>
+              <div css={{ gridColumn: "1 / -1" }}>
+<FieldRow columns="minmax(0, 2fr) minmax(0, 1fr)">
               <FormField
-                css={{ flex: "2 1 260px", minWidth: 0 }}
-                htmlFor={fieldId("audiences")}
+                                htmlFor={fieldId("audiences")}
                 label={egressCopy.form.audiences}
                 required
                 {...field("audiences")}
@@ -179,8 +180,7 @@ export function DestinationEditor({
                 />
               </FormField>
               <FormField
-                css={{ flex: "1 1 140px", minWidth: 0 }}
-                htmlFor={fieldId("lifetime")}
+                                htmlFor={fieldId("lifetime")}
                 label={egressCopy.form.lifetime}
                 required={false}
                 {...field("lifetime")}
@@ -197,6 +197,7 @@ export function DestinationEditor({
                   onChange={(event) => update({ expirationSeconds: event.target.value })}
                 />
               </FormField>
+              </FieldRow>
               </div>
             </>
           )}
