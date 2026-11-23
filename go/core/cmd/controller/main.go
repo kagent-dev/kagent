@@ -25,12 +25,17 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/app"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/config"
+	"github.com/kagent-dev/kagent/go/core/pkg/env"
 )
 
 func main() {
@@ -77,11 +82,6 @@ func run(path string, check bool, level string) error {
 			return err
 		}
 	}
-	anthropicSelfHostedSandboxesConfig, err := loadAnthropicSelfHostedSandboxesConfig(os.Getenv) //nolint:forbidigo // Registered integration settings read once at the executable boundary.
-	if err != nil {
-		slog.Default().Error("anthropic self-hosted sandboxes disabled due to invalid configuration", "error", err)
-		anthropicSelfHostedSandboxesConfig = nil
-	}
 	if check {
 		return nil
 	}
@@ -96,8 +96,21 @@ func run(path string, check bool, level string) error {
 	}
 	// These downward-API inputs describe this pod, not runtime defaults.
 	podTelemetryDefaults(cfg, os.Getenv) //nolint:forbidigo // Private pod identity supplied by Helm.
-	options := app.Options{Authenticator: authenticator, AnthropicSelfHostedSandboxes: anthropicSelfHostedSandboxesConfig}
-	if err := app.Run(ctx, cfg, options); err != nil {
+	opts := app.Options{Authenticator: authenticator}
+	if name := env.AnthropicSandboxManagedEncryptionSecret.Get(); name != "" {
+		namespace := os.Getenv("K8S_POD_NAMESPACE") //nolint:forbidigo // Private pod identity supplied by Helm.
+		if namespace == "" {
+			return fmt.Errorf("K8S_POD_NAMESPACE is required to provision the Anthropic sandbox encryption Secret")
+		}
+		opts.SetupWithManager = func(mgr manager.Manager) error {
+			startup, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			return ensureAnthropicSandboxEncryptionSecret(startup, mgr.GetAPIReader(), mgr.GetClient(), client.ObjectKey{
+				Namespace: namespace, Name: name,
+			})
+		}
+	}
+	if err := app.Run(ctx, cfg, opts); err != nil {
 		slog.Default().ErrorContext(ctx, "controller stopped", "error", err)
 		return err
 	}

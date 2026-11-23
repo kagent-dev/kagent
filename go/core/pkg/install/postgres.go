@@ -59,10 +59,14 @@ func (p Postgres) Manifest() (string, error) {
 		"${SUBSTRATE_NAMESPACE}", substrateNamespace, "${POSTGRES_IMAGE}", p.Image).Replace(manifest), nil
 }
 
-// SetupScript returns core, Substrate and additional application setup in one transaction.
+// SetupScript returns core, Anthropic adapter, Substrate and additional application setup in one transaction.
 func (p Postgres) SetupScript() SQLScript {
 	var sql strings.Builder
-	sql.WriteString("BEGIN;\n" + kagentsetup.SQL() + "\n" + substratesetup.SQL() + "\n")
+	// Reserve the adapter schema even when disabled so a later Helm upgrade
+	// can enable it without granting the owner database-wide CREATE privileges.
+	sql.WriteString("BEGIN;\n" + kagentsetup.SQL() +
+		"\n\\set kagent_schema kagent_anthropic\n" + kagentsetup.SQL() +
+		"\n\\set kagent_schema " + kagentsetup.Schema + "\n" + substratesetup.SQL() + "\n")
 	args := append(kagentsetup.DefaultConfig().PSQLArgs(), substratesetup.DefaultConfig().PSQLArgs()...)
 	for _, script := range p.ExtraSetup {
 		sql.WriteString(script.SQL + "\n")

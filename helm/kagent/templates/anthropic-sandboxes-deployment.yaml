@@ -1,0 +1,139 @@
+{{- $adapter := .Values.experimentalAnthropicSandboxes -}}
+{{- if and (kindIs "slice" $adapter.environments) $adapter.environments -}}
+{{- if or (eq .Values.config.database.schema "kagent_anthropic") (eq .Values.config.database.vectorSchema "kagent_anthropic") -}}
+{{- fail "kagent_anthropic is reserved for the Anthropic sandbox adapter" -}}
+{{- end -}}
+{{- $name := printf "%s-anthropic-sandboxes" (include "kagent.fullname" .) -}}
+{{- $postgres := .Values.database.postgres -}}
+{{- $skipMigrations := include "kagent.database.skipMigrations" . -}}
+{{- $imageRoot := dict "registry" ($adapter.image.registry | default .Values.registry) "repository" $adapter.image.repository "tag" (coalesce $adapter.image.tag .Values.tag .Chart.Version) -}}
+{{- $image := include "kagent.images.image" (dict "imageRoot" $imageRoot "global" (dict "imageRegistry" (include "kagent.globalImageRegistry" .))) -}}
+{{- $pullPolicy := include "kagent.imagePullPolicy" (dict "root" . "local" $adapter.image.pullPolicy) -}}
+{{- $security := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "kagent.namespace" . }}
+  labels:
+    {{- include "kagent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: anthropic-sandboxes
+spec:
+  replicas: {{ $adapter.replicas }}
+  selector:
+    matchLabels: &selector
+      {{- include "kagent.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: anthropic-sandboxes
+  template:
+    metadata:
+      labels: *selector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/anthropic-sandboxes-configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with include "kagent.imagePullSecrets" (dict "root" .) }}{{ . | nindent 6 }}{{- end }}
+      {{- if $postgres.clientCertificate.enabled }}
+      serviceAccountName: {{ include "kagent.controller.serviceAccountName" . | quote }}
+      {{- end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if not $skipMigrations }}
+      initContainers:
+        - name: migrate
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy }}
+          args: ["--migrate"]
+          securityContext:
+            {{- toYaml $security | nindent 12 }}
+          env:
+            - name: ANTHROPIC_SANDBOX_DATABASE_SCHEMA
+              value: kagent_anthropic
+            - name: ANTHROPIC_SANDBOX_DATABASE_ROLE
+              value: {{ .Values.config.database.owner.role | quote }}
+            - name: ANTHROPIC_SANDBOX_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $postgres.ownerConnectionStringSecretRef.name | quote }}
+                  key: {{ $postgres.ownerConnectionStringSecretRef.key | default "ownerConnectionString" | quote }}
+          {{- if $postgres.clientCertificate.enabled }}
+          volumeMounts:
+            - name: postgres-owner-certificate
+              mountPath: /run/postgres.podcert.ate.dev
+              readOnly: true
+          {{- end }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: {{ $image | quote }}
+          imagePullPolicy: {{ $pullPolicy }}
+          args:
+            - {{ printf "--concurrency=%v" $adapter.concurrency | quote }}
+            - {{ printf "--sandbox-idle=%s" $adapter.sandboxIdle | quote }}
+          securityContext:
+            {{- toYaml $security | nindent 12 }}
+          env:
+            - name: ANTHROPIC_SANDBOX_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ANTHROPIC_SANDBOX_KAGENT_URL
+              value: {{ printf "http://%s" (include "kagent.controllerServiceAuthority" .) | quote }}
+            - name: ANTHROPIC_SANDBOX_DATABASE_SCHEMA
+              value: kagent_anthropic
+            - name: ANTHROPIC_SANDBOX_DATABASE_ROLE
+              value: {{ .Values.config.database.readWrite.role | quote }}
+            - name: ANTHROPIC_SANDBOX_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $postgres.readWriteConnectionStringSecretRef.name | quote }}
+                  key: {{ $postgres.readWriteConnectionStringSecretRef.key | default "readWriteConnectionString" | quote }}
+            - name: ANTHROPIC_SANDBOX_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $adapter.credentialEncryptionSecretRef | default (include "kagent.anthropicSandboxManagedEncryptionSecret" .) | quote }}
+                  key: key
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: environments
+              mountPath: /credentials/environments
+              readOnly: true
+            {{- if $postgres.clientCertificate.enabled }}
+            - name: postgres-readwrite-certificate
+              mountPath: /run/postgres.podcert.ate.dev
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}-config
+        - name: environments
+          projected:
+            sources:
+              {{- range $index, $environment := $adapter.environments }}
+              - secret:
+                  name: {{ required (printf "experimentalAnthropicSandboxes.environments[%d].environmentSecretRef is required" $index) $environment.environmentSecretRef | quote }}
+                  items:
+                    - key: environment-id
+                      path: {{ printf "%d/environment-id" $index | quote }}
+                    - key: environment-key
+                      path: {{ printf "%d/environment-key" $index | quote }}
+              {{- end }}
+        {{- if $postgres.clientCertificate.enabled }}
+        {{- if not $skipMigrations }}
+        - name: postgres-owner-certificate
+          projected:
+            sources:
+              {{- include "kagent.postgresCertificateSources" (list "owner") | nindent 14 }}
+        {{- end }}
+        - name: postgres-readwrite-certificate
+          projected:
+            sources:
+              {{- include "kagent.postgresCertificateSources" (list "readwrite") | nindent 14 }}
+        {{- end }}
+{{- end }}

@@ -95,6 +95,7 @@ GOLANG_ADK_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(GOLANG_ADK_IMAGE_NAME):$(G
 CLAUDE_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CLAUDE_HARNESS_IMAGE_NAME):$(CLAUDE_HARNESS_IMAGE_TAG)
 CODEX_HARNESS_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(CODEX_HARNESS_IMAGE_NAME):$(CODEX_HARNESS_IMAGE_TAG)
 SANDBOX_GUEST_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/$(SANDBOX_GUEST_IMAGE_NAME):$(SANDBOX_GUEST_IMAGE_TAG)
+ANTHROPIC_SANDBOX_WORKER_IMG ?= $(DOCKER_REGISTRY)/$(DOCKER_REPO)/anthropic-sandbox-worker:$(VERSION)
 
 #take from go/go.mod
 AWK ?= $(shell command -v gawk || command -v awk)
@@ -379,6 +380,13 @@ build-controller: buildx-create
 		--build-arg BUILD_PACKAGE=./core/cmd/controller \
 		-t $(CONTROLLER_IMG) -f go/Dockerfile ./go
 	$(DOCKER_PUSH) $(CONTROLLER_IMG)
+
+.PHONY: build-anthropic-sandbox-worker
+build-anthropic-sandbox-worker: buildx-create ## Build and push the standalone Anthropic sandbox worker image
+	$(DOCKER_BUILDER) $(DOCKER_BUILD_ARGS) $(TOOLS_IMAGE_BUILD_ARGS) \
+		--build-arg BUILD_PACKAGE=./core/cmd/anthropic-sandbox-worker \
+		-t $(ANTHROPIC_SANDBOX_WORKER_IMG) -f go/Dockerfile ./go
+	$(DOCKER_PUSH) $(ANTHROPIC_SANDBOX_WORKER_IMG)
 
 .PHONY: build-ui
 build-ui: ## Build and push the UI image

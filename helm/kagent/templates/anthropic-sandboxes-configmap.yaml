@@ -1,0 +1,14 @@
+{{- $environments := .Values.experimentalAnthropicSandboxes.environments -}}
+{{- if $environments }}
+{{- if not (kindIs "slice" $environments) }}
+{{- fail "experimentalAnthropicSandboxes.environments must be a list" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kagent.fullname" . }}-anthropic-sandboxes-config
+  namespace: {{ include "kagent.namespace" . }}
+data:
+  config.yaml: |
+    {{- toYaml (dict "environments" $environments) | nindent 4 }}
+{{- end }}

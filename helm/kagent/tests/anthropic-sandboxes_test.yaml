@@ -1,0 +1,121 @@
+suite: Anthropic sandbox adapter
+templates:
+  - anthropic-sandboxes-deployment.yaml
+  - anthropic-sandboxes-configmap.yaml
+tests:
+  - it: is not installed by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders the worker configuration when environments are provided
+    template: anthropic-sandboxes-configmap.yaml
+    set:
+      experimentalAnthropicSandboxes.credentialEncryptionSecretRef: encryption
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+          sandboxTemplateName: bash
+    asserts:
+      - equal:
+          path: data["config.yaml"]
+          value: |
+            environments:
+            - environmentSecretRef: environment
+              sandboxTemplateName: bash
+
+  - it: uses the release controller and reuses external PostgreSQL Secret names, keys and roles
+    template: anthropic-sandboxes-deployment.yaml
+    release:
+      name: tenant
+      namespace: workloads
+    set:
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+        - environmentSecretRef: other-environment
+      database.postgres.ownerConnectionStringSecretRef: {name: pg-owner, key: owner-dsn}
+      database.postgres.readWriteConnectionStringSecretRef: {name: pg-runtime, key: runtime-dsn}
+      config.database.owner.role: tenant_owner
+      config.database.readWrite.role: tenant_runtime
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: workloads
+      - equal:
+          path: spec.template.spec.initContainers[0].env[1].value
+          value: tenant_owner
+      - equal:
+          path: spec.template.spec.initContainers[0].env[2].valueFrom.secretKeyRef
+          value: {name: pg-owner, key: owner-dsn}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ANTHROPIC_SANDBOX_KAGENT_URL, value: 'http://tenant-controller.workloads.svc.cluster.local:8083'}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ANTHROPIC_SANDBOX_DATABASE_ROLE, value: tenant_runtime}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ANTHROPIC_SANDBOX_DATABASE_URL, valueFrom: {secretKeyRef: {name: pg-runtime, key: runtime-dsn}}}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ANTHROPIC_SANDBOX_ENCRYPTION_KEY, valueFrom: {secretKeyRef: {name: tenant-anthropic-sandbox-encryption, key: key}}}
+      - notExists:
+          path: spec.template.spec.serviceAccountName
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "environments")].projected.sources
+          value:
+            - secret:
+                name: environment
+                items:
+                  - {key: environment-id, path: 0/environment-id}
+                  - {key: environment-key, path: 0/environment-key}
+            - secret:
+                name: other-environment
+                items:
+                  - {key: environment-id, path: 1/environment-id}
+                  - {key: environment-key, path: 1/environment-key}
+
+  - it: mounts the bundled database certificates separately using the registered service account
+    template: anthropic-sandboxes-deployment.yaml
+    set:
+      experimentalAnthropicSandboxes.credentialEncryptionSecretRef: encryption
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+      database.postgres.clientCertificate.enabled: true
+      controller.serviceAccount.name: custom-controller
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: ANTHROPIC_SANDBOX_ENCRYPTION_KEY, valueFrom: {secretKeyRef: {name: encryption, key: key}}}
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: custom-controller
+      - equal:
+          path: spec.template.spec.initContainers[0].volumeMounts
+          value:
+            - {name: postgres-owner-certificate, mountPath: /run/postgres.podcert.ate.dev, readOnly: true}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: postgres-readwrite-certificate, mountPath: /run/postgres.podcert.ate.dev, readOnly: true}
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "postgres-owner-certificate")].projected.sources[0].podCertificate.credentialBundlePath
+          value: kagent_owner_user.pem
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "postgres-readwrite-certificate")].projected.sources[0].podCertificate.credentialBundlePath
+          value: kagent_readwrite_user.pem
+
+  - it: does not request the owner Secret or certificate when migrations are managed separately
+    template: anthropic-sandboxes-deployment.yaml
+    set:
+      experimentalAnthropicSandboxes.credentialEncryptionSecretRef: encryption
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+      config.database.skipMigrations: true
+      database.postgres.clientCertificate.enabled: true
+      database.postgres.ownerConnectionStringSecretRef.name: ""
+    asserts:
+      - notExists:
+          path: spec.template.spec.initContainers
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name == "postgres-owner-certificate")]
+      - exists:
+          path: spec.template.spec.volumes[?(@.name == "postgres-readwrite-certificate")]
