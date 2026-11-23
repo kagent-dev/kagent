@@ -230,6 +230,42 @@ describe("AgentContextPanel", () => {
     tool.focus();
     expect(await screen.findByText("Does get_logs")).toBeTruthy();
   });
+
+  it("toggles the server row from its count text and the keyboard, but not from its link", async () => {
+    renderPanel(
+      [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],
+      undefined,
+      { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance,
+    );
+    const toggle = screen.getByTestId("chat-agent-context-server-toggle");
+    const link = screen.getByTestId("chat-agent-context-server");
+    expect(link.closest("button")).toBeNull();
+
+    await userEvent.click(screen.getByTestId("chat-agent-context-server-count"));
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-label")).toBe("Hide tools from kagent/tools");
+
+    toggle.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.keyboard(" ");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")?.hidden).toBe(false);
+
+    // Hold navigation back once, so the row's state after a link click can be read.
+    const hold = (event: Event) => event.preventDefault();
+    link.addEventListener("click", hold);
+    await userEvent.click(link);
+    expect(toggle.isConnected).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    link.removeEventListener("click", hold);
+
+    await userEvent.click(link);
+    expect(screen.getByTestId("location-path").textContent).toBe("/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev");
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
+      fromLabel: "Back to conversation",
+    });
+  });
 });
 
  it.each([undefined, "", "kagent", "shared"])("qualifies models and servers with namespace %s", (namespace) => {

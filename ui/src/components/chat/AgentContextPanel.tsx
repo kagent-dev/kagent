@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from "react";
 import { referenceLabel } from "@/api/domain/agentTemplates";
 import { Alert, Button, Skeleton, Tooltip, Typography } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
-import { ChevronRight, FileText, Info } from "lucide-react";
+import { ArrowUpRight, ChevronRight, FileText, Info } from "lucide-react";
 import { useLocation, type To } from "react-router-dom";
 import {
   bindingGroupKind,
@@ -313,7 +313,7 @@ function toolCountLabel({ allTools, selected, discovered }: ServerToolGroup): st
   return total ? `${selected.length}/${total} ${tools(total)}` : `${selected.length} ${tools(selected.length)}`;
 }
 
-/** One MCP server's row: a link to it, a tool count, and its tools behind a toggle. */
+/** One MCP server's row: toggles its tools from anywhere, with a link to the server in the middle. */
 function ServerTools({ group, to, back }: { group: ServerToolGroup; to: To; back: BackLinkState }) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
@@ -330,24 +330,54 @@ function ServerTools({ group, to, back }: { group: ServerToolGroup; to: To; back
         "& + &": { borderTop: `1px solid ${theme.color.border}`, paddingTop: theme.space(2) },
       }}
     >
-      <div css={{ display: "flex", alignItems: "center", gap: theme.space(1), minWidth: 0 }}>
-        <Button
-          type="text"
-          size="small"
+      {/* The toggle spans the whole row; the link sits above it in the middle column, so neither nests in the other. */}
+      <div css={{ display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) auto", margin: "-2px -4px" }}>
+        <button
+          type="button"
           aria-expanded={open}
           aria-controls={listId}
           aria-label={`${open ? "Hide" : "Show"} tools from ${group.ref}`}
           data-testid="chat-agent-context-server-toggle"
           onClick={() => setOpen((value) => !value)}
-          icon={
-            <ChevronRight
-              size={14}
-              aria-hidden
-              css={{ transition: "transform 150ms ease", transform: open ? "rotate(90deg)" : undefined }}
-            />
-          }
-          css={{ flexShrink: 0, width: 20, minWidth: 20, height: 20, padding: 0, color: theme.color.textMuted }}
-        />
+          css={{
+            gridArea: "1 / 1 / 2 / -1",
+            display: "grid",
+            gridTemplateColumns: "subgrid",
+            alignItems: "center",
+            columnGap: theme.space(1),
+            padding: "2px 4px",
+            border: 0,
+            borderRadius: 6,
+            background: "transparent",
+            color: theme.color.textMuted,
+            font: "inherit",
+            textAlign: "start",
+            cursor: "pointer",
+            transition: "background-color 120ms ease",
+            "&:hover": { background: `${theme.color.text}0f` },
+            "&:active": { background: `${theme.color.text}1f` },
+            "&:focus-visible": { outline: `2px solid ${theme.color.textMuted}`, outlineOffset: 0 },
+          }}
+        >
+          <ChevronRight
+            size={14}
+            aria-hidden
+            css={{ justifySelf: "center", transition: "transform 150ms ease", transform: open ? "rotate(90deg)" : undefined }}
+          />
+          <span
+            data-testid="chat-agent-context-server-count"
+            css={{
+              gridColumn: 3,
+              paddingInlineStart: theme.space(2),
+              fontSize: 12,
+              lineHeight: "20px",
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {toolCountLabel(group)}
+          </span>
+        </button>
         <ResourceLink
           mono
           icon={resourceIcons.mcpServer}
@@ -355,24 +385,18 @@ function ServerTools({ group, to, back }: { group: ServerToolGroup; to: To; back
           state={back}
           tooltip="Open this MCP server"
           data-testid="chat-agent-context-server"
-          css={{ fontSize: 12, flex: "0 1 auto", minWidth: 0 }}
-        >
-          {group.ref}
-        </ResourceLink>
-        <Text
-          data-testid="chat-agent-context-server-count"
           css={{
-            marginInlineStart: "auto",
-            flexShrink: 0,
+            gridArea: "1 / 2",
+            justifySelf: "start",
+            alignSelf: "center",
+            position: "relative",
+            margin: `2px 0 2px ${theme.space(1)}`,
             fontSize: 12,
-            lineHeight: "20px",
-            color: theme.color.textMuted,
-            fontVariantNumeric: "tabular-nums",
-            whiteSpace: "nowrap",
           }}
         >
-          {toolCountLabel(group)}
-        </Text>
+          {group.ref}
+          <ArrowUpRight size={12} aria-hidden css={{ marginInlineStart: 2, verticalAlign: "-1px" }} />
+        </ResourceLink>
       </div>
       <div id={listId} hidden={!open} css={{ paddingInlineStart: 24 }}>
         {names.length ? (

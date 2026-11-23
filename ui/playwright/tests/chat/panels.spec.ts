@@ -223,8 +223,21 @@ test("chat: the harness, an MCP server and the model open from a conversation an
   await test.step("3. tools explain themselves on focus, and the server name opens the server", async () => {
     // Tools sit under their server, collapsed, with a selected-of-total count.
     const group = page.getByTestId("chat-agent-context-server-group").filter({ hasText: "kagent/kagent-tool-server" });
-    await expect(group.getByTestId("chat-agent-context-server-count")).toHaveText(/^\d+\/3 tools$/);
-    await group.getByTestId("chat-agent-context-server-toggle").click();
+    const count = group.getByTestId("chat-agent-context-server-count");
+    const toggle = group.getByTestId("chat-agent-context-server-toggle");
+    await expect(count).toHaveText(/^\d+\/3 tools$/);
+    // The whole row toggles: the count text, and the empty space between the name and the count.
+    await count.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const nameBox = await group.getByTestId("chat-agent-context-server").boundingBox();
+    const countBox = await count.boundingBox();
+    const toggleBox = await toggle.boundingBox();
+    if (!nameBox || !countBox || !toggleBox) throw new Error("the server row is not laid out");
+    expect(countBox.x - (nameBox.x + nameBox.width)).toBeGreaterThan(8);
+    await toggle.click({ position: { x: (nameBox.x + nameBox.width + countBox.x) / 2 - toggleBox.x, y: toggleBox.height / 2 } });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
     const tool = group.getByTestId("chat-agent-context-tool").filter({ hasText: "k8s_get_events" });
     await expect(group.getByRole("link")).toHaveCount(1);
     await tool.focus();
@@ -245,6 +258,7 @@ test("chat: the harness, an MCP server and the model open from a conversation an
     await back.click();
     await expect(page).toHaveURL(chatUrl);
     await expect(page.getByTestId("chat-agent-context")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("chat-agent-context-server").filter({ hasText: "kagent/kagent-tool-server" })).toBeVisible();
   });
 
   await test.step("5. Cancel on the model it opens returns to the conversation", async () => {
