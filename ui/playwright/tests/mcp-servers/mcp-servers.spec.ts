@@ -120,12 +120,12 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(page).toHaveURL(/[?&]q=grafana/);
     await dataRows(page).filter({ hasText: "grafana-mcp" }).getByRole("cell").nth(2).click();
     await page.getByTestId("tool-server-tool-link").filter({ hasText: "grafana_query" }).click();
-    await expect(page).toHaveURL(/\/mcp\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-grafana_query$/);
+    await expect(page).toHaveURL(/\/mcp-servers\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-grafana_query$/);
     await expect(page.getByTestId("mcp-server-tools").locator("[data-current]")).toContainText("grafana_query");
 
     await expect(page.getByTestId("mcp-server-back")).toHaveText("Back to MCP servers");
     await page.getByTestId("mcp-server-back").click();
-    await expect(page).toHaveURL(/\/mcp\?(.*&)?q=grafana(&|$)/);
+    await expect(page).toHaveURL(/\/mcp-servers\?(.*&)?q=grafana(&|$)/);
     await expect(page.getByTestId("mcp-servers-filters-search")).toHaveValue("grafana");
     await expect(dataRows(page)).toHaveCount(1);
 
@@ -164,7 +164,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
 
   await test.step("7. the create form marks what it will not submit without", async () => {
     await page.getByTestId("mcp-servers-new").click();
-    await page.waitForURL(/\/mcp\/new(\?|$)/);
+    await page.waitForURL(/\/mcp-servers\/new(\?|$)/);
     await expectSettled(page);
 
     // Unlike every other form in this app: `validateMcpServerForm` accepts a blank
@@ -181,7 +181,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await page.getByTestId("mcp-url").fill("mcp.example.com/sse");
 
     await page.getByTestId("mcp-submit").click();
-    await page.waitForURL(/\/mcp(\?|$)/, { timeout: 30_000 });
+    await page.waitForURL(/\/mcp-servers(\?|$)/, { timeout: 30_000 });
 
     // Read back off the list rather than from a toast or a closed form: those two only
     // prove the app believes it worked.

@@ -79,10 +79,10 @@ export const paths = {
   modelNew: "/models/new",
   modelEdit: "/models/:namespace/:name/edit",
 
-  mcpServers: "/mcp",
-  mcpServerNew: "/mcp/new",
+  mcpServers: "/mcp-servers",
+  mcpServerNew: "/mcp-servers/new",
   /** One MCP server and the tools it reports. */
-  mcpServer: "/mcp/:namespace/:name",
+  mcpServer: "/mcp-servers/:namespace/:name",
 
   // One page for every policy kind, with a tab per kind.
   policies: "/policies",

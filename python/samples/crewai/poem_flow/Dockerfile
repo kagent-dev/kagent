@@ -34,16 +34,15 @@ RUN uv venv && uv sync --no-dev --package poem-flow \
     && uv cache clean
 
 # Set environment variables
-ENV PORT=8080
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Expose port
-EXPOSE 8080
+EXPOSE 80 8081
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=2).close()"]
 
 # Run the application
 CMD ["python", "samples/crewai/poem_flow/src/poem_flow/main.py"]

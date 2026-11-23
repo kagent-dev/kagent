@@ -20,14 +20,13 @@ COPY uv.lock uv.lock
 RUN uv venv && uv sync --no-dev --package basic-openai-agent
 
 # Expose port
-EXPOSE 8080
-ENV PORT=8080
+EXPOSE 80 8081
 ENV VIRTUAL_ENV=/app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/readyz', timeout=2).close()"]
 
 # Run the agent
 CMD ["python", "samples/openai/basic_agent/basic_agent/agent.py"]

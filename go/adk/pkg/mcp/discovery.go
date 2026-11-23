@@ -120,6 +120,7 @@ func newMCPAppClient(configuredFilter map[string]bool, discovery *mcpAppDiscover
 		// The SDK itself invalidates its list cache on these notifications.
 		ToolListChangedHandler: func(context.Context, *mcpsdk.ToolListChangedRequest) {},
 	})
+	client.AddSendingMiddleware(captureImages)
 	client.AddSendingMiddleware(func(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
 			if method != "tools/list" {

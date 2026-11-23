@@ -73,7 +73,7 @@ function renderPanel(
           <Route path="/agent-templates/:namespace/:name" element={<LocationState />} />
           <Route path="/harnesses/:namespace/:name" element={<LocationState />} />
           <Route path="/models/:namespace/:name/edit" element={<LocationState />} />
-          <Route path="/mcp/:namespace/:name" element={<LocationState />} />
+          <Route path="/mcp-servers/:namespace/:name" element={<LocationState />} />
         </Routes>
       </MemoryRouter>
     </ThemeProvider>,
@@ -169,7 +169,7 @@ describe("AgentContextPanel", () => {
   it.each([
     ["chat-agent-context-harness", "/harnesses/kagent/runner"],
     ["chat-agent-context-model", "/models/shared/gpt/edit"],
-    ["chat-agent-context-server", "/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev"],
+    ["chat-agent-context-server", "/mcp-servers/kagent/tools?kind=RemoteMCPServer.api.kagent.dev"],
   ])("opens %s at %s with a way back to this conversation", async (testId, path) => {
     renderPanel(
       [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],
@@ -261,7 +261,7 @@ describe("AgentContextPanel", () => {
     link.removeEventListener("click", hold);
 
     await userEvent.click(link);
-    expect(screen.getByTestId("location-path").textContent).toBe("/mcp/kagent/tools?kind=RemoteMCPServer.api.kagent.dev");
+    expect(screen.getByTestId("location-path").textContent).toBe("/mcp-servers/kagent/tools?kind=RemoteMCPServer.api.kagent.dev");
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
       fromLabel: "Back to conversation",
     });

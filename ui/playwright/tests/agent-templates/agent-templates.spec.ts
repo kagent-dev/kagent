@@ -37,7 +37,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // The server each tool comes from is a link to its details page.
     await expect(row.getByTestId("template-tool-server-k8s-agent-7f3a91c-kagent-tool-server")).toHaveAttribute(
       "href",
-      "/mcp/kagent/kagent-tool-server?kind=RemoteMCPServer.api.kagent.dev",
+      "/mcp-servers/kagent/kagent-tool-server?kind=RemoteMCPServer.api.kagent.dev",
     );
 
     // `note-taker` carries no labels at all. It is a complete, valid template that can

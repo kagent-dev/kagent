@@ -243,7 +243,7 @@ test("chat: the harness, an MCP server and the model open from a conversation an
     await tool.focus();
     await expect(page.getByRole("tooltip")).toContainText("Read recent events for a resource.");
     await group.getByTestId("chat-agent-context-server").click();
-    await expect(page).toHaveURL(/\/mcp\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev$/);
+    await expect(page).toHaveURL(/\/mcp-servers\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev$/);
     const tools = page.getByTestId("mcp-server-tools");
     await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
     await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
