@@ -10,10 +10,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
@@ -66,8 +69,10 @@ type pushSigningKey struct {
 }
 
 type pendingPushKey struct {
-	key        pushSigningKey
-	activateAt time.Time
+	key              pushSigningKey
+	activateAt       time.Time
+	revision         int64
+	conflictReported bool
 }
 
 type retiredPushKey struct {
@@ -75,40 +80,96 @@ type retiredPushKey struct {
 	removeAt time.Time
 }
 
-// PushJWTSigner prepublishes replacement keys and retains previous public keys
-// for outstanding credentials. Rotation history is process-local.
+type pushSigningStore interface {
+	IsPushSigningKeyActive(context.Context, string, string) (bool, error)
+	LoadOrInitializePushSigningState(context.Context, string, string) (database.PushSigningState, error)
+	ActivatePushSigningKey(context.Context, string, string, int64) (database.PushSigningState, error)
+}
+
+var _ pushSigningStore = (*database.Client)(nil)
+
+// PushJWTSignerConfig identifies current and optional previous key material.
+type PushJWTSignerConfig struct {
+	PrivateKeyFile         string
+	PreviousPrivateKeyFile string
+	Issuer                 string
+	ActivationDelay        time.Duration
+}
+
+// PushJWTSigner prepublishes replacements and persists activation before signing.
+// Replicas retain their own staging delays; the store informs subsequent startups.
 type PushJWTSigner struct {
 	issuer          string
 	path            string
 	activationDelay time.Duration
-	mu              sync.Mutex
-	active          pushSigningKey
-	pending         *pendingPushKey
-	retired         map[string]retiredPushKey
+	store           pushSigningStore
+	// Serialize file/DB updates separately so slow I/O never blocks signing/JWKS.
+	updateMu sync.Mutex
+	mu       sync.Mutex
+	active   pushSigningKey
+	pending  *pendingPushKey
+	retired  map[string]retiredPushKey
+	previous *pushJWK
 }
 
 var _ manager.LeaderElectionRunnable = (*PushJWTSigner)(nil)
 var _ http.Handler = (*PushJWTSigner)(nil)
 
 // NewPushJWTSigner reads an unencrypted PKCS#8 Ed25519 PEM key shared by replicas.
-// An empty path disables signing. Startup uses the mounted key immediately;
-// replacements wait activationDelay plus the propagation buffer.
-func NewPushJWTSigner(path, issuer string, activationDelay time.Duration) (*PushJWTSigner, error) {
-	if path == "" {
+// An empty current path disables signing. An available distinct previous key
+// preserves staging on startup unless current is the latest committed activation.
+// An omitted or identical previous key preserves immediate single-key startup.
+// A configured previous file may be missing only when current is already active.
+func NewPushJWTSigner(ctx context.Context, store pushSigningStore, cfg PushJWTSignerConfig) (*PushJWTSigner, error) {
+	if cfg.PrivateKeyFile == "" {
+		if cfg.PreviousPrivateKeyFile != "" {
+			return nil, fmt.Errorf("previous push signing key requires a current key")
+		}
 		return nil, nil
 	}
+	issuer := strings.TrimRight(cfg.Issuer, "/")
 	if issuer == "" {
 		return nil, fmt.Errorf("push JWT issuer is required")
 	}
-	if activationDelay <= 0 || activationDelay > pushKeyMaxActivationDelay {
+	if cfg.ActivationDelay <= 0 || cfg.ActivationDelay > pushKeyMaxActivationDelay {
 		return nil, fmt.Errorf("push signing key activation delay must be positive and at most %s", pushKeyMaxActivationDelay)
 	}
-	key, err := readPushSigningKey(path)
+	key, err := readPushSigningKey(cfg.PrivateKeyFile)
 	if err != nil {
 		return nil, err
 	}
-	return &PushJWTSigner{issuer: issuer, path: path, activationDelay: activationDelay,
-		active: key, retired: make(map[string]retiredPushKey)}, nil
+	signer := &PushJWTSigner{issuer: issuer, path: cfg.PrivateKeyFile, activationDelay: cfg.ActivationDelay,
+		store: store, active: key, retired: make(map[string]retiredPushKey)}
+	initial := key
+	if cfg.PreviousPrivateKeyFile != "" {
+		previous, err := readPushSigningKey(cfg.PreviousPrivateKeyFile)
+		if errors.Is(err, os.ErrNotExist) {
+			active, lookupErr := store.IsPushSigningKeyActive(ctx, issuer, key.jwk.KeyID)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+			if !active {
+				return nil, fmt.Errorf("previous push signing key is required until the current key is activated: %w", err)
+			}
+			logging.FromContext(ctx).WarnContext(ctx, "previous push signing key file is missing, publishing only the active key", "path", cfg.PreviousPrivateKeyFile)
+			return signer, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to load previous push signing key: %w", err)
+		}
+		initial = previous
+		signer.previous = &previous.jwk
+	}
+	state, err := store.LoadOrInitializePushSigningState(ctx, issuer, initial.jwk.KeyID)
+	if err != nil {
+		return nil, err
+	}
+	if state.KeyID != key.jwk.KeyID && initial.jwk.KeyID != key.jwk.KeyID {
+		signer.active = initial
+		signer.pending = &pendingPushKey{key: key, revision: state.Revision,
+			activateAt: time.Now().Add(cfg.ActivationDelay + pushKeyPropagationBuffer)}
+	}
+	return signer, nil
 }
 
 func readPushSigningKey(path string) (pushSigningKey, error) {
@@ -133,60 +194,120 @@ func readPushSigningKey(path string) (pushSigningKey, error) {
 func (s *PushJWTSigner) NeedLeaderElection() bool { return false }
 
 // Start reopens the configured path to handle projected-volume symlink swaps as
-// well as CSI replacements. Failed reloads leave the last valid state intact.
+// well as CSI replacements. Failed reloads keep the active signing key intact.
 func (s *PushJWTSigner) Start(ctx context.Context) error {
-	ticker := time.NewTicker(pushKeyPollInterval)
-	defer ticker.Stop()
+	// Application initialization must not consume the startup publication delay.
+	s.mu.Lock()
+	if s.pending != nil {
+		s.pending.activateAt = time.Now().Add(s.activationDelay + pushKeyPropagationBuffer)
+	}
+	s.mu.Unlock()
+	timer := time.NewTimer(pushKeyPollInterval)
+	defer timer.Stop()
 	for {
-		if err := s.reload(); err != nil {
+		if err := s.reload(ctx); err != nil {
 			logging.FromContext(ctx).ErrorContext(ctx, "failed to reload push signing key", "error", err)
 		}
+		if err := s.activateDue(ctx); err != nil {
+			logging.FromContext(ctx).ErrorContext(ctx, "failed to activate push signing key", "error", err)
+		}
+		wait := pushKeyPollInterval
+		s.mu.Lock()
+		if s.pending != nil {
+			if remaining := time.Until(s.pending.activateAt); remaining > 0 {
+				wait = min(wait, remaining)
+			}
+		}
+		s.mu.Unlock()
+		timer.Reset(wait)
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
 }
 
-func (s *PushJWTSigner) reload() error {
+func (s *PushJWTSigner) reload(ctx context.Context) error {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
 	key, err := readPushSigningKey(s.path)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	now := time.Now()
-	s.advance(now)
 	switch {
 	case key.jwk.KeyID == s.active.jwk.KeyID:
 		// Reverting to the active file cancels an unactivated replacement.
 		s.pending = nil
+		s.mu.Unlock()
+		return nil
 	case s.pending != nil && key.jwk.KeyID == s.pending.key.jwk.KeyID:
 		// Identity, rather than PEM formatting or mtime, preserves the deadline.
-	default:
-		s.pending = &pendingPushKey{key: key, activateAt: now.Add(s.activationDelay + pushKeyPropagationBuffer)}
+		s.mu.Unlock()
+		return nil
 	}
+	// This valid replacement supersedes the pending key even if staging it fails.
+	s.pending = nil
+	activeID := s.active.jwk.KeyID
+	s.mu.Unlock()
+	state, err := s.store.LoadOrInitializePushSigningState(ctx, s.issuer, activeID)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.pending = &pendingPushKey{key: key, revision: state.Revision,
+		activateAt: time.Now().Add(s.activationDelay + pushKeyPropagationBuffer)}
+	s.mu.Unlock()
 	return nil
 }
 
-// advance runs under mu so signing, activation, and retirement cannot interleave.
-func (s *PushJWTSigner) advance(now time.Time) {
-	if s.pending != nil && !now.Before(s.pending.activateAt) {
-		// Peers may still use the old key even when this replica was idle.
-		expiration := now.Add(pushJWTLifetime)
-		if s.active.lastExpiration.After(expiration) {
-			expiration = s.active.lastExpiration
-		}
-		s.retired[s.active.jwk.KeyID] = retiredPushKey{jwk: s.active.jwk, removeAt: expiration.Add(pushKeyClockSkew)}
-		s.active = s.pending.key
-		// A rollback may reactivate a key that still has valid earlier JWTs.
-		if old, found := s.retired[s.active.jwk.KeyID]; found {
-			s.active.lastExpiration = old.removeAt.Add(-pushKeyClockSkew)
-		}
-		delete(s.retired, s.active.jwk.KeyID)
-		s.pending = nil
+// activateDue commits before installing a candidate. Only the background updater
+// calls it; signing and JWKS requests never wait for persistence.
+func (s *PushJWTSigner) activateDue(ctx context.Context) error {
+	s.updateMu.Lock()
+	defer s.updateMu.Unlock()
+	s.mu.Lock()
+	pending := s.pending
+	s.mu.Unlock()
+	if pending == nil || time.Now().Before(pending.activateAt) {
+		return nil
 	}
+	state, err := s.store.ActivatePushSigningKey(ctx, s.issuer, pending.key.jwk.KeyID, pending.revision)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if state.KeyID != pending.key.jwk.KeyID {
+		// Keep retrying at the original revision so we can confirm a peer's
+		// matching activation while protecting intervening handoffs.
+		if pending.conflictReported {
+			return nil
+		}
+		pending.conflictReported = true
+		return fmt.Errorf("push signing key activation superseded at revision %d; waiting for a peer to activate the configured key", state.Revision)
+	}
+	now := time.Now()
+	// Peers may still use the old key even when this replica was idle.
+	expiration := now.Add(pushJWTLifetime)
+	if s.active.lastExpiration.After(expiration) {
+		expiration = s.active.lastExpiration
+	}
+	s.retired[s.active.jwk.KeyID] = retiredPushKey{jwk: s.active.jwk, removeAt: expiration.Add(pushKeyClockSkew)}
+	s.active = s.pending.key
+	// A rollback may reactivate a key that still has valid earlier JWTs.
+	if old, found := s.retired[s.active.jwk.KeyID]; found {
+		s.active.lastExpiration = old.removeAt.Add(-pushKeyClockSkew)
+	}
+	delete(s.retired, s.active.jwk.KeyID)
+	s.pending = nil
+	return nil
+}
+
+// expireRetired runs under mu; the configured previous public key is pinned
+// separately because peers can continue using it throughout their local delay.
+func (s *PushJWTSigner) expireRetired(now time.Time) {
 	for id, key := range s.retired {
 		if !now.Before(key.removeAt) {
 			delete(s.retired, id)
@@ -198,7 +319,7 @@ func (s *PushJWTSigner) Sign(taskID, audience string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	s.advance(now)
+	s.expireRetired(now)
 	expiration := now.Add(pushJWTLifetime)
 	claims := pushJWTClaims{
 		TaskID: taskID,
@@ -223,10 +344,13 @@ func (s *PushJWTSigner) Sign(taskID, audience string) (string, error) {
 func (s *PushJWTSigner) keySet() pushJWKSet {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.advance(time.Now())
-	keys := make(map[string]pushJWK, len(s.retired)+2)
+	s.expireRetired(time.Now())
+	keys := make(map[string]pushJWK, len(s.retired)+3) // Active, pending, and configured previous.
 	for id, key := range s.retired {
 		keys[id] = key.jwk
+	}
+	if s.previous != nil {
+		keys[s.previous.KeyID] = *s.previous
 	}
 	keys[s.active.jwk.KeyID] = s.active.jwk
 	if s.pending != nil {

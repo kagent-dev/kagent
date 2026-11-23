@@ -1,6 +1,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -10,6 +11,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,12 +24,69 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kagent-dev/kagent/go/core/internal/database"
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 const testPushPrivateKeyPEM = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n"
 
+const testPushIssuer = "https://kagent.example"
+
+type fakePushSigningStore struct {
+	mu             sync.Mutex
+	state          database.PushSigningState
+	err            error
+	nextLoadErr    error
+	beforeActivate func()
+}
+
+var _ pushSigningStore = (*fakePushSigningStore)(nil)
+
+func (f *fakePushSigningStore) IsPushSigningKeyActive(_ context.Context, _, keyID string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.state.KeyID == keyID, f.err
+}
+
+func (f *fakePushSigningStore) LoadOrInitializePushSigningState(_ context.Context, _, keyID string) (database.PushSigningState, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.nextLoadErr != nil {
+		err := f.nextLoadErr
+		f.nextLoadErr = nil
+		return database.PushSigningState{}, err
+	}
+	if f.state.KeyID == "" {
+		f.state = database.PushSigningState{KeyID: keyID, Revision: 1}
+	}
+	return f.state, f.err
+}
+
+func (f *fakePushSigningStore) ActivatePushSigningKey(_ context.Context, _, keyID string, revision int64) (database.PushSigningState, error) {
+	if f.beforeActivate != nil {
+		f.beforeActivate()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return database.PushSigningState{}, f.err
+	}
+	if f.state.KeyID != keyID && f.state.Revision == revision {
+		f.state = database.PushSigningState{KeyID: keyID, Revision: revision + 1}
+	}
+	return f.state, nil
+}
+
+func newPushTestSigner(t *testing.T, path, issuer string, delay time.Duration) (*PushJWTSigner, error) {
+	t.Helper()
+	return NewPushJWTSigner(t.Context(), &fakePushSigningStore{}, PushJWTSignerConfig{
+		PrivateKeyFile: path, Issuer: issuer, ActivationDelay: delay,
+	})
+}
+
 func TestPushJWTSigningAndJWKS(t *testing.T) {
-	signer, err := NewPushJWTSigner(pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
+	signer, err := newPushTestSigner(t, pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
 	require.NoError(t, err)
 	credential, err := signer.Sign("task-1", "https://receiver.example/callback")
 	require.NoError(t, err)
@@ -36,7 +96,7 @@ func TestPushJWTSigningAndJWKS(t *testing.T) {
 	response := httptest.NewRecorder()
 	signer.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
 	require.Equal(t, http.StatusOK, response.Code)
-	restarted, err := NewPushJWTSigner(pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
+	restarted, err := newPushTestSigner(t, pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
 	require.NoError(t, err)
 	restartedResponse := httptest.NewRecorder()
 	restarted.ServeHTTP(restartedResponse, httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil))
@@ -69,22 +129,22 @@ func TestPushJWTSigningAndJWKS(t *testing.T) {
 }
 
 func TestPushJWTSigningKeyValidation(t *testing.T) {
-	_, err := NewPushJWTSigner(pushKeyFile(t, []byte("bad")), "https://kagent.example", 5*time.Minute)
+	_, err := newPushTestSigner(t, pushKeyFile(t, []byte("bad")), "https://kagent.example", 5*time.Minute)
 	require.ErrorContains(t, err, "PKCS#8 PEM private key")
-	_, err = NewPushJWTSigner(pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "", 5*time.Minute)
+	_, err = newPushTestSigner(t, pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "", 5*time.Minute)
 	require.ErrorContains(t, err, "issuer is required")
-	signer, err := NewPushJWTSigner("", "https://kagent.example", 5*time.Minute)
+	signer, err := newPushTestSigner(t, "", "https://kagent.example", 5*time.Minute)
 	require.NoError(t, err)
 	require.Nil(t, signer)
 	path := pushKeyFile(t, []byte(testPushPrivateKeyPEM))
 	t.Run("Given a valid key, when the activation delay is 24h, assert that construction succeeds", func(t *testing.T) {
-		signer, err := NewPushJWTSigner(path, "https://kagent.example", 24*time.Hour)
+		signer, err := newPushTestSigner(t, path, "https://kagent.example", 24*time.Hour)
 		require.NoError(t, err)
 		require.NotNil(t, signer)
 	})
 	for _, delay := range []time.Duration{0, -time.Nanosecond, 24*time.Hour + time.Nanosecond, time.Duration(1<<63 - 1)} {
 		t.Run("Given a valid key, when the activation delay is "+delay.String()+", assert that construction is rejected", func(t *testing.T) {
-			_, err := NewPushJWTSigner(path, "https://kagent.example", delay)
+			_, err := newPushTestSigner(t, path, "https://kagent.example", delay)
 			require.ErrorContains(t, err, "activation delay")
 		})
 	}
@@ -182,14 +242,15 @@ func TestPushSigningKeyRotation(t *testing.T) {
 		_, replacement, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
 		require.NoError(t, os.WriteFile(signer.path, pemKey(t, replacement), 0o600))
-		require.NoError(t, signer.reload())
+		require.NoError(t, signer.reload(t.Context()))
 		keys := pushTestJWKS(t, signer)
 		require.Len(t, keys, 2)
 		time.Sleep(5*time.Minute + pushKeyPropagationBuffer - time.Second)
-		require.NoError(t, signer.reload(), "unchanged file must preserve activation time")
+		require.NoError(t, signer.reload(t.Context()), "unchanged file must preserve activation time")
 		_, beforeID, lastExpiration := pushTestToken(t, signer)
 		require.Equal(t, oldID, beforeID)
 		time.Sleep(time.Second)
+		require.NoError(t, signer.activateDue(t.Context()))
 		_, newID, _ := pushTestToken(t, signer)
 		require.NotEqual(t, oldID, newID)
 		require.Equal(t, replacement.Public(), keys[newID])
@@ -218,7 +279,7 @@ func TestPushIdleReplicaRetainsPeerSigningKey(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				signer := testPushSigner(t)
-				peer, err := NewPushJWTSigner(signer.path, signer.issuer, signer.activationDelay)
+				peer, err := newPushTestSigner(t, signer.path, signer.issuer, signer.activationDelay)
 				require.NoError(t, err)
 				if scenario.signBeforeReload {
 					pushTestToken(t, signer)
@@ -226,8 +287,9 @@ func TestPushIdleReplicaRetainsPeerSigningKey(t *testing.T) {
 				_, replacement, err := ed25519.GenerateKey(rand.Reader)
 				require.NoError(t, err)
 				require.NoError(t, os.WriteFile(signer.path, pemKey(t, replacement), 0o600))
-				require.NoError(t, signer.reload())
+				require.NoError(t, signer.reload(t.Context()))
 				time.Sleep(signer.activationDelay + pushKeyPropagationBuffer)
+				require.NoError(t, signer.activateDue(t.Context()))
 				_, newID, _ := pushTestToken(t, signer)
 				// The peer has not reloaded yet and still signs with the old key.
 				credential, oldID, expiration := pushTestToken(t, peer)
@@ -256,11 +318,11 @@ func TestPushKeyReloadPreservesValidState(t *testing.T) {
 			signer := testPushSigner(t)
 			_, oldID, _ := pushTestToken(t, signer)
 			require.NoError(t, os.WriteFile(signer.path, []byte(material), 0o600))
-			require.Error(t, signer.reload())
+			require.Error(t, signer.reload(t.Context()))
 			_, id, _ := pushTestToken(t, signer)
 			require.Equal(t, oldID, id)
 			require.NoError(t, os.Remove(signer.path))
-			require.Error(t, signer.reload())
+			require.Error(t, signer.reload(t.Context()))
 			_, id, _ = pushTestToken(t, signer)
 			require.Equal(t, oldID, id)
 		})
@@ -278,7 +340,7 @@ func TestPushKeyReloadReplacesPendingAndHandlesRollback(t *testing.T) {
 			_, next, err := ed25519.GenerateKey(rand.Reader)
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(signer.path, pemKey(t, next), 0o600))
-			require.NoError(t, signer.reload())
+			require.NoError(t, signer.reload(t.Context()))
 			keys := pushTestJWKS(t, signer)
 			require.Len(t, keys, 2, "new file replaces the pending key")
 			if pendingID != "" {
@@ -291,11 +353,53 @@ func TestPushKeyReloadReplacesPendingAndHandlesRollback(t *testing.T) {
 			}
 		}
 		require.NoError(t, os.WriteFile(signer.path, original, 0o600))
-		require.NoError(t, signer.reload())
+		require.NoError(t, signer.reload(t.Context()))
 		time.Sleep(6 * time.Minute)
 		_, id, _ := pushTestToken(t, signer)
 		require.Equal(t, originalID, id, "rollback to active key cancels pending activation")
 		require.Len(t, pushTestJWKS(t, signer), 1)
+	})
+}
+
+func TestPushReplacementCancelsPendingKeyWhenStateReadFails(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given A is signing and B is pending, when the reloader reads C and its
+		// state lookup fails at B's deadline, assert that A signs until C is ready.
+		store := &fakePushSigningStore{}
+		cfg := pushHandoffConfig(t)
+		signer := pushHandoffSigner(t, store, cfg)
+		stop := startPushTestReloader(t, signer)
+		defer stop()
+		_, oldID, _ := pushTestToken(t, signer)
+		require.Len(t, pushTestJWKS(t, signer), 2)
+		delay := cfg.ActivationDelay + pushKeyPropagationBuffer
+		time.Sleep(delay - time.Second)
+		_, replacement, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		store.mu.Lock()
+		store.nextLoadErr = errors.New("temporary signing state lookup failure")
+		store.mu.Unlock()
+		require.NoError(t, os.WriteFile(cfg.PrivateKeyFile, pemKey(t, replacement), 0o600))
+		time.Sleep(time.Second)
+		synctest.Wait()
+		_, id, _ := pushTestToken(t, signer)
+		require.Equal(t, oldID, id, "a failed lookup must not allow the replaced key to activate")
+		state, err := store.LoadOrInitializePushSigningState(t.Context(), testPushIssuer, oldID)
+		require.NoError(t, err)
+		require.Equal(t, database.PushSigningState{KeyID: oldID, Revision: 1}, state)
+		time.Sleep(pushKeyPollInterval)
+		synctest.Wait()
+		keys := pushTestJWKS(t, signer)
+		require.Len(t, keys, 2)
+		require.Contains(t, keys, oldID)
+		time.Sleep(delay - time.Second)
+		_, id, _ = pushTestToken(t, signer)
+		require.Equal(t, oldID, id, "C must have its full publication delay")
+		time.Sleep(time.Second)
+		synctest.Wait()
+		_, id, _ = pushTestToken(t, signer)
+		require.NotEqual(t, oldID, id)
+		require.Equal(t, replacement.Public(), keys[id])
 	})
 }
 
@@ -349,7 +453,7 @@ func TestPushKeyConcurrentReloadAndSigning(t *testing.T) {
 	for range 4 {
 		workers.Go(func() {
 			for range 30 {
-				require.NoError(t, signer.reload())
+				require.NoError(t, signer.reload(t.Context()))
 				pushTestToken(t, signer)
 			}
 		})
@@ -363,8 +467,8 @@ func TestPushRestartUsesMountedKeyImmediately(t *testing.T) {
 	_, replacement, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(signer.path, pemKey(t, replacement), 0o600))
-	require.NoError(t, signer.reload())
-	restarted, err := NewPushJWTSigner(signer.path, "https://kagent.example", 5*time.Minute)
+	require.NoError(t, signer.reload(t.Context()))
+	restarted, err := newPushTestSigner(t, signer.path, "https://kagent.example", 5*time.Minute)
 	require.NoError(t, err)
 	_, id, _ := pushTestToken(t, restarted)
 	require.NotEqual(t, originalID, id)
@@ -374,14 +478,14 @@ func TestPushRestartUsesMountedKeyImmediately(t *testing.T) {
 func TestPushRollbackRetainsEarlierTokens(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		path := pushKeyFile(t, []byte(testPushPrivateKeyPEM))
-		signer, err := NewPushJWTSigner(path, "https://kagent.example", time.Second)
+		signer, err := newPushTestSigner(t, path, "https://kagent.example", time.Second)
 		require.NoError(t, err)
 		_, originalID, expiration := pushTestToken(t, signer)
 		stage := func(material []byte) {
 			require.NoError(t, os.WriteFile(path, material, 0o600))
-			require.NoError(t, signer.reload())
+			require.NoError(t, signer.reload(t.Context()))
 			time.Sleep(time.Second + pushKeyPropagationBuffer)
-			pushTestJWKS(t, signer) // activation without issuing another token
+			require.NoError(t, signer.activateDue(t.Context())) // activation without issuing another token
 		}
 		_, replacement, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
@@ -397,4 +501,316 @@ func TestPushRollbackRetainsEarlierTokens(t *testing.T) {
 		time.Sleep(time.Nanosecond)
 		require.NotContains(t, pushTestJWKS(t, signer), originalID)
 	})
+}
+
+func TestPushHandoffAcrossReplicasAndRestarts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given B/current and A/previous, when replicas start at different times,
+		// assert that each keeps its delay but later startups recover committed B.
+		store := &fakePushSigningStore{}
+		cfg := pushHandoffConfig(t)
+		first := pushHandoffSigner(t, store, cfg)
+		stopFirst := startPushTestReloader(t, first)
+		defer stopFirst()
+		_, oldID, _ := pushTestToken(t, first)
+		time.Sleep(time.Minute)
+		second := pushHandoffSigner(t, store, cfg)
+		stopSecond := startPushTestReloader(t, second)
+		defer stopSecond()
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer - time.Minute)
+		synctest.Wait()
+		_, newID, _ := pushTestToken(t, first)
+		require.NotEqual(t, oldID, newID)
+		_, secondID, _ := pushTestToken(t, second)
+		require.Equal(t, oldID, secondID, "a peer activation must not shorten local staging")
+		activated, err := store.LoadOrInitializePushSigningState(t.Context(), testPushIssuer, oldID)
+		require.NoError(t, err)
+		// An old Pod can restart with A alone while the rollout is in progress.
+		oldConfig := cfg
+		oldConfig.PrivateKeyFile, oldConfig.PreviousPrivateKeyFile = cfg.PreviousPrivateKeyFile, ""
+		_, fallbackID, _ := pushTestToken(t, pushHandoffSigner(t, store, oldConfig))
+		require.Equal(t, oldID, fallbackID)
+		restarted := pushHandoffSigner(t, store, cfg)
+		_, restartedID, _ := pushTestToken(t, restarted)
+		require.Equal(t, newID, restartedID)
+		require.Contains(t, pushTestJWKS(t, restarted), oldID)
+		time.Sleep(time.Minute)
+		synctest.Wait()
+		_, secondID, _ = pushTestToken(t, second)
+		require.Equal(t, newID, secondID)
+		confirmed, err := store.LoadOrInitializePushSigningState(t.Context(), testPushIssuer, oldID)
+		require.NoError(t, err)
+		require.Equal(t, activated, confirmed, "the old Pod and duplicate confirmation must leave the activation intact")
+		time.Sleep(2 * pushJWTLifetime)
+		require.Contains(t, pushTestJWKS(t, first), oldID, "configured previous remains published for lagging peers")
+		require.Contains(t, pushTestJWKS(t, restarted), oldID)
+	})
+}
+
+func TestPushRestartBeforeActivationRestartsDelay(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given an uncommitted B, when restarting, assert that the full delay starts
+		// when the runnable begins, even if construction happened much earlier.
+		store := &fakePushSigningStore{}
+		cfg := pushHandoffConfig(t)
+		first := pushHandoffSigner(t, store, cfg)
+		_, oldID, _ := pushTestToken(t, first)
+		stop := startPushTestReloader(t, first)
+		time.Sleep(cfg.ActivationDelay / 2)
+		stop()
+		restarted := pushHandoffSigner(t, store, cfg)
+		time.Sleep(cfg.ActivationDelay * 2)
+		stop = startPushTestReloader(t, restarted)
+		defer stop()
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer - time.Second)
+		synctest.Wait()
+		_, id, _ := pushTestToken(t, restarted)
+		require.Equal(t, oldID, id)
+		time.Sleep(time.Second)
+		synctest.Wait()
+		_, id, _ = pushTestToken(t, restarted)
+		require.NotEqual(t, oldID, id)
+	})
+}
+
+func TestPushPreviousKeyFallback(t *testing.T) {
+	for _, scenario := range []struct {
+		name     string
+		previous func(*testing.T, string) string
+	}{
+		{"omitted", func(*testing.T, string) string { return "" }},
+		{"same file", func(_ *testing.T, current string) string { return current }},
+		{"same key in another file", func(t *testing.T, current string) string {
+			material, err := os.ReadFile(current)
+			require.NoError(t, err)
+			return pushKeyFile(t, append(material, '\n'))
+		}},
+	} {
+		t.Run("Given previous is "+scenario.name+", when starting, assert that current signs immediately and preserves the record", func(t *testing.T) {
+			cfg := pushHandoffConfig(t)
+			cfg.PreviousPrivateKeyFile = scenario.previous(t, cfg.PrivateKeyFile)
+			key, err := readPushSigningKey(cfg.PrivateKeyFile)
+			require.NoError(t, err)
+			initial := database.PushSigningState{KeyID: "recorded-key", Revision: 7}
+			store := &fakePushSigningStore{state: initial}
+			signer := pushHandoffSigner(t, store, cfg)
+			_, id, _ := pushTestToken(t, signer)
+			require.Equal(t, key.jwk.KeyID, id)
+			state, err := store.LoadOrInitializePushSigningState(t.Context(), testPushIssuer, "ignored")
+			require.NoError(t, err)
+			require.Equal(t, initial, state)
+			require.Len(t, pushTestJWKS(t, signer), 1)
+		})
+	}
+	t.Run("Given current is activated, when starting with the previous file missing, assert that current signs and a warning identifies the file", func(t *testing.T) {
+		cfg := pushHandoffConfig(t)
+		require.NoError(t, os.Remove(cfg.PreviousPrivateKeyFile))
+		current, err := readPushSigningKey(cfg.PrivateKeyFile)
+		require.NoError(t, err)
+		initial := database.PushSigningState{KeyID: current.jwk.KeyID, Revision: 2}
+		store := &fakePushSigningStore{state: initial}
+		var logs bytes.Buffer
+		ctx := logging.IntoContext(t.Context(), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})))
+
+		signer, err := NewPushJWTSigner(ctx, store, cfg)
+		require.NoError(t, err)
+		_, id, _ := pushTestToken(t, signer)
+		require.Equal(t, current.jwk.KeyID, id)
+		require.Len(t, pushTestJWKS(t, signer), 1)
+		require.Contains(t, logs.String(), cfg.PreviousPrivateKeyFile)
+		require.Equal(t, initial, store.state)
+	})
+	for _, scenario := range []struct {
+		name  string
+		state database.PushSigningState
+	}{
+		{"another key is active", database.PushSigningState{KeyID: "recorded-key", Revision: 7}},
+		{"no activation is recorded", database.PushSigningState{}},
+	} {
+		t.Run("Given "+scenario.name+", when starting with the previous file missing, assert that startup fails and preserves the record", func(t *testing.T) {
+			cfg := pushHandoffConfig(t)
+			require.NoError(t, os.Remove(cfg.PreviousPrivateKeyFile))
+			store := &fakePushSigningStore{state: scenario.state}
+
+			_, err := NewPushJWTSigner(t.Context(), store, cfg)
+			require.ErrorIs(t, err, os.ErrNotExist)
+			require.ErrorContains(t, err, cfg.PreviousPrivateKeyFile)
+			require.Equal(t, scenario.state, store.state)
+		})
+	}
+	t.Run("Given malformed previous material, when starting, assert that configuration fails", func(t *testing.T) {
+		cfg := pushHandoffConfig(t)
+		cfg.PreviousPrivateKeyFile = pushKeyFile(t, []byte("malformed"))
+		_, err := NewPushJWTSigner(t.Context(), &fakePushSigningStore{}, cfg)
+		require.ErrorContains(t, err, "previous push signing key")
+	})
+	t.Run("Given unreadable previous material, when starting, assert that configuration fails", func(t *testing.T) {
+		cfg := pushHandoffConfig(t)
+		cfg.PreviousPrivateKeyFile = t.TempDir() // EISDIR must not become the ENOENT fallback.
+		_, err := NewPushJWTSigner(t.Context(), &fakePushSigningStore{}, cfg)
+		require.ErrorContains(t, err, "previous push signing key")
+	})
+	t.Run("Given unavailable activation state, when starting, assert that recovery fails", func(t *testing.T) {
+		_, err := NewPushJWTSigner(t.Context(), &fakePushSigningStore{err: errors.New("database unavailable")}, pushHandoffConfig(t))
+		require.ErrorContains(t, err, "database unavailable")
+	})
+	t.Run("Given a missing previous file, when the activation lookup fails, assert that startup reports the database error", func(t *testing.T) {
+		cfg := pushHandoffConfig(t)
+		require.NoError(t, os.Remove(cfg.PreviousPrivateKeyFile))
+		store := &fakePushSigningStore{err: errors.New("activation lookup failed")}
+		_, err := NewPushJWTSigner(t.Context(), store, cfg)
+		require.ErrorIs(t, err, store.err)
+	})
+}
+
+func TestPushPreviousFileIsOnlyReadAtStartup(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given startup A/B, when only previous changes or disappears, assert that
+		// signing and JWKS retain the original material through activation.
+		cfg := pushHandoffConfig(t)
+		signer := pushHandoffSigner(t, &fakePushSigningStore{}, cfg)
+		before := pushTestJWKS(t, signer)
+		_, oldID, _ := pushTestToken(t, signer)
+		require.NoError(t, os.WriteFile(cfg.PreviousPrivateKeyFile, []byte("invalid update"), 0o600))
+		require.NoError(t, signer.reload(t.Context()))
+		require.Equal(t, before, pushTestJWKS(t, signer))
+		_, id, _ := pushTestToken(t, signer)
+		require.Equal(t, oldID, id)
+		require.NoError(t, os.Remove(cfg.PreviousPrivateKeyFile))
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer)
+		require.NoError(t, signer.reload(t.Context()))
+		require.NoError(t, signer.activateDue(t.Context()))
+		_, id, _ = pushTestToken(t, signer)
+		require.NotEqual(t, oldID, id)
+		require.Equal(t, before, pushTestJWKS(t, signer))
+	})
+}
+
+func TestPushActivationFailureKeepsServing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given a due handoff, when persistence stalls and fails, assert that old
+		// signatures and both public keys remain available, then retry succeeds.
+		store := &fakePushSigningStore{}
+		cfg := pushHandoffConfig(t)
+		signer := pushHandoffSigner(t, store, cfg)
+		_, oldID, _ := pushTestToken(t, signer)
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer)
+		started, release := make(chan struct{}), make(chan struct{})
+		store.err = errors.New("database unavailable")
+		store.beforeActivate = func() { close(started); <-release }
+		done := make(chan error, 1)
+		go func() { done <- signer.activateDue(t.Context()) }()
+		<-started
+		_, id, _ := pushTestToken(t, signer)
+		require.Equal(t, oldID, id)
+		require.Len(t, pushTestJWKS(t, signer), 2)
+		close(release)
+		require.ErrorContains(t, <-done, "database unavailable")
+		_, id, _ = pushTestToken(t, signer)
+		require.Equal(t, oldID, id)
+		store.err, store.beforeActivate = nil, nil
+		require.NoError(t, signer.activateDue(t.Context()))
+		// No B token has been issued yet; reconstruction still recovers the commit.
+		restarted := pushHandoffSigner(t, store, cfg)
+		_, id, _ = pushTestToken(t, restarted)
+		require.NotEqual(t, oldID, id)
+	})
+}
+
+func TestPushStaleActivationWaitsForPeer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given B was pending before A -> C -> A, when B's delay expires,
+		// assert that it cannot undo the rollback but can adopt a peer's later B.
+		store := &fakePushSigningStore{}
+		cfg := pushHandoffConfig(t)
+		signer := pushHandoffSigner(t, store, cfg)
+		_, oldID, _ := pushTestToken(t, signer)
+		state, err := store.ActivatePushSigningKey(t.Context(), testPushIssuer, "key-c", 1)
+		require.NoError(t, err)
+		state, err = store.ActivatePushSigningKey(t.Context(), testPushIssuer, oldID, state.Revision)
+		require.NoError(t, err)
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer)
+		require.ErrorContains(t, signer.activateDue(t.Context()), "superseded")
+		require.NoError(t, signer.reload(t.Context()))
+		require.NoError(t, signer.activateDue(t.Context()))
+		_, id, _ := pushTestToken(t, signer)
+		require.Equal(t, oldID, id)
+		unchanged, err := store.LoadOrInitializePushSigningState(t.Context(), testPushIssuer, "ignored")
+		require.NoError(t, err)
+		require.Equal(t, state, unchanged)
+		peer := pushHandoffSigner(t, store, cfg)
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer)
+		require.NoError(t, peer.activateDue(t.Context()))
+		_, newID, _ := pushTestToken(t, peer)
+		require.NotEqual(t, oldID, newID)
+		require.NoError(t, signer.activateDue(t.Context()))
+		_, id, _ = pushTestToken(t, signer)
+		require.Equal(t, newID, id, "the earlier conflict must not prevent adopting committed B")
+		confirmed, err := store.LoadOrInitializePushSigningState(t.Context(), testPushIssuer, oldID)
+		require.NoError(t, err)
+		require.Equal(t, database.PushSigningState{KeyID: newID, Revision: state.Revision + 1}, confirmed)
+	})
+}
+
+func TestPushRollbackStagesPreviouslyUsedKey(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// Given A -> B completed, when rolling back with A/current and B/previous,
+		// assert that A stages again and subsequent restarts use committed A.
+		store := &fakePushSigningStore{}
+		cfg := pushHandoffConfig(t)
+		signer := pushHandoffSigner(t, store, cfg)
+		_, oldID, _ := pushTestToken(t, signer)
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer)
+		require.NoError(t, signer.activateDue(t.Context()))
+		_, newID, _ := pushTestToken(t, signer)
+		cfg.PrivateKeyFile, cfg.PreviousPrivateKeyFile = cfg.PreviousPrivateKeyFile, cfg.PrivateKeyFile
+		rollback := pushHandoffSigner(t, store, cfg)
+		_, id, _ := pushTestToken(t, rollback)
+		require.Equal(t, newID, id)
+		time.Sleep(cfg.ActivationDelay + pushKeyPropagationBuffer)
+		require.NoError(t, rollback.activateDue(t.Context()))
+		_, id, _ = pushTestToken(t, pushHandoffSigner(t, store, cfg))
+		require.Equal(t, oldID, id)
+	})
+}
+
+func TestPushStartupWithActivationOutsideConfiguredPair(t *testing.T) {
+	// Given an activation outside the configured pair, when starting, assert
+	// that the previous key signs while the configured current key stages.
+	store := &fakePushSigningStore{state: database.PushSigningState{KeyID: "unrelated-key", Revision: 3}}
+	cfg := pushHandoffConfig(t)
+	signer := pushHandoffSigner(t, store, cfg)
+	_, id, _ := pushTestToken(t, signer)
+	key, err := readPushSigningKey(cfg.PreviousPrivateKeyFile)
+	require.NoError(t, err)
+	require.Equal(t, key.jwk.KeyID, id)
+	require.Len(t, pushTestJWKS(t, signer), 2)
+}
+
+func pushHandoffConfig(t *testing.T) PushJWTSignerConfig {
+	t.Helper()
+	_, current, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	return PushJWTSignerConfig{
+		PrivateKeyFile:         pushKeyFile(t, pemKey(t, current)),
+		PreviousPrivateKeyFile: pushKeyFile(t, []byte(testPushPrivateKeyPEM)),
+		Issuer:                 testPushIssuer + "/", ActivationDelay: 5 * time.Minute,
+	}
+}
+
+func pushHandoffSigner(t *testing.T, store pushSigningStore, cfg PushJWTSignerConfig) *PushJWTSigner {
+	t.Helper()
+	signer, err := NewPushJWTSigner(t.Context(), store, cfg)
+	require.NoError(t, err)
+	return signer
+}
+
+// Call only inside synctest, and stop before leaving the bubble.
+func startPushTestReloader(t *testing.T, signer *PushJWTSigner) func() {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- signer.Start(ctx) }()
+	synctest.Wait()
+	return func() { cancel(); require.NoError(t, <-done) }
 }

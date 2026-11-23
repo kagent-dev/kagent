@@ -1398,8 +1398,11 @@ type PushConfig struct {
 	// Prepublication wait before using a replacement key, plus a fixed 30s buffer.
 	// Defaults to 300s, at most 86400s (24h). Must cover receivers' JWKS refresh intervals.
 	SigningKeyActivationDelay *durationpb.Duration `protobuf:"bytes,8,opt,name=signing_key_activation_delay,json=signingKeyActivationDelay,proto3" json:"signing_key_activation_delay,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Optional previous PKCS#8 Ed25519 PEM key, read only at startup. If configured,
+	// the file may be missing only after the current key's activation is recorded.
+	PreviousSigningPrivateKeyFile string `protobuf:"bytes,9,opt,name=previous_signing_private_key_file,json=previousSigningPrivateKeyFile,proto3" json:"previous_signing_private_key_file,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *PushConfig) Reset() {
@@ -1486,6 +1489,13 @@ func (x *PushConfig) GetSigningKeyActivationDelay() *durationpb.Duration {
 		return x.SigningKeyActivationDelay
 	}
 	return nil
+}
+
+func (x *PushConfig) GetPreviousSigningPrivateKeyFile() string {
+	if x != nil {
+		return x.PreviousSigningPrivateKeyFile
+	}
+	return ""
 }
 
 type SandboxConfig struct {
@@ -2288,7 +2298,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\rGatewayConfig\x12?\n" +
 	"\n" +
 	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01B\r\n" +
-	"\v_public_url\"\xc0\x04\n" +
+	"\v_public_url\"\xce\x06\n" +
 	"\n" +
 	"PushConfig\x127\n" +
 	"\x18signing_private_key_file\x18\x01 \x01(\tR\x15signingPrivateKeyFile\x128\n" +
@@ -2301,7 +2311,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x0fmax_concurrency\x18\x06 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x01R\x0emaxConcurrency\x88\x01\x01\x12N\n" +
 	"\fsend_timeout\x18\a \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\vsendTimeout\x12j\n" +
-	"\x1csigning_key_activation_delay\x18\b \x01(\v2\x19.google.protobuf.DurationB\x0e\xbaH\v\xaa\x01\b\"\x04\b\x80\xa3\x05*\x00R\x19signingKeyActivationDelayB\t\n" +
+	"\x1csigning_key_activation_delay\x18\b \x01(\v2\x19.google.protobuf.DurationB\x0e\xbaH\v\xaa\x01\b\"\x04\b\x80\xa3\x05*\x00R\x19signingKeyActivationDelay\x12H\n" +
+	"!previous_signing_private_key_file\x18\t \x01(\tR\x1dpreviousSigningPrivateKeyFile:\xc1\x01\xbaH\xbd\x01\x1a\xba\x01\n" +
+	"\x1epush.previous_requires_current\x12Cprevious_signing_private_key_file requires signing_private_key_file\x1aSthis.previous_signing_private_key_file == '' || this.signing_private_key_file != ''B\t\n" +
 	"\a_issuerB\x12\n" +
 	"\x10_max_concurrency\"\x8e\x04\n" +
 	"\rSandboxConfig\x12\x1f\n" +

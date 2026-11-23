@@ -81,6 +81,7 @@ func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	resolveLoginPath(cfg.Database.ReadWrite, path)
 	cfg.Push.SigningPrivateKeyFile = FilePath(path, cfg.Push.SigningPrivateKeyFile)
+	cfg.Push.PreviousSigningPrivateKeyFile = FilePath(path, cfg.Push.PreviousSigningPrivateKeyFile)
 	cfg.Substrate.CaFile = FilePath(path, cfg.Substrate.CaFile)
 	cfg.Substrate.ClientCertFile = FilePath(path, cfg.Substrate.ClientCertFile)
 }
