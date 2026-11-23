@@ -146,7 +146,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
 
   await test.step("7. the create form marks what it will not submit without", async () => {
     await page.getByTestId("mcp-servers-new").click();
-    await page.waitForURL(/\/mcp\/new(\?|$)/);
+    await page.waitForURL(/\/mcp-servers\/new(\?|$)/);
     await expectSettled(page);
 
     // Unlike every other form in this app: `validateMcpServerForm` accepts a blank
@@ -163,7 +163,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await page.getByTestId("mcp-url").fill("mcp.example.com/sse");
 
     await page.getByTestId("mcp-submit").click();
-    await page.waitForURL(/\/mcp(\?|$)/, { timeout: 30_000 });
+    await page.waitForURL(/\/mcp-servers(\?|$)/, { timeout: 30_000 });
 
     // Read back off the list rather than from a toast or a closed form: those two only
     // prove the app believes it worked.
