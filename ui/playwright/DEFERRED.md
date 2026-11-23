@@ -39,6 +39,12 @@ address staying on the form — and checks the required *marks* against that gat
 their submit in code, so the two are separate statements about the same field and
 only a test keeps them agreeing.
 
+## Live specs not run in CI
+
+`live/agent-lifecycle.spec.ts` and `live/agent-template-skills.spec.ts` stay local-only.
+They need an `assistant` AgentTemplate and Harness and a model that really replies,
+which the `test-e2e` cluster does not have. The workflow names the three specs it runs.
+
 ## Not started by request
 
 App extension-point specs. The framework is still being edited and its
