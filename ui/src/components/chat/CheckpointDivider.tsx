@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { Button, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -47,11 +47,12 @@ export function CheckpointDivider({
   /** Names this boundary, and with it the forks taken from it. */
   onRename?: () => void;
   /** Removes this boundary. */
-  onDelete?: () => void;
+  onDelete?: () => void | Promise<void>;
 }) {
   const theme = useTheme();
   const { mode } = useThemeMode();
   const deletion = useModalState();
+  const [isDeleting, setDeleting] = useState(false);
 
   // Whatever it is called, which until somebody renames it is the name the controller
   // generated. The id is in the record behind the line; the line says one thing.
@@ -287,6 +288,7 @@ export function CheckpointDivider({
                 size="small"
                 danger
                 onClick={deletion.show}
+                loading={isDeleting}
                 data-testid={`chat-checkpoint-delete-${checkpointId}`}
                 aria-label="Delete this snapshot and the runtime stored with it."
                 icon={<Eraser size={13} />}
@@ -321,8 +323,11 @@ export function CheckpointDivider({
                 confirmation={{
                   title: "Delete this snapshot?",
                   message: "The stored runtime goes with it and nothing brings it back. Chats already forked from here are kept.",
-                  isDeleting: false,
-                  confirm: (afterDelete) => { onDelete(); afterDelete(); },
+                  isDeleting,
+                  confirm: async (afterDelete) => {
+                    setDeleting(true);
+                    try { await onDelete(); afterDelete(); } finally { setDeleting(false); }
+                  },
                 }} />}
             </>) : null}
 
