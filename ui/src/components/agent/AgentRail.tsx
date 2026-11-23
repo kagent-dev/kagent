@@ -132,7 +132,7 @@ export interface AgentRailProps {
    * Controls the surface wants in the rail's gutter, under the collapse toggle.
    *
    * The gutter is a column this component already owns and keeps sticky, so a page
-   * with one more icon control — conversation has Share — can put it there rather than
+   * with one more icon control — the conversation page has Share — can put it there rather than
    * spending a whole row of the conversation on it. Stacked under the toggle, so the
    * column stays one icon wide whatever is in it.
    */

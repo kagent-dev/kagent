@@ -124,7 +124,7 @@ export function AgentPage() {
   /**
    * Where a conversation row leads.
    *
-   * A distribution serving its own conversation redirects it through
+   * A distribution serving its own conversation page redirects it through
    * `agentLinks.fromInstancesList` — which is where instance rows are listed now — and
    * a contribution that throws or answers with nothing falls back to this
    * application's own route rather than to a dead link.
@@ -617,7 +617,7 @@ export function AgentPage() {
       {/*
         What this agent is, beside the conversations it has had.
 
-        The same panel the conversation carries, given the Agent reference rather than a conversation: the
+        The same panel the conversation page carries, given the Agent reference rather than a conversation: the
         model, the instructions and the tools all live on the template, so this page can
         show them without an instance to read them through. Only the prepared revision
         needs a conversation, and it is left out here rather than guessed at.

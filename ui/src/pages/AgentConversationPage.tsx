@@ -458,7 +458,7 @@ export function AgentConversationPage() {
     if (window.location.pathname !== here) return;
     firstMessage.current = undefined;
     void conversation.send(message.text, message.files);
-    // Keyed on the conversation, not on `conversation`: the controller is rebuilt every render
+    // Keyed on the conversation id, not on the `conversation` controller: it is rebuilt every render
     // and depending on it would re-run this on each one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, conversation.isLoadingHistory]);
@@ -569,7 +569,7 @@ export function AgentConversationPage() {
             instance={instance.data}
             instances={instances}
             autoTitle={autoTitle}
-            // Only the conversation needs to know: deleting the conversation it is showing
+            // Only this page needs to know: deleting the conversation it is showing
             // leaves it on an address that no longer resolves.
             onDeleted={(target) => {
               if (target.id === id) navigate(paths.agents);

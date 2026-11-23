@@ -136,7 +136,7 @@ test("live: two agents with the same template and harness keep separate conversa
     await expectReady(page, second);
   });
 
-  await test.step("2. conversation with the first and get a real reply", async () => {
+  await test.step("2. talk to the first and get a real reply", async () => {
     await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
     await page.getByTestId("conversation-input").fill("Say hello in three words.");
     await page.getByTestId("conversation-send").click();

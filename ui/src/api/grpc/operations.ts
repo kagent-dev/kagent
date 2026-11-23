@@ -38,7 +38,7 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
  * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
  * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
- * the conversation reads boundaries from the list and nothing removes one yet.
+ * the conversation page reads boundaries from the list and nothing removes one yet.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1/models_pb";
@@ -646,7 +646,7 @@ const CHECKPOINT_STATE_FROM_PB: Partial<Record<PbCheckpointState, CheckpointStat
  * One saved turn boundary.
  *
  * A state this build has not heard of becomes `unknown` rather than `ready`: the
- * conversation offers a fork from anything ready, and a newer controller adding a state must
+ * the conversation page offers a fork from anything ready, and a newer controller adding a state must
  * not have that read as an invitation.
  */
 function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
@@ -805,7 +805,7 @@ const agentInstances: Pick<
   },
 
   /*
-   * Newest first, because that is the order the conversation needs them in and the controller
+   * Newest first, because that is the order the conversation page needs them in and the controller
    * does not promise one. One page: a conversation's boundaries are counted in
    * handfuls, and paging a list this short would be machinery with nothing to do.
    */
@@ -825,7 +825,7 @@ const agentInstances: Pick<
   /*
    * The fork of a boundary saved earlier, which is where the history it holds stops.
    *
-   * `ForkSession` names the fork after the snapshot, so the conversation sends no name
+   * `ForkSession` names the fork after the snapshot, so the conversation page sends no name
    * and takes that. `name` is for the caller that wants something else — duplicating a
    * conversation from the rail, which titles the copy after the conversation — and it
    * costs a second call because the fork RPC has nowhere to put it.

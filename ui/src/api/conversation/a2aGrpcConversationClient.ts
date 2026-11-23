@@ -1,7 +1,7 @@
 /**
  * The live conversation transport: A2A over gRPC-Web.
  *
- * This is the last call in the app to leave REST. Conversation used to post JSON-RPC to
+ * This is the last call in the app to leave REST. The conversation client used to post JSON-RPC to
  * `/api/a2a/…` with `fetch` and parse an SSE body by hand; everything else had
  * already moved to gRPC. Now it calls `lf.a2a.v1.A2AService` on the same
  * controller, over the same transport, through the same interceptors — so there

@@ -163,7 +163,7 @@ export function ConversationTranscript({
    *
    * Which leaves following. Doing it unconditionally is right at the bottom and wrong
    * the moment the reader scrolls up to re-read something: yanking them back down
-   * mid-sentence is the most irritating thing a conversation can do. So it is conditional on a
+   * mid-sentence is the most irritating thing a conversation view can do. So it is conditional on a
    * sentinel at the foot being in view, and when it is not, a button appears that takes
    * them back.
    */
@@ -259,7 +259,7 @@ export function ConversationTranscript({
    * message and wrong for the first paint: the transcript arrives scrolled to the top,
    * so the condition is already false by the time it could be consulted, and a reader
    * opening a long conversation landed at its beginning with a button inviting them to
-   * the part they wanted. Anchoring once, unconditionally, is what a conversation does.
+   * the part they wanted. Anchoring once, unconditionally, is what a conversation view does.
    */
   const hasAnchored = useRef(false);
   useEffect(() => {

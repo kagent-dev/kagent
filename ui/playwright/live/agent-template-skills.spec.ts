@@ -192,7 +192,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
   });
 });
 
-test("live: an agent built with a kagent skill loads it in conversation", async ({ page }, testInfo) => {
+test("live: an agent built with a kagent skill loads it in a conversation", async ({ page }, testInfo) => {
   test.setTimeout(READY_TIMEOUT + 300_000);
   const name = throwawayName("skill-conversation");
 

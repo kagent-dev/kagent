@@ -224,7 +224,7 @@ export function ConversationComposer({
           }}
           onPressEnter={(event) => {
             // Enter sends, Shift+Enter breaks the line — the convention every
-            // other conversation box uses, so doing otherwise is its own bug report.
+            // other messaging app uses, so doing otherwise is its own bug report.
             if (event.shiftKey) return;
             event.preventDefault();
             void submit();
