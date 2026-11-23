@@ -133,6 +133,7 @@ export function FilterBar({
           // point at.
           <div key={filter.id} data-testid={`${testId}-filter-${filter.id}`}>
             <Select
+              autoComplete="off"
               mode="multiple"
               value={[...view.selected(filter.id)]}
               onChange={(next: string[]) => view.setSelected(filter.id, next)}

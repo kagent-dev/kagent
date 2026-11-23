@@ -456,6 +456,7 @@ export function AgentTemplateForm({
                   </Field>
                   <Field readOnly={readOnly} label="Tools" required={false} css={rowField}>
                     <Select
+                      autoComplete="off"
                       mode="multiple"
                       css={{ minWidth: 320 }}
                       // Read-only pills carry no remove button, since nothing can be removed.

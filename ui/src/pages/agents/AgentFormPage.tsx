@@ -429,6 +429,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
           >
             <Select
               id="agent-form-egress-refs"
+              autoComplete="off"
               mode="multiple"
               allowClear
               data-testid="agent-form-egress-refs"
