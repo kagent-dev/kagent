@@ -1,0 +1,1151 @@
+/**
+ * The live conversation transport: A2A over gRPC-Web.
+ *
+ * This is the last call in the app to leave REST. Conversation used to post JSON-RPC to
+ * `/api/a2a/…` with `fetch` and parse an SSE body by hand; everything else had
+ * already moved to gRPC. Now it calls `lf.a2a.v1.A2AService` on the same
+ * controller, over the same transport, through the same interceptors — so there
+ * is no second, quietly different path to the backend, and `src/` contains no
+ * `fetch` at all.
+ *
+ * ## What a conversation is
+ *
+ * The Agent tenant selects the agent; the Session UUID selects its conversation.
+ * Forks have their own Session and context IDs, and conversation caches use that identity.
+ *
+ * ## Why this is so much shorter than the client it replaces
+ *
+ * Because protobuf-es decodes the wire. The HTTP client carried a whole section
+ * of hand-written wire types and a normaliser, because the server writes its
+ * union with `encoding/json` and hand-written struct tags: `result` was a keyed
+ * union with no discriminator, task states arrived as `TASK_STATE_*` *names*,
+ * parts carried no `kind`, and one stream used both `ROLE_AGENT` and `"user"`
+ * for the role. Every one of those was a decoding decision made in this file.
+ *
+ * Over gRPC-Web they are the generated descriptor's job: `StreamResponse.payload`
+ * is a typed oneof with a `case`, states are numeric enum members, and a `Part`
+ * is a oneof rather than a shape to sniff. What is left here is the part that was
+ * always this file's own — turning a stream of A2A events into the app's
+ * `ConversationEvent`s — and that logic is carried over unchanged, because it was right.
+ *
+ * ## What is deliberately kept
+ *
+ * The three behaviours below were each a bug fixed against a live controller, and
+ * none of them is implied by the protocol:
+ *
+ * - **An artifact repeating text already shown is dropped.** The reply arrives
+ *   both as status text and as a final artifact; an agent that sends only
+ *   artifacts still works, because the check is on the text and not on the shape.
+ * - **An artifact's `append` flag is honoured**, which is how this runtime actually
+ *   streams. A reply comes as a run of `artifactUpdate` frames sharing one
+ *   `artifactId` — one per token, each flagged `append` after the first — and then
+ *   a final frame repeating the whole answer. Treated as whole messages under that
+ *   shared id they replaced one another, so the transcript flickered through single
+ *   tokens and printed the entire answer only at completion. Captured bytes and the
+ *   frame-by-frame measurement are in the `artifactUpdate` branch below.
+ */
+
+import { create, toJson, type JsonObject } from "@bufbuild/protobuf";
+import { ValueSchema } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
+import {
+  A2AService,
+  MessageSchema,
+  Role,
+  TaskState,
+  type Artifact,
+  type Message as A2AMessage,
+  type Part as A2APart,
+  type Task as A2ATask,
+  type TaskStatus,
+} from "@/generated/a2a_pb";
+import { ErrorInfoSchema } from "@/generated/google/rpc/error_details_pb";
+import { ApiError, fromConnectError, rethrowIfAborted, SEND_NOT_ACCEPTED, TURN_ACTIVE } from "../ApiError";
+import { A2A_METADATA, metadataString } from "./a2aMetadata";
+import {
+  HITL_EXTENSION_HEADER,
+  HITL_EXTENSION_URI,
+  readAskUserResponse,
+  readHitlRequest,
+  readToolApprovalResponse,
+  type PendingRequest,
+} from "./hitl";
+import { fileNameFromUrl, isHttpUrl, LinkFile, mediaTypeOf } from "./attachments";
+import { agentInstanceShareToken } from "../shareToken";
+import { interleaveTaskMessages } from "./transcriptOrder";
+import { serviceClient } from "../transport";
+import type {
+  ConversationClient,
+  ConversationRef,
+  ConversationDataPart,
+  ConversationEvent,
+  ConversationHistory,
+  ConversationMessage,
+  ConversationPart,
+  ConversationTurnState,
+  SendMessageInput,
+} from "./types";
+
+/** The header the controller validates a share token from. */
+const SHARE_HEADER = "X-Share-Token";
+
+/**
+ * How many pages of history are followed before giving up.
+ *
+ * The transcript is paged — the gateway answers at most 100 tasks and hands back
+ * a token — and a conversation shown with its first page only, saying nothing,
+ * would be the quiet half-truth this codebase keeps having to undo. So every page
+ * is followed. The cap is a backstop against a server whose token never clears,
+ * which would otherwise spin here with the page stuck on a spinner.
+ */
+const HISTORY_PAGE_LIMIT = 50;
+
+/** Consecutive broken streams that came to nothing before a turn is given up. */
+const REATTACH_LIMIT = 3;
+
+/**
+ * How long a stream has to stay open for its break to count as a quiet stream
+ * being cut rather than a failure.
+ *
+ * A proxy closes an idle stream after its timeout, commonly 30 s or more, so a
+ * stream cut that late was working and the turn keeps following its task. One
+ * that breaks sooner with nothing new in it counts towards `REATTACH_LIMIT`.
+ */
+const REATTACH_HEALTHY_MS = 10_000;
+
+/** The wait before the first re-attach after a failure, doubled for each one after. */
+const REATTACH_BACKOFF_MS = 500;
+
+/**
+ * How long a send keeps re-sending a message the gateway proved it did not accept.
+ * The window bounds the retries, not how long an accepted turn may run.
+ */
+const UNACCEPTED_SEND_WINDOW_MS = 30_000;
+
+/** The wait before re-sending when the gateway does not name one. */
+const UNACCEPTED_SEND_RETRY_MS = 100;
+
+/**
+ * The longest wait between re-sends. Each wait doubles from the gateway's, so a
+ * runtime that stays down costs a handful of sends per window rather than hundreds.
+ */
+const UNACCEPTED_SEND_MAX_RETRY_MS = 2_000;
+
+/** `ErrorInfo.domain` of every error the A2A server writes (`a2a.ProtocolDomain`). */
+const A2A_PROTOCOL_DOMAIN = "a2a-protocol.org";
+
+/**
+ * A2A's UNSUPPORTED_OPERATION refusal (gRPC FAILED_PRECONDITION), or undefined.
+ * The gateway answers an input it cannot take this way, before running anything.
+ */
+function a2aRefusal(error: unknown) {
+  if (!(error instanceof ConnectError) || error.code !== Code.FailedPrecondition) return undefined;
+  return error.findDetails(ErrorInfoSchema).find((detail) =>
+    detail.domain === A2A_PROTOCOL_DOMAIN && detail.reason === "UNSUPPORTED_OPERATION");
+}
+
+/**
+ * The wait before re-sending, when `error` is the gateway's proof that it did not
+ * accept the message; otherwise undefined.
+ *
+ * The gateway answers a send that reached a crashed runtime, or a recovery still in
+ * progress, with A2A's UNSUPPORTED_OPERATION (gRPC FAILED_PRECONDITION) and a
+ * `google.rpc.ErrorInfo` whose metadata says `reason: KAGENT_SEND_NOT_ACCEPTED`.
+ * Only that combination is proof: any other refusal, or a broken connection, may
+ * have accepted the input, and sending it again could start a second turn.
+ */
+function unacceptedSendRetryMs(error: unknown): number | undefined {
+  const info = a2aRefusal(error);
+  if (info?.metadata.reason !== SEND_NOT_ACCEPTED) return undefined;
+  const wait = Number.parseInt(info.metadata.retryAfterMs ?? "", 10);
+  return Number.isFinite(wait) && wait >= 0 ? wait : UNACCEPTED_SEND_RETRY_MS;
+}
+
+/** A refused send, tagged with `reason` for the page to offer a revert. */
+function refusedSendError(error: unknown, reason: string, message?: string): ApiError {
+  const failure = fromConnectError(error, "A2AService/SendStreamingMessage");
+  return new ApiError(message ?? failure.message, {
+    kind: failure.kind, status: failure.status, code: failure.code,
+    reason, url: failure.url, cause: error,
+  });
+}
+
+/**
+ * Resolves after `ms`, or early once `wake` fires; rejects with the abort as soon as
+ * `signal` fires.
+ */
+function pause(ms: number, signal: AbortSignal | undefined, wake?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    if (wake?.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      wake?.removeEventListener("abort", onWake);
+    };
+    const onAbort = () => {
+      done();
+      reject(signal?.reason);
+    };
+    const onWake = () => {
+      done();
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      done();
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    wake?.addEventListener("abort", onWake, { once: true });
+  });
+}
+
+type StreamFrame = { payload: { case?: string; value?: unknown } };
+
+/**
+ * Whether an error is the connection failing rather than the server answering.
+ *
+ * A proxy closing a quiet stream reaches the browser as a bare `network error` or
+ * a body that ends without its trailer — both `Unknown` — or as an HTTP 502/503/504,
+ * which is `Unavailable`. Anything the controller decided (a refusal, a missing
+ * permission) arrives with its own code and is not retried.
+ */
+function isBrokenTransport(error: unknown): boolean {
+  const { code } = ConnectError.from(error);
+  return code === Code.Unknown || code === Code.Unavailable;
+}
+
+/** Ids for the messages the wire did not name. */
+let counter = 0;
+function nextId(prefix: string): string {
+  counter += 1;
+  return `${prefix}-${counter}`;
+}
+
+/**
+ * Whether a task stopped to wait on the reader rather than because it is running.
+ *
+ * The gateway resumes tasks in these two states in
+ * `go/core/internal/a2agateway/gateway.go`. Such a task is
+ * non-terminal, so it holds the instance's single active-task slot and every
+ * further message is refused — and the reader has to be told that rather than
+ * discovering it by being turned away.
+ */
+function isAwaitingReply(state: TaskState | undefined): boolean {
+  return state === TaskState.INPUT_REQUIRED || state === TaskState.AUTH_REQUIRED;
+}
+
+function pendingRequestFromStatus(
+  taskId: string,
+  status: TaskStatus | undefined,
+): PendingRequest | undefined {
+  if (!taskId || !isAwaitingReply(status?.state)) return undefined;
+  return readHitlRequest(taskId, status?.message?.metadata, status?.message?.extensions)
+    ?? { kind: "unknown", taskId };
+}
+
+/** The turn states this client has an opinion about. */
+const TURN_STATE_BY_ENUM: Partial<Record<TaskState, ConversationTurnState>> = {
+  [TaskState.SUBMITTED]: "submitted",
+  [TaskState.WORKING]: "working",
+  [TaskState.COMPLETED]: "completed",
+  [TaskState.FAILED]: "failed",
+  [TaskState.CANCELED]: "canceled",
+  [TaskState.INPUT_REQUIRED]: "input_required",
+  [TaskState.REJECTED]: "failed",
+  [TaskState.AUTH_REQUIRED]: "input_required",
+};
+
+/**
+ * What a task state means to the UI.
+ *
+ * `working` is the fallback rather than a state of its own, because every state
+ * this client does not name is one where the turn is still going: an unnamed
+ * terminal state would strand the composer, where an unnamed live one merely
+ * keeps the spinner a moment too long. `UNSPECIFIED` is a real value on this wire
+ * — the runtime sends it rather than omitting the field — and it means "the
+ * runtime did not say", which is not a reason to end the turn.
+ */
+function turnState(state: TaskState | undefined): ConversationTurnState {
+  if (state === undefined) return "working";
+  return TURN_STATE_BY_ENUM[state] ?? "working";
+}
+
+/** One A2A part, as something the transcript can render. */
+function toPart(part: A2APart): ConversationPart | undefined {
+  const content = part.content;
+  if (content.case === "text") {
+    return { kind: "text", text: content.value };
+  }
+  if (content.case === "data") {
+    /*
+     * `Part.data` is a `google.protobuf.Value`, and a bare `Value` field is NOT
+     * flattened to plain JSON the way a `Struct` field is.
+     *
+     * That distinction is easy to get exactly backwards. `StructuredObject.value` is
+     * a `Struct`, which protobuf-es does represent as a `JsonObject` — so every
+     * resource in this app is read straight off the message with no decoding. A
+     * `Value` is a message with a `kind` oneof, so reading `content.value` as an
+     * object yields the *wrapper*: `{kind: {case: "structValue", value: …}}`. Every
+     * key a caller looks for is absent, which is why this silently classified every
+     * tool call as unrecognised structured data rather than failing.
+     */
+    const value = toJson(ValueSchema, content.value);
+    // Only an object can be a tool call or its result; a bare scalar or a list
+    // carries no `name` to classify by.
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+    const data = value as Record<string, unknown>;
+    return {
+      kind: "data",
+      dataKind: dataKindOf(
+        part.mediaType,
+        part.metadata as Record<string, unknown> | undefined,
+      ),
+      data,
+      ...(part.mediaType ? { mediaType: part.mediaType } : {}),
+      ...(part.metadata
+        ? { metadata: part.metadata as Record<string, unknown> }
+        : {}),
+    };
+  }
+  if (content.case === "raw") {
+    const mediaType = part.mediaType || "application/octet-stream";
+    return {
+      kind: "file",
+      name: part.filename || "file",
+      mediaType,
+      size: content.value.byteLength,
+      blob: new Blob([content.value as BlobPart], { type: mediaType }),
+    };
+  }
+  if (content.case === "url") {
+    // Only http(s) links reach an href; anything else (javascript:, data:) is dropped.
+    if (!isHttpUrl(content.value)) return undefined;
+    return {
+      kind: "file",
+      name: part.filename || fileNameFromUrl(content.value),
+      mediaType: part.mediaType,
+      url: content.value,
+    };
+  }
+  return undefined;
+}
+
+/**
+ * What a data part represents.
+ *
+ * A structured terminal answer has an explicit runtime-owned signature: JSON media
+ * type plus the digest of the schema that was enforced. Tool traffic uses the
+ * shared part-type discriminator. Requiring both
+ * pieces of the output signature avoids relabelling an arbitrary JSON tool payload
+ * as the agent's final answer.
+ */
+function dataKindOf(
+  mediaType: string,
+  metadata: Record<string, unknown> | undefined,
+): ConversationDataPart["dataKind"] {
+  if (
+    mediaType.split(";", 1)[0]?.trim().toLowerCase() === "application/json" &&
+    typeof metadata?.[A2A_METADATA.outputSchemaSha256] === "string"
+  ) {
+    return "structured_output";
+  }
+  const partType = metadataString(metadata, A2A_METADATA.partType);
+  if (partType === "function_call") return "tool_call";
+  if (partType === "function_response") return "tool_result";
+  return "unknown";
+}
+
+function toParts(parts: readonly A2APart[] | undefined, role?: Role): ConversationPart[] {
+  const result: ConversationPart[] = [];
+  for (const source of parts ?? []) {
+    const part = toPart(source);
+    if (part === undefined) continue;
+
+    const previous = result.at(-1);
+    if (part.kind === "text" && previous?.kind === "text") {
+      previous.text += part.text;
+      continue;
+    }
+    result.push(part);
+  }
+  // A link the user sent beside its own URL in the text (see LinkFile) gets no chip.
+  if (role !== Role.USER) return result;
+  return result.filter(
+    (part) =>
+      !(part.kind === "file" && part.url && result.some((t) => t.kind === "text" && t.text.includes(part.url!))),
+  );
+}
+
+type ControlFlowResult = "confirmation_required" | "rejected";
+
+/**
+ * Removes runtime control-plane artifacts from what the transcript renders.
+ *
+ * ADK currently reports confirmation as an errored FunctionResponse. Those
+ * responses are instructions to the runtime, not failed tool executions. Match
+ * only the complete strings observed on the wire; a broad substring check could
+ * hide a real tool error that merely discusses approval.
+ */
+function visibleParts(
+  parts: readonly ConversationPart[],
+  options: { hideRejected?: boolean | ReadonlySet<string> } = {},
+): ConversationPart[] {
+  const visible: ConversationPart[] = [];
+  for (const part of parts) {
+    if (part.kind !== "data") {
+      visible.push(part);
+      continue;
+    }
+    if (part.dataKind !== "structured_output" && part.data.name === "ask_user") {
+      continue;
+    }
+
+    const control = controlFlowResult(part);
+    if (control === "confirmation_required") continue;
+    if (control === "rejected") {
+      const name = typeof part.data.name === "string" ? part.data.name : "";
+      if (
+        options.hideRejected === true ||
+        (options.hideRejected instanceof Set && options.hideRejected.has(name))
+      ) {
+        continue;
+      }
+      visible.push({ ...part, dataKind: "tool_not_run" });
+      continue;
+    }
+    visible.push(part);
+  }
+  return visible;
+}
+
+function controlFlowResult(part: ConversationDataPart): ControlFlowResult | undefined {
+  if (part.dataKind !== "tool_result") return undefined;
+  const response = part.data.response;
+  if (typeof response !== "object" || response === null || Array.isArray(response)) {
+    return undefined;
+  }
+  const error = (response as Record<string, unknown>).error;
+  if (typeof error !== "string") return undefined;
+
+  const name = typeof part.data.name === "string" ? part.data.name : undefined;
+  const confirmation = /^error tool "([^"]+)" requires confirmation, please approve or reject$/.exec(error);
+  if (confirmation && (!name || confirmation[1] === name)) return "confirmation_required";
+  const rejected = /^error tool "([^"]+)" call is rejected$/.exec(error);
+  if (rejected && (!name || rejected[1] === name)) return "rejected";
+  if (REJECTED_BY_USER.test(error)) return "rejected";
+  return undefined;
+}
+
+/**
+ * What a runtime says when a person rejected the call, and the reason they gave
+ * when they gave one. It names the person rather than the tool, so there is no
+ * tool name in it to correlate.
+ */
+const REJECTED_BY_USER = /^Tool call was rejected by user\.(?: Reason: [\s\S]+)?$/;
+
+/** The prose of a set of parts, for comparing a reply against the artifact repeating it. */
+function textOf(parts: readonly ConversationPart[]): string {
+  return parts
+    .filter((part): part is ConversationPart & { kind: "text" } => part.kind === "text")
+    .map((part) => part.text)
+    .join("");
+}
+
+/** When a status was recorded, as RFC3339. */
+function statusTime(status: TaskStatus | undefined): string {
+  const seconds = status?.timestamp?.seconds;
+  if (seconds === undefined) return new Date().toISOString();
+  // `Timestamp.seconds` is an int64, which protobuf-es represents as a bigint —
+  // and a bigint reaching a date or a JSON payload fails in ways that read as
+  // something else entirely. Narrowed here, at the boundary, as every other
+  // int64 in this app is.
+  return new Date(Number(seconds) * 1000).toISOString();
+}
+
+export class A2AGrpcConversationClient implements ConversationClient {
+  /** What the controller's agent cards advertise. */
+  readonly protocolVersion = "A2A 1.0 over gRPC-Web";
+
+  /**
+   * Carry the conversation share token and human-in-the-loop extension metadata.
+   */
+  private callOptions(conversation: ConversationRef, signal?: AbortSignal) {
+    const headers: Record<string, string> = {
+      /*
+       * Activate the human-in-the-loop extension, on every call.
+       *
+       * It is what decides whether an agent that asks the reader something parks
+       * with a *payload* — questions, choices, and the correlation id an answer
+       * needs — or with the question as bare prose and nothing to answer with.
+       * Measured: a turn sent without this header can never be answered, and
+       * re-reading it with the header does not recover what was never attached.
+       * Sending it on a read costs nothing, so it is not worth being clever about
+       * which calls need it.
+       */
+      [HITL_EXTENSION_HEADER]: HITL_EXTENSION_URI,
+    };
+    /*
+     * A share token, when the page was opened with one for *this* conversation.
+     *
+     * Read here rather than applied by a request transform because these calls
+     * carry no operation id — the transform interceptor passes them through
+     * untouched. `shareToken.ts` holds the registration for both kinds of share so
+     * there is still only one place a token is spent from.
+     */
+    const share = agentInstanceShareToken(conversation.id);
+    if (share) headers[SHARE_HEADER] = share;
+    return { signal, headers };
+  }
+
+  async history(
+    conversation: ConversationRef,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ConversationHistory> {
+    const rpcName = "A2AService/ListTasks";
+    const client = serviceClient(A2AService);
+    const messages: ConversationMessage[] = [];
+    /*
+     * The turn the conversation is parked on, if there is one.
+     *
+     * An instance holds at most one non-terminal task, so this cannot be
+     * ambiguous — but it is taken from the last such task rather than the first,
+     * so that if a cluster ever did hold two the reader is offered the one they
+     * just saw rather than one from days ago.
+     */
+    let awaitingReply: PendingRequest | undefined;
+    let pageToken = "";
+
+    try {
+      for (let page = 0; page < HISTORY_PAGE_LIMIT; page += 1) {
+        const response = await client.listTasks(
+          {
+            tenant: conversation.agent,
+            contextId: conversation.id,
+            pageToken,
+            // Artifacts carry the final text of a reply, which for a completed turn
+            // may be the only place it exists.
+            includeArtifacts: true,
+          },
+          this.callOptions(conversation, options.signal),
+        );
+
+        for (const task of response.tasks) {
+          messages.push(...messagesFromTask(task));
+          if (isAwaitingReply(task.status?.state) && task.id) {
+            // The payload is persisted with the task, so a reader who comes back
+            // tomorrow gets the same choices the reader who watched it park did.
+            awaitingReply = pendingRequestFromStatus(task.id, task.status);
+          }
+        }
+
+        const next = response.nextPageToken;
+        if (!next) return { messages, awaitingReply };
+        if (next === pageToken) {
+          throw new ApiError(
+            "The API repeated the same page of conversation history instead of advancing.",
+            { kind: "parse", url: rpcName },
+          );
+        }
+        pageToken = next;
+      }
+    } catch (error) {
+      rethrowIfAborted(error, options.signal);
+      if (error instanceof ApiError) throw error;
+      throw fromConnectError(error, rpcName);
+    }
+
+    throw new ApiError(
+      `The API offered more than ${HISTORY_PAGE_LIMIT} pages of history; the conversation was not read to the end.`,
+      { kind: "parse", url: rpcName },
+    );
+  }
+
+  async *send(input: SendMessageInput): AsyncIterable<ConversationEvent> {
+    const { conversation, text, signal, stopResending } = input;
+    const client = serviceClient(A2AService);
+    const fileParts = await Promise.all(
+      (input.files ?? []).map(async (file) => ({
+        content:
+          file instanceof LinkFile
+            ? { case: "url" as const, value: file.url }
+            : { case: "raw" as const, value: new Uint8Array(await file.arrayBuffer()) },
+        filename: file.name,
+        mediaType: mediaTypeOf(file),
+      })),
+    );
+
+    const request = {
+      tenant: conversation.agent,
+      message: create(MessageSchema, {
+        // The caller's id when it has one. It has already put this message on
+        // screen under that id, and the gateway files it in the task's history
+        // under whatever it is sent as — so using it is what makes the reader's
+        // own words survive a reload as the *same* message rather than a second
+        // one that happens to say the same thing.
+        messageId: input.messageId || nextId("msg"),
+        role: Role.USER,
+        parts: [
+          ...(text ? [{ content: { case: "text" as const, value: text } }] : []),
+          ...fileParts,
+        ],
+        // Select the existing Session rather than opening a new conversation.
+        contextId: conversation.id,
+        /*
+         * An answer declares the extension on the message itself.
+         *
+         * Separate from the header above, and both are needed. The header activates
+         * the extension for the *call*; this is what `rawHitlMap` in the runtime
+         * checks before it will read the metadata at all. An answer that carries the
+         * payload without this is forwarded to the agent as ordinary text — the turn
+         * resumes, the agent replies, and the structured answer was never delivered.
+         */
+        extensions: input.hitl ? [HITL_EXTENSION_URI] : [],
+        // Cast because the port states this as plain `unknown` values — it must not
+        // depend on protobuf's JSON types — while the payload is JSON by
+        // construction: `askUserAnswer` builds it out of strings and arrays.
+        metadata: input.hitl as JsonObject | undefined,
+        /*
+         * The parked turn this answers, when it answers one.
+         *
+         * `prepareSend` accepts a task id only when it names the instance's own
+         * active task *and* that task is waiting on the reader; a turn that is
+         * genuinely executing still refuses one. So this is what turns a message
+         * into an answer rather than a new question — and sending it for anything
+         * else is refused rather than silently misfiled.
+         */
+        taskId: input.taskId || "",
+      }),
+    };
+
+    // The reply arrives twice — once as the text of a `working` status update and
+    // again as the final artifact — so an artifact repeating text already shown is
+    // dropped. Recorded as the accumulated text rather than per chunk, because the
+    // artifact repeats the whole answer.
+    let statusReply = "";
+    // The stream may echo the user's own message; when it does it must be emitted
+    // only once. (This controller does not: measured on 2026-08-24, a turn carries
+    // no message frame for it at all, and the caller's optimistic copy is what the
+    // reader sees. The id it was sent under is what makes an echo land on that copy
+    // rather than beside it.)
+    // The caller already rendered the message it named. Suppress an echo under
+    // that id so fallback HITL prose cannot replace the richer local decision card.
+    const delivered = new Set<string>(input.messageId ? [input.messageId] : []);
+
+    /**
+     * The text assembled so far for each artifact still being streamed.
+     *
+     * Keyed by `artifactId`, because that is what relates the chunks of one reply —
+     * every frame of a run carries the same one. A local rather than a field: it
+     * belongs to this turn and must not outlive it.
+     */
+    const artifacts = new Map<string, ConversationPart[]>();
+
+    const options = this.callOptions(conversation, signal);
+    let stream: AsyncIterable<StreamFrame>;
+    try {
+      stream = client.sendStreamingMessage(request, options);
+    } catch (error) {
+      rethrowIfAborted(error, signal);
+      throw fromConnectError(error, "A2AService/SendStreamingMessage");
+    }
+
+    /*
+     * The turn's frames, followed past a broken stream.
+     *
+     * A proxy between the browser and the controller may close a stream that has
+     * been quiet for a while — a model reading a long prompt sends nothing for
+     * minutes. The task keeps running on the server, so once the stream has named
+     * its task, losing the connection is not a failed turn: the task is re-attached
+     * with `SubscribeToTask`, which is read-only and returns the stored task once it
+     * has finished. The message itself is never sent twice.
+     *
+     * A re-attached stream opens with the task as it stands, so that first frame is
+     * not taken as a sign the path works: a path that breaks right after it would
+     * otherwise never run out of attempts. What resets the count is a frame after
+     * it, or a stream that stayed open long enough to have been cut for being quiet.
+     *
+     * Before any frame, a send the gateway proves it did not accept is sent again,
+     * identically, after a wait that doubles up to `UNACCEPTED_SEND_MAX_RETRY_MS`.
+     * With automatic recovery enabled, that is how a crashed runtime recovers: the
+     * send that finds it reverts it, and the same message ID can never be accepted
+     * twice. Once a frame has arrived, the message was accepted and is never re-sent.
+     */
+    let taskId = "";
+    let settled = false;
+    const follow = async function* (): AsyncGenerator<StreamFrame> {
+      const resendUntil = Date.now() + UNACCEPTED_SEND_WINDOW_MS;
+      let resendWait = 0;
+      let received = false;
+      let source = stream;
+      for (let failures = 0; ; ) {
+        const opened = Date.now();
+        let progressed = false;
+        try {
+          for await (const frame of source) {
+            received = true;
+            if (frame.payload.case !== "task") progressed = true;
+            const event = frame.payload.value as
+              | { id?: string; taskId?: string; status?: TaskStatus }
+              | undefined;
+            const id = frame.payload.case === "task" ? event?.id : event?.taskId;
+            if (id) taskId = id;
+            if (event?.status) {
+              settled = !["working", "submitted"].includes(turnState(event.status.state));
+            }
+            yield frame;
+          }
+          return;
+        } catch (error) {
+          const resendAfter = received ? undefined : unacceptedSendRetryMs(error);
+          // A stopped message is never sent again: each refusal proved the last
+          // attempt was not accepted, so ending here leaves nothing running.
+          if (resendAfter !== undefined && !signal?.aborted && !stopResending?.aborted) {
+            resendWait = Math.max(resendAfter, Math.min(resendWait * 2, UNACCEPTED_SEND_MAX_RETRY_MS));
+            if (Date.now() + resendWait > resendUntil) {
+              const recovering = a2aRefusal(error)?.metadata.state === "RECOVERING";
+              throw refusedSendError(error, SEND_NOT_ACCEPTED, recovering
+                ? "The agent's runtime is still recovering from a crash."
+                : "The agent's runtime did not accept the message. It may have crashed.");
+            }
+            await pause(resendWait, signal, stopResending);
+            if (stopResending?.aborted) throw error;
+            source = client.sendStreamingMessage(request, options);
+            continue;
+          }
+          if (!received && !signal?.aborted && a2aRefusal(error)?.metadata.reason === TURN_ACTIVE) {
+            throw refusedSendError(error, TURN_ACTIVE);
+          }
+          if (progressed || Date.now() - opened >= REATTACH_HEALTHY_MS) failures = 0;
+          failures += 1;
+          const reattach = !signal?.aborted && taskId !== "" && !settled
+            && failures <= REATTACH_LIMIT && isBrokenTransport(error);
+          if (!reattach) throw error;
+          await pause(REATTACH_BACKOFF_MS * 2 ** (failures - 1), signal);
+          source = client.subscribeToTask({ tenant: conversation.agent, id: taskId }, options);
+        }
+      }
+    };
+
+    try {
+      for await (const frame of follow()) {
+        const payload = frame.payload;
+
+        if (payload.case === "statusUpdate") {
+          const event = payload.value as {
+            taskId: string;
+            status?: TaskStatus;
+          };
+          const status = event.status;
+          const message = status?.message;
+          const parts = visibleParts(toParts(message?.parts, message?.role), { hideRejected: true });
+          const state = turnState(status?.state);
+          /*
+           * The question, when this is the frame that parked the turn.
+           *
+           * Read from the message the status carried, which is where the runtime puts
+           * it — so the choices reach the transcript as the turn parks rather than
+           * waiting for the next read of history.
+           */
+          const awaiting = pendingRequestFromStatus(event.taskId, status);
+
+          if (
+            message &&
+            parts.length > 0 &&
+            (awaiting === undefined || awaiting.kind === "unknown")
+          ) {
+            const role = message.role === Role.AGENT ? "agent" : "user";
+            const createdAt = statusTime(status);
+
+            const id = message.messageId || nextId("message");
+
+            if (!delivered.has(id)) {
+              delivered.add(id);
+              if (role === "agent") {
+                statusReply = textOf(parts);
+              }
+              yield {
+                type: "message",
+                message: { id, role, parts, createdAt, taskId: event.taskId },
+              };
+            }
+          }
+
+          yield { type: "status", state, taskId: event.taskId, awaiting };
+          continue;
+        }
+
+        if (payload.case === "artifactUpdate") {
+          /*
+           * The way this runtime actually streams — measured, not assumed.
+           *
+           * A reply arrives as a run of `artifactUpdate` frames that all carry the
+           * *same* `artifactId`, one per token, and then a final frame repeating the
+           * whole answer. Captured from the controller on 2026-08-24 for "Say
+           * exactly: alpha beta gamma":
+           *
+           *   statusUpdate    WORKING
+           *   artifactUpdate  id=A  "alpha"                                (no append)
+           *   artifactUpdate  id=A  " beta"                                append: true
+           *   artifactUpdate  id=A  " gamma"                               append: true
+           *   artifactUpdate  id=A  "alpha beta gamma"                     lastChunk: true
+           *   statusUpdate    COMPLETED
+           *
+           * Every one of those used to be emitted as a whole message under the
+           * artifact's id — and because they share one id, each replaced the last.
+           * The transcript flickered through single tokens and then showed the entire
+           * answer at the moment the turn completed, which is precisely the reported
+           * symptom: "the streaming doesn't preserve the content and only shows the
+           * whole response once the message is complete."
+           *
+           * So `append` is honoured, exactly as the field is defined: true means add
+           * this to the artifact already sent under that id, and anything else is the
+           * artifact's content in full. The final frame is therefore a *replacement*
+           * carrying the server's own text — the same relationship the streamed status
+           * messages above already have with the message that closes their run.
+           */
+          const event = payload.value as {
+            taskId: string;
+            artifact?: Artifact;
+            append?: boolean;
+            lastChunk?: boolean;
+          };
+          const parts = visibleParts(toParts(event.artifact?.parts), {
+            hideRejected: true,
+          });
+          if (parts.length === 0) continue;
+
+          const body = textOf(parts);
+          const artifactId = event.artifact?.artifactId || "";
+          const known = artifactId !== "" && artifacts.has(artifactId);
+
+          if (known) {
+            const id = artifactId;
+            const previous = artifacts.get(id) ?? [];
+            const textOnly = previous.every((part) => part.kind === "text") &&
+              parts.every((part) => part.kind === "text");
+            const combined = event.append ? [...previous, ...parts] : parts;
+            const updated: ConversationPart[] = textOnly
+              ? [{ kind: "text", text: textOf(combined) }]
+              : combined;
+            artifacts.set(id, updated);
+            if (event.append && textOnly) {
+              yield { type: "delta", messageId: id, text: body };
+            } else {
+              yield {
+                type: "message",
+                message: {
+                  id,
+                  role: "agent",
+                  parts: updated,
+                  createdAt: new Date().toISOString(),
+                  taskId: event.taskId,
+                },
+              };
+            }
+            continue;
+          }
+
+          // First sight of this artifact. Dropped when it merely repeats prose the
+          // reader has already been shown as status text — the same reply arriving
+          // twice, which is the behaviour this branch was originally written for.
+          if (body !== "" && statusReply === body) {
+            statusReply = "";
+            continue;
+          }
+          // Text equality is only a compatibility check between adjacent wire
+          // representations of one reply. It is not artifact identity and must
+          // not survive across a real artifact or tool boundary.
+          statusReply = "";
+
+          const id = artifactId || nextId("artifact");
+          artifacts.set(id, parts);
+          yield {
+            type: "message",
+            message: {
+              id,
+              role: "agent",
+              parts,
+              createdAt: new Date().toISOString(),
+              taskId: event.taskId,
+            },
+          };
+          continue;
+        }
+
+        // A non-streaming agent answers with the whole task instead of updates.
+        if (payload.case === "task") {
+          const task = payload.value as A2ATask;
+          // An artifact is shown again from every snapshot rather than once: a
+          // later snapshot holds chunks that were sent while the stream was down.
+          const artifactIds = new Set(task.artifacts.map((artifact) => artifact.artifactId));
+          for (const message of messagesFromTask(task)) {
+            if (!artifactIds.has(message.id)) {
+              if (delivered.has(message.id)) continue;
+              delivered.add(message.id);
+            }
+            yield { type: "message", message };
+          }
+          // A re-attached stream opens with this snapshot, and an artifact still
+          // being streamed carries on with `append` chunks. Known here, the next
+          // chunk adds to what the snapshot showed instead of replacing it.
+          for (const artifact of task.artifacts) {
+            if (artifact.artifactId) {
+              artifacts.set(artifact.artifactId, toParts(artifact.parts));
+            }
+          }
+          yield {
+            type: "status",
+            state: turnState(task.status?.state),
+            taskId: task.id,
+            awaiting: pendingRequestFromStatus(task.id, task.status),
+          };
+          continue;
+        }
+
+        if (payload.case === "message") {
+          const message = payload.value as A2AMessage;
+          const parts = visibleParts(toParts(message.parts, message.role), { hideRejected: true });
+          if (parts.length === 0) continue;
+          const id = message.messageId || nextId("message");
+          if (delivered.has(id)) continue;
+          delivered.add(id);
+          yield {
+            type: "message",
+            message: {
+              id,
+              role: message.role === Role.AGENT ? "agent" : "user",
+              parts,
+              createdAt: new Date().toISOString(),
+              taskId: message.taskId || undefined,
+            },
+          };
+        }
+      }
+    } catch (error) {
+      // A caller-driven abort is the user pressing stop, not a failure.
+      rethrowIfAborted(error, signal);
+      if (signal?.aborted) return;
+      throw fromConnectError(error, "A2AService/SendStreamingMessage");
+    }
+  }
+
+  async cancel(conversation: ConversationRef, taskId: string): Promise<void> {
+    try {
+      await serviceClient(A2AService).cancelTask(
+        { tenant: conversation.agent, id: taskId },
+        this.callOptions(conversation),
+      );
+    } catch (error) {
+      throw fromConnectError(error, "A2AService/CancelTask");
+    }
+  }
+}
+
+/**
+ * The messages of a task, for replaying a conversation.
+ *
+ * The gateway repeats the first user message in `history`, so a repeat of a
+ * message already taken is skipped — without that, every reopened conversation
+ * shows its opening line twice.
+ *
+ * Identity is the message id, or the parts themselves when there is none, and
+ * deliberately not the text: a tool call and its result are consecutive agent
+ * messages carrying data parts and no text at all, so comparing text made them
+ * look identical and dropped the result — a replayed conversation showed every
+ * finished tool call still waiting to return.
+ *
+ * ## When these messages happened
+ *
+ * The task's own status timestamp, not the clock now. History messages carry no
+ * time of their own, so stamping them with the moment the conversation was
+ * reopened reads as true — a conversation replays in order and nothing on screen
+ * shows the time — and is wrong by however long ago the conversation was.
+ */
+export function messagesFromTask(task: A2ATask): ConversationMessage[] {
+  const messages: ConversationMessage[] = [];
+  const positioned: { message: ConversationMessage; position?: string }[] = [];
+  const taken = new Set<string>();
+  const createdAt = statusTime(task.status);
+  let pendingApproval: Extract<PendingRequest, { kind: "tool_approval" }> | undefined;
+  const pendingQuestions = new Map<
+    string,
+    Extract<PendingRequest, { kind: "ask_user" }>
+  >();
+  const hasCompleteTimeline = [...task.history, ...(task.status?.message ? [task.status.message] : []), ...task.artifacts]
+    .every((entry) => timelinePosition(entry.metadata) !== undefined);
+
+  const push = (message: A2AMessage) => {
+    const request = readHitlRequest(task.id, message.metadata, message.extensions);
+    if (request?.kind === "tool_approval") {
+      // The request's TextPart is descriptive protocol fallback. While pending the
+      // actionable card renders from task state; once answered the response below
+      // becomes the single, compact transcript record.
+      pendingApproval = request;
+      return;
+    }
+
+    if (request?.kind === "ask_user") {
+      // Like tool approval, the status message's text is protocol fallback. Keep
+      // the structured request until its correlated answer arrives, then render
+      // the whole exchange as one durable record.
+      pendingQuestions.set(request.requestId, request);
+      return;
+    }
+
+    const decisions = readToolApprovalResponse(message.metadata, message.extensions);
+    const answer = readAskUserResponse(message.metadata, message.extensions);
+    const question = answer ? pendingQuestions.get(answer.requestId) : undefined;
+    const parts: ConversationPart[] = decisions
+      ? [
+          {
+            kind: "tool_approval",
+            approval: {
+              tools: pendingApproval?.tools ?? [],
+              decisions,
+              askedBy: pendingApproval?.askedBy,
+            },
+          },
+        ]
+      : answer
+        ? [
+            {
+              kind: "ask_user",
+              interaction: {
+                questions: question?.questions ?? [],
+                answers: answer.answers,
+                askedBy: question?.askedBy,
+              },
+            },
+          ]
+      : toParts(message.parts, message.role);
+    if (decisions) pendingApproval = undefined;
+    if (answer) pendingQuestions.delete(answer.requestId);
+    if (parts.length === 0) return;
+    const identity =
+      message.messageId || JSON.stringify(message.parts.map((part) => part.content));
+    if (taken.has(identity)) return;
+    taken.add(identity);
+    const converted: ConversationMessage = {
+      /*
+       * Derived from the task and the position in it, never from a counter.
+       *
+       * The gateway does not name an agent reply, so this is the branch most replies
+       * take — and it used to take a process-wide counter, which meant the same reply
+       * came back as `history-1` on one read and `history-2` on the next. The
+       * transcript merge treats the id as identity, so on every re-read the copy
+       * already on screen stopped matching and was kept as a local extra, appended
+       * after everything the server sent: a reply from three turns ago reappearing
+       * under the newest one, and a refresh — which drops the local copy and the
+       * counter together — putting it right. Focus was enough to trigger it.
+       *
+       * Position within the task is stable for the same payload and unaffected by the
+       * task gaining later messages, which is all the merge needs.
+       */
+      id: message.messageId || `${task.id || "task"}-message-${messages.length}`,
+      role: message.role === Role.AGENT ? "agent" : "user",
+      parts,
+      createdAt,
+      taskId: task.id || undefined,
+    };
+    messages.push(converted);
+    positioned.push({ message: converted, position: timelinePosition(message.metadata) });
+  };
+
+  /*
+   * Sorted into three, because the gateway hands back two lists with no way to
+   * interleave them — see `interleaveTaskMessages`, which does the inferring and
+   * carries the reasoning.
+   *
+   * The split has to happen here rather than after conversion: what marks a reader
+   * turn as an answer is the HITL metadata on the A2A message, and a `ConversationMessage`
+   * does not carry it.
+   */
+  const openingCount = messages.length;
+  const answerAt: number[] = [];
+  for (const message of task.history) {
+    if (isAskUserResponse(message)) answerAt.push(messages.length);
+    push(message);
+  }
+  if (task.status?.message) push(task.status.message);
+
+  const fromHistory = messages.slice(openingCount);
+  const answered = new Set(answerAt.map((index) => index - openingCount));
+  const answers = fromHistory.filter((_, index) => answered.has(index));
+  const opening = [
+    ...messages.slice(0, openingCount),
+    ...fromHistory.filter((_, index) => !answered.has(index)),
+  ];
+
+  // An artifact repeating text already in the history is the same reply arriving
+  // twice, exactly as it is on a live stream.
+  const shown = new Set(messages.map((message) => textOf(message.parts)));
+  const agent: ConversationMessage[] = [];
+  for (const artifact of task.artifacts) {
+    const parts = toParts(artifact.parts);
+    const body = textOf(parts);
+    if (
+      parts.length === 0 ||
+      (!hasCompleteTimeline && body !== "" && shown.has(body))
+    ) continue;
+    const converted: ConversationMessage = {
+      // Derived, for the reason given against the message id above: an unnamed
+      // artifact renamed on every read is an artifact the merge cannot recognise.
+      id: artifact.artifactId || `${task.id || "task"}-artifact-${messages.length + agent.length}`,
+      role: "agent",
+      parts,
+      createdAt,
+      taskId: task.id || undefined,
+    };
+    agent.push(converted);
+    positioned.push({ message: converted, position: timelinePosition(artifact.metadata) });
+  }
+
+  // New records carry one server-authored order across history and artifacts.
+  // Keep the positional inference below for records written before this bridge.
+  let ordered: ConversationMessage[];
+  if (positioned.length > 0 && positioned.every(({ position }) => position !== undefined)) {
+    ordered = positioned
+      .sort((left, right) => left.position!.localeCompare(right.position!))
+      .map(({ message }) => message);
+  } else {
+    ordered = interleaveTaskMessages(opening, answers, agent);
+  }
+
+  const rejectedTools = new Set<string>();
+  for (const message of ordered) {
+    for (const part of message.parts) {
+      if (part.kind !== "tool_approval") continue;
+      const names = new Map(part.approval.tools.map((tool) => [tool.id, tool.name]));
+      for (const decision of part.approval.decisions) {
+        if (!decision.approved) rejectedTools.add(names.get(decision.id) ?? "");
+      }
+    }
+  }
+  return ordered
+    .map((message) => ({
+      ...message,
+      parts: visibleParts(message.parts, { hideRejected: rejectedTools }),
+    }))
+    .filter((message) => message.parts.length > 0);
+}
+
+function timelinePosition(metadata: JsonObject | undefined): string | undefined {
+  return metadataString(metadata, A2A_METADATA.timelinePosition);
+}
+
+/** Whether a reader's turn is answering an `ask_user` rather than opening a task. */
+function isAskUserResponse(message: A2AMessage): boolean {
+  const carried = (message.metadata as Record<string, unknown> | undefined)?.[
+    HITL_EXTENSION_URI
+  ] as { type?: unknown } | undefined;
+  return carried?.type === "ask_user_response";
+}

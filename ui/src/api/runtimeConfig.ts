@@ -3,7 +3,7 @@
  *
  * A thin derivation over `@/env`, which owns *how* settings reach the browser.
  * This module owns *what they mean*: the numeric timeout is validated here so a
- * bad value cannot reach the chat client, and every reader gets the coerced form
+ * bad value cannot reach the conversation client, and every reader gets the coerced form
  * rather than a string it has to parse for itself.
  *
  * Separate from `api/config.ts` on purpose: that file answers "which backend is
@@ -28,7 +28,7 @@ export interface BuiltinSkillsCatalog {
 export interface RuntimeConfig {
   /** Where "Sign in with SSO" sends the browser. */
   ssoRedirectPath: string;
-  /** Chat stream inactivity timeout before the client aborts. */
+  /** Conversation stream inactivity timeout before the client aborts. */
   streamTimeoutMs: number;
   /** Absent when the chart turns built-in skills off, so the UI offers none. */
   builtinSkills: BuiltinSkillsCatalog | undefined;
@@ -59,7 +59,7 @@ export function runtimeConfig(): RuntimeConfig {
 /**
  * The timeout, or the default when what was configured is not a usable number.
  *
- * A non-numeric or non-positive value would otherwise abort every chat stream
+ * A non-numeric or non-positive value would otherwise abort every conversation stream
  * immediately — a failure that looks like the backend hanging up, which is the
  * hardest kind of misconfiguration to trace back to its cause.
  */

@@ -18,7 +18,7 @@ const { Sider } = Layout;
 
 /**
  * Picks the nav key whose path is the longest prefix of the current location,
- * so /agents/foo/chat still highlights "Agents" while "/" only matches itself.
+ * so /agents/foo/conversation still highlights "Agents" while "/" only matches itself.
  */
 function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
   const match = items

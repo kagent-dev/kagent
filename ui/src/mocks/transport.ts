@@ -172,7 +172,7 @@ import {
   saveCheckpoint,
 } from "./state";
 import type { MockCheckpoint } from "./state";
-import { mockForkTranscript, mockLatestTaskId } from "@/api/chat/mockChatClient";
+import { mockForkTranscript, mockLatestTaskId } from "@/api/conversation/mockConversationClient";
 
 /** What a fake is told about the call it is answering. */
 interface MockCall {
@@ -278,8 +278,8 @@ export const mockTransport: Transport = {
   /**
    * Refused, loudly.
    *
-   * No operation in this app streams over gRPC — chat is A2A over HTTP and has its
-   * own fake (`@/api/chat/mockChatClient`). Answering with an empty stream would
+   * No operation in this app streams over gRPC — conversation is A2A over HTTP and has its
+   * own fake (`@/api/conversation/mockConversationClient`). Answering with an empty stream would
    * let a future streaming call look like it worked and returned nothing.
    */
   stream(method) {
@@ -919,7 +919,7 @@ on(SessionService.method.updateSessionName, (input, call) => {
 /*
  * Checkpoints, kept in `state.ts` the way the controller keeps them in a table.
  *
- * The boundary is read from the conversation itself rather than invented: the chat
+ * The boundary is read from the conversation itself rather than invented: the conversation
  * marks a message as checkpointed by matching its turn against `headTaskId`, so a
  * fixture that made one up would leave the mark on nothing.
  */

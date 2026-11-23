@@ -51,11 +51,11 @@ const loadedList: ApiResource<AgentInstance[]> = {
   isEmpty: false,
 };
 
-/** The rail as a chat page mounts it before the record lands: an id, and nothing else. */
+/** The rail as a conversation page mounts it before the record lands: an id, and nothing else. */
 function renderLoadingRail() {
   return render(
     <ThemeProvider theme={themeFor("dark")}>
-      <MemoryRouter initialEntries={["/agents/abc123/chat"]}>
+      <MemoryRouter initialEntries={["/agents/abc123/conversation"]}>
         <AgentRail instanceRef={{ id: "abc123" }} instances={loadingList} />
       </MemoryRouter>
     </ThemeProvider>,
@@ -66,7 +66,7 @@ describe("the agent rail while the conversation is being read", () => {
   it("draws the select-all box, and does not let it be used yet", () => {
     renderLoadingRail();
 
-    const selectAll = screen.getByTestId("chat-select-all");
+    const selectAll = screen.getByTestId("conversation-select-all");
     expect(selectAll).toBeInTheDocument();
     expect(
       selectAll instanceof HTMLInputElement
@@ -101,10 +101,10 @@ describe("the agent rail while the conversation is being read", () => {
     expect(getComputedStyle(secondary).minHeight).toBe("16px");
   });
 
-  it("uses the listed conversation to keep the agent and sibling chats stable", () => {
+  it("uses the listed conversation to keep the agent and sibling conversations stable", () => {
     render(
       <ThemeProvider theme={themeFor("dark")}>
-        <MemoryRouter initialEntries={["/agents/abc123/chat"]}>
+        <MemoryRouter initialEntries={["/agents/abc123/conversation"]}>
           <AgentRail instanceRef={{ id: "abc123" }} instances={loadedList} />
         </MemoryRouter>
       </ThemeProvider>,
@@ -115,12 +115,12 @@ describe("the agent rail while the conversation is being read", () => {
       "href",
       "/agents/default/alpha",
     );
-    expect(screen.getByTestId("chat-new-session")).toHaveAttribute(
+    expect(screen.getByTestId("rail-new-conversation")).toHaveAttribute(
       "href",
       "/agents/default/alpha/new",
     );
-    expect(screen.getByTestId("chat-session-abc123")).toBeInTheDocument();
-    expect(screen.getByTestId("chat-session-sibling456")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat-session-other789")).toBeNull();
+    expect(screen.getByTestId("rail-conversation-abc123")).toBeInTheDocument();
+    expect(screen.getByTestId("rail-conversation-sibling456")).toBeInTheDocument();
+    expect(screen.queryByTestId("rail-conversation-other789")).toBeNull();
   });
 });

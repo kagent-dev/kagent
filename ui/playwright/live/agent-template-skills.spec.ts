@@ -11,7 +11,7 @@ import { pressOnce } from "../helpers/resource";
  *
  * Needs the chart's built-in skills catalog in `KAGENT_UI_BUILTIN_SKILLS` (the value the
  * chart writes to the UI ConfigMap), the `kagent` Harness and `default-model-config` in
- * `kagent`. The chat test also needs a working model behind `default-model-config`.
+ * `kagent`. The conversation test also needs a working model behind `default-model-config`.
  */
 
 const NAMESPACE = "kagent";
@@ -192,9 +192,9 @@ test("live: agent template skills are saved, read back and kept through an edit"
   });
 });
 
-test("live: an agent built with a kagent skill loads it in chat", async ({ page }, testInfo) => {
+test("live: an agent built with a kagent skill loads it in conversation", async ({ page }, testInfo) => {
   test.setTimeout(READY_TIMEOUT + 300_000);
-  const name = throwawayName("skill-chat");
+  const name = throwawayName("skill-conversation");
 
   await test.step("1. create an Agent whose inline template has only the kagent skill", async () => {
     await loadLive(page, liveRoutes.agentNew);
@@ -232,28 +232,28 @@ test("live: an agent built with a kagent skill loads it in chat", async ({ page 
   await test.step("3. asked about a crashing pod, it loads the skill", async () => {
     await page.getByTestId(`agent-link-${NAMESPACE}-${name}`).click();
     await page
-      .getByTestId("chat-input")
+      .getByTestId("conversation-input")
       .fill(
         // Not "word for word": Azure OpenAI's content filter reads that as a jailbreak and refuses the request.
         "A pod in namespace default is in CrashLoopBackOff. Which of your skills applies? Load it, then tell me the opening line of its instructions in quotes.",
       );
-    await page.getByTestId("chat-send").click();
-    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 60_000 });
+    await page.getByTestId("conversation-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/conversation$/, { timeout: 60_000 });
     // The turn has started once the agent says something, and has ended once it can no longer be cancelled.
-    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]').first()).toBeVisible({ timeout: 240_000 });
-    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 240_000 });
+    await expect(page.locator('[data-testid="conversation-message"][data-role="agent"]').first()).toBeVisible({ timeout: 240_000 });
+    await expect(page.getByTestId("conversation-cancel")).toHaveCount(0, { timeout: 240_000 });
 
-    const call = page.locator('[data-testid="chat-tool-call"][data-tool-name="load_skill"]');
+    const call = page.locator('[data-testid="conversation-tool-call"][data-tool-name="load_skill"]');
     await expect(call.first()).toBeVisible();
-    await expect(call.first().getByTestId("chat-tool-payload")).toContainText(BUILTIN);
+    await expect(call.first().getByTestId("conversation-tool-payload")).toContainText(BUILTIN);
     // The skill's own text, from opt/kagent-tools-skills/skills/k8s-troubleshooting/SKILL.md in the kagent-tools image.
-    const loaded = page.locator('[data-testid="chat-tool-result"][data-tool-name="load_skill"]');
-    await expect(loaded.first().getByTestId("chat-tool-payload")).toContainText("Work from symptoms to cause.");
+    const loaded = page.locator('[data-testid="conversation-tool-result"][data-tool-name="load_skill"]');
+    await expect(loaded.first().getByTestId("conversation-tool-payload")).toContainText("Work from symptoms to cause.");
     // The reply's wording varies between runs (it sometimes quotes the heading), so the
     // skill's text is checked in the tool result above, not in the reply.
-    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]').last()).not.toBeEmpty();
-    await page.screenshot({ path: testInfo.outputPath("chat-reply.png"), fullPage: true });
-    testInfo.annotations.push({ type: "session", description: new URL(page.url()).pathname.split("/")[2] });
+    await expect(page.locator('[data-testid="conversation-message"][data-role="agent"]').last()).not.toBeEmpty();
+    await page.screenshot({ path: testInfo.outputPath("conversation-reply.png"), fullPage: true });
+    testInfo.annotations.push({ type: "conversation", description: new URL(page.url()).pathname.split("/")[2] });
   });
 });
 

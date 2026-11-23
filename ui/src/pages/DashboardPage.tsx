@@ -110,7 +110,7 @@ export function DashboardPage() {
    * The hook reads one task list per conversation and only for the ones nobody has
    * named, so this is at most five reads and usually fewer — well inside the budget it
    * enforces for the rail, which does the same thing for thirty. Without it a card
-   * headed "Recent agent chat sessions" lists rows called "Untitled", which is true and
+   * headed "Recent agent conversations" lists rows called "Untitled", which is true and
    * useless.
    */
   const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(recent);
@@ -281,7 +281,7 @@ function RecentAgent({
     >
       <div css={{ minWidth: 0 }}>
         <Link
-          to={buildPath(paths.agentChat, { id: row.id })}
+          to={buildPath(paths.agentConversation, { id: row.id })}
           css={{ fontWeight: 500 }}
         >
           {/* The name the reader gave it, the title derived from its first message, or

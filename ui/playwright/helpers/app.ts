@@ -76,7 +76,7 @@ export const agentPage = (
  * has. Nothing is created until the first message is sent, which is why the two are
  * different addresses rather than the same one behaving differently.
  */
-export const agentNewChat = (
+export const agentNewConversation = (
   agent: { name?: string; template: string; harness: string },
   namespace = "kagent",
 ) => `${agentPage(agent, namespace)}/new`;
@@ -93,8 +93,8 @@ export const agentNewChat = (
 export const SIBLING_OF_READY = instances.idle;
 
 /** Where one agent's conversation lives. */
-export const agentChat = (id: string) =>
-  `/agents/${id}/chat`;
+export const agentConversation = (id: string) =>
+  `/agents/${id}/conversation`;
 
 /** Where one agent's record lives. */
 export const agentDetail = (id: string) =>

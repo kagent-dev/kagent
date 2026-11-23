@@ -106,7 +106,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     const conversation = page.getByTestId("execution-conversation").first();
     await expect(conversation).toHaveAttribute(
       "href",
-      "/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat",
+      "/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/conversation",
     );
     await expect(conversation.locator("svg")).toHaveCount(1);
   });
@@ -141,7 +141,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     // is what this pins: the click would then unfold the row on the way out, and only
     // this assertion would notice.
     await row.getByTestId("execution-conversation").click();
-    await expect(page).toHaveURL("/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat");
+    await expect(page).toHaveURL("/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/conversation");
     await expect(page.getByTestId("execution-detail")).toHaveCount(0);
     await page.goBack();
     await expect(page).toHaveURL(`/schedules/${SEEDED}`);

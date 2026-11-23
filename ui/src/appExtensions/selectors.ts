@@ -17,7 +17,7 @@ import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import type {
   AppExtensionConfig,
   ExtensionAgentLinks,
-  ExtensionChatPartRenderers,
+  ExtensionConversationPartRenderers,
   ExtensionNavItemContribution,
   ExtensionRouteContribution,
   ExtensionRouteHandle,
@@ -186,9 +186,9 @@ export function extensionProviderIcons(
   return mergeDefined(extensions.map((extension) => extension.providerIcons));
 }
 
-/** Chat part renderers from every extension, later ones replacing earlier keys. */
-export function extensionChatPartRenderers(
+/** Conversation part renderers from every extension, later ones replacing earlier keys. */
+export function extensionConversationPartRenderers(
   extensions: readonly AppExtensionConfig[],
-): ExtensionChatPartRenderers {
-  return mergeDefined(extensions.map((extension) => extension.chatPartRenderers));
+): ExtensionConversationPartRenderers {
+  return mergeDefined(extensions.map((extension) => extension.conversationPartRenderers));
 }

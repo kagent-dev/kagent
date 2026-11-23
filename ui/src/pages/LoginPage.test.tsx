@@ -38,12 +38,12 @@ function renderAt(entry: string) {
  */
 describe("LoginPage sign-in destination", () => {
   it("returns the reader to the page the proxy intercepted", async () => {
-    renderAt("/login?rd=%2Fagents%2Fkagent%2Fk8s-agent%2Fchat");
+    renderAt("/login?rd=%2Fagents%2Fkagent%2Fk8s-agent%2Fconversation");
 
     await userEvent.click(screen.getByTestId("login-submit"));
 
     expect(assign).toHaveBeenCalledWith(
-      "/oauth2/start?rd=%2Fagents%2Fkagent%2Fk8s-agent%2Fchat",
+      "/oauth2/start?rd=%2Fagents%2Fkagent%2Fk8s-agent%2Fconversation",
     );
   });
 

@@ -406,7 +406,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // row of its own: the rail names the agent and holds both, so the offer of a new
     // conversation is what says the page arrived.
     await page.waitForURL(/\/agents\/kagent\/k8s-agent-7f3a91c$/);
-    await expect(page.getByTestId("chat-new-session")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("rail-new-conversation")).toBeVisible({ timeout: 30_000 });
   });
 
   await test.step("14. an empty result says so instead of showing a bare table", async () => {

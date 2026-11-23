@@ -154,7 +154,7 @@ func capturableImage(content mcpsdk.Content, captured, count int) (*mcpsdk.Image
 	return image, cost
 }
 
-// isRenderableImage mirrors RENDERABLE_IMAGE in ui/src/components/chat/toolImages.ts.
+// isRenderableImage mirrors RENDERABLE_IMAGE in ui/src/components/conversation/toolImages.ts.
 func isRenderableImage(mimeType string) bool {
 	switch strings.ToLower(mimeType) {
 	case "image/png", "image/jpeg", "image/gif", "image/webp":

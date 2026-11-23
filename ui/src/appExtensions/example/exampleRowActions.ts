@@ -12,6 +12,6 @@ export const exampleEditInWindowAction: ExtensionRowAction = {
   id: "exampleEditInWindow",
   menuId: "app_agents_agentsList_rowMenu",
   label: "Open edit page",
-  // The edit page rather than a new chat: opening it again changes nothing.
+  // The edit page rather than a new conversation: opening it again changes nothing.
   link: ({ namespace, name }) => buildPath(paths.agentEdit, { namespace, name }),
 };

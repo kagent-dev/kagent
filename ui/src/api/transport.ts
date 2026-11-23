@@ -15,7 +15,7 @@
  * on its own. `registerAuthTokenSource` exists for the deployments that instead
  * hold a bearer token in the page — gRPC-Web carries it as call metadata rather
  * than as a header the caller sets, which is why it cannot reuse anything the
- * chat client does.
+ * conversation client does.
  *
  * ## Why the interceptors wrap the transport instead of living inside it
  *
@@ -265,7 +265,7 @@ function writeHeaders(headers: Headers, record: Record<string, string>): void {
  * descriptor. Moving the RPCs is `registerApiBaseUrlResolver`, which is documented
  * above as the seam for exactly that.
  *
- * Server-streaming calls go through the same chain, which they must: the chat
+ * Server-streaming calls go through the same chain, which they must: the conversation
  * reply is `A2AService/SendStreamingMessage` over gRPC-Web, and a stream that
  * bypassed this would miss the bearer token and the share token while looking
  * like it worked — a shared conversation would silently be read unauthenticated.
