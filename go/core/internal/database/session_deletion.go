@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
@@ -103,6 +104,7 @@ func finishDeletedSessionTasks(ctx context.Context, tx pgx.Tx, row sessionRow) e
 		now := time.Now().UTC()
 		task.Status = a2a.TaskStatus{State: a2a.TaskStateCanceled, Timestamp: &now,
 			Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart("Session deleted while the turn was active."))}
+		apia2a.SetItemTimestamps(task.Status.Message, now, now)
 		event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}
 		if err := storeSessionTaskEvent(ctx, tx, row, task, event, false); err != nil {
 			return err

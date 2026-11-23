@@ -61,6 +61,24 @@ type activeTool struct {
 	approvalMatched bool
 }
 
+type itemNotification struct {
+	ThreadID, TurnID string
+	Item             json.RawMessage
+	StartedAtMs      *int64 `json:"startedAtMs"`
+	CompletedAtMs    *int64 `json:"completedAtMs"`
+}
+
+func (n itemNotification) producedAt(completed bool) time.Time {
+	millis := n.StartedAtMs
+	if completed {
+		millis = n.CompletedAtMs
+	}
+	if millis == nil {
+		return time.Time{}
+	}
+	return time.UnixMilli(*millis)
+}
+
 func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) (runtime.Outcome, bool, error) {
 	if subagent, err := t.subagentItem(message, sink); err != nil || subagent {
 		return runtime.Outcome{}, false, err
@@ -79,17 +97,14 @@ func (t *eventTranslator) translate(message rpcMessage, sink runtime.EventSink) 
 		}
 		return runtime.Outcome{}, false, sink.TextDelta(runtime.TextDelta{Text: params.Delta})
 	case "item/started", "item/completed":
-		var params struct {
-			ThreadID, TurnID string
-			Item             json.RawMessage
-		}
+		var params itemNotification
 		if err := json.Unmarshal(message.Params, &params); err != nil {
 			return runtime.Outcome{}, false, fmt.Errorf("decode Codex item event: %w", err)
 		}
 		if params.ThreadID != t.threadID || params.TurnID != t.turnID {
 			return runtime.Outcome{}, false, fmt.Errorf("codex item event has mismatched identity")
 		}
-		if err := t.translateItem(message.Method == "item/completed", params.Item, params.ThreadID, "", sink); err != nil {
+		if err := t.translateItem(message.Method == "item/completed", params, "", sink); err != nil {
 			return runtime.Outcome{}, false, err
 		}
 		return runtime.Outcome{}, false, nil
@@ -276,10 +291,7 @@ func (t *eventTranslator) subagentItem(message rpcMessage, sink runtime.EventSin
 	if message.Method != "item/started" && message.Method != "item/completed" {
 		return false, nil
 	}
-	var params struct {
-		ThreadID string
-		Item     json.RawMessage
-	}
+	var params itemNotification
 	if err := json.Unmarshal(message.Params, &params); err != nil {
 		return false, fmt.Errorf("decode Codex item event: %w", err)
 	}
@@ -297,10 +309,11 @@ func (t *eventTranslator) subagentItem(message rpcMessage, sink runtime.EventSin
 	if started, open := t.tools[item.ID]; open != completed || (completed && started.thread != params.ThreadID) {
 		return true, nil
 	}
-	return true, t.translateItem(completed, params.Item, params.ThreadID, spawn, sink)
+	return true, t.translateItem(completed, params, spawn, sink)
 }
 
-func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thread, parentToolID string, sink runtime.EventSink) error {
+func (t *eventTranslator) translateItem(completed bool, params itemNotification, parentToolID string, sink runtime.EventSink) error {
+	thread := params.ThreadID
 	var item struct {
 		Type              string   `json:"type"`
 		ID                string   `json:"id"`
@@ -318,7 +331,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 		Status            string   `json:"status"`
 		ReceiverThreadIDs []string `json:"receiverThreadIds"`
 	}
-	if err := json.Unmarshal(raw, &item); err != nil {
+	if err := json.Unmarshal(params.Item, &item); err != nil {
 		return fmt.Errorf("decode Codex thread item: %w", err)
 	}
 	if item.ID == "" {
@@ -377,6 +390,7 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 		}
 		return sink.ToolCall(runtime.ToolCall{
 			ID: item.ID, Name: name, Arguments: arguments, MCPServer: mcpServer, MCPTool: mcpTool, ParentToolID: parentToolID,
+			ProducedAt: params.producedAt(completed),
 		})
 	}
 	started, exists := t.tools[item.ID]
@@ -391,7 +405,10 @@ func (t *eventTranslator) translateItem(completed bool, raw json.RawMessage, thr
 	if item.Status == "declined" {
 		status = runtime.ToolDeclined
 	}
-	return sink.ToolResult(runtime.ToolResult{ID: item.ID, Name: name, Result: result, IsError: item.Status == "failed", Status: status})
+	return sink.ToolResult(runtime.ToolResult{
+		ID: item.ID, Name: name, Result: result, IsError: item.Status == "failed", Status: status,
+		ProducedAt: params.producedAt(completed),
+	})
 }
 
 func (t *eventTranslator) closeActiveTools(sink runtime.EventSink) error {

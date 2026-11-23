@@ -238,7 +238,7 @@ func settleCrashedSessionTasks(ctx context.Context, tx pgx.Tx, session sessionRo
 		}
 		task.Status = a2a.TaskStatus{State: a2a.TaskStateFailed, Timestamp: new(time.Now().UTC()),
 			Message: a2a.NewMessage(a2a.MessageRoleAgent, a2a.NewTextPart(reason))}
-		apia2a.SetTimelinePosition(task.Status.Message, *task.Status.Timestamp)
+		apia2a.SetItemTimestamps(task.Status.Message, *task.Status.Timestamp, *task.Status.Timestamp)
 		event := &a2a.TaskStatusUpdateEvent{TaskID: task.ID, ContextID: task.ContextID, Status: task.Status}
 		if err := storeSessionTaskEvent(ctx, tx, session, task, event, false); err != nil {
 			return err

@@ -1,6 +1,10 @@
 package driver
 
-import "github.com/kagent-dev/kagent/go/harness/runtime"
+import (
+	"time"
+
+	"github.com/kagent-dev/kagent/go/harness/runtime"
+)
 
 type EventKind string
 
@@ -18,12 +22,13 @@ const (
 // parsing details stay here and are normalized before reaching shared runtime
 // code.
 type Event struct {
-	Kind      EventKind
-	SessionID string
-	Text      string
-	ToolID    string
-	ToolName  string
-	ToolPhase string
+	Kind       EventKind
+	SessionID  string
+	Text       string
+	ToolID     string
+	ToolName   string
+	ToolPhase  string
+	ProducedAt time.Time
 	// ParentToolID is the Agent call whose subagent started the tool.
 	ParentToolID string
 	ToolResult   any

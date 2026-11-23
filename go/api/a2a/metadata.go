@@ -8,6 +8,7 @@ import (
 
 const (
 	MetadataPrefix              = "kagent.dev/a2a/"
+	ProducedAtMetadataKey       = MetadataPrefix + "produced-at"
 	TimelinePositionMetadataKey = MetadataPrefix + "timeline-position"
 	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
 	PartTypeMetadataKey         = MetadataPrefix + "part-type"
@@ -25,6 +26,22 @@ func IsThought(part *a2atype.Part) bool {
 	return thought
 }
 
+// SetItemTimestamps records the item's wall-clock time and its legacy ordering key.
+func SetItemTimestamps(carrier a2atype.MetadataCarrier, producedAt, timelinePosition time.Time) {
+	SetProducedAt(carrier, producedAt)
+	SetTimelinePosition(carrier, timelinePosition)
+}
+
+// SetProducedAt records the wall-clock time when the item was produced.
+func SetProducedAt(carrier a2atype.MetadataCarrier, producedAt time.Time) {
+	carrier.SetMeta(ProducedAtMetadataKey, producedAt.UTC().Format(time.RFC3339Nano))
+}
+
+// ProducedAt reads the item's wall-clock timestamp.
+func ProducedAt(carrier a2atype.MetadataCarrier) (time.Time, bool) {
+	return metadataTimestamp(carrier, ProducedAtMetadataKey)
+}
+
 // SetTimelinePosition records the temporary task-timeline ordering key.
 func SetTimelinePosition(carrier a2atype.MetadataCarrier, position time.Time) {
 	carrier.SetMeta(TimelinePositionMetadataKey, position.UTC().Format(time.RFC3339Nano))
@@ -32,15 +49,19 @@ func SetTimelinePosition(carrier a2atype.MetadataCarrier, position time.Time) {
 
 // TimelinePosition reads the temporary task-timeline ordering key.
 func TimelinePosition(carrier a2atype.MetadataCarrier) (time.Time, bool) {
+	return metadataTimestamp(carrier, TimelinePositionMetadataKey)
+}
+
+func metadataTimestamp(carrier a2atype.MetadataCarrier, key string) (time.Time, bool) {
 	if carrier == nil {
 		return time.Time{}, false
 	}
-	value, ok := carrier.Meta()[TimelinePositionMetadataKey].(string)
+	value, ok := carrier.Meta()[key].(string)
 	if !ok {
 		return time.Time{}, false
 	}
-	position, err := time.Parse(time.RFC3339Nano, value)
-	return position, err == nil
+	timestamp, err := time.Parse(time.RFC3339Nano, value)
+	return timestamp, err == nil
 }
 
 // SetTaskCreatedAt records the durable creation time used by task projections.
@@ -85,6 +106,7 @@ func clearGatewayMessageMetadata(message *a2atype.Message) {
 }
 
 func clearGatewayMetadata(metadata map[string]any) {
+	delete(metadata, ProducedAtMetadataKey)
 	delete(metadata, TimelinePositionMetadataKey)
 	delete(metadata, TaskCreatedAtMetadataKey)
 }

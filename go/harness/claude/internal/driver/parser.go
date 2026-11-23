@@ -660,7 +660,7 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, l
 					p.openCall.End = p.now()
 				}
 			}
-			if err := emit(Event{Kind: EventToolActivity, ToolID: content.ID, ToolName: content.Name, ToolPhase: "started", Metadata: content.Input, ParentToolID: parent}); err != nil {
+			if err := emit(Event{Kind: EventToolActivity, ToolID: content.ID, ToolName: content.Name, ToolPhase: "started", Metadata: content.Input, ParentToolID: parent, ProducedAt: lineTime}); err != nil {
 				return err
 			}
 		}
@@ -708,7 +708,7 @@ func (p *parser) parseUser(ctx context.Context, raw, toolUseResult json.RawMessa
 		toolUseResult = nil
 		if err := emit(Event{
 			Kind: EventToolActivity, ToolID: content.ToolUseID, ToolName: name,
-			ToolPhase: "completed", ToolResult: result, ToolError: content.IsError,
+			ToolPhase: "completed", ToolResult: result, ToolError: content.IsError, ProducedAt: lineTime,
 		}); err != nil {
 			return err
 		}

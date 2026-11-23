@@ -358,7 +358,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 				failureMessage = runtime.ErrSessionAbandoned.Error()
 			}
 			message := taskMessage(reqCtx, failureMessage)
-			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
+			sink.stampItem(message, time.Time{})
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
@@ -393,7 +393,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
 			endInvocation()
-			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
+			sink.stampItem(message, time.Time{})
 			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
 			return
 		}
@@ -412,7 +412,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
 		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
-		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
+		sink.stampItem(message, time.Time{})
 		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
 	}
 }
@@ -479,7 +479,7 @@ func (s *executionSink) TextDelta(event runtime.TextDelta) error {
 	if s.textArtifactID == "" {
 		update = a2atype.NewArtifactEvent(s.reqCtx, a2atype.NewTextPart(event.Text))
 		s.textArtifactID = update.Artifact.ID
-		apia2a.SetTimelinePosition(update.Artifact, s.nextTimelinePosition())
+		s.stampItem(update.Artifact, time.Time{})
 	} else {
 		update = a2atype.NewArtifactUpdateEvent(s.reqCtx, s.textArtifactID, a2atype.NewTextPart(event.Text))
 	}
@@ -498,7 +498,7 @@ func (s *executionSink) ToolCall(event runtime.ToolCall) error {
 		s.toolCalls++
 	}
 	s.startToolSpan(event)
-	return s.emitToolArtifact(part)
+	return s.emitToolArtifact(part, event.ProducedAt)
 }
 
 func (s *executionSink) ToolResult(event runtime.ToolResult) error {
@@ -507,30 +507,35 @@ func (s *executionSink) ToolResult(event runtime.ToolResult) error {
 		return err
 	}
 	s.endToolSpan(event)
-	return s.emitToolArtifact(part)
+	return s.emitToolArtifact(part, event.ProducedAt)
 }
 
-func (s *executionSink) emitToolArtifact(part *a2atype.Part) error {
+func (s *executionSink) emitToolArtifact(part *a2atype.Part, producedAt time.Time) error {
 	// Append relates deltas within one contiguous text run. Tool activity closes
 	// that run and is an agent-produced artifact of its own, matching the Go ADK's
 	// OutputArtifactPerEvent representation.
 	s.textArtifactID = ""
 	update := a2atype.NewArtifactEvent(s.reqCtx, part)
 	update.LastChunk = true
-	apia2a.SetTimelinePosition(update.Artifact, s.nextTimelinePosition())
+	s.stampItem(update.Artifact, producedAt)
 	if !s.yield(update, nil) {
 		return errYieldStopped
 	}
 	return nil
 }
 
-func (s *executionSink) nextTimelinePosition() time.Time {
-	position := time.Now().UTC()
+func (s *executionSink) stampItem(carrier a2atype.MetadataCarrier, producedAt time.Time) {
+	emittedAt := time.Now().UTC()
+	if producedAt.IsZero() {
+		producedAt = emittedAt
+	}
+	// The legacy ordering key follows emission order even if source clocks disagree.
+	position := emittedAt
 	if !position.After(s.lastPosition) {
 		position = s.lastPosition.Add(time.Nanosecond)
 	}
 	s.lastPosition = position
-	return position
+	apia2a.SetItemTimestamps(carrier, producedAt, position)
 }
 
 func toolCallPart(event runtime.ToolCall) (*a2atype.Part, error) {

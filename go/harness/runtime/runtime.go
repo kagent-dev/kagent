@@ -81,6 +81,8 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments map[string]any
+	// ProducedAt is the driver-provided event time. Zero uses adapter emission time.
+	ProducedAt time.Time
 	// MCPServer and MCPTool are set for an MCP tool, such as kagent and k8s_get.
 	// Name keeps the harness's full name, such as mcp__kagent__k8s_get for Claude.
 	MCPServer, MCPTool string
@@ -95,6 +97,8 @@ type ToolResult struct {
 	Result  any
 	IsError bool
 	Status  ToolStatus
+	// ProducedAt is the driver-provided event time. Zero uses adapter emission time.
+	ProducedAt time.Time
 }
 
 // ToolStatus says whether a tool call ran. The zero value means it ran and returned a result.

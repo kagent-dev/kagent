@@ -55,7 +55,7 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 				Agent:     &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
 			original := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			originalPosition := time.Now().Add(-time.Hour).UTC()
-			apia2a.SetTimelinePosition(original, originalPosition)
+			apia2a.SetItemTimestamps(original, originalPosition, originalPosition)
 			tasks := &interactionTestStore{task: &a2atype.Task{ID: "task", ContextID: id,
 				Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired}, History: []*a2atype.Message{original}}}
 			if test.accepted {
@@ -64,14 +64,19 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			service := NewInteractionService(tasks, nil, NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false, false)
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("Approved"))
 			message.ID, message.ContextID, message.TaskID = original.ID, id, test.taskID
-			apia2a.SetTimelinePosition(message, time.Unix(1, 0))
+			callerTime := time.Unix(1, 0)
+			apia2a.SetItemTimestamps(message, callerTime, callerTime)
 			before := time.Now().UTC()
 			prepared, err := service.PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if test.accepted {
-				position, ok := apia2a.TimelinePosition(prepared.AcceptedTask.History[0])
+				accepted := prepared.AcceptedTask.History[0]
+				position, ok := apia2a.TimelinePosition(accepted)
+				if producedAt := accepted.Metadata[apia2a.ProducedAtMetadataKey]; producedAt != originalPosition.Format(time.RFC3339Nano) {
+					t.Fatalf("accepted retry produced-at = %v, want original time %v", producedAt, originalPosition)
+				}
 				if !ok || !position.Equal(originalPosition) || prepared.DispatchID != uuid.Nil {
 					t.Fatal("accepted retry changed the original timeline or granted dispatch")
 				}
@@ -80,6 +85,9 @@ func TestPrepareSendStampsInboundTimeline(t *testing.T) {
 			position, ok := apia2a.TimelinePosition(message)
 			if !ok || position.Before(before) || position.After(time.Now().UTC()) || prepared.DispatchID == uuid.Nil {
 				t.Fatalf("dispatched input position = %v, want server time after %v", position, before)
+			}
+			if producedAt := message.Metadata[apia2a.ProducedAtMetadataKey]; producedAt != position.Format(time.RFC3339Nano) {
+				t.Fatalf("dispatched input produced-at = %v, want server time %v", producedAt, position)
 			}
 		})
 	}
