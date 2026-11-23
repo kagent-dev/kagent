@@ -55,9 +55,8 @@ export async function expectNoLoadFailure(page: Page): Promise<void> {
 export const rowNamed = (page: Page, text: string) =>
   page.locator("tbody tr").filter({ hasText: text });
 
-/** Rows that carry data, excluding the placeholder antd renders when there are none. */
-export const dataRows = (page: Page) =>
-  page.locator("tbody tr").filter({ hasNot: page.locator(".ant-table-placeholder") });
+/** Rows that carry data, excluding antd's placeholder and hidden measure rows. */
+export const dataRows = (page: Page) => page.locator("tbody tr.ant-table-row");
 
 /**
  * A name no human would choose, carrying the run that made it.
