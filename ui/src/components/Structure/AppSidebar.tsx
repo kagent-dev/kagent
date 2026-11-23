@@ -9,8 +9,7 @@ import {
   ExtensionSlot,
   applyNavOverrides,
   buildSidebarSections,
-  activeKeyFor,
-  isNavPathActive,
+  activeSidebarKey,
   useExtensionNavItems,
   useExtensionNavOverrides,
 } from "@/appExtensions";
@@ -85,6 +84,7 @@ export function AppSidebar() {
     applyNavOverrides(coreNavItems, navOverrides),
     extensionNavItems,
   );
+  const activeKey = activeSidebarKey(pathname, sections);
 
   return (
     <Sider
@@ -141,7 +141,7 @@ export function AppSidebar() {
             mode="inline"
             inlineIndent={NAV_INSET}
             inlineCollapsed={collapsed}
-            selectedKeys={activeKeyFor(pathname, section.items)}
+            selectedKeys={activeKey === undefined ? [] : [activeKey]}
             css={{ borderInlineEnd: "none" }}
             /*
              * The whole row stays clickable, but not when the click was already the
@@ -165,10 +165,7 @@ export function AppSidebar() {
           ) : (
             <section.item.Component
               key={section.key}
-              isActive={
-                section.item.path !== undefined &&
-                isNavPathActive(section.item.path, pathname)
-              }
+              isActive={activeKey === section.key}
               collapsed={collapsed}
             />
           ),

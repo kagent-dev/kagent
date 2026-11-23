@@ -56,9 +56,8 @@ export function buildSidebarSections(
 }
 
 /**
- * Whether a nav path is the one the current location is under. Longest-prefix
- * matching lives in the sidebar; this is the per-item predicate it uses, shared
- * so extension items highlight on exactly the same rule as core ones.
+ * Whether a nav path is the one the current location is under. The per-prefix
+ * predicate `activeKeyFor` ranks by length to pick the one highlighted entry.
  */
 export function isNavPathActive(path: string, pathname: string): boolean {
   return path === "/" ? pathname === "/" : pathname.startsWith(path);
@@ -70,7 +69,10 @@ export function isNavPathActive(path: string, pathname: string): boolean {
  * itself. Ranking every prefix by length, rather than preferring `path`, keeps an
  * entry's own page ahead of another entry's broader `activePaths` claim.
  */
-export function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
+export function activeKeyFor(
+  pathname: string,
+  items: readonly Pick<NavItem, "key" | "path" | "activePaths">[],
+): string[] {
   let best: { key: string; length: number } | undefined;
   for (const item of items) {
     for (const prefix of [item.path, ...(item.activePaths ?? [])]) {
@@ -80,4 +82,26 @@ export function activeKeyFor(pathname: string, items: readonly NavItem[]): strin
     }
   }
   return best ? [best.key] : [];
+}
+
+/**
+ * The one sidebar entry the current location belongs to, ranked across every section.
+ *
+ * Ranking each section alone let two entries light up at once: an extension item
+ * splits the core entries into separate menus, and each menu picked its own winner.
+ * Extension items with a `path` compete too, under their section key, so a product
+ * page under `/harnesses` highlights its own entry rather than Agents beside it.
+ */
+export function activeSidebarKey(
+  pathname: string,
+  sections: readonly SidebarSection[],
+): string | undefined {
+  const candidates = sections.flatMap((section) =>
+    section.kind === "core"
+      ? section.items
+      : section.item.path === undefined
+        ? []
+        : [{ key: section.key, path: section.item.path }],
+  );
+  return activeKeyFor(pathname, candidates)[0];
 }

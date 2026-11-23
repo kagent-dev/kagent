@@ -17,6 +17,8 @@ import {
   extensionTableColumns,
   initialExtensionFieldValues,
   activeKeyFor,
+  activeSidebarKey,
+  mergeExtensionNavOverrides,
   applyNavOverrides,
   isNavPathActive,
   installExtensionApi,
@@ -258,6 +260,23 @@ describe("active nav entry", () => {
       agents: { activePaths: ["/builder"] },
     });
     expect(agents.activePaths).toEqual(["/agent-templates", "/builder"]);
+  });
+
+  it("keeps every extension's activePaths when overrides merge", () => {
+    const merged = mergeExtensionNavOverrides([
+      { agents: { activePaths: ["/builder"] } },
+      { agents: { activePaths: ["/gallery"], label: "Bots" } },
+    ]);
+    expect(merged.agents).toEqual({ activePaths: ["/builder", "/gallery"], label: "Bots" });
+  });
+
+  it("highlights one entry across sections, extension items included", () => {
+    const ext = { ...extensionItem("catalog", 250), path: "/harnesses/catalog" };
+    const sections = buildSidebarSections(coreNavItems, [ext]);
+    expect(sections.filter((s) => s.kind === "core").length).toBeGreaterThan(1);
+    expect(activeSidebarKey("/harnesses/catalog/x", sections)).toBe("extension-catalog");
+    expect(activeSidebarKey("/harnesses/new", sections)).toBe("agents");
+    expect(activeSidebarKey("/models", sections)).toBe("models");
   });
 });
 

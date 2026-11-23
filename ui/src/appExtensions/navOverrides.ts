@@ -64,7 +64,13 @@ export function mergeExtensionNavOverrides(
     if (!part) continue;
     for (const [key, override] of Object.entries(part)) {
       if (!override) continue;
-      merged[key] = { ...merged[key], ...definedFields(override) };
+      const previous = merged[key];
+      merged[key] = { ...previous, ...definedFields(override) };
+      // A list of claims, not one choice, so a later extension adds to it rather than
+      // replacing it — otherwise installing a second product unhighlights the first's page.
+      if (previous?.activePaths && override.activePaths) {
+        merged[key].activePaths = [...previous.activePaths, ...override.activePaths];
+      }
     }
   }
 

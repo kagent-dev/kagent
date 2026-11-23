@@ -50,7 +50,7 @@ export const coreNavItems: NavItem[] = [
     // Templates and harnesses are what an agent is made of, and their pages are
     // reached from the agents page. Prefixes rather than single routes, so a page
     // added under either later (a harness details page) highlights here unchanged.
-    activePaths: [paths.agentTemplates, "/harnesses"],
+    activePaths: [paths.agentTemplates, paths.harnesses],
     icon: Bot,
     order: 200,
   },
