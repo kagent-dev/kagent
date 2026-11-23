@@ -1,6 +1,6 @@
 {
-  "version": "0.3.1",
-  "image": "ghcr.io/kagent-dev/kagent/tools@sha256:607cb0ac95c9905529ad1cfebeff3aa2fbf68aa81861ed3bbba9d71a7477d640",
+  "version": "0.3.2",
+  "image": "ghcr.io/kagent-dev/kagent/tools@sha256:93d24e2686abdffb5acf5bf5767e421637bb9b0e81779d1524d473bf89005a91",
   "skills": [
     {
       "name": "argo-rollouts-progressive-delivery",
