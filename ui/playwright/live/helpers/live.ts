@@ -15,7 +15,7 @@ export const liveRoutes = {
   agents: "/agents",
   agentNew: "/agents/new",
   models: "/models",
-  mcpServers: "/mcp",
+  mcpServers: "/mcp-servers",
   prompts: "/prompts",
   substrate: "/substrate",
 } as const;
@@ -55,8 +55,7 @@ export async function expectNoLoadFailure(page: Page): Promise<void> {
 export const rowNamed = (page: Page, text: string) =>
   page.locator("tbody tr").filter({ hasText: text });
 
-/** Rows that carry data, excluding antd's placeholder and hidden measure rows. */
-export const dataRows = (page: Page) => page.locator("tbody tr.ant-table-row");
+export { dataRows } from "../../helpers/app";
 
 /**
  * A name no human would choose, carrying the run that made it.
