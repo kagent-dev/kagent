@@ -165,7 +165,7 @@ same reasons. Its own entries are `agentDetails` at order 100 and `newChat` at 2
 agentRailItems: [
   {
     key: "runs",               // unique across core and contributed entries
-    order: 150,                // between Agent Details (100) and New chat (200)
+    order: 150,                // between Agent Details (100) and New conversation (200)
     path: "/runs",             // active-state matching only
     Component: RunsRailItem,   // receives { isActive, agent }
   },
@@ -189,7 +189,7 @@ change that identity.
 
 An override's `path` lands on the entry's `to`; the rail renders its links itself, so
 that is the same idea under the name the rail uses for it. `hidden` also suppresses
-the button "New chat" falls back to where an agent has no address, so hiding it is
+the button "New conversation" falls back to where an agent has no address, so hiding it is
 not half done.
 
 To make a contributed entry indistinguishable from the application's, style it with

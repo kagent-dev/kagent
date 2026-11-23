@@ -60,7 +60,7 @@ export function coreRailItems(targets: {
   if (targets.newChatHref) {
     items.push({
       key: "newChat",
-      label: "New chat",
+      label: "New conversation",
       to: targets.newChatHref,
       icon: SquarePen,
       order: 200,

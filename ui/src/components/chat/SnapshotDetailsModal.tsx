@@ -191,7 +191,7 @@ export function SnapshotDetailsModal({
           <Tooltip
             title={
               forkable
-                ? "Start a new chat holding the history up to this snapshot."
+                ? "Start a new conversation holding the history up to this snapshot."
                 : "A snapshot can only be forked once it is ready."
             }
           >
@@ -224,7 +224,7 @@ export function SnapshotDetailsModal({
 
           <Popconfirm
             title="Delete this snapshot?"
-            description="The saved runtime goes with it and nothing brings it back. Chats already forked from here are kept."
+            description="The saved runtime goes with it and nothing brings it back. Conversations already forked from here are kept."
             overlayStyle={{ maxWidth: 320 }}
             okText="Delete"
             okButtonProps={{ danger: true, "data-testid": "snapshot-details-delete-confirm" }}

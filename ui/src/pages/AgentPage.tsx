@@ -597,7 +597,7 @@ export function AgentPage() {
               : view.isNarrowed
                 ? "No conversations match those filters."
                 : conversations.data
-                  ? "No conversations with this agent yet. Start one with “New chat”."
+                  ? "No conversations with this agent yet. Start one with “New conversation”."
                   : " ",
           }}
           onRow={(row) =>

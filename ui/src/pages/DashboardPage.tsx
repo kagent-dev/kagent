@@ -205,21 +205,21 @@ export function DashboardPage() {
             />
           </Card>
 
-          <Card title="Recent agent chat sessions" data-testid="dashboard-recent-card">
+          <Card title="Recent agent conversations" data-testid="dashboard-recent-card">
             <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
               {agents.error ? (
                 <Text
                   data-testid="recent-agents-unavailable"
                   css={{ color: theme.color.textMuted }}
                 >
-                  Recent activity is unavailable while chat sessions cannot be read.
+                  Recent activity is unavailable while conversations cannot be read.
                 </Text>
               ) : recent.length === 0 ? (
                 agents.isLoading ? null : (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     data-testid="recent-agents-empty"
-                    description="No chat sessions yet."
+                    description="No conversations yet."
                   />
                 )
               ) : (

@@ -247,12 +247,12 @@ export function CheckpointDivider({
           }}
         >
           {onFork ? (
-            <Tooltip title="Fork the chat from this snapshot." placement="bottom">
+            <Tooltip title="Fork the conversation from this snapshot." placement="bottom">
               <Button
                 size="small"
                 type="primary"
                 data-testid={`chat-checkpoint-fork-${checkpointId}`}
-                aria-label="Fork the chat from this snapshot."
+                aria-label="Fork the conversation from this snapshot."
                 icon={<GitFork size={13} />}
                 onClick={onFork}
                 css={filled}
@@ -283,7 +283,7 @@ export function CheckpointDivider({
           {onDelete ? (
             <Popconfirm
               title="Delete this snapshot?"
-              description="The stored runtime goes with it and nothing brings it back. Chats already forked from here are kept."
+              description="The stored runtime goes with it and nothing brings it back. Conversations already forked from here are kept."
               // Capped, or the one line of copy sets the popover's width and it spans
               // half the transcript.
               overlayStyle={{ maxWidth: 320 }}

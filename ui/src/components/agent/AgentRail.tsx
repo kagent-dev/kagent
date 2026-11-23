@@ -957,7 +957,7 @@ export function AgentRail({
             }}
           >
             <SquarePen size={14} aria-hidden />
-            New chat
+            New conversation
           </button>
         ) : null}
       </nav>
@@ -997,7 +997,7 @@ export function AgentRail({
           prefix={
             <Search size={13} color={theme.color.textMuted} css={{ marginInlineEnd: 2 }} />
           }
-          placeholder="Search chats"
+          placeholder="Search conversations"
           css={{
             ...searchInputStyles(theme),
             fontSize: 13,
@@ -1077,7 +1077,7 @@ export function AgentRail({
                     key: "delete",
                     danger: true,
                     icon: <Trash size={13} />,
-                    label: `Delete ${selected.size === 1 ? "chat" : "all selected"}`,
+                    label: `Delete ${selected.size === 1 ? "conversation" : "all selected"}`,
                     onClick: () => setConfirmingBulk(true),
                   },
                 ],
@@ -1133,7 +1133,7 @@ export function AgentRail({
             marginTop: 4,
           }}
         >
-          Chats
+          Conversations
         </Text>
 
         {actionError ? (
@@ -1628,7 +1628,7 @@ function ChatEntry({
             {
               key: "details",
               icon: <FileText size={13} />,
-              label: "Chat details",
+              label: "Conversation details",
               onClick: () => setShowingDetails(true),
             },
             /*
@@ -1667,19 +1667,19 @@ function ChatEntry({
             {
               key: "share",
               icon: <Share2 size={13} />,
-              label: "Share chat",
+              label: "Share conversation",
               onClick: () => setSharing(true),
             },
             {
               key: "rename",
               icon: <Pencil size={13} />,
-              label: "Rename chat",
+              label: "Rename conversation",
               onClick: () => setRenaming(true),
             },
             {
               key: "duplicate",
               icon: <Copy size={13} />,
-              label: "Duplicate chat",
+              label: "Duplicate conversation",
               onClick: () => onDuplicate(instance),
             },
             { type: "divider" as const },
@@ -1687,7 +1687,7 @@ function ChatEntry({
               key: "delete",
               danger: true,
               icon: <Trash size={13} />,
-              label: "Delete chat",
+              label: "Delete conversation",
               onClick: () => setConfirming(true),
             },
           ],

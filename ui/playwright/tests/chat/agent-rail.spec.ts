@@ -715,7 +715,7 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
     // open the rail on a conversation you are not in.
     await expect(menu).toBeVisible();
     const rename = page.getByTestId("conversation-rename-input");
-    await chooseFromRowMenu(page, menu, "Rename chat", rename);
+    await chooseFromRowMenu(page, menu, "Rename conversation", rename);
 
     const field = rename.locator("input");
     await field.fill("Named from the rail");
@@ -788,7 +788,7 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
 
   await test.step("3. deleting asks first, naming what cannot be recovered", async () => {
     const confirm = dialog(page);
-    await chooseFromRowMenu(page, menu, "Delete chat", confirm);
+    await chooseFromRowMenu(page, menu, "Delete conversation",confirm);
 
     // The menu makes deleting deliberate; it does not make it recoverable. A
     // conversation is gone with its whole transcript and there is no undo.
@@ -800,7 +800,7 @@ test("chat agent rail: a conversation is renamed and deleted, without leaving it
   });
 
   await test.step("4. and confirming removes exactly one, leaving the page put", async () => {
-    await chooseFromRowMenu(page, menu, "Delete chat", dialog(page));
+    await chooseFromRowMenu(page, menu, "Delete conversation",dialog(page));
     await pressUntil(
       dialog(page).getByRole("button", { name: "Delete" }),
       () => expect(rows).toHaveCount(before - 1),
