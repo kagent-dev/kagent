@@ -1,22 +1,22 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
-import { Alert, AutoComplete, Checkbox, Form, Input, InputNumber, Select, Switch } from "antd";
-import { useTheme } from "@emotion/react";
-import { fromJson } from "@bufbuild/protobuf";
-import { DurationSchema } from "@bufbuild/protobuf/wkt";
 import { newConversationBlockedReason, useAgentsAcrossNamespaces, useNamespaces } from "@/api";
 import { isPermissionDenied } from "@/api/ApiError";
+import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import { invoke } from "@/api/operations";
 import { randomId } from "@/api/randomId";
-import { useInvalidateScheduledRuns } from "@/api/hooks/useInvalidateScheduledRuns";
 import { SubmitError } from "@/components/common/SubmitError";
-import { FormActions } from "@/components/form/FormActions";
 import { FieldRow } from "@/components/form/FieldRow";
+import { FormActions } from "@/components/form/FormActions";
 import { FormField } from "@/components/form/FormField";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import type { ScheduledRun } from "@/generated/kagent/api/v1/scheduled_runs_pb";
+import { fromJson } from "@bufbuild/protobuf";
+import { DurationSchema } from "@bufbuild/protobuf/wkt";
+import { useTheme } from "@emotion/react";
+import { Alert, AutoComplete, Checkbox, Form, Input, InputNumber, Select, Switch } from "antd";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { draftFromSchedule, scheduleIssues, TIMEOUT_MAX_SECONDS, type ScheduleDraft } from "./scheduleDraft";
 import { minuteIntervals, scheduleCron, scheduleDescription, weekdays, type ScheduleTiming } from "./scheduleTiming";
 
@@ -215,10 +215,13 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
       </FormField>
       <FieldRow>
         <FormField htmlFor="schedule-timeout-input" label="Execution timeout" required {...validation.field("timeoutSeconds")}
-          help="Time limit in seconds. It covers queueing and agent startup.">
-          <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" placeholder="Seconds, e.g. 900" min={0.000001} max={TIMEOUT_MAX_SECONDS}
-            status={status("timeoutSeconds")} value={draft.timeoutSeconds}
-            onChange={(timeoutSeconds) => update({ timeoutSeconds })} />
+          help="Time limit for queueing and agent startup.">
+          <div css={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <InputNumber id="schedule-timeout-input" data-testid="schedule-timeout" placeholder="e.g. 900" min={0.000001} max={TIMEOUT_MAX_SECONDS}
+              css={{ width: 96 }} status={status("timeoutSeconds")} value={draft.timeoutSeconds}
+              onChange={(timeoutSeconds) => update({ timeoutSeconds })} />
+            <span>Seconds</span>
+          </div>
         </FormField>
         <FormField htmlFor="schedule-enabled" label="Enabled" required={false}
           /* The one thing on screen that says whether creating or saving starts it

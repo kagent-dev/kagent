@@ -1,15 +1,15 @@
-import { useMemo, type ReactNode } from "react";
-import { Alert, Checkbox, Form, Input, Select, Space, Typography } from "antd";
-import { useTheme } from "@emotion/react";
 import { useAgentTemplates, useMcpServers, useModels, useTools } from "@/api";
 import { DataPill, DataPillList } from "@/components/form/DataPill";
-import { FormField } from "@/components/form/FormField";
 import { FieldRow } from "@/components/form/FieldRow";
-import { NameInput } from "@/components/form/NameInput";
+import { FormField } from "@/components/form/FormField";
 import { FormRow, FormRowList } from "@/components/form/FormRowList";
 import { KeyValueList } from "@/components/form/KeyValueList";
-import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
+import { NameInput } from "@/components/form/NameInput";
 import { ResourceSelect } from "@/components/form/ResourceSelect";
+import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
+import { useTheme } from "@emotion/react";
+import { Alert, Checkbox, Form, Input, Select, Space, Typography } from "antd";
+import { useMemo, type ReactNode } from "react";
 import type { AgentTemplateDraft, OutputSource, TemplateField } from "./agentTemplateDraft";
 import { SkillsField } from "./SkillsField";
 
@@ -220,7 +220,6 @@ export function AgentTemplateForm({
           </FieldRow>
         ) : namespaceField}
 
-        <FieldRow alignInputs={false}>
         <Field readOnly={readOnly} label="Model configuration" required={modelRequired} extra={modelHelp} {...fieldFor("model")}>
           <Select
             data-testid="template-form-model"
@@ -263,7 +262,6 @@ export function AgentTemplateForm({
               />
             </div>
         </Field>
-        </FieldRow>
         <Space orientation="vertical" size={8} css={{ display: "flex" }}>
 
             {draft.outputSource === "inline" ? (
@@ -336,7 +334,7 @@ export function AgentTemplateForm({
         >
           <Input.TextArea
             data-testid="template-form-description"
-            autoSize={{ minRows: 1 }}
+            autoSize={{ minRows: readOnly ? 1 : 3, maxRows: 12 }}
             value={draft.description}
             onChange={(event) => set("description", event.target.value)}
             placeholder={placeholder("What this agent template is for.")}
