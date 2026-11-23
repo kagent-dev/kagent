@@ -410,7 +410,7 @@ test("agents: an agent whose conversations cannot be read says so, and is not em
   await test.step("2. and it is not reported as an agent nobody has talked to", async () => {
     // The distinction the whole page turns on: "no conversations yet" invites
     // starting one, and would be a lie about an agent with forty.
-    await expect(page.getByText(/No conversations with this agent yet/)).toHaveCount(0);
+    await expect(page.getByText(/No chats with this agent yet/)).toHaveCount(0);
     await expect(dataRows(page)).toHaveCount(0);
   });
 

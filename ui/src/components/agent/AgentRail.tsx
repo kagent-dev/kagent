@@ -1184,8 +1184,8 @@ export function AgentRail({
                 conversations" would have the reader looking for a bug in the agent
                 rather than in what they just typed. */}
             {query.trim() && (conversations.data?.length ?? 0) > 0
-              ? "No conversations match your search."
-              : "No conversations yet."}
+              ? "No chats match your search."
+              : "No chats yet."}
           </Text>
         ) : (
           <ul

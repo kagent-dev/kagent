@@ -37,8 +37,8 @@ export function RenameConversationButton({
       <Tooltip
         title={
           disabled
-            ? "Only the conversation’s creator can rename it."
-            : "Rename this conversation"
+            ? "Only the chat’s creator can rename it."
+            : "Rename this chat"
         }
       >
         {/* A span, because antd cannot show a tooltip over a disabled button: it
@@ -52,7 +52,7 @@ export function RenameConversationButton({
             disabled={disabled}
             onClick={() => setOpen(true)}
             data-testid={`conversation-rename-${instance.id}`}
-            aria-label={`Rename conversation ${conversationTitle(instance)}`}
+            aria-label={`Rename chat ${conversationTitle(instance)}`}
           />
         </span>
       </Tooltip>
