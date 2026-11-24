@@ -39,6 +39,8 @@ func ModelToEmbeddingConfig(m *configv1.ADKModelConfig) *configv1.ADKEmbeddingCo
 		e.BaseUrl = p.Anthropic.BaseUrl
 	case *configv1.ADKModelConfig_Mistral:
 		e.BaseUrl = p.Mistral.BaseUrl
+	case *configv1.ADKModelConfig_Xai:
+		e.BaseUrl = p.Xai.BaseUrl
 	case *configv1.ADKModelConfig_SapAiCore:
 		e.BaseUrl = p.SapAiCore.BaseUrl
 	case *configv1.ADKModelConfig_Foundry:

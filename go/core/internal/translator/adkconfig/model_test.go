@@ -284,3 +284,40 @@ func TestTranslateAzureOpenAIAPIFormat(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "responses", got.GetAzureOpenai().ApiFormat)
 }
+
+func TestTranslateXAI(t *testing.T) {
+	t.Run("Given an xAI ModelConfig with settings and an API key Secret, when it is translated, assert that the runtime config selects xai with those settings", func(t *testing.T) {
+		model, data, err := translateModel(&translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderXAI, Model: "grok-4.7",
+			APIKeySecret: "xai-auth", APIKeySecretKey: "api-key",
+			XAI: &v1alpha3.XAIConfig{
+				BaseURL: new("https://api.x.ai/v1"), Temperature: new("0.5"), TopP: new("0.9"), MaxTokens: new(1024), Timeout: new(30),
+			},
+		}}})
+		require.NoError(t, err)
+		require.Equal(t, "xai", runtimeconfig.ModelType(model))
+		require.Equal(t, "grok-4.7", model.GetModel())
+		settings := model.GetXai()
+		require.Equal(t, "https://api.x.ai/v1", settings.GetBaseUrl())
+		require.InDelta(t, 0.5, settings.GetTemperature(), 1e-9)
+		require.InDelta(t, 0.9, settings.GetTopP(), 1e-9)
+		require.Equal(t, int64(1024), settings.GetMaxTokens())
+		require.Equal(t, int64(30), settings.GetTimeout().GetSeconds())
+		require.Len(t, data.EnvVars, 1)
+		require.Equal(t, env.XAIAPIKey.Name(), data.EnvVars[0].Name)
+		require.Equal(t, "xai-auth", data.EnvVars[0].ValueFrom.SecretKeyRef.Name)
+		require.Equal(t, "api-key", data.EnvVars[0].ValueFrom.SecretKeyRef.Key)
+	})
+
+	t.Run("Given an xAI ModelConfig with token passthrough, when it is translated, assert that no API key variable is set", func(t *testing.T) {
+		model, data, err := translateModel(&translator.ResolvedModelConfig{Config: &v1alpha3.ModelConfig{Spec: v1alpha3.ModelConfigSpec{
+			Provider: v1alpha3.ModelProviderXAI, Model: "grok-4.7", TokenPassthrough: new(true),
+		}}})
+		require.NoError(t, err)
+		require.True(t, model.GetApiKeyPassthrough())
+		require.Empty(t, model.GetXai().GetBaseUrl())
+		for _, variable := range data.EnvVars {
+			require.NotEqual(t, env.XAIAPIKey.Name(), variable.Name)
+		}
+	})
+}

@@ -29,7 +29,7 @@ const (
 )
 
 // ModelProvider represents the model provider type
-// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry;Mistral
+// +kubebuilder:validation:Enum=Anthropic;OpenAI;AzureOpenAI;Ollama;Gemini;GeminiVertexAI;AnthropicVertexAI;Bedrock;SAPAICore;Foundry;Mistral;xAI
 type ModelProvider string
 
 const (
@@ -44,6 +44,7 @@ const (
 	ModelProviderSAPAICore         ModelProvider = "SAPAICore"
 	ModelProviderFoundry           ModelProvider = "Foundry"
 	ModelProviderMistral           ModelProvider = "Mistral"
+	ModelProviderXAI               ModelProvider = "xAI"
 )
 
 type BaseVertexAIConfig struct {
@@ -103,6 +104,33 @@ type AnthropicVertexAIConfig struct {
 // {baseURL}/chat/completions with a Bearer token from MISTRAL_API_KEY.
 type MistralConfig struct {
 	// Base URL for the Mistral API (overrides default https://api.mistral.ai/v1)
+	// +optional
+	BaseURL *string `json:"baseUrl,omitempty"`
+
+	// Temperature for sampling
+	// +optional
+	Temperature *string `json:"temperature,omitempty"`
+
+	// Top-p sampling parameter
+	// +optional
+	TopP *string `json:"topP,omitempty"`
+
+	// Maximum tokens to generate
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	MaxTokens *int `json:"maxTokens,omitempty"`
+
+	// Timeout in seconds for the underlying HTTP client
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	Timeout *int `json:"timeout,omitempty"`
+}
+
+// XAIConfig contains xAI-specific configuration options.
+// xAI exposes an OpenAI-compatible wire protocol; the runtime posts to
+// {baseURL}/chat/completions with a Bearer token from XAI_API_KEY.
+type XAIConfig struct {
+	// Base URL for the xAI API (overrides default https://api.x.ai/v1)
 	// +optional
 	BaseURL *string `json:"baseUrl,omitempty"`
 
@@ -569,6 +597,7 @@ func (t *TLSConfig) IsEmpty() bool {
 // +kubebuilder:validation:XValidation:message="provider.sapAICore must be nil if the provider is not SAPAICore",rule="!(has(self.sapAICore) && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="provider.foundry must be nil if the provider is not Foundry",rule="!(has(self.foundry) && self.provider != 'Foundry')"
 // +kubebuilder:validation:XValidation:message="provider.mistral must be nil if the provider is not Mistral",rule="!(has(self.mistral) && self.provider != 'Mistral')"
+// +kubebuilder:validation:XValidation:message="provider.xAI must be nil if the provider is not xAI",rule="!(has(self.xAI) && self.provider != 'xAI')"
 // +kubebuilder:validation:XValidation:message="apiKeySecret must be set if apiKeySecretKey is set",rule="!(has(self.apiKeySecretKey) && !has(self.apiKeySecret))"
 // +kubebuilder:validation:XValidation:message="apiKeySecretKey must be set if apiKeySecret is set (except for Bedrock and SAPAICore providers)",rule="!(has(self.apiKeySecret) && !has(self.apiKeySecretKey) && self.provider != 'Bedrock' && self.provider != 'SAPAICore')"
 // +kubebuilder:validation:XValidation:message="tokenPassthrough must be false if provider is Gemini;GeminiVertexAI;AnthropicVertexAI",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough && (self.provider == 'Gemini' || self.provider == 'GeminiVertexAI' || self.provider == 'AnthropicVertexAI'))"
@@ -664,6 +693,10 @@ type ModelConfigSpec struct {
 	// Mistral-specific configuration
 	// +optional
 	Mistral *MistralConfig `json:"mistral,omitempty"`
+
+	// xAI-specific configuration
+	// +optional
+	XAI *XAIConfig `json:"xAI,omitempty"`
 
 	// TLS configuration for provider connections.
 	// Enables agents to connect to internal LiteLLM gateways or other providers

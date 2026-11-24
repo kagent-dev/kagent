@@ -234,6 +234,13 @@
           "model": "model-mistral",
           "mistral": {}
         }
+      },
+      {
+        "name": "xai",
+        "model": {
+          "model": "model-xai",
+          "xai": {}
+        }
       }
     ],
     "output": {

@@ -118,7 +118,7 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 		if !tokenPassthrough && config.Spec.APIKeySecret != "" {
 			requireAPIKey()
 		}
-	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry, v1alpha3.ModelProviderMistral:
+	case v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderAzureOpenAI, v1alpha3.ModelProviderFoundry, v1alpha3.ModelProviderMistral, v1alpha3.ModelProviderXAI:
 		if !tokenPassthrough && config.Spec.APIKeySecret != "" {
 			requireAPIKey()
 		}
@@ -204,7 +204,7 @@ func ResolveModelConfig(ctx krt.HandlerContext, collections Collections, config 
 		if config.Spec.Foundry.Endpoint == "" && config.Spec.Foundry.EndpointFrom == nil {
 			addSemanticFailure("InvalidProviderConfig", "foundry endpoint could not be resolved: set foundry.endpoint or a foundry.endpointFrom whose ConfigMap key exists")
 		}
-	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderMistral:
+	case v1alpha3.ModelProviderOpenAI, v1alpha3.ModelProviderAnthropic, v1alpha3.ModelProviderGemini, v1alpha3.ModelProviderMistral, v1alpha3.ModelProviderXAI:
 	default:
 		addSemanticFailure("UnsupportedProvider", fmt.Sprintf("unsupported model provider: %s", config.Spec.Provider))
 	}

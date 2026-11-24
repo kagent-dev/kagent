@@ -7,6 +7,7 @@ from ._ollama import KAgentOllamaLlm
 from ._openai import AzureOpenAI, OpenAI
 from ._openai import FoundryOpenAI as Foundry
 from ._sap_ai_core import KAgentSAPAICoreLlm
+from ._xai import KAgentXAILlm
 
 __all__ = [
     "OpenAI",
@@ -20,4 +21,5 @@ __all__ = [
     "KAgentOllamaLlm",
     "KAgentEmbedding",
     "KAgentSAPAICoreLlm",
+    "KAgentXAILlm",
 ]

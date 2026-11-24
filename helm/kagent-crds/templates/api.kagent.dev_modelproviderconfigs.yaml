@@ -274,6 +274,7 @@ spec:
                 - SAPAICore
                 - Foundry
                 - Mistral
+                - xAI
                 type: string
                 x-kubernetes-validations:
                 - message: only OpenAI-compatible discovery is supported

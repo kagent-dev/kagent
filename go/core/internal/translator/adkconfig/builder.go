@@ -322,6 +322,10 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 		if mistral := modelConfig.Spec.Mistral; mistral == nil || mistral.BaseURL == nil || *mistral.BaseURL == "" {
 			destinations = append(destinations, "https://api.mistral.ai:443")
 		}
+	case v1alpha3.ModelProviderXAI:
+		if xai := modelConfig.Spec.XAI; xai == nil || ptr.Deref(xai.BaseURL, "") == "" {
+			destinations = append(destinations, "https://api.x.ai:443")
+		}
 	case v1alpha3.ModelProviderBedrock:
 		// Bedrock's endpoint is derived from the region, which is not part of
 		// the serialized model, so the walk above never sees it. The bearer
