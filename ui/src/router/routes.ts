@@ -57,6 +57,8 @@ export const paths = {
    */
   agentTemplates: "/agent-templates",
   agentTemplateNew: "/agent-templates/new",
+  /** Not a route of its own: the prefix every harness page sits under, for the nav. */
+  harnesses: "/harnesses",
   harnessNew: "/harnesses/new",
   /** After `new`, whose single static segment must win over this pattern. */
   harnessEdit: "/harnesses/:namespace/:name/edit",

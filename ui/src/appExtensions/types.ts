@@ -13,7 +13,12 @@ import type { ExtensionRowAction } from "./rowActions";
 
 /** Props a contributed nav item's renderer receives. */
 export interface ExtensionNavItemProps {
-  /** True when the current location matches the item's `path`. */
+  /**
+   * True when this is the one sidebar entry the current location belongs to: its
+   * `path` is the longest matching prefix across every entry, core ones included.
+   * A core entry with a longer prefix takes the highlight, and an equal one is
+   * settled by sidebar order.
+   */
   isActive: boolean;
   /**
    * True while the rail is showing its narrow form.
