@@ -2,9 +2,11 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -182,79 +184,70 @@ func (m *OllamaModel) Name() string {
 	return m.Config.Model
 }
 
-// convertOllamaOptions converts string option values to their proper types
-// based on known Ollama option types.
+// ollamaOptionKinds maps each option in api.Options to the type Ollama expects.
+// It is built from the SDK, so it stays up to date. Ollama rejects the whole
+// request when a known option has the wrong type, for example num_batch as a
+// string. For pointer fields like main_gpu, the inner type is used.
+var ollamaOptionKinds = func() map[string]reflect.Kind {
+	kinds := make(map[string]reflect.Kind)
+	for _, field := range reflect.VisibleFields(reflect.TypeFor[api.Options]()) {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			continue
+		}
+		typ := field.Type
+		if typ.Kind() == reflect.Pointer {
+			typ = typ.Elem()
+		}
+		if typ.Kind() == reflect.Slice && typ.Elem().Kind() != reflect.String {
+			continue
+		}
+		kinds[name] = typ.Kind()
+	}
+	return kinds
+}()
+
+// convertOllamaOptions converts the string values of ModelConfig Ollama
+// options to the types Ollama expects.
 func convertOllamaOptions(opts map[string]string) map[string]any {
 	if opts == nil {
 		return nil
 	}
-
 	converted := make(map[string]any, len(opts))
-
-	// Known Ollama option types (from ollama API documentation)
-	// https://github.com/ollama/ollama/blob/main/api/types.go
-	intOptions := map[string]bool{
-		"num_ctx":       true,
-		"num_predict":   true,
-		"top_k":         true,
-		"seed":          true,
-		"num_keep":      true,
-		"num_gpu":       true,
-		"num_thread":    true,
-		"repeat_last_n": true,
-		"numa":          true,
-		"main_gpu":      true,
-		"mirostat":      true,
-	}
-
-	floatOptions := map[string]bool{
-		"temperature":       true,
-		"top_p":             true,
-		"repeat_penalty":    true,
-		"presence_penalty":  true,
-		"frequency_penalty": true,
-		"tfs_z":             true,
-		"typical_p":         true,
-		"mirostat_eta":      true,
-		"penalty_newline":   true,
-		"min_p":             true,
-	}
-
-	boolOptions := map[string]bool{
-		"penalize_newline": true,
-		"low_vram":         true,
-		"f16_kv":           true,
-		"vocab_only":       true,
-		"use_mmap":         true,
-		"use_mlock":        true,
-		"embedding_only":   true,
-		"rope_scaling":     true,
-	}
-
 	for key, value := range opts {
-		// Try to convert based on known option types
-		if intOptions[key] {
-			if v, err := strconv.Atoi(value); err == nil {
-				converted[key] = v
-				continue
-			}
-		} else if floatOptions[key] {
-			if v, err := strconv.ParseFloat(value, 64); err == nil {
-				converted[key] = v
-				continue
-			}
-		} else if boolOptions[key] {
-			if v, err := strconv.ParseBool(value); err == nil {
-				converted[key] = v
-				continue
-			}
-		}
-
-		// If no known type or conversion failed, keep as string
-		converted[key] = value
+		converted[key] = convertOllamaOption(ollamaOptionKinds[key], value)
 	}
-
 	return converted
+}
+
+// convertOllamaOption parses value as kind. Unknown options and values that do
+// not parse are sent as they are. Ollama ignores unknown options and returns an
+// error that names a wrong one.
+//
+// stop takes a JSON array of strings. Any other value is one stop sequence, so
+// "[INST]" stays one item.
+func convertOllamaOption(kind reflect.Kind, value string) any {
+	switch kind {
+	case reflect.Int:
+		if v, err := strconv.Atoi(value); err == nil {
+			return v
+		}
+	case reflect.Float32, reflect.Float64:
+		if v, err := strconv.ParseFloat(value, 64); err == nil {
+			return v
+		}
+	case reflect.Bool:
+		if v, err := strconv.ParseBool(value); err == nil {
+			return v
+		}
+	case reflect.Slice:
+		var list []string
+		if err := json.Unmarshal([]byte(value), &list); err == nil && list != nil {
+			return list
+		}
+		return []string{value}
+	}
+	return value
 }
 
 // withOllamaAuthorization returns the transport config to build the client with.

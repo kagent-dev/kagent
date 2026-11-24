@@ -61,31 +61,58 @@ func TestConvertOllamaOptions(t *testing.T) {
 		{
 			name: "boolean options converted",
 			input: map[string]string{
-				"penalize_newline": "true",
-				"low_vram":         "false",
-				"f16_kv":           "True",
-				"vocab_only":       "FALSE",
+				"use_mmap": "FALSE",
 			},
 			expected: map[string]any{
-				"penalize_newline": true,
-				"low_vram":         false,
-				"f16_kv":           true,
-				"vocab_only":       false,
+				"use_mmap": false,
+			},
+		},
+		{
+			name: "pointer options converted to their element type",
+			input: map[string]string{
+				"main_gpu": "1",
+				"use_mmap": "True",
+			},
+			expected: map[string]any{
+				"main_gpu": 1,
+				"use_mmap": true,
 			},
 		},
 		{
 			name: "mixed options",
 			input: map[string]string{
-				"temperature":      "0.7",
-				"num_ctx":          "2048",
-				"penalize_newline": "true",
-				"stop":             "[\"END\", \"STOP\"]", // unknown option stays string
+				"temperature": "0.7",
+				"num_ctx":     "2048",
+				"num_batch":   "512",
+				"use_mmap":    "true",
+				"stop":        "[\"END\", \"STOP\"]",
 			},
 			expected: map[string]any{
-				"temperature":      0.7,
-				"num_ctx":          2048,
-				"penalize_newline": true,
-				"stop":             "[\"END\", \"STOP\"]",
+				"temperature": 0.7,
+				"num_ctx":     2048,
+				"num_batch":   512,
+				"use_mmap":    true,
+				"stop":        []string{"END", "STOP"},
+			},
+		},
+		{
+			name: "a stop value that is not a JSON array is one stop sequence",
+			input: map[string]string{
+				"stop": "[INST]",
+			},
+			expected: map[string]any{
+				"stop": []string{"[INST]"},
+			},
+		},
+		{
+			name: "options Ollama does not define stay strings",
+			input: map[string]string{
+				"low_vram": "true",
+				"mirostat": "2",
+			},
+			expected: map[string]any{
+				"low_vram": "true",
+				"mirostat": "2",
 			},
 		},
 		{
