@@ -242,11 +242,10 @@ test("conversation: the harness, an MCP server and the model open from a convers
     await group.getByTestId("conversation-agent-context-server").click();
     await expect(page).toHaveURL(/\/mcp-servers\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev$/);
     const tools = page.getByTestId("mcp-server-tools");
-    await expect(tools.getByTestId("tool-server-tool")).toHaveCount(3, { timeout: 30_000 });
+    await expect(tools.getByTestId("tool-list-item")).toHaveCount(3, { timeout: 30_000 });
+    await page.getByRole("tab", { name: "Usage" }).click();
     await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
-    await expect(page.getByTestId("mcp-server-users")).toContainText("k8s_get_pods");
-    await page.getByTestId("mcp-server-user-tool").filter({ hasText: "k8s_get_pods" }).focus();
-    await expect(page.getByRole("tooltip")).toContainText("List pods in a namespace.");
+    await expect(page.getByTestId("mcp-server-user-tool").filter({ hasText: "k8s_get_pods" })).toContainText("List pods in a namespace.");
   });
 
   await test.step("4. and its back button returns to the conversation", async () => {

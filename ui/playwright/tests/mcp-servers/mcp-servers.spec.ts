@@ -17,6 +17,7 @@ import {
   selectOption,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
+import { background } from "../../helpers/style";
 
 /**
  * MCP servers — the whole life of one, in a single journey.
@@ -87,43 +88,39 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(summary).toContainText("5 tools");
   });
 
-  await test.step("4. a row opens anywhere along it, and closes the same way", async () => {
-    // Interactive rows opt in to the clickable styling, so a static table does not
-    // imply click behaviour it does not have.
+  await test.step("4. only the expand cell unfolds a row's tools", async () => {
     for (const name of SEEDED) {
-      await expect(rowNamed(page, name)).toHaveClass(/clickable-table-row/);
+      await expect(rowNamed(page, name)).toHaveClass(/link-table-row/);
     }
 
-    // `dataRows` rather than `rowNamed`: once the row is open, the panel below it holds
-    // tools whose names also contain "grafana", so a by-text row locator matches two
-    // rows and the second click lands inside the panel instead of on the row.
+    // `dataRows` rather than `rowNamed`: an open panel holds tools whose names also contain "grafana".
     const server = dataRows(page).filter({ hasText: "grafana-mcp" });
-    // Deliberately not the chevron: the point of the assertion is the rest of the row.
-    // The namespace cell is as far from the expander as a cell gets.
-    await server.getByRole("cell").nth(2).click();
+    const expandCell = server.getByRole("cell").first();
+    const nameCell = server.getByRole("cell").nth(1);
 
-    // The panel lists the tools the server discovered, which no column does.
-    await expect(page.getByTestId("tool-server-tools")).toBeVisible();
+    // The cell lights up on its own; the rest of the row does not.
+    await expandCell.hover({ position: { x: 4, y: 4 } });
+    await expect.poll(() => background(expandCell)).not.toBe(await background(nameCell));
 
-    /*
-     * And it closes again, so the row is a toggle rather than a one-way reveal.
-     *
-     * Hidden rather than absent, and the distinction is the table library's: once a row
-     * has been expanded it keeps its panel mounted and collapses it with `display: none`
-     * (`ExpandedRow.js` — `display: expanded ? null : 'none'`). Asserting on count here
-     * fails against a panel the reader cannot see.
-     */
-    await server.getByRole("cell").nth(2).click();
-    await expect(page.getByTestId("tool-server-tools")).toBeHidden();
+    // Its padding, not the button inside it, so the whole cell is the target.
+    await expandCell.click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("tool-list")).toBeVisible();
+    await expect(page).toHaveURL(/\/mcp-servers(\?|$)/);
+
+    // Hidden rather than absent: antd keeps an expanded panel mounted under `display: none`.
+    await expandCell.click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("tool-list")).toBeHidden();
   });
 
-  await test.step("4b. a tool name opens its server's details at that tool, and back keeps the filter", async () => {
+  await test.step("4b. a tool name opens its server searched to that tool, and back keeps the filter", async () => {
     await page.getByTestId("mcp-servers-filters-search").fill("grafana");
     await expect(page).toHaveURL(/[?&]q=grafana/);
-    await dataRows(page).filter({ hasText: "grafana-mcp" }).getByRole("cell").nth(2).click();
-    await page.getByTestId("tool-server-tool-link").filter({ hasText: "grafana_query" }).click();
-    await expect(page).toHaveURL(/\/mcp-servers\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-grafana_query$/);
-    await expect(page.getByTestId("mcp-server-tools").locator("[data-current]")).toContainText("grafana_query");
+    await dataRows(page).filter({ hasText: "grafana-mcp" }).getByRole("cell").first().click({ position: { x: 4, y: 4 } });
+    await page.getByTestId("tool-list-link").filter({ hasText: "grafana_query" }).click();
+    await expect(page).toHaveURL(/\/mcp-servers\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev&q=grafana_query&exact=1$/);
+    await expect(page.getByTestId("mcp-server-search-term")).toHaveText(["grafana_query"]);
+    await expect(page.getByTestId("mcp-server-search-exact")).toBeChecked();
+    await expect(page.getByTestId("mcp-server-tools").getByTestId("tool-list-item")).toHaveText([/^grafana_query/]);
 
     await expect(page.getByTestId("mcp-server-back")).toHaveText("MCP servers");
     await page.getByTestId("mcp-server-back").click();
@@ -132,6 +129,96 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(dataRows(page)).toHaveCount(1);
 
     await page.getByTestId("mcp-servers-filters-search").fill("");
+    await expect(dataRows(page)).toHaveCount(SEEDED.length);
+  });
+
+  await test.step("4c. the rest of the row opens the server, in a new tab with a modifier", async () => {
+    const namespaceCell = dataRows(page).filter({ hasText: "grafana-mcp" }).getByRole("cell").nth(2);
+    const server = /\/mcp-servers\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev$/;
+    const opened = page.context().waitForEvent("page");
+    await namespaceCell.click({ modifiers: ["ControlOrMeta"] });
+    const tab = await opened;
+    await expect(tab).toHaveURL(server);
+    await tab.close();
+
+    await namespaceCell.click();
+    await expect(page).toHaveURL(server);
+    await page.getByTestId("mcp-server-back").click();
+    await expect(dataRows(page)).toHaveCount(SEEDED.length);
+  });
+
+  const input = page.getByTestId("mcp-server-search-input");
+  const terms = page.getByTestId("mcp-server-search-term");
+  const tools = page.getByTestId("mcp-server-tools").getByTestId("tool-list-item");
+
+  await test.step("4d. a details page opens with every tool", async () => {
+    await loadPage(page, "/mcp-servers/kagent/kagent-tool-server?kind=RemoteMCPServer.api.kagent.dev", {
+      title: "MCP server kagent-tool-server",
+    });
+    await expect(tools).toHaveCount(3, { timeout: 30_000 });
+  });
+
+  await test.step("4e. typing filters at once, and Enter keeps it as a term", async () => {
+    await input.fill("k8s_get");
+    await expect(tools).toHaveText([/^k8s_get_events/, /^k8s_get_pods/]);
+    await input.press("Enter");
+    await expect(terms).toHaveText(["k8s_get"]);
+    await expect(input).toHaveValue("");
+    await expect(page).toHaveURL(/[?&]q=k8s_get(&|$)/);
+  });
+
+  await test.step("4f. exact match leaves out names that only start with a term", async () => {
+    // Clicked rather than `check()`: the box follows the address, which updates in a transition.
+    await page.getByTestId("mcp-server-search-exact").click();
+    await expect(page.getByTestId("mcp-server-search-exact")).toBeChecked();
+    await expect(page).toHaveURL(/[?&]exact=1(&|$)/);
+    await expect(page.getByTestId("mcp-server-tools-no-match")).toBeVisible();
+    await page.getByTestId("mcp-server-search-exact").click();
+    await expect(page.getByTestId("mcp-server-search-exact")).not.toBeChecked();
+    await expect(tools).toHaveCount(2);
+  });
+
+  await test.step("4g. several terms match any of them", async () => {
+    await terms.getByText("k8s_get").click();
+    await expect(terms).toHaveCount(0);
+    await input.fill("events");
+    await page.getByTestId("mcp-server-search-add").click();
+    await input.fill("describe");
+    await input.press("Enter");
+    await expect(terms).toHaveText(["events", "describe"]);
+    await expect(tools).toHaveText([/^k8s_describe_resource/, /^k8s_get_events/]);
+  });
+
+  await test.step("4h. the usage tab is searched too, and a tool there narrows the search to it", async () => {
+    await page.getByRole("tab", { name: "Usage" }).click();
+    await expect(page).toHaveURL(/[?&]tab=usage(&|$)/);
+    const usage = page.getByTestId("mcp-server-users");
+    await expect(page.getByTestId("mcp-server-user-k8s-agent-7f3a91c")).toBeVisible();
+    await expect(usage.getByTestId("mcp-server-user-tool")).toHaveText([/^k8s_get_events/]);
+
+    await page.getByTestId("mcp-server-search-clear").click();
+    await expect(usage.getByTestId("mcp-server-user-tool")).toHaveText([/^k8s_get_events/, /^k8s_get_pods/]);
+    await usage.getByTestId("tool-list-link").filter({ hasText: "k8s_get_pods" }).click();
+    await expect(terms).toHaveText(["k8s_get_pods"]);
+    await expect(page.getByTestId("mcp-server-search-exact")).toBeChecked();
+    await expect(input).toBeFocused();
+    await expect(page.getByRole("tab", { name: "Usage" })).toHaveAttribute("aria-selected", "true");
+    await expect(usage.getByTestId("mcp-server-user-tool")).toHaveText([/^k8s_get_pods/]);
+  });
+
+  await test.step("4i. a tool in the tools list narrows the search the same way", async () => {
+    await page.getByRole("tab", { name: /^Tools/ }).click();
+    await page.getByTestId("mcp-server-search-exact").click();
+    await expect(page.getByTestId("mcp-server-search-exact")).not.toBeChecked();
+    await terms.getByText("k8s_get_pods").click();
+    await page.getByTestId("mcp-server-tools").getByTestId("tool-list-link").filter({ hasText: "k8s_get_events" }).click();
+    await expect(terms).toHaveText(["k8s_get_events"]);
+    await expect(input).toBeFocused();
+    await expect(tools).toHaveText([/^k8s_get_events/]);
+  });
+
+  await test.step("4j. back on the list", async () => {
+    await loadPage(page, routes.mcpServers, { title: "MCP servers" });
     await expect(dataRows(page)).toHaveCount(SEEDED.length);
   });
 

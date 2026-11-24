@@ -4,7 +4,7 @@ import { useTheme } from "@emotion/react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { inlineLink } from "@/components/common/linkStyles";
-import { ToolServerTools } from "@/components/mcp/ToolServerTools";
+import { ToolList } from "@/components/mcp/ToolList";
 import { BackButton } from "@/components/common/BackButton";
 import { useGoBack } from "@/router/backLink";
 import { mcpServerTo, paths } from "@/router/routes";
@@ -209,11 +209,11 @@ export function AppDetailPage() {
               title={`Other tools on ${match.server.ref}`}
               data-testid="app-detail-siblings"
             >
-              <ToolServerTools
+              <ToolList
                 tools={match.server.discoveredTools.filter(
                   (tool) => tool.name !== match.tool.name,
                 )}
-                server={{ ...parseRef(match.server.ref), groupKind: match.server.groupKind }}
+                toolTo={(tool) => mcpServerTo({ ...parseRef(match.server.ref), groupKind: match.server.groupKind }, tool.name)}
               />
             </Card>
           </>

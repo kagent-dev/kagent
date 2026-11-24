@@ -196,7 +196,7 @@ describe("AgentContextPanel", () => {
     expect(screen.getByTestId("conversation-agent-context-server-count").textContent).toBe("All tools");
   });
 
-  it("lists each tool with its description once opened, collapsed at first", async () => {
+  it("lists each tool by name with its description once opened, collapsed at first", async () => {
     renderPanel(
       [
         { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } },
@@ -219,8 +219,8 @@ describe("AgentContextPanel", () => {
     expect(screen.getAllByTestId("conversation-agent-context-tool")[0].closest("[inert]")).not.toBeNull();
     await userEvent.click(toggle);
     const tools = screen.getAllByTestId("conversation-agent-context-tool");
-    expect(tools.map((tool) => tool.querySelector("span")?.textContent)).toEqual(["list_pods", "get_logs"]);
-    expect(tools[1].textContent).toContain("Does get_logs");
+    expect(tools.map((tool) => tool.querySelector("span")?.textContent)).toEqual(["get_logs", "list_pods"]);
+    expect(tools[0].textContent).toContain("Does get_logs");
     // Tools are not links.
     expect(tools[1].querySelector("a")).toBeNull();
 

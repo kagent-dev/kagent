@@ -15,6 +15,7 @@ import { agentPageUrl } from "@/components/agent/agentUrl";
 import { useAgent, useAgentTemplate, useMcpServers, bareName, type AgentInstance, type ObjectReference } from "@/api";
 import type { SubAgentToolBinding } from "@/api/domain/agentTemplates";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { ClampedText, ToolList } from "@/components/mcp/ToolList";
 import { iconControlStyles } from "@/components/agent/controlStyles";
 import { resourceIcons } from "@/components/common/resourceIcons";
 import { buildPath, mcpServerTo, paths } from "@/router/routes";
@@ -372,6 +373,11 @@ function ServerTools({
   const listId = useId();
   const descriptions = new Map(group.discovered?.map((tool) => [tool.name, tool.description]));
   const names = group.allTools ? (group.discovered ?? []).map((tool) => tool.name) : group.selected;
+  const recessed = {
+    background: theme.color.bg,
+    borderTop: `1px solid ${theme.color.border}`,
+    padding: `${theme.space(2)} ${theme.space(2)} ${theme.space(2)} calc(${theme.space(2)} + 36px)`,
+  } as const;
 
   return (
     <div
@@ -446,51 +452,20 @@ function ServerTools({
         }}
       >
       <div css={{ minHeight: 0, overflow: "hidden" }}>
-      <ul
-        css={{
-          ...toolList(theme),
-          background: theme.color.bg,
-          borderTop: `1px solid ${theme.color.border}`,
-          padding: `${theme.space(2)} ${theme.space(2)} ${theme.space(2)} calc(${theme.space(2)} + 36px)`,
-        }}
-      >
-        {names.length ? (
-          names.map((tool) => (
-            <li key={tool} data-testid="conversation-agent-context-tool">
-              <ToolRow name={tool} description={descriptions.get(tool)} />
-            </li>
-          ))
-        ) : (
-          <li css={{ color: theme.color.textMuted, fontSize: 12 }}>Every tool this server reports.</li>
-        )}
-      </ul>
+      {names.length ? (
+        <ToolList
+          dense
+          tools={names.map((name) => ({ name, description: descriptions.get(name) }))}
+          itemTestId="conversation-agent-context-tool"
+          data-testid="conversation-agent-context-tool-list"
+          css={recessed}
+        />
+      ) : (
+        <div css={{ ...recessed, color: theme.color.textMuted, fontSize: 12 }}>Every tool this server reports.</div>
+      )}
       </div>
       </div>
     </div>
-  );
-}
-
-/** A tool or sub-agent: its name, and what it does clamped to two lines. Not a link. */
-function ToolRow({ name, description }: { name: React.ReactNode; description?: string }) {
-  const theme = useTheme();
-  return (
-    <div css={{ display: "grid", minWidth: 0, lineHeight: "18px", fontSize: 12 }}>
-      <span css={{ fontFamily: theme.font.mono, color: theme.color.text, overflowWrap: "anywhere" }}>{name}</span>
-      <ClampedText>{description || "No description reported."}</ClampedText>
-    </div>
-  );
-}
-
-/** Muted text cut to two lines, with more/less when there is more to see. */
-function ClampedText({ children }: { children: string }) {
-  const theme = useTheme();
-  return (
-    <Paragraph
-      css={{ "&&": { margin: 0, fontSize: 12, lineHeight: "18px", color: theme.color.textMuted } }}
-      ellipsis={{ rows: 2, expandable: "collapsible", symbol: (expanded) => (expanded ? "less" : "more") }}
-    >
-      {children}
-    </Paragraph>
   );
 }
 

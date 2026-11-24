@@ -1,3 +1,5 @@
+import { writeToolSearch } from "@/components/mcp/toolSearch";
+
 /**
  * Every route path in one place, so links are never hand-written strings and a
  * rename is a single edit.
@@ -136,12 +138,15 @@ export const egressPoliciesTab = `${paths.policies}?tab=egress`;
 /** The query parameter naming an MCP server's kind on its details page. */
 export const MCP_SERVER_KIND_PARAM = "kind";
 
-/** An MCP server's details page. The kind is in the query, since two kinds can share a namespace and name. */
-export function mcpServerTo(server: { namespace: string; name: string; groupKind: string }, hash?: string) {
+/**
+ * An MCP server's details page. The kind is in the query, since two kinds can share a
+ * namespace and name. `tool` opens it searched to exactly that tool.
+ */
+export function mcpServerTo(server: { namespace: string; name: string; groupKind: string }, tool?: string) {
+  const search = new URLSearchParams({ [MCP_SERVER_KIND_PARAM]: server.groupKind });
   return {
     pathname: buildPath(paths.mcpServer, server),
-    search: `?${new URLSearchParams({ [MCP_SERVER_KIND_PARAM]: server.groupKind })}`,
-    hash,
+    search: `?${tool ? writeToolSearch(search, { terms: [tool], exact: true }) : search}`,
   };
 }
 

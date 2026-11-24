@@ -1,17 +1,17 @@
 import { ReadError } from "@/components/common/ReadError";
 import { pillBorder } from "@/theme/theme";
 import { useMemo } from "react";
-import { Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Empty, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Plus } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { Link, useLocation } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
-import { Highlighted, ToolServerTools } from "@/components/mcp/ToolServerTools";
+import { Highlighted, ToolList } from "@/components/mcp/ToolList";
 import { mcpServerTo, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
-import { ResourceLink } from "@/components/common/ResourceLink";
+import { RowLink } from "@/components/table/RowLink";
 import {
   apiClient,
   parseRef,
@@ -22,7 +22,7 @@ import {
   type ToolServerResponse,
 } from "@/api";
 import { RefreshButton } from "@/components/table/RefreshButton";
-import { clickableRow, useExpandedRows } from "@/components/table/rowClick";
+import { linkRow, useExpandedRows } from "@/components/table/rowClick";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
 import {
@@ -163,14 +163,13 @@ export function McpServersPage() {
         sorter: byText<FilteredServer>((row) => parseRef(row.server.ref).name),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
-          <ResourceLink
-            mono
+          <RowLink
             to={mcpServerTo({ ...parseRef(row.server.ref), groupKind: row.server.groupKind })}
             state={backLinkState(location, "MCP servers")}
             data-testid={`mcp-server-link-${parseRef(row.server.ref).name}`}
           >
-            <Highlighted text={parseRef(row.server.ref).name} term={view.query} />
-          </ResourceLink>
+            <Highlighted text={parseRef(row.server.ref).name} terms={[view.query]} />
+          </RowLink>
         ),
       },
       {
@@ -181,7 +180,7 @@ export function McpServersPage() {
         render: (_, row) => (
           <Highlighted
             text={parseRef(row.server.ref).namespace || "—"}
-            term={view.query}
+            terms={[view.query]}
           />
         ),
       },
@@ -330,21 +329,28 @@ export function McpServersPage() {
           expandable={{
             // Keying the panel on the query remounts it when the filter changes,
             // so an already-open row re-renders against the tools that matched.
-            expandedRowRender: (row) => (
-              <ToolServerTools
-                key={view.query}
-                tools={row.tools}
-                highlight={view.query}
-                server={{ ...parseRef(row.server.ref), groupKind: row.server.groupKind }}
-                linkState={backLinkState(location, "MCP servers")}
-              />
-            ),
-            // Controlled rather than `expandRowByClick`, so `clickableRow` can keep a
-            // click on the delete button from also unfolding the row's tools.
+            // Keyed on the query, so an open row's clamped descriptions measure again.
+            expandedRowRender: (row) =>
+              row.tools.length ? (
+                <ToolList
+                  key={view.query}
+                  tools={row.tools}
+                  highlight={[view.query]}
+                  toolTo={(tool) => mcpServerTo({ ...parseRef(row.server.ref), groupKind: row.server.groupKind }, tool.name)}
+                  linkState={backLinkState(location, "MCP servers")}
+                />
+              ) : (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  data-testid="tool-server-no-tools"
+                  description="This server has not reported any tools yet."
+                />
+              ),
             expandedRowKeys: expanded.keys,
             onExpand: (open, row) => expanded.set(row.server.ref, open),
           }}
-          onRow={(row) => clickableRow(() => expanded.toggle(row.server.ref))}
+          // The row opens the server; only its expand cell unfolds the tools.
+          onRow={(row) => linkRow({ expand: () => expanded.toggle(row.server.ref) })}
           locale={{
             emptyText: isEmpty
               ? "No MCP servers yet."
