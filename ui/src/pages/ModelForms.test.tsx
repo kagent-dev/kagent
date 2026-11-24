@@ -2,7 +2,8 @@ import { ThemeProvider } from "@emotion/react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { themeFor } from "@/theme/theme";
 import { ModelEditPage } from "./ModelEditPage";
 import { ModelNewPage } from "./ModelNewPage";
@@ -74,6 +75,8 @@ const type = (testId: string, value: string) => {
 
 beforeEach(() => vi.clearAllMocks());
 
+afterEach(() => vi.useRealTimers());
+
 describe("model create form", () => {
   it("shows a header back link and a namespace dropdown", () => {
     renderAt("/models/new");
@@ -121,6 +124,7 @@ describe("model create form", () => {
   });
 
   it("keeps the optional parameters open while one shows an error", () => {
+    useTypingTimers();
     renderAt("/models/new");
     chooseProvider();
     type("model-model", "gpt-4o");
@@ -128,6 +132,7 @@ describe("model create form", () => {
     const optional = screen.getByTestId("model-optional-params");
     fireEvent.click(within(optional).getByText(/Optional parameters/));
     type("model-param-maxTokens", "lots");
+    pauseTyping();
     fireEvent.click(within(optional).getByText(/Optional parameters/));
     expect(within(optional).getByRole("button", { expanded: true })).toBeInTheDocument();
     expect(screen.getByTestId("model-submit")).toHaveAttribute("aria-disabled", "true");

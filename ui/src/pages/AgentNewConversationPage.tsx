@@ -8,6 +8,8 @@ import { PageFrame } from "@/components/Structure/PageFrame";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { ConversationComposer } from "@/components/conversation/ConversationComposer";
+import { AgentContextAside, agentSurfaceRow } from "@/components/conversation/AgentContextAside";
+import { AgentContextPanel } from "@/components/conversation/AgentContextPanel";
 import { buildPath, paths } from "@/router/routes";
 import { apiClient, useAgentTakesFiles, useOwnAgentConversations } from "@/api";
 import { randomId } from "@/api/randomId";
@@ -104,7 +106,7 @@ export function AgentNewConversationPage() {
         data-testid="agent-surface"
         css={{
           display: "flex",
-          gap: theme.space(6),
+          ...agentSurfaceRow,
           /*
            * `flex-start`, not `stretch`.
            *
@@ -310,6 +312,13 @@ export function AgentNewConversationPage() {
             />
           </div>
         </Space>
+
+        {/* The same panel as the conversation page, without the conversation card: there is none yet. */}
+        {namespace && name ? (
+          <AgentContextAside>
+            <AgentContextPanel agentRef={{ namespace, name }} />
+          </AgentContextAside>
+        ) : null}
       </div>
     </PageFrame>
   );

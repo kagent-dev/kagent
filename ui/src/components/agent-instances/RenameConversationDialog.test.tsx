@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@emotion/react";
 import { ConfigProvider } from "antd";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { themeFor } from "@/theme/theme";
 import type { AgentInstance } from "@/api";
 
@@ -35,6 +36,8 @@ function renderDialog(onClose = vi.fn(), target: AgentInstance = instance) {
   return onClose;
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe("RenameConversationDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -49,8 +52,10 @@ describe("RenameConversationDialog", () => {
   });
 
   it("shows an inline error as soon as an invalid name is typed and sends nothing", async () => {
+    useTypingTimers();
     renderDialog();
     await userEvent.type(screen.getByLabelText(/^Conversation name/), " padded");
+    pauseTyping();
 
     const field = screen.getByLabelText(/^Conversation name/);
     expect(field).toHaveAttribute("aria-invalid", "true");

@@ -1,12 +1,14 @@
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Pencil, Plus } from "lucide-react";
 import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { backLinkState } from "@/router/backLink";
 import { apiClient, parseRef, useModels, type ModelConfig } from "@/api";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { RefreshButton } from "@/components/table/RefreshButton";
@@ -54,6 +56,7 @@ export function ModelsPage() {
   const theme = useTheme();
   const { data, isLoading, error, isEmpty, refresh } = useModels();
   const view = useListView(FILTER_IDS);
+  const location = useLocation();
 
   const models = useMemo(() => data ?? [], [data]);
 
@@ -119,7 +122,15 @@ export function ModelsPage() {
         key: "name",
         sorter: byText<ModelConfig>((row) => parseRef(row.ref).name),
         sortOrder: sortOrderFor(view, "name"),
-        render: (_, row) => parseRef(row.ref).name,
+        render: (_, row) => (
+          <ResourceLink
+            to={buildPath(paths.modelEdit, parseRef(row.ref))}
+            state={backLinkState(location, "Models")}
+            data-testid={`model-link-${parseRef(row.ref).name}`}
+          >
+            {parseRef(row.ref).name}
+          </ResourceLink>
+        ),
       },
       {
         title: "Namespace",
@@ -157,7 +168,7 @@ export function ModelsPage() {
           const { namespace, name } = parseRef(row.ref);
           return (
             <Space size={0}>
-              <Link to={buildPath(paths.modelEdit, { namespace, name })}>
+              <Link to={buildPath(paths.modelEdit, { namespace, name })} state={backLinkState(location, "Models")}>
                 <Button
                   type="text"
                   size="small"
@@ -177,7 +188,7 @@ export function ModelsPage() {
         },
       },
     ],
-    [refresh, view],
+    [refresh, view, location],
   );
 
   return (

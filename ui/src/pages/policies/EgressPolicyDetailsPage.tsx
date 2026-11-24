@@ -6,7 +6,9 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { RefreshButton } from "@/components/table/RefreshButton";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
-import { linkInk } from "@/components/common/linkStyles";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { BackButton } from "@/components/common/BackButton";
+import { useGoBack } from "@/router/backLink";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
 import {
@@ -55,6 +57,7 @@ export function EgressPolicyDetailsPage() {
   const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const policy = useEgressPolicy(namespace, name);
+  const back = useGoBack({ to: egressPoliciesTab, label: egressCopy.details.back });
   const invalidate = useInvalidateEgressPolicies();
   const agents = useAgentsAcrossNamespaces(namespace ? [namespace] : undefined);
   const sandboxTemplates = useSandboxTemplates(namespace);
@@ -118,9 +121,9 @@ export function EgressPolicyDetailsPage() {
       render: (_, user) => {
         const href = user.kind === "Agent" ? agentPageUrl(user) : undefined;
         return href ? (
-          <Link to={href} css={{ ...mono, ...linkInk(theme) }} data-testid={`egress-user-link-${user.name}`}>
+          <ResourceLink to={href} mono data-testid={`egress-user-link-${user.name}`}>
             {user.name}
-          </Link>
+          </ResourceLink>
         ) : (
           <Text css={mono}>{user.name}</Text>
         );
@@ -158,9 +161,7 @@ export function EgressPolicyDetailsPage() {
               />
             </>
           ) : null}
-          <Link to={egressPoliciesTab}>
-            <Button>{egressCopy.details.back}</Button>
-          </Link>
+          <BackButton back={back} testId="egress-policy-back" />
           <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} iconOnly />
         </Space>
       }

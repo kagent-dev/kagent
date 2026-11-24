@@ -146,11 +146,43 @@ export function GlobalStyles() {
           cursor: pointer;
         }
 
-        /* Pressed rows, menu items and options: the row tint at twice the hover's strength. */
+        /* A link row's expand cell only toggles its tools, so it lights up on its own. */
         .ant-table-wrapper
           .ant-table-tbody
-          .ant-table-row.clickable-table-row:active
+          .ant-table-row.link-table-row:has(> .ant-table-row-expand-icon-cell:hover)
+          > .ant-table-cell {
+          background: inherit;
+        }
+        .ant-table-wrapper
+          .ant-table-tbody
+          .ant-table-row.link-table-row
+          > .ant-table-row-expand-icon-cell.ant-table-cell:hover {
+          background: ${c.rowHoverBg};
+        }
+
+        /* Pressed rows, menu items and options: the row tint at twice the hover's strength.
+           A row is not pressed while one of its own controls is. */
+        .ant-table-wrapper
+          .ant-table-tbody
+          .ant-table-row.clickable-table-row:not(.link-table-row):active:not(:has(
+            button:not(.ant-table-row-expand-icon):active,
+            [role="button"]:active,
+            a:active
+          ))
           > .ant-table-cell,
+        .ant-table-wrapper
+          .ant-table-tbody
+          .ant-table-row.link-table-row:active:not(:has(
+            button:active,
+            [role="button"]:active,
+            a:not([data-row-link]):active,
+            > .ant-table-row-expand-icon-cell:active
+          ))
+          > .ant-table-cell,
+        .ant-table-wrapper
+          .ant-table-tbody
+          .ant-table-row.link-table-row
+          > .ant-table-row-expand-icon-cell.ant-table-cell:active,
         .ant-dropdown-menu-item:not(.ant-dropdown-menu-item-disabled):not(.ant-dropdown-menu-item-danger):active,
         .ant-select-item-option:not(.ant-select-item-option-disabled):not(.ant-select-item-option-selected):active {
           background: ${c.rowPressBg};

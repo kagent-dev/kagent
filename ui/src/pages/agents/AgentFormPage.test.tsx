@@ -2,7 +2,8 @@ import { ThemeProvider } from "@emotion/react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { themeFor } from "@/theme/theme";
 import { AgentFormPage } from "./AgentFormPage";
 import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
@@ -69,6 +70,8 @@ function choose(testId: string, option: string) {
 }
 
 beforeEach(() => vi.clearAllMocks());
+
+afterEach(() => vi.useRealTimers());
 
 describe("agent create form", () => {
   it("shows a back link and marks every field required or optional", () => {
@@ -154,11 +157,13 @@ describe("agent create form", () => {
   });
 
   it("accepts a dotted name, as the API does, and refuses capitals", async () => {
+    useTypingTimers();
     mocks.create.mockImplementation(async (input: { name: string }) => ({ name: input.name }));
     renderAt("/agents/new");
     choose("agent-form-template-ref", "shared-brain");
     type("agent-form-name", "Team.Helper.");
     expect(screen.getByTestId("agent-form-name")).toHaveValue("team.helper.");
+    pauseTyping();
     expect(screen.getByText(/lowercase letters, numbers, hyphens and dots/)).toBeInTheDocument();
     expect(screen.getByTestId("agent-form-submit")).toHaveAttribute("aria-disabled", "true");
 

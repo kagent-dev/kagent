@@ -12,7 +12,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { Link, useLocation, useNavigate, useParams, useSearchParams, type Blocker } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams, type Blocker } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -29,13 +29,15 @@ import {
 } from "@/components/agent-template-form/agentTemplateDraft";
 import { SubmitError } from "@/components/common/SubmitError";
 import { BackLink } from "@/components/form/BackLink";
+import { useBackLink } from "@/router/backLink";
 import { FormActions } from "@/components/form/FormActions";
 import { toastSaved } from "@/components/form/saveToast";
 import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
 import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { agentTemplatesTab } from "@/router/routes";
-import { useBackLink } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import {
   apiClient,
   useAgentConversations,
@@ -221,15 +223,18 @@ export function AgentTemplateDetailsPage() {
           const href = agentPageUrl({
             namespace: row.namespace, name: row.name,
           });
-          const label = (
-            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.name}</span>
-          );
           return href ? (
-            <Link to={href} data-testid={`template-agent-link-${row.name}`}>
-              {label}
-            </Link>
+            <ResourceLink
+              mono
+              to={href}
+              icon={resourceIcons.agent}
+              data-testid={`template-agent-link-${row.name}`}
+              css={{ fontSize: 13 }}
+            >
+              {row.name}
+            </ResourceLink>
           ) : (
-            label
+            <span css={{ fontFamily: theme.font.mono, fontSize: 13 }}>{row.name}</span>
           );
         },
       },
@@ -331,6 +336,7 @@ export function AgentTemplateDetailsPage() {
     />
     <PageFrame
       title={name ? `Agent template ${name}` : "Agent template"}
+      icon={resourceIcons.template}
       description={
         namespace && !missing
           ? `What this agent does, in the ${namespace} namespace.`

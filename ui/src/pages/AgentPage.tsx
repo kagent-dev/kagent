@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Card, Skeleton, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
@@ -8,8 +8,11 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { AgentSchedules } from "@/components/agent/AgentSchedules";
 import { AgentContextPanel } from "@/components/conversation/AgentContextPanel";
+import { AgentContextAside, agentSurfaceRow } from "@/components/conversation/AgentContextAside";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   ExtensionSlot,
   useExtensionAgentLinks,
@@ -364,7 +367,7 @@ export function AgentPage() {
         data-testid="agent-surface"
         css={{
           display: "flex",
-          gap: theme.space(6),
+          ...agentSurfaceRow,
           /*
            * `flex-start`, not `stretch`.
            *
@@ -483,7 +486,28 @@ export function AgentPage() {
           />
         ) : null}
 
-        {agent || definition.isLoading ? <AgentIdentityCard agent={agent} /> : null}
+        {agent || definition.isLoading ? (
+          <AgentIdentityCard
+            agent={agent}
+            // Here rather than under the agent panel, which folds away on narrower windows.
+            actions={agent ? (
+              <Space size={8} wrap>
+                  <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
+                    <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
+                  </Link>
+                  <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
+                    onDelete={removeAgent}
+                    // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
+                    onDeleted={() => {
+                      navigate(paths.agents);
+                      void invalidateAgents().catch(() => {});
+                    }}
+                    description="Stops new conversations. Existing conversations keep their prepared revisions. Agent templates and harnesses are preserved."
+                  />
+                </Space>
+            ) : null}
+          />
+        ) : null}
 
         <FilterBar
           testId="conversations-filters"
@@ -622,35 +646,12 @@ export function AgentPage() {
         show them without an instance to read them through. Only the prepared revision
         needs a conversation, and it is left out here rather than guessed at.
       */}
-      <div
-        css={{
-          flexShrink: 0,
-          position: "sticky",
-          top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
-          alignSelf: "start",
-          width: 248,
-        }}
-        data-testid="agent-context-aside"
-      >
+      <AgentContextAside>
+      <div data-testid="agent-context-aside">
         <AgentContextPanel agentRef={{ namespace: namespace ?? "", name }} />
 
-        {agent ? (
-          <Space size={8} wrap css={{ marginTop: theme.space(5) }}>
-            <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
-              <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
-            </Link>
-            <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
-              onDelete={removeAgent}
-              // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
-              onDeleted={() => {
-                navigate(paths.agents);
-                void invalidateAgents().catch(() => {});
-              }}
-              description="Stops new conversations. Existing conversations keep their prepared revisions. Agent templates and harnesses are preserved."
-            />
-          </Space>
-        ) : null}
       </div>
+      </AgentContextAside>
       </div>
     </PageFrame>
   );
@@ -697,7 +698,7 @@ function IdentityPlaceholder({ height }: { height: number }) {
  * What this agent is made of: each half is a shared resource or inline in the Agent.
  * Without an agent it holds the same layout with placeholders, so the table below stays put.
  */
-function AgentIdentityCard({ agent }: { agent?: Agent }) {
+function AgentIdentityCard({ agent, actions }: { agent?: Agent; actions?: ReactNode }) {
   const theme = useTheme();
 
   return (
@@ -719,23 +720,32 @@ function AgentIdentityCard({ agent }: { agent?: Agent }) {
           ))
         )}
       </div>
-      <Paragraph
+      <div
         css={{
-          margin: `${theme.space(3)} 0 0`,
-          color: theme.color.textMuted,
-          fontSize: 12,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: theme.space(3),
+          marginTop: theme.space(3),
         }}
-        data-testid="agent-identity-note"
       >
-        The template says what this agent does and the Harness says how it runs.
-        Templates may be inline or shared; Harnesses are always referenced.
-      </Paragraph>
+        <Paragraph
+          css={{ "&&": { margin: 0 }, color: theme.color.textMuted, fontSize: 12, flex: "1 1 280px" }}
+          data-testid="agent-identity-note"
+        >
+          The template says what this agent does and the Harness says how it runs.
+          Templates may be inline or shared; Harnesses are always referenced.
+        </Paragraph>
+        {actions}
+      </div>
     </Card>
   );
 }
 
 function AgentIdentityFields({ agent }: { agent: Agent }) {
   const theme = useTheme();
+  const back = backLinkState(useLocation(), "Agent");
   const { spec, status } = agent.resource;
   const mono = { fontFamily: theme.font.mono, fontSize: 12 };
 
@@ -743,38 +753,33 @@ function AgentIdentityFields({ agent }: { agent: Agent }) {
     <>
       <IdentityField label="Agent template">
         {spec.template.ref ? (
-          <Link
+          <ResourceLink
+            mono
             to={buildPath(paths.agentTemplateDetail, {
               namespace: agent.namespace,
               name: spec.template.ref.name,
             })}
+            state={back}
             data-testid="agent-template-link"
-            css={{
-              fontFamily: theme.font.mono,
-              color: theme.color.primaryText,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: theme.space(2),
-              minWidth: 0,
-            }}
+            css={{ fontSize: 12 }}
           >
-            <Text
-              ellipsis={{ tooltip: spec.template.ref.name }}
-              css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
-            >
-              {spec.template.ref.name}
-            </Text>
-            <Pencil size={12} aria-hidden color={theme.color.textMuted} />
-          </Link>
+            {spec.template.ref.name}
+          </ResourceLink>
         ) : (
           <Text data-testid="agent-template-inline">Inline</Text>
         )}
       </IdentityField>
 
       <IdentityField label="Harness">
-        <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+        <ResourceLink
+          mono
+          to={buildPath(paths.harness, { namespace: agent.namespace, name: spec.harnessRef.name })}
+          state={back}
+          data-testid="agent-harness-link"
+          css={{ fontSize: 12 }}
+        >
           {spec.harnessRef.name}
-        </Text>
+        </ResourceLink>
       </IdentityField>
 
       <IdentityField label="Revision">

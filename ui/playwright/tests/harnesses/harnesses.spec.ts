@@ -153,6 +153,21 @@ test("harnesses: a harness is created, read, edited and deleted", async ({ page 
     await expect(rowNamed(page, CREATED)).toContainText("Release default");
   });
 
+  await test.step("7b. its name opens a details page, and Edit from there returns to it", async () => {
+    await page.getByTestId(`harness-link-${CREATED}`).click();
+    await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}$`));
+    await expect(page.getByTestId("harness-details")).toContainText("Release default", { timeout: 30_000 });
+
+    await page.getByTestId("harness-edit").click();
+    await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}/edit`));
+    await page.getByTestId("harness-cancel").click();
+    await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}$`));
+
+    await expect(page.getByTestId("harness-back")).toHaveText("Harnesses");
+    await page.getByTestId("harness-back").click();
+    await page.waitForURL(/tab=harnesses/);
+  });
+
   await test.step("8. it is edited in place, and the change reads back", async () => {
     await rowAction(page, `kagent/${CREATED}`, "edit");
     await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}/edit`));

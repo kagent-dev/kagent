@@ -22,9 +22,12 @@ import { bareName, type AgentInstance, type ApiError } from "@/api";
  */
 export function ConversationDetailsModal({
   instance,
+  autoTitle,
   open,
   onClose,
 }: {
+  /** The title derived from its first message, as the rail shows it. */
+  autoTitle?: string;
   /**
    * The record, and whatever went wrong reading it.
    *
@@ -75,7 +78,7 @@ export function ConversationDetailsModal({
           bordered
           size="small"
           column={2}
-          items={instanceFields(data, theme, agentHref, () => setRenaming(true))}
+          items={instanceFields(data, theme, agentHref, () => setRenaming(true), autoTitle)}
           data-testid="conversation-details-fields"
         />
 

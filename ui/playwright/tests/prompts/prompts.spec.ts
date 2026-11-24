@@ -105,7 +105,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   await test.step("4. refreshing re-reads the list, and says that it did", async () => {
     // Navigates in-app, since a full load costs seconds under parallel load.
     // Step 1 left the scenario on `ok`, so the refresh is not slowed per call.
-    await page.getByRole("link", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     await expectPageTitle(page, "Prompts");
     await expect(rowNamed(page, "shared-fragments")).toHaveCount(1, {
       timeout: 30_000,
@@ -317,7 +317,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   });
 
   await test.step("11. the list behind it was re-read, and nothing else moved", async () => {
-    await page.getByRole("link", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     const row = rowNamed(page, "shared-fragments");
     await expect(row).toContainText("4 keys", { timeout: 30_000 });
     // The keys column too, which is what the search on this page also covers.
@@ -347,7 +347,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page).toHaveURL(/\/prompts\/kagent\/shared-fragments$/);
     await expect(page.getByTestId("prompt-discard-body")).toHaveCount(0);
 
-    await page.getByRole("link", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     await expect(rowNamed(page, CREATED)).toHaveCount(1, { timeout: 30_000 });
   });
 
@@ -410,7 +410,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
 
   await test.step("17. retrying asks the backend again, and it recovers", async () => {
     // Still on `error` from step 16, which the scenario keeps across in-app navigation.
-    await page.getByRole("link", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     await expect(page.getByTestId("prompts-error")).toBeVisible();
 
     /*

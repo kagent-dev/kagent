@@ -1,7 +1,9 @@
 import { Alert, Skeleton, Space } from "antd";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { resourceIcons } from "@/components/common/resourceIcons";
+import { useGoBack } from "@/router/backLink";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { BackLink } from "@/components/form/BackLink";
+import { ReturnBackLink } from "@/components/form/BackLink";
 import { toastSaved } from "@/components/form/saveToast";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { modelDraftFrom } from "@/components/model-form/modelDraft";
@@ -26,7 +28,7 @@ import {
  * indistinguishable from an unset one.
  */
 export function ModelEditPage() {
-  const navigate = useNavigate();
+  const back = useGoBack({ to: paths.models, label: "Models" });
   const { namespace, name } = useParams();
 
   const model = useModel(namespace, name);
@@ -47,9 +49,10 @@ export function ModelEditPage() {
 
   return (
     <>
-    <BackLink to={paths.models} resource="Models" />
+    <ReturnBackLink back={back} />
     <PageFrame
       title={name ? `Edit ${name}` : "Edit model"}
+      icon={resourceIcons.model}
       description="Replaces the configuration's provider, model and credential reference."
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
@@ -74,7 +77,8 @@ export function ModelEditPage() {
             // cannot move a configuration.
             identityLocked
             onSubmit={saveModel}
-            onSaved={() => void navigate(paths.models)}
+            onCancel={back.goBack}
+            onSaved={back.goBack}
           />
         ) : null}
       </Space>

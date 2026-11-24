@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@emotion/react";
 import { ConfigProvider } from "antd";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { themeFor } from "@/theme/theme";
 import type { Checkpoint } from "@/api";
 
@@ -33,6 +34,8 @@ function renderDialog(onClose = vi.fn()) {
   return onClose;
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe("SnapshotRenameDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -47,8 +50,10 @@ describe("SnapshotRenameDialog", () => {
   });
 
   it("shows an inline error as soon as an invalid name is typed and sends nothing", async () => {
+    useTypingTimers();
     renderDialog();
     await userEvent.type(screen.getByLabelText(/^Snapshot name/), " padded");
+    pauseTyping();
 
     const field = screen.getByLabelText(/^Snapshot name/);
     expect(field).toHaveAttribute("aria-invalid", "true");

@@ -8,6 +8,8 @@ import { PromptFragment } from "@/components/prompts/PromptFragment";
 import { buildPath, paths } from "@/router/routes";
 import { isNotFound, usePrompt } from "@/api";
 import { RefreshButton } from "@/components/table/RefreshButton";
+import { BackButton } from "@/components/common/BackButton";
+import { useGoBack } from "@/router/backLink";
 
 const { Text } = Typography;
 
@@ -23,6 +25,7 @@ export function PromptDetailPage() {
   const theme = useTheme();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const { data, isLoading, error, refresh } = usePrompt(namespace, name);
+  const back = useGoBack({ to: paths.prompts, label: "Libraries" });
 
   // A 404 is a different answer from a failed request: the cluster told us this
   // library does not exist. Retrying would be pointless, so that branch offers a
@@ -59,9 +62,7 @@ export function PromptDetailPage() {
               </Button>
             </Link>
           ) : null}
-          <Link to={paths.prompts}>
-            <Button>Back to libraries</Button>
-          </Link>
+          <BackButton back={back} testId="prompt-back" />
           <RefreshButton
             onRefresh={refresh}
             what="Prompt library"

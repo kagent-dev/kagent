@@ -1,7 +1,7 @@
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Alert, Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
@@ -9,6 +9,8 @@ import { RefreshButton } from "@/components/table/RefreshButton";
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
 import { buildPath, paths } from "@/router/routes";
+import { backLinkState } from "@/router/backLink";
+import { ResourceLink } from "@/components/common/ResourceLink";
 import {
   agentDescription,
   agentRevisionState,
@@ -26,7 +28,8 @@ import { agentNewConversationUrl } from "@/components/agent/agentUrl";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
-import { clickableRow } from "@/components/table/rowClick";
+import { linkRow } from "@/components/table/rowClick";
+import { RowLink } from "@/components/table/RowLink";
 import {
   byNumber,
   byText,
@@ -43,7 +46,6 @@ const PAGE_SIZE = 25;
 
 export function AgentsTab() {
   const theme = useTheme();
-  const navigate = useNavigate();
   const view = useListView(FILTER_IDS);
   const selectedNamespaces = view.selected("ns");
   const namespaces = useNamespaces();
@@ -134,13 +136,12 @@ export function AgentsTab() {
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
           <Space orientation="vertical" size={0}>
-            <Link
+            <RowLink
               to={agentNewConversationUrl(row) ?? paths.agents}
               data-testid={`agent-link-${row.namespace}-${row.name}`}
-              css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
             >
               {row.name}
-            </Link>
+            </RowLink>
             {descriptions.get(row.ref) ? (
               <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>
                 {descriptions.get(row.ref)}
@@ -165,7 +166,14 @@ export function AgentsTab() {
         width: 190,
         sorter: byText<Agent>((row) => templateRefName(row) ?? ""),
         sortOrder: sortOrderFor(view, "template"),
-        render: (_, row) => <SourceCell refName={templateRefName(row)} testId={`agent-template-${row.ref}`} />,
+        render: (_, row) => (
+          <SourceCell
+            refName={templateRefName(row)}
+            testId={`agent-template-${row.ref}`}
+            path={paths.agentTemplateDetail}
+            namespace={row.namespace}
+          />
+        ),
       },
       {
         title: "Harness",
@@ -173,7 +181,14 @@ export function AgentsTab() {
         width: 170,
         sorter: byText<Agent>((row) => harnessRefName(row) ?? ""),
         sortOrder: sortOrderFor(view, "harness"),
-        render: (_, row) => <SourceCell refName={harnessRefName(row)} testId={`agent-harness-${row.ref}`} />,
+        render: (_, row) => (
+          <SourceCell
+            refName={harnessRefName(row)}
+            testId={`agent-harness-${row.ref}`}
+            path={paths.harness}
+            namespace={row.namespace}
+          />
+        ),
       },
       {
         title: "Status",
@@ -337,29 +352,37 @@ export function AgentsTab() {
                 ? "No agents yet. Create one to pair a template with a harness."
                 : " ",
         }}
-        onRow={(row) =>
-          clickableRow(() => {
-            const destination = agentNewConversationUrl(row);
-            if (destination) void navigate(destination);
-          })
-        }
+        onRow={(row) => (agentNewConversationUrl(row) ? linkRow() : {})}
       />
     </Space>
   );
 }
 
 /** A shared resource's name, or an Inline tag when the Agent carries the spec itself. */
-function SourceCell({ refName, testId }: { refName?: string; testId: string }) {
-  const theme = useTheme();
+function SourceCell({
+  refName,
+  testId,
+  path,
+  namespace,
+}: {
+  refName?: string;
+  testId: string;
+  path: string;
+  namespace: string;
+}) {
+  const location = useLocation();
+  // The row's own click ignores links, so this opens the resource rather than a conversation.
   return refName ? (
-    <Text
-      ellipsis={{ tooltip: refName }}
+    <ResourceLink
+      mono
+      to={buildPath(path, { namespace, name: refName })}
+      state={backLinkState(location, "Agents")}
       data-testid={testId}
       data-source="reference"
-      css={{ fontFamily: theme.font.mono, fontSize: 12 }}
+      css={{ fontSize: 12 }}
     >
       {refName}
-    </Text>
+    </ResourceLink>
   ) : (
     <Tag data-testid={testId} data-source="inline" css={{ marginInlineEnd: 0 }}>
       Inline

@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import type { MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { linkInk } from "@/components/common/linkStyles";
+import type { useGoBack } from "@/router/backLink";
 
 interface BackLinkProps {
   to: string;
@@ -32,5 +33,24 @@ export function BackLink({ to, resource, onClick, "data-testid": testId = "form-
       <ArrowLeft size={14} aria-hidden />
       {resource}
     </Link>
+  );
+}
+
+/**
+ * The breadcrumb for a form that may have been opened from somewhere other than its
+ * list: it names and returns to that page, stepping back through history, and falls
+ * back to the list when the form was visited directly.
+ */
+export function ReturnBackLink({ back }: { back: ReturnType<typeof useGoBack> }) {
+  return (
+    <BackLink
+      to={back.to}
+      resource={back.label}
+      onClick={(event) => {
+        if (!back.isReturn) return;
+        event.preventDefault();
+        back.goBack();
+      }}
+    />
   );
 }

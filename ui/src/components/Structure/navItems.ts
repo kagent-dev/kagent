@@ -1,14 +1,12 @@
 import {
-  Bot,
   CalendarClock,
   Boxes,
-  Cpu,
   LayoutDashboard,
   MessageSquareText,
-  Server,
   ShieldCheck,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { resourceIcons } from "@/components/common/resourceIcons";
 import { paths } from "@/router/routes";
 
 /** Where every rail icon's left edge sits, from the row's inset: the same expanded and collapsed. */
@@ -51,17 +49,17 @@ export const coreNavItems: NavItem[] = [
     // reached from the agents page. Prefixes rather than single routes, so a page
     // added under either later (a harness details page) highlights here unchanged.
     activePaths: [paths.agentTemplates, paths.harnesses],
-    icon: Bot,
+    icon: resourceIcons.agent,
     order: 200,
   },
   { key: "scheduledRuns", label: "Schedules", path: paths.scheduledRuns, icon: CalendarClock, order: 275 },
   
-  { key: "models", label: "Models", path: paths.models, icon: Cpu, order: 300 },
+  { key: "models", label: "Models", path: paths.models, icon: resourceIcons.model, order: 300 },
   {
     key: "mcpServers",
     label: "MCP Servers",
     path: paths.mcpServers,
-    icon: Server,
+    icon: resourceIcons.mcpServer,
     order: 400,
   },
   {

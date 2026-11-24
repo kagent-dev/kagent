@@ -3,14 +3,13 @@ import { ReadError } from "@/components/common/ReadError";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { useHarnesses } from "@/api";
-import { BackLink } from "@/components/form/BackLink";
+import { BackLink, ReturnBackLink } from "@/components/form/BackLink";
 import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
 import { copySource, useMountedBlank } from "@/components/table/copyFrom";
 import { CopyNotice } from "@/components/table/CopyNotice";
-import { paths } from "@/router/routes";
-
-const harnessesTab = `${paths.agents}?tab=harnesses`;
+import { harnessesTab } from "@/router/routes";
+import { useGoBack } from "@/router/backLink";
 
 export function HarnessNewPage() {
   const navigate = useNavigate();
@@ -51,14 +50,15 @@ export function HarnessNewPage() {
  * namespace's list, which is the same read the harnesses tab makes.
  */
 export function HarnessEditPage() {
-  const navigate = useNavigate();
+  // Back to the details page when opened from it, else to the list.
+  const back = useGoBack({ to: harnessesTab, label: "Harnesses" });
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const harnesses = useHarnesses(namespace);
   const harness = harnesses.data?.find((row) => row.namespace === namespace && row.name === name);
 
   return (
     <>
-      <BackLink to={harnessesTab} resource="Harnesses" />
+      <ReturnBackLink back={back} />
       <PageFrame
         title={`Edit harness ${name ?? ""}`}
         description="Changes apply to every agent that references this harness."
@@ -84,8 +84,8 @@ export function HarnessEditPage() {
               // Remounts on a reloaded resource, so the draft never edits a stale copy.
               key={harness.resource.metadata.resourceVersion ?? ""}
               harness={harness}
-              onSaved={() => void navigate(harnessesTab)}
-              cancel={{ to: harnessesTab }}
+              onSaved={back.goBack}
+              cancel={{ onClick: back.goBack }}
             />
           </div>
         ) : (

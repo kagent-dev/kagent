@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ToolBinding } from "./agentTemplates";
 import type { ToolServerResponse } from "./mcpServers";
-import { countTemplateTools, indexToolServers } from "./templateToolCount";
+import { countTemplateTools, findToolServer, groupToolsByServer, indexToolServers } from "./templateToolCount";
 
 const server = (ref: string, names: string[]): ToolServerResponse => ({
   ref,
   groupKind: "RemoteMCPServer.api.kagent.dev",
   discoveredTools: names.map((name) => ({ name, description: "" })),
 });
-const servers = indexToolServers([
+const serverList = [
   server("team/docs", ["a", "b", "c"]),
   server("ops/k8s", ["x", "y"]),
   server("team/quiet", []),
   { ...server("team/docs", ["s1", "s2", "s3", "s4", "s5"]), groupKind: "Service" },
-]);
+];
+const servers = indexToolServers(serverList);
 
 describe("countTemplateTools", () => {
   it("counts named tools, an unrestricted server's discovered tools and sub-agents", () => {
@@ -58,5 +59,36 @@ describe("countTemplateTools", () => {
   it("treats a server with no discovered tools as uncountable, not as zero", () => {
     const bindings: ToolBinding[] = [{ mcp: { server: { name: "quiet" } } }];
     expect(countTemplateTools(bindings, servers, "team")).toEqual({ total: 0, unknownServers: ["team/quiet"] });
+  });
+});
+
+describe("findToolServer", () => {
+  it("opens the server of the given kind when two kinds share a name", () => {
+    expect(findToolServer(serverList, "team/docs", "Service")?.discoveredTools).toHaveLength(5);
+    expect(findToolServer(serverList, "team/docs", "RemoteMCPServer.api.kagent.dev")?.discoveredTools).toHaveLength(3);
+    expect(findToolServer(serverList, "team/docs", "Foo.example.com")).toBeUndefined();
+  });
+
+  it("matches by name alone when no kind is given", () => {
+    expect(findToolServer(serverList, "ops/k8s", null)?.ref).toBe("ops/k8s");
+  });
+});
+
+describe("groupToolsByServer", () => {
+  it("merges each server's bindings, and an unnamed binding grants every tool", () => {
+    const bindings: ToolBinding[] = [
+      { mcp: { server: { name: "docs" }, tools: ["a", "b"] } },
+      { mcp: { server: { name: "k8s", namespace: "ops" }, tools: ["x"] } },
+      { mcp: { server: { name: "docs" }, tools: ["b", "c"] } },
+      { mcp: { server: { name: "k8s", namespace: "ops" } } },
+      { mcp: { server: { name: "gone" }, tools: ["z"] } },
+    ];
+    const groups = groupToolsByServer(bindings, servers, "team");
+    expect(groups.map(({ ref, allTools, selected, discovered }) => ({ ref, allTools, selected, total: discovered?.length })))
+      .toEqual([
+        { ref: "team/docs", allTools: false, selected: ["a", "b", "c"], total: 3 },
+        { ref: "ops/k8s", allTools: true, selected: [], total: 2 },
+        { ref: "team/gone", allTools: false, selected: ["z"], total: undefined },
+      ]);
   });
 });

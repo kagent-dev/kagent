@@ -134,6 +134,7 @@ export function CheckpointDivider({
       data-testid={`conversation-checkpoint-mark-${checkpointId}`}
       css={{
         display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr)",
         gap: theme.space(3),
         /*
          * A tinted band, edged rather than brightened — and the one place here that

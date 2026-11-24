@@ -216,6 +216,12 @@ export function conversationTitle(
   return `Untitled · ${shortInstanceId(instance.id)}`;
 }
 
+/** The title alone, for places that show the full id beside it. */
+export function conversationHeading(instance: AgentInstance, autoTitle?: string): string {
+  if (hasConversationName(instance)) return instance.name;
+  return autoTitle?.trim() ? autoTitle : "Untitled";
+}
+
 /** Whether a row should show the title placeholder: unnamed, untitled, and its read in flight. */
 export function isConversationTitlePending(
   instance: AgentInstance,

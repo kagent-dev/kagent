@@ -93,6 +93,8 @@ interface ModelFormProps {
   additionalProviderOptions?: Array<{ value: string; label: string }>;
   onProviderChange?: (provider: string) => void;
   allowProviderSelectionWhenIdentityLocked?: boolean;
+  /** Cancel's action; without it, Cancel links to the models list. */
+  onCancel?: () => void;
 }
 
 /** The draft by value, minus the header rows' bookkeeping ids, for dirty checks. */
@@ -150,6 +152,7 @@ export function ModelForm({
   additionalProviderOptions = [],
   onProviderChange,
   allowProviderSelectionWhenIdentityLocked = false,
+  onCancel,
 }: ModelFormProps) {
   const theme = useTheme();
   const isEdit = initial !== undefined;
@@ -789,7 +792,7 @@ export function ModelForm({
         submitLabel={submitLabel}
         onSubmit={() => void submit()}
         submitting={saving}
-        cancel={{ to: paths.models }}
+        cancel={onCancel ? { onClick: onCancel } : { to: paths.models }}
         testIdPrefix="model"
         blocked={!validation.valid}
         error={

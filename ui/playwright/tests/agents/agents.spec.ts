@@ -434,3 +434,54 @@ test("agents: an agent whose conversations cannot be read says so, and is not em
     await expect(missing).toContainText("keep running");
   });
 });
+
+/** Every tab of the agents page opens a row's details the same way. */
+for (const tab of [
+  { route: routes.agents, link: `agent-link-kagent-${agents.k8s.name}`, to: new RegExp(`/agents/kagent/${agents.k8s.name}/new$`) },
+  { route: routes.agentTemplates, link: `template-link-${agents.k8s.template}`, to: new RegExp(`/agent-templates/kagent/${agents.k8s.template}$`) },
+  { route: routes.harnesses, link: `harness-link-${agents.k8s.harness}`, to: new RegExp(`/harnesses/kagent/${agents.k8s.harness}$`) },
+]) {
+  test(`agents: a ${tab.route} row works as the link in its name`, async ({ page, context }) => {
+    await loadPage(page, tab.route, { title: "Agents" });
+    const name = page.getByTestId(tab.link);
+    const row = page.locator("tbody tr").filter({ has: name });
+    const cell = row.locator("td").nth(1);
+    await expect(row).toHaveClass(/link-table-row/, { timeout: 30_000 });
+
+    await test.step("the name is bold, not underlined", async () => {
+      await row.hover();
+      await expect(name).toHaveCSS("font-weight", "600");
+      await expect(name).toHaveCSS("text-decoration-line", "none");
+    });
+
+    await test.step("pressing the actions button does not press the row", async () => {
+      await page.mouse.move(0, 0);
+      await expect.poll(() => row.evaluate((el) => el.matches(":hover"))).toBe(false);
+      const resting = await background(cell);
+      await row.getByRole("button", { name: /^Actions for/ }).hover();
+      await expect.poll(() => background(cell)).not.toBe(resting);
+      const hovered = await background(cell);
+      await page.mouse.down();
+      try {
+        expect(await background(cell)).toBe(hovered);
+      } finally {
+        await page.mouse.up();
+      }
+      await page.keyboard.press("Escape");
+    });
+
+    await test.step("a modified click opens it in a new tab", async () => {
+      const opened = context.waitForEvent("page");
+      await cell.click({ modifiers: ["ControlOrMeta"] });
+      const tabPage = await opened;
+      await expect(tabPage).toHaveURL(tab.to);
+      await tabPage.close();
+      await expect(page).not.toHaveURL(tab.to);
+    });
+
+    await test.step("a plain click anywhere on the row opens it", async () => {
+      await cell.click();
+      await expect(page).toHaveURL(tab.to);
+    });
+  });
+}

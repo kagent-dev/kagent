@@ -12,6 +12,11 @@ import { Alert, Checkbox, Form, Input, Select, Space, Typography } from "antd";
 import { useMemo, type ReactNode } from "react";
 import type { AgentTemplateDraft, OutputSource, TemplateField } from "./agentTemplateDraft";
 import { SkillsField } from "./SkillsField";
+import { useLocation } from "react-router-dom";
+import { ResourceLink } from "@/components/common/ResourceLink";
+import { resourceIcons } from "@/components/common/resourceIcons";
+import { backLinkState } from "@/router/backLink";
+import { buildPath, paths } from "@/router/routes";
 
 import { referenceLabel, type ObjectReference } from "@/api/domain/agentTemplates";
 
@@ -96,6 +101,7 @@ export function AgentTemplateForm({
   fieldFor?: (field: TemplateField) => FieldValidation;
 }) {
   const theme = useTheme();
+  const location = useLocation();
   const models = useModels();
   const servers = useMcpServers();
   const tools = useTools();
@@ -132,6 +138,8 @@ export function AgentTemplateForm({
       ),
     };
   });
+
+  const selectedModel = models.data?.find((model) => model.ref === referenceLabel(draft.modelConfig, namespace));
 
   // A load error shows only when it leaves nothing to choose from. An empty list
   // may mean none exist or access hides them, so the hint names both.
@@ -221,19 +229,42 @@ export function AgentTemplateForm({
         ) : namespaceField}
 
         <Field readOnly={readOnly} label="Model configuration" required={modelRequired} extra={modelHelp} {...fieldFor("model")}>
-          <Select
-            data-testid="template-form-model"
-            css={{ minWidth: 320 }}
-            value={referenceLabel(draft.modelConfig, namespace) || undefined}
-            loading={models.isLoading}
-            placeholder={placeholder("Choose a model configuration")}
-            popupMatchSelectWidth={false}
-            autoComplete="off"
-            showSearch={!readOnly && { optionFilterProp: "title" }}
-            onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
-            options={modelOptions}
-            {...readOnlySelect}
-          />
+          {/* The value is the link while reading; following it mid-edit would drop the draft. */}
+          {readOnly && draft.modelConfig?.name ? (
+            <div data-testid="template-form-model" css={{ display: "flex", alignItems: "center", gap: theme.space(2) }}>
+              <ResourceLink
+                to={buildPath(paths.modelEdit, {
+                  namespace: draft.modelConfig.namespace || namespace,
+                  name: draft.modelConfig.name,
+                })}
+                state={backLinkState(location, "Template")}
+                icon={resourceIcons.model}
+                data-testid="template-form-model-link"
+                css={{ paddingInline: 12, fontSize: 14 }}
+              >
+                {referenceLabel(draft.modelConfig, namespace)}
+              </ResourceLink>
+              {selectedModel ? (
+                <Text data-testid="template-form-model-type" css={{ color: theme.color.textMuted, fontSize: 12 }}>
+                  {selectedModel.spec.model}
+                </Text>
+              ) : null}
+            </div>
+          ) : (
+            <Select
+              data-testid="template-form-model"
+              css={{ minWidth: 320 }}
+              value={referenceLabel(draft.modelConfig, namespace) || undefined}
+              loading={models.isLoading}
+              placeholder={placeholder("Choose a model configuration")}
+              popupMatchSelectWidth={false}
+              autoComplete="off"
+              showSearch={!readOnly && { optionFilterProp: "title" }}
+              onChange={(value: string) => set("modelConfig", referenceFromPicker(value))}
+              options={modelOptions}
+              {...readOnlySelect}
+            />
+          )}
         </Field>
         <Field readOnly={readOnly}
           label="Output format"
@@ -628,6 +659,6 @@ export function AgentTemplateForm({
 }
 
 /** A FormField while editing; reading is not a form, so labels drop the required and optional marks. */
-function Field({ readOnly, required, error, onTouch, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
-  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} onTouch={onTouch} {...props} />;
+function Field({ readOnly, required, error, onTouch, onType, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
+  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} onTouch={onTouch} onType={onType} {...props} />;
 }
