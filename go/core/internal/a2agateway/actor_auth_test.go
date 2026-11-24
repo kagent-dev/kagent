@@ -62,7 +62,7 @@ func TestHTTPActorA2AUsesSessionAuthorization(t *testing.T) {
 	other.Id = uuid.NewString()
 	store.session = other
 	_, err = transport.GetTask(t.Context(), actor, &a2atype.GetTaskRequest{ID: "runtime-task"})
-	require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+	require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
 	_, err = transport.GetTask(t.Context(), user, &a2atype.GetTaskRequest{ID: "runtime-task"})
 	require.NoError(t, err)
 }

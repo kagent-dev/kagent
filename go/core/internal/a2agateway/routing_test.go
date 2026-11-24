@@ -91,7 +91,7 @@ func TestGatewayTaskRoutingAndAgentIsolation(t *testing.T) {
 		{"task only", gatewayTestAgent, "", nil},
 		{"matching context", gatewayTestAgent, gatewayTestID, nil},
 		{"conflicting context", gatewayTestAgent, uuid.NewString(), a2a.ErrInvalidRequest},
-		{"different Agent", "team-a/other", "", a2a.ErrUnauthorized},
+		{"different Agent", "team-a/other", "", a2a.ErrTaskNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &gatewayTestStore{session: gatewayTestSession()}
