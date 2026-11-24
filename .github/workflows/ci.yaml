@@ -107,42 +107,20 @@ jobs:
         run: make create-kind-cluster
 
       # The live UI lane runs on gvisor only. Its toolchain installs while Install Kagent builds.
-      - name: Setup Node.js
+      - name: Setup UI toolchain
         if: matrix.sandbox_class == 'gvisor'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: ui/.nvmrc
-
-      - name: Enable Corepack
-        if: matrix.sandbox_class == 'gvisor'
-        run: corepack enable
-
-      - name: Cache Yarn downloads
-        if: matrix.sandbox_class == 'gvisor'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.yarn/berry/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      # The Playwright version is pinned by yarn.lock.
-      - name: Cache Playwright browsers
-        if: matrix.sandbox_class == 'gvisor'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
+        uses: ./.github/actions/setup-ui
 
       - name: Start live UI toolchain install
         if: matrix.sandbox_class == 'gvisor'
         working-directory: ./ui
         run: |
-          # Detached so it overlaps Install Kagent. The e2e step waits on the status file.
+          # Runs in the background while Install Kagent builds; the e2e step waits on the status file.
           rm -f "$RUNNER_TEMP/live-ui-setup.status"
-          setsid nohup bash -c '
+          {
             yarn install --immutable && yarn playwright install --with-deps chromium
-            echo $? > "$RUNNER_TEMP/live-ui-setup.status.tmp" && mv "$RUNNER_TEMP/live-ui-setup.status.tmp" "$RUNNER_TEMP/live-ui-setup.status"
-          ' > "$RUNNER_TEMP/live-ui-setup.log" 2>&1 < /dev/null &
+            echo $? > "$RUNNER_TEMP/live-ui-setup.status"
+          } > "$RUNNER_TEMP/live-ui-setup.log" 2>&1 &
 
       - name: Install Kagent
         id: install-kagent
@@ -156,10 +134,7 @@ jobs:
           export BUILDX_BUILDER_NAME
           make buildx-create
           mkdir -p "$RUNNER_TEMP/runtime-images"
-          images="controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest"
-          # The live UI lane tests the built UI image.
-          if [ "${{ matrix.sandbox_class }}" = gvisor ]; then images="$images ui"; fi
-          printf '%s\n' $images | xargs -P4 -n1 bash -c '
+          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest ${{ matrix.sandbox_class == 'gvisor' && 'ui' || '' }} | xargs -P4 -n1 bash -c '
             image="$1"
             RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" \
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
@@ -326,25 +301,7 @@ jobs:
           # is held until the Go suite has run, so one run reports both.
           live_ui_rc=0
           if [ "${{ matrix.sandbox_class }}" = gvisor ]; then
-            bash -eo pipefail -c '
-              for _ in $(seq 1 120); do
-                test -f "$RUNNER_TEMP/live-ui-setup.status" && break
-                sleep 5
-              done
-              test -f "$RUNNER_TEMP/live-ui-setup.status" || { echo "::error::Live UI toolchain install did not finish"; cat "$RUNNER_TEMP/live-ui-setup.log"; exit 1; }
-              if [ "$(cat "$RUNNER_TEMP/live-ui-setup.status")" != 0 ]; then
-                echo "::error::Live UI toolchain install failed (exit $(cat "$RUNNER_TEMP/live-ui-setup.status"))"; cat "$RUNNER_TEMP/live-ui-setup.log"
-                exit 1
-              fi
-              kubectl -n kagent rollout status deploy/kagent-ui --timeout=2m
-              for _ in $(seq 1 30); do UI_IP="$(kubectl get svc -n kagent kagent-ui -o jsonpath="{.status.loadBalancer.ingress[0].ip}")"; [ -n "$UI_IP" ] && break; sleep 2; done
-              test -n "$UI_IP"
-              export KAGENT_E2E_UI_LOOP_LIVE_URL="http://${UI_IP}:8080"
-              echo "KAGENT_E2E_UI_LOOP_LIVE_URL: $KAGENT_E2E_UI_LOOP_LIVE_URL"
-              cd ../ui
-              # agent-lifecycle and agent-template-skills need a model that answers.
-              yarn test:pw:live --workers=1 --retries=1 --global-timeout=600000 live/pages live/substrate live/schedules
-            ' || live_ui_rc=$?
+            bash ../scripts/ci/live-ui-tests.sh || live_ui_rc=$?
             if [ "$live_ui_rc" != 0 ]; then echo "::error::Live UI tests failed"; fi
           fi
           export KAGENT_E2E_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
@@ -380,15 +337,6 @@ jobs:
         with:
           name: e2e-logs-${{ matrix.sandbox_class }}
           path: ${{ runner.temp }}/e2e-logs
-          retention-days: 7
-
-      - name: Upload live UI test results
-        if: failure() && matrix.sandbox_class == 'gvisor'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ui-live-test-results
-          path: ui/test-results
-          if-no-files-found: ignore
           retention-days: 7
 
       - name: fail print info
@@ -659,23 +607,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: ui/.nvmrc
-
-      # Before any cache step that shells out to yarn: the pinned version in
-      # ui/package.json "packageManager" is Yarn 4, and without corepack the shim
-      # on the runner is a different one that cannot read this lock file.
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Cache Yarn downloads
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.yarn/berry/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
+      - name: Setup UI toolchain
+        uses: ./.github/actions/setup-ui
 
       - name: Install dependencies
         working-directory: ./ui
