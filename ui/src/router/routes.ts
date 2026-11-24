@@ -57,6 +57,8 @@ export const paths = {
    */
   agentTemplates: "/agent-templates",
   agentTemplateNew: "/agent-templates/new",
+  /** Not a route of its own: the prefix every harness page sits under, for the nav. */
+  harnesses: "/harnesses",
   harnessNew: "/harnesses/new",
   /** After `new`, whose single static segment must win over this pattern. */
   harnessEdit: "/harnesses/:namespace/:name/edit",
@@ -77,8 +79,8 @@ export const paths = {
   modelNew: "/models/new",
   modelEdit: "/models/:namespace/:name/edit",
 
-  mcpServers: "/mcp",
-  mcpServerNew: "/mcp/new",
+  mcpServers: "/mcp-servers",
+  mcpServerNew: "/mcp-servers/new",
 
   // One page for every policy kind, with a tab per kind.
   policies: "/policies",

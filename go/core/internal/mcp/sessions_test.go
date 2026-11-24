@@ -786,3 +786,51 @@ func TestListTasksOfAnotherCallerIsNotFound(t *testing.T) {
 	require.True(t, result.IsError)
 	require.Equal(t, "not_found", result.Meta["kagent.dev/error-code"])
 }
+
+func TestToolCallPartsReplaceImageDataWithSize(t *testing.T) {
+	data := strings.Repeat("A", 160_000)
+	task := toolTurn("task-0", "shoot it", "done", map[string]any{
+		"output": "ok",
+		"images": []any{map[string]any{"mimeType": "image/png", "data": data}},
+	})
+	call := readTurn(task).calls[0]
+
+	parts, omitted := call.parts(defaultSessionMaxBytes)
+	require.False(t, omitted)
+	require.NotNil(t, parts.Result)
+	raw, err := json.Marshal(parts.Result)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), data)
+	require.Contains(t, string(raw), `"mimeType":"image/png"`)
+	require.Contains(t, string(raw), `"size":160000`)
+	require.Contains(t, string(raw), `"output":"ok"`)
+
+	item := readTurn(task).item(2)
+	raw, err = json.Marshal(item)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), data)
+	require.Contains(t, string(raw), `"size":160000`)
+
+	stored, err := json.Marshal(task)
+	require.NoError(t, err)
+	require.Contains(t, string(stored), data, "the stored task keeps its image")
+}
+
+func TestToolCallPartsReplaceContentImageDataWithSize(t *testing.T) {
+	data := strings.Repeat("A", 160_000)
+	text := map[string]any{"type": "text", "text": "data stays here"}
+	task := toolTurn("task-0", "shoot it", "done", map[string]any{
+		"content": []any{
+			map[string]any{"type": "image", "mimeType": "image/png", "data": data},
+			text,
+		},
+	})
+
+	parts, omitted := readTurn(task).calls[0].parts(defaultSessionMaxBytes)
+	require.False(t, omitted)
+	raw, err := json.Marshal(parts.Result)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), data)
+	require.Contains(t, string(raw), `{"mimeType":"image/png","size":160000,"type":"image"}`)
+	require.Contains(t, string(raw), `{"text":"data stays here","type":"text"}`, "the text item is unchanged")
+}

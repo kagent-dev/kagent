@@ -1,6 +1,6 @@
 import { useState } from "react";
 import useSWR from "swr";
-import { Alert, Button, Empty, Input, Modal, Popconfirm, Space, Table, Typography } from "antd";
+import { Alert, Button, Empty, Input, Modal, Space, Table, Typography } from "antd";
 import type { ChatConversationRef } from "@/api/chat/types";
 import {
   deleteTaskPushConfig,
@@ -9,6 +9,7 @@ import {
   taskAcceptsPushConfigs,
   type TaskPushConfig,
 } from "@/api/chat/taskPushConfigs";
+import { DeleteModal, useModalState } from "@/components/table/DeleteConfirmModal";
 
 function callbackURL(value: string): boolean {
   try {
@@ -30,6 +31,8 @@ export function TaskPushNotificationsModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string>();
+  const [removing, setRemoving] = useState<string>();
+  const removal = useModalState();
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<string>();
   const [id, setId] = useState("");
@@ -128,13 +131,8 @@ export function TaskPushNotificationsModal({
               render: (_, config: TaskPushConfig) => (
                 <Space>
                   <Button size="small" onClick={() => edit(config)} disabled={!editable}>Edit</Button>
-                  <Popconfirm
-                    title="Remove this callback?"
-                    description="Pending updates will be canceled. An in-flight request may still arrive."
-                    onConfirm={() => void remove(config.id)}
-                  >
-                    <Button size="small" danger loading={deleting === config.id}>Remove</Button>
-                  </Popconfirm>
+                  <Button size="small" danger loading={deleting === config.id}
+                    onClick={() => { setRemoving(config.id); removal.show(); }}>Remove</Button>
                 </Space>
               ),
             },
@@ -165,6 +163,13 @@ export function TaskPushNotificationsModal({
         </Space>
         </> : null}
       </Space>
+      {removal.mounted && removing !== undefined && <DeleteModal okText="Remove" open={removal.open}
+        onClose={removal.hide} afterClose={removal.afterClose} confirmation={{
+          title: `Remove callback ${removing}?`,
+          message: "Pending updates will be canceled. An in-flight request may still arrive.",
+          isDeleting: deleting === removing,
+          confirm: (afterDelete) => remove(removing).then(afterDelete),
+        }} />}
     </Modal>
   );
 }

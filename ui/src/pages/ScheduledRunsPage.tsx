@@ -253,7 +253,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
         <Typography.Text css={{ color: theme.color.textMuted }}>
           Deleting this schedule stops future executions. Accepted executions continue; history and conversations are retained.
         </Typography.Text>
-        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
+        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" outlined disabled={disabled}
           description="Stops future executions. Accepted executions continue; history and conversations are retained."
           onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }}
           onDeleted={async () => { await invalidate(); await navigate(paths.scheduledRuns); }} />

@@ -130,7 +130,7 @@ test.describe("dark theme: brand-coloured text", () => {
   });
 
   test("a tool server's kind is readable", async ({ page }) => {
-    await page.goto("/mcp");
+    await page.goto("/mcp-servers");
     await expect(page.locator(".ant-table-tbody .ant-tag").first()).toBeVisible();
 
     // antd's presets are derived for a light page: these were 3.4:1 and 4.2:1.
@@ -208,7 +208,7 @@ test.describe("dark theme: control edges", () => {
   test("which half of a segmented control is chosen is visible, not just legible", async ({
     page,
   }) => {
-    await page.goto("/mcp/new");
+    await page.goto("/mcp-servers/new");
     await expect(page.getByTestId("mcp-tls")).toBeVisible();
 
     const surfaces = await page.evaluate(() => {
@@ -242,7 +242,7 @@ test.describe("dark theme: control edges", () => {
   });
 
   test("and both of its labels stay readable", async ({ page }) => {
-    await page.goto("/mcp/new");
+    await page.goto("/mcp-servers/new");
     await expect(page.getByTestId("mcp-tls")).toBeVisible();
 
     const ratios = await page.evaluate(() =>

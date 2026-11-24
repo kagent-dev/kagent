@@ -2,8 +2,10 @@ package session
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -353,4 +355,48 @@ func TestScheduledMessageIDPrefixCannotStartAConversation(t *testing.T) {
 	_, err := NewInteractionService(nil, nil, sessions, false, false).PrepareSend(serviceTestContext("alice"), agent, &a2atype.SendMessageRequest{Message: message})
 	require.ErrorIs(t, err, a2atype.ErrInvalidParams)
 	require.Nil(t, store.createInput)
+}
+
+type pagedInteractionStore struct {
+	*interactionTestStore
+	tasks []*a2atype.Task
+}
+
+func (s *pagedInteractionStore) ListAgentTasks(_ context.Context, _ []string, afterID string, _ a2atype.TaskState, _ *time.Time, limit int, _ *int) ([]*a2atype.Task, int, error) {
+	var page []*a2atype.Task
+	for _, task := range s.tasks {
+		if string(task.ID) > afterID && len(page) < limit {
+			page = append(page, task)
+		}
+	}
+	return page, len(s.tasks), nil
+}
+
+func TestListTasksEndsPageBySize(t *testing.T) {
+	id := uuid.NewString()
+	agent := types.NamespacedName{Namespace: "team-a", Name: "assistant"}
+	stored := &apiv1.Session{Id: id, ContextId: id, Creator: "alice", State: apiv1.RuntimeState_RUNTIME_STATE_READY,
+		Agent: &apiv1.AgentProvenance{Ref: &apiv1.ResourceReference{Namespace: agent.Namespace, Name: agent.Name}}}
+	// Three 5 MiB tasks: two fit under MaxTaskPageBytes, the third does not.
+	big := strings.Repeat("x", 5<<20)
+	var tasks []*a2atype.Task
+	for _, taskID := range []a2atype.TaskID{"task-1", "task-2", "task-3"} {
+		tasks = append(tasks, &a2atype.Task{ID: taskID, ContextID: id, Artifacts: []*a2atype.Artifact{{ID: "a", Parts: a2atype.ContentParts{a2atype.NewTextPart(big)}}}})
+	}
+	service := NewInteractionService(&pagedInteractionStore{interactionTestStore: &interactionTestStore{}, tasks: tasks}, nil,
+		NewService(&serviceTestStore{getResult: stored}, serviceTestAuthorizer{}, nil), false, false)
+	list := func(token string) *a2atype.ListTasksResponse {
+		response, err := service.ListTasks(serviceTestContext("alice"), agent, &a2atype.ListTasksRequest{ContextID: id, IncludeArtifacts: true, PageToken: token})
+		require.NoError(t, err)
+		return response
+	}
+
+	first := list("")
+	require.Len(t, first.Tasks, 2)
+	require.Equal(t, base64.RawURLEncoding.EncodeToString([]byte("task-2")), first.NextPageToken)
+
+	second := list(first.NextPageToken)
+	require.Len(t, second.Tasks, 1)
+	require.Equal(t, a2atype.TaskID("task-3"), second.Tasks[0].ID)
+	require.Empty(t, second.NextPageToken)
 }
