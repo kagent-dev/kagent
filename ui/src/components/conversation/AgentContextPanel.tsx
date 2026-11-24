@@ -252,6 +252,7 @@ export function AgentContextPanel({
                     data-testid="conversation-agent-context-subagents"
                     css={{
                       ...toolList(theme),
+                      gap: theme.space(3),
                       ...(serverGroups.length ? { borderTop: `1px solid ${theme.color.border}`, paddingTop: theme.space(2) } : {}),
                     }}
                   >
@@ -510,8 +511,10 @@ function SubAgentRow({
 }) {
   const theme = useTheme();
   const template = useAgentTemplate(templateNamespace, subAgent.templateRef.name);
+  const when = subAgent.description || "No description given.";
+  // Often the same words as the binding's: said once.
   const about = template.data?.resource.spec.description;
-  const heading = { fontSize: 12, lineHeight: "18px", fontWeight: 600, color: theme.color.text } as const;
+  const term = { fontSize: 11, lineHeight: "16px", fontWeight: 500, color: theme.color.textMuted } as const;
 
   return (
     <li data-testid="conversation-agent-context-subagent" css={{ display: "grid", gap: theme.space(1), minWidth: 0, fontSize: 12 }}>
@@ -526,16 +529,19 @@ function SubAgentRow({
       >
         {subAgent.name}
       </ResourceLink>
-      {about ? (
-        <div data-testid="conversation-agent-context-subagent-about">
-          <div css={heading}>Description</div>
-          <ClampedText>{about}</ClampedText>
+      {/* Indented past the template icon, so the details sit under the name. */}
+      <dl css={{ margin: 0, paddingInlineStart: 18, display: "grid", gap: theme.space(1.5), minWidth: 0 }}>
+        {about && about.trim() !== when.trim() ? (
+          <div data-testid="conversation-agent-context-subagent-about">
+            <dt css={term}>Description</dt>
+            <dd css={{ margin: 0 }}><ClampedText>{about}</ClampedText></dd>
+          </div>
+        ) : null}
+        <div data-testid="conversation-agent-context-subagent-when">
+          <dt css={term}>When it&apos;s called</dt>
+          <dd css={{ margin: 0 }}><ClampedText>{when}</ClampedText></dd>
         </div>
-      ) : null}
-      <div data-testid="conversation-agent-context-subagent-when">
-        <div css={heading}>When it&apos;s called</div>
-        <ClampedText>{subAgent.description || "No description given."}</ClampedText>
-      </div>
+      </dl>
     </li>
   );
 }
