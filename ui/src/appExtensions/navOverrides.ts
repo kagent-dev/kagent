@@ -34,6 +34,12 @@ export interface ExtensionNavOverride {
    * destination and wants the familiar entry to lead there.
    */
   path?: string;
+  /**
+   * Adds path prefixes under which the entry is highlighted, for a page a product
+   * adds that belongs to it. Appended to the entry's own, never replacing them, so a
+   * product cannot unclaim a page the application files under the entry.
+   */
+  activePaths?: readonly string[];
   icon?: LucideIcon;
   order?: number;
 }
@@ -58,7 +64,13 @@ export function mergeExtensionNavOverrides(
     if (!part) continue;
     for (const [key, override] of Object.entries(part)) {
       if (!override) continue;
-      merged[key] = { ...merged[key], ...definedFields(override) };
+      const previous = merged[key];
+      merged[key] = { ...previous, ...definedFields(override) };
+      // A list of claims, not one choice, so a later extension adds to it rather than
+      // replacing it — otherwise installing a second product unhighlights the first's page.
+      if (previous?.activePaths && override.activePaths) {
+        merged[key].activePaths = [...previous.activePaths, ...override.activePaths];
+      }
     }
   }
 
@@ -93,6 +105,7 @@ export function applyNavOverrides(
         ...item,
         label: override.label ?? item.label,
         path: override.path ?? item.path,
+        activePaths: [...(item.activePaths ?? []), ...(override.activePaths ?? [])],
         icon: override.icon ?? item.icon,
         order: override.order ?? item.order,
       };

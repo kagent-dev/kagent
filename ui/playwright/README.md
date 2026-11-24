@@ -186,14 +186,13 @@ conventions below: the shared fixture import, and antd's class names.
   words are usually what the test is about. `schedule-pause` is one button whose label
   flips between Pause and Resume — the id selects it, and the label is free to be the
   assertion.
-- **Reach for antd's own class names only inside `helpers/`.** `.ant-popconfirm`,
-  `.ant-select-item-option`, `.ant-modal` and friends are that library's internals,
+- **Reach for antd's own class names only inside `helpers/`.** `.ant-select-item-option`,
+  `.ant-modal` and friends are that library's internals,
   and an upgrade that renames one should be a change to a helper rather than to a
   dozen specs. `chooseFilter`, `confirmDelete` and `pressOnce` exist for the ones that
   come up most.
-- **Press a dialog's button with `pressOnce`, not `click`.** antd animates a modal and
-  a popconfirm in, and Playwright can compute a click's coordinates while one is still
-  arriving — measured once at 238px left and 224px below the button, on the backdrop,
+- **Press a dialog's button with `pressOnce`, not `click`.** antd animates a modal in,
+  and Playwright can compute a click's coordinates while it is still arriving — measured once at 238px left and 224px below the button, on the backdrop,
   with the button itself never having moved. Its stability check compares two animation
   frames, and a starved main thread serves both from the same frame of the animation;
   `pressOnce` samples on a clock instead.
@@ -201,8 +200,7 @@ conventions below: the shared fixture import, and antd's class names.
   **`pressUntil` retries rather than waiting, and needs an argument for why that is
   safe here.** Retrying wants a button that can be pressed twice *and* a page
   underneath that can take a stray click, because a retry going out after the dialog
-  has closed lands on whatever is behind it — a popconfirm sits over its own trigger,
-  and a modal usually sits over a list of links.
+  has closed lands on whatever is behind it — a modal usually sits over a list of links.
 - **Assert against the list a user would read**, not against a toast or a closed
   modal. A success message proves the app thinks it worked.
 

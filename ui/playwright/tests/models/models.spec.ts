@@ -12,7 +12,7 @@ import {
   chooseFilter,
   clickRefresh,
   confirmDelete,
-  confirmation,
+  dialog,
   expectRequired,
   selectOption,
 } from "../../helpers/resource";
@@ -255,7 +255,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
 
   await test.step("9. deleting asks first, and Keep leaves it alone", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
-    const prompt = confirmation(page);
+    const prompt = dialog(page);
     // The confirmation names the row. "Delete this model configuration?" is no help
     // in a table of five of them, and *which* is the one question the reader has.
     await expect(prompt).toContainText(CREATED);

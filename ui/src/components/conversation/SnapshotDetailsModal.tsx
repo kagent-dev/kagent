@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { Button, Descriptions, Modal, Popconfirm, Space, Tag, Tooltip, Typography } from "antd";
+import { Button, Descriptions, Modal, Space, Tag, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { canForkFrom, type Checkpoint, type CheckpointState } from "@/api";
 import { relativeAge } from "@/components/agent-instances/instanceLabels";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
+import { DeleteModal, useModalState } from "@/components/table/DeleteConfirmModal";
 import { halfway } from "@/theme/theme";
 import { SnapshotRenameDialog } from "./SnapshotRenameDialog";
 import { snapshotLabel } from "./snapshotLabel";
@@ -68,6 +69,7 @@ export function SnapshotDetailsModal({
   const theme = useTheme();
   const [isRenaming, setRenaming] = useState(false);
   const [isBusy, setBusy] = useState(false);
+  const deletion = useModalState();
   const label = snapshotLabel(checkpoint);
   const forkable = canForkFrom(checkpoint);
   const state = STATE_APPEARANCE[checkpoint.state];
@@ -222,38 +224,28 @@ export function SnapshotDetailsModal({
             </span>
           </Tooltip>
 
-          <Popconfirm
-            title="Delete this snapshot?"
-            description="The saved runtime goes with it and nothing brings it back. Conversations already forked from here are kept."
-            overlayStyle={{ maxWidth: 320 }}
-            okText="Delete"
-            okButtonProps={{ danger: true, "data-testid": "snapshot-details-delete-confirm" }}
-            cancelText="Cancel"
-            cancelButtonProps={{ "data-testid": "snapshot-details-delete-cancel" }}
-            onConfirm={() => void act(() => onDelete(checkpoint.id))}
+          <Button
+            danger
+            onClick={deletion.show}
+            icon={<Eraser size={14} />}
+            disabled={isBusy}
+            data-testid="snapshot-details-delete"
+            css={{
+              transition: "none",
+              "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
+                color: theme.color.dangerText,
+                background: halfway("transparent", theme.color.dangerBg),
+                borderColor: theme.color.dangerBorder,
+              },
+              "&:active:not(:disabled)": {
+                color: theme.color.dangerText,
+                background: theme.color.dangerBg,
+                borderColor: theme.color.dangerBorder,
+              },
+            }}
           >
-            <Button
-              danger
-              icon={<Eraser size={14} />}
-              disabled={isBusy}
-              data-testid="snapshot-details-delete"
-              css={{
-                transition: "none",
-                "&:hover:not(:disabled), &:focus-visible:not(:disabled)": {
-                  color: theme.color.dangerText,
-                  background: halfway("transparent", theme.color.dangerBg),
-                  borderColor: theme.color.dangerBorder,
-                },
-                "&:active:not(:disabled)": {
-                  color: theme.color.dangerText,
-                  background: theme.color.dangerBg,
-                  borderColor: theme.color.dangerBorder,
-                },
-              }}
-            >
-              Delete
-            </Button>
-          </Popconfirm>
+            Delete
+          </Button>
         </Space>
 
         {/* Part of the record rather than something floating under it, which is what
@@ -284,6 +276,13 @@ export function SnapshotDetailsModal({
           onRenamed={onRenamed}
         />
       ) : null}
+      {deletion.mounted && <DeleteModal open={deletion.open} onClose={deletion.hide} afterClose={deletion.afterClose}
+        confirmation={{
+          title: "Delete this snapshot?",
+          message: "The saved runtime goes with it and nothing brings it back. Conversations already forked from here are kept.",
+          isDeleting: isBusy,
+          confirm: (afterDelete) => act(() => onDelete(checkpoint.id)).then(afterDelete),
+        }} />}
     </Modal>
   );
 }

@@ -82,7 +82,7 @@ export function ConversationTranscript({
   /** Starts a new conversation from a boundary. */
   onFork?: (checkpointId: string) => void;
   /** Drops a boundary and the runtime stored with it. */
-  onDeleteCheckpoint?: (checkpointId: string) => void;
+  onDeleteCheckpoint?: (checkpointId: string) => void | Promise<void>;
   /** Opens active callbacks for one A2A task. */
   onManageTaskPush?: (taskId: string) => void;
   /**
