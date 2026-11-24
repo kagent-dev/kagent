@@ -3,7 +3,7 @@
 
 package v1alpha3
 
-import corev1 "k8s.io/api/core/v1"
+import "k8s.io/apimachinery/pkg/types"
 
 // RuntimeEnvVar configures one literal runtime environment variable.
 type RuntimeEnvVar struct {
@@ -31,11 +31,35 @@ type RuntimeSnapshotPolicy struct {
 //
 // +kubebuilder:validation:XValidation:rule="self.workerPoolRef.name.size() > 0",message="workerPoolRef name must not be empty"
 type RuntimeSubstratePolicy struct {
-	// WorkerPoolRef references a WorkerPool in the resource's namespace.
+	// WorkerPoolRef references a WorkerPool. An omitted namespace means the
+	// resource's namespace. Another namespace must be listed in the
+	// controller's substrate.workerPoolNamespaces setting.
 	// +required
-	WorkerPoolRef corev1.LocalObjectReference `json:"workerPoolRef"`
+	WorkerPoolRef WorkerPoolReference `json:"workerPoolRef"`
 
 	// SnapshotPolicy configures runtime snapshot storage.
 	// +required
 	SnapshotPolicy RuntimeSnapshotPolicy `json:"snapshotPolicy"`
+}
+
+// WorkerPoolReference identifies a Substrate WorkerPool; an omitted namespace
+// means the owner's namespace.
+type WorkerPoolReference struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +required
+	Name string `json:"name"`
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// NamespacedName resolves the reference relative to its owner.
+func (r WorkerPoolReference) NamespacedName(ownerNamespace string) types.NamespacedName {
+	if r.Namespace != "" {
+		ownerNamespace = r.Namespace
+	}
+	return types.NamespacedName{Namespace: ownerNamespace, Name: r.Name}
 }

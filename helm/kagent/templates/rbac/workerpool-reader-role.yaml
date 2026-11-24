@@ -1,0 +1,44 @@
+{{- /*
+Read-only WorkerPool access in pool namespaces outside a namespaced RBAC scope.
+Cluster-scoped installs already read WorkerPools everywhere.
+*/ -}}
+{{- $rbacNamespaces := include "kagent.rbacNamespaces" . | fromJsonArray }}
+{{- if $rbacNamespaces }}
+{{- range $namespace := (.Values.config.substrate.workerPoolNamespaces | default list | uniq | sortAlpha) }}
+{{- if not (has $namespace $rbacNamespaces) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kagent.fullname" $ }}-workerpool-reader
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+rules:
+- apiGroups:
+  - ate.dev
+  resources:
+  - workerpools
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kagent.fullname" $ }}-workerpool-reader
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kagent.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kagent.fullname" $ }}-workerpool-reader
+subjects:
+- kind: ServiceAccount
+  name: {{ include "kagent.controller.serviceAccountName" $ | quote }}
+  namespace: {{ include "kagent.namespace" $ }}
+{{- end }}
+{{- end }}
+{{- end }}

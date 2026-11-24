@@ -20,4 +20,6 @@ type Collections struct {
 	ConfigMaps           krt.Collection[*corev1.ConfigMap]
 	Secrets              krt.Collection[*corev1.Secret]
 	WorkerPools          krt.Collection[*atev1.WorkerPool]
+	// WorkerPoolNamespaces may hold WorkerPools referenced from other namespaces.
+	WorkerPoolNamespaces []string
 }

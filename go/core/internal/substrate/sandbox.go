@@ -10,7 +10,6 @@ import (
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
 	atev1 "go.ate.dev/substrate/api/infra/k8s/ate/v1"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/image"
@@ -72,7 +71,7 @@ func SandboxActorTemplate(template *v1alpha3.SandboxTemplate, class atev1.Sandbo
 	}
 	result := &ateapipb.ActorTemplate{
 		Metadata:       &ateapipb.ResourceMetadata{Atespace: template.Namespace},
-		WorkerSelector: workerSelectorForPool(types.NamespacedName{Namespace: template.Namespace, Name: template.Spec.Substrate.WorkerPoolRef.Name}),
+		WorkerSelector: workerSelectorForPool(template.Spec.Substrate.WorkerPoolRef.NamespacedName(template.Namespace)),
 		Resources:      resources,
 		Containers: []*ateapipb.Container{{
 			Name: "sandbox", Image: template.Spec.Workload.Image,

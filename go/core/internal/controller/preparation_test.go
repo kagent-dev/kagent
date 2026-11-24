@@ -530,7 +530,7 @@ func newPreparationTestCollectionsFor(t *testing.T, workerPool string, template 
 	runtimeHarness.Spec.Workload.Image = new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	runtimeHarness.Spec.Workload.Command = []string{"/agent"}
 	runtimeHarness.Spec.Substrate = kagentv1alpha3.RuntimeSubstratePolicy{
-		WorkerPoolRef: corev1.LocalObjectReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+		WorkerPoolRef: kagentv1alpha3.WorkerPoolReference{Name: workerPool}, SnapshotPolicy: kagentv1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
 	}
 	harnesses := krt.NewStaticCollection(nil, []*kagentv1alpha3.Harness{runtimeHarness}, opts.WithName("Harnesses")...)
 	mock := krttest.NewMock(t, append([]any{

@@ -234,6 +234,9 @@ message SubstrateConfig {
     uri: true
     pattern: "^https://[^/?#]+"
   }];
+  // Namespaces whose WorkerPools a Harness or SandboxTemplate in any other
+  // namespace may reference. The controller watches only WorkerPools there.
+  repeated string worker_pool_namespaces = 6 [(buf.validate.field).repeated.items.string.min_len = 1];
 }
 
 message SessionsConfig {

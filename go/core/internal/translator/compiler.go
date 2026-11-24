@@ -166,16 +166,16 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	if err != nil {
 		return nil, err
 	}
-	workerKey := types.NamespacedName{Namespace: harness.Namespace, Name: harness.Spec.Substrate.WorkerPoolRef.Name}
-	workerPool := krt.FetchOne(c.ctx, c.collections.WorkerPools, krt.FilterObjectName(workerKey))
-	if workerPool == nil {
-		return nil, &WorkerPoolNotFoundError{WorkerPool: workerKey}
+	workerPool, err := ResolveWorkerPool(c.ctx, c.collections, harness.Namespace, harness.Spec.Substrate.WorkerPoolRef)
+	if err != nil {
+		return nil, err
 	}
+	result.WorkerPoolNamespace = workerPool.Namespace
 	result.AgentName = agent.Name
 	result.Image = image
 	result.CPU = c.settings.GetCpu()
 	result.Memory = c.settings.GetMemory()
-	result.SandboxClass = (*workerPool).Spec.DefaultSandboxClass()
+	result.SandboxClass = workerPool.Spec.DefaultSandboxClass()
 	// Shared agents and plugin selections can contribute the same image.
 	// Normalize once after the complete harness configuration has been compiled.
 	slices.Sort(result.SkillImages)
