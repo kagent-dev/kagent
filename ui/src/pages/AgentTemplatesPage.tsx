@@ -1,7 +1,7 @@
 import { isPermissionDenied } from "@/api/ApiError";
 import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Alert, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { RefreshButton } from "@/components/table/RefreshButton";
@@ -11,7 +11,8 @@ import { useListView } from "@/components/table/useListView";
 import { byText, listTableChange, matchesQuery, paginationFor, sortOrderFor } from "@/components/table/listTable";
 import { RowActionsMenu } from "@/components/table/RowActionsMenu";
 import { copyPath } from "@/components/table/copyFrom";
-import { clickableRow } from "@/components/table/rowClick";
+import { linkRow } from "@/components/table/rowClick";
+import { RowLink } from "@/components/table/RowLink";
 import { buildPath, mcpServerTo, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
 import { ResourceLink } from "@/components/common/ResourceLink";
@@ -49,7 +50,6 @@ const PAGE_SIZE = 25;
  */
 export function AgentTemplatesTab() {
   const theme = useTheme();
-  const navigate = useNavigate();
   const location = useLocation();
   const namespaces = useNamespaces();
   const namespaceDenied = isPermissionDenied(namespaces.error);
@@ -110,17 +110,15 @@ export function AgentTemplatesTab() {
         sorter: byText<AgentTemplate>((row) => row.name),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => (
-          <ResourceLink
-            mono
+          <RowLink
             to={buildPath(paths.agentTemplateDetail, {
               namespace: row.namespace,
               name: row.name,
             })}
             data-testid={`template-link-${row.name}`}
-            css={{ fontSize: 13 }}
           >
             {row.name}
-          </ResourceLink>
+          </RowLink>
         ),
       },
       {
@@ -318,16 +316,7 @@ export function AgentTemplatesTab() {
                   ? "No agent templates match those filters."
                   : " ",
           }}
-          onRow={(row) =>
-            clickableRow(() =>
-              void navigate(
-                buildPath(paths.agentTemplateDetail, {
-                  namespace: row.namespace,
-                  name: row.name,
-                }),
-              ),
-            )
-          }
+          onRow={() => linkRow()}
         />
     </Space>
   );

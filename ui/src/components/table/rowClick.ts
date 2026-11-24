@@ -59,6 +59,46 @@ export function clickableRow(
   return onClick ? { className: "clickable-table-row", onClick } : {};
 }
 
+/** Marks the link a whole row stands for; see `RowLink`. */
+export const ROW_LINK_ATTR = "data-row-link";
+
+/**
+ * Makes a whole table row act as its `RowLink`, for `onRow`.
+ *
+ * A plain click clicks the link, so router state and history behave as if it was clicked.
+ * A modified or middle click opens it in a new tab. `expand`, when given, is what a click
+ * in the row's expand cell does instead.
+ */
+export function linkRow({ expand }: { expand?: () => void } = {}): {
+  className: string;
+  onClick: (event: MouseEvent<HTMLElement>) => void;
+  onAuxClick: (event: MouseEvent<HTMLElement>) => void;
+} {
+  const open = (event: MouseEvent<HTMLElement>, newTab: boolean) => {
+    const link = event.currentTarget.querySelector<HTMLAnchorElement>(`a[${ROW_LINK_ATTR}]`);
+    if (!link) return;
+    if (newTab) window.open(link.href, "_blank", "noopener");
+    else link.click();
+  };
+  const guard = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    return event.currentTarget.contains(target) && !target.closest(INTERACTIVE);
+  };
+  const inExpandCell = (event: MouseEvent<HTMLElement>) =>
+    Boolean((event.target as HTMLElement).closest(".ant-table-row-expand-icon-cell"));
+  return {
+    className: "clickable-table-row link-table-row",
+    onClick: (event) => {
+      if (!guard(event)) return;
+      if (inExpandCell(event)) expand?.();
+      else open(event, event.metaKey || event.ctrlKey || event.shiftKey || event.altKey);
+    },
+    onAuxClick: (event) => {
+      if (event.button === 1 && guard(event) && !inExpandCell(event)) open(event, true);
+    },
+  };
+}
+
 /**
  * Which rows are unfolded, for a table whose expansion a page has to drive.
  *
