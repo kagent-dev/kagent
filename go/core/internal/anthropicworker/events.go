@@ -57,7 +57,7 @@ func (j *sessionJournal) accept(e sessionEvent) (changed []pendingTool, settled,
 		settled = append(settled, e.toolID)
 	case "user.interrupt":
 		for id, p := range j.pending {
-			if e.thread == "" || p.event.thread == "" || p.event.thread == e.thread {
+			if e.thread == "" || p.event.thread == e.thread {
 				delete(j.pending, id)
 				interrupted = append(interrupted, id)
 			}

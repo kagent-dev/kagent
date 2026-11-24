@@ -250,10 +250,12 @@ func TestHeartbeatExpiryFailsUnfinishedCommands(t *testing.T) {
 	tracker, err := process.NewTracker(cfg)
 	require.NoError(t, err)
 	t.Cleanup(tracker.Close)
-	guest := &handoffGuest{Service: process.NewService(tracker), observed: make(chan struct{}, 1)}
+	guest := &handoffGuest{Service: process.NewService(tracker), observed: make(chan struct{}, 1),
+		rejectedSignal: make(chan *guestpb.SignalProcessRequest, 1)}
 	upstream := &handoffProvider{
-		posted: make(chan string, 2),
-		events: make(chan string, 1),
+		posted:       make(chan string, 2),
+		events:       make(chan string, 1),
+		streamClosed: make(chan struct{}),
 		heartbeat: func(w http.ResponseWriter, attempt int32) {
 			if attempt == 1 {
 				_, _ = io.WriteString(w, `{"last_heartbeat":"continuation","ttl_seconds":2,"lease_extended":true,"state":"active"}`)
@@ -287,10 +289,18 @@ func TestHeartbeatExpiryFailsUnfinishedCommands(t *testing.T) {
 		done <- r.serve(ctx, w, env)
 	}()
 	receive(t, guest.observed)
+	running, err := r.store.nextCommand(t.Context(), w)
+	require.NoError(t, err)
+	require.NotEmpty(t, running.processID)
 	upstream.events <- `{"type":"agent.tool_use","id":"tool_queued","name":"bash","input":{"command":"printf queued"}}`
+	receive(t, upstream.streamClosed)
 	for _, id := range []string{"tool_pending", "tool_queued"} {
 		assert.JSONEq(t, fmt.Sprintf(`{"events":[{"type":"user.tool_result","tool_use_id":%q,"is_error":true,"content":[{"type":"text","text":"Command did not finish before the sandbox worker's heartbeat lease expired."}]}]}`, id), receive(t, upstream.posted))
 	}
+	signal := receive(t, guest.rejectedSignal)
+	assert.Equal(t, running.processID, signal.GetProcessId())
+	assert.Equal(t, guestpb.Signal_SIGNAL_KILL, signal.GetSignal())
+	assert.EqualValues(t, 1, guest.signals.Load(), "only the running process should receive a signal")
 	assert.EqualValues(t, 1, guest.starts.Load(), "the queued command must not start")
 	assert.ErrorIs(t, receive(t, done), errHeartbeatExpired)
 	_, err = r.store.nextCommand(t.Context(), w)
@@ -311,6 +321,25 @@ func TestSessionJournalHonorsToolConfirmation(t *testing.T) {
 	})
 }
 
+func TestSessionJournalScopesInterruptsToTargetThread(t *testing.T) {
+	j := sessionJournal{seen: make(map[string]bool), pending: make(map[string]pendingTool)}
+	for _, tool := range []sessionEvent{
+		{id: "primary", kind: "agent.tool_use"},
+		{id: "target", kind: "agent.tool_use", thread: "subagent"},
+		{id: "other", kind: "agent.tool_use", thread: "other-subagent"},
+	} {
+		_, _, _, err := j.accept(tool)
+		require.NoError(t, err)
+	}
+
+	_, _, interrupted, err := j.accept(sessionEvent{id: "interrupt", kind: "user.interrupt", thread: "subagent"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"target"}, interrupted)
+	assert.Contains(t, j.pending, "primary")
+	assert.Contains(t, j.pending, "other")
+	assert.NotContains(t, j.pending, "target")
+}
+
 func receive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
 	select {
@@ -328,6 +357,7 @@ type handoffProvider struct {
 	posted                                chan string
 	events                                chan string
 	heartbeatRecovered                    chan struct{}
+	streamClosed                          chan struct{}
 	heartbeat                             func(http.ResponseWriter, int32)
 }
 
@@ -369,6 +399,13 @@ func (p *handoffProvider) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"last_heartbeat":"continuation","ttl_seconds":6,"lease_extended":true,"state":"active"}`)
 	case "/v1/sessions/session_test/events":
 		if r.Method == http.MethodPost {
+			if p.streamClosed != nil {
+				select {
+				case <-p.streamClosed:
+				case <-r.Context().Done():
+					return
+				}
+			}
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -380,6 +417,9 @@ func (p *handoffProvider) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = io.WriteString(w, `{"data":[{"type":"agent.tool_use","id":"tool_pending","name":"bash","input":{"command":"while [ ! -f release ]; do sleep 0.05; done; printf 'survived its worker'","timeout_ms":15000}}],"has_more":false}`)
 	case "/v1/sessions/session_test/events/stream":
+		if p.streamClosed != nil {
+			defer close(p.streamClosed)
+		}
 		p.streams.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -412,6 +452,7 @@ type handoffGuest struct {
 	observed, suspended, expiring              chan struct{}
 	starts, signals, creates, resumes, deletes atomic.Int32
 	idle, expired                              atomic.Bool
+	rejectedSignal                             chan *guestpb.SignalProcessRequest
 }
 
 func (f *handoffGuest) CreateSandbox(_ context.Context, req *apiv1.CreateSandboxRequest) (*apiv1.CreateSandboxResponse, error) {
@@ -488,6 +529,10 @@ func (f *handoffGuest) GetProcess(ctx context.Context, req *guestpb.GetProcessRe
 
 func (f *handoffGuest) SignalProcess(ctx context.Context, req *guestpb.SignalProcessRequest) (*guestpb.Process, error) {
 	f.signals.Add(1)
+	if f.rejectedSignal != nil {
+		f.rejectedSignal <- req
+		return nil, status.Error(codes.Unavailable, "signal unavailable")
+	}
 	return f.Service.SignalProcess(ctx, req)
 }
 

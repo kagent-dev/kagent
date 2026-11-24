@@ -41,6 +41,21 @@ func (r *Runner) result(ctx context.Context, w assignment, c command, text strin
 	return r.store.transition(call, w, c, "result", nil, &text, isError)
 }
 
+func (r *Runner) killExpiredProcess(ctx context.Context, w assignment, processID string) {
+	call, cancel := context.WithTimeout(ctx, dbTimeout)
+	defer cancel()
+	sandboxID, err := r.store.sandbox(call, w)
+	if err != nil {
+		r.warn(ctx, "find sandbox for expired command", err)
+		return
+	}
+	if _, err := r.sandboxes.SignalProcess(call, sandboxID, &guestpb.SignalProcessRequest{
+		ProcessId: processID, Signal: guestpb.Signal_SIGNAL_KILL,
+	}); err != nil {
+		r.warn(ctx, "kill process after heartbeat expiry", fmt.Errorf("sandbox API status %s", status.Code(err)))
+	}
+}
+
 func (r *Runner) startCommand(ctx context.Context, w *assignment, c command, template *apiv1.ResourceReference) error {
 	if c.name != "bash" {
 		return r.result(ctx, *w, c, "This sandbox adapter supports the bash tool only.", true)

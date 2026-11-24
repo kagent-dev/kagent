@@ -144,7 +144,7 @@ func (r *Runner) acknowledge(ctx context.Context, w assignment, env Environment)
 	return r.store.ack(call, w)
 }
 
-func (r *Runner) heartbeat(ctx context.Context, w assignment, auth []option.RequestOption, ready chan<- struct{}, stopCommands context.CancelFunc) error {
+func (r *Runner) heartbeat(ctx context.Context, w assignment, auth []option.RequestOption, ready chan<- struct{}, stopRelay context.CancelFunc) error {
 	expected := w.heartbeat
 	if expected == "" {
 		expected = "NO_HEARTBEAT"
@@ -159,7 +159,7 @@ func (r *Runner) heartbeat(ctx context.Context, w assignment, auth []option.Requ
 			deadline = apiDeadline
 		}
 		if !started.Before(deadline) {
-			stopCommands()
+			stopRelay()
 			return nil
 		}
 		// Complete an in-flight heartbeat and save its continuation token on shutdown.

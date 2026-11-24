@@ -164,31 +164,37 @@ func (r *Runner) serve(ctx context.Context, w assignment, env Environment) error
 		}
 	}
 	group, live := errgroup.WithContext(ctx)
-	commands, stopCommands := context.WithCancel(live)
-	defer stopCommands()
+	relay, stopRelay := context.WithCancel(live)
+	defer stopRelay()
 	heartbeatReady, eventsReady := make(chan struct{}), make(chan struct{})
+	eventsDone := make(chan struct{})
 	commandWake := make(chan struct{}, 1)
 	var activity atomic.Int64
 	markActivity(&activity)
 	group.Go(func() error { return r.renew(live, w) })
-	group.Go(func() error { return r.heartbeat(live, w, auth, heartbeatReady, stopCommands) })
+	group.Go(func() error { return r.heartbeat(live, w, auth, heartbeatReady, stopRelay) })
 	group.Go(func() error {
-		if err := await(live, heartbeatReady); err != nil {
-			return err
+		defer close(eventsDone)
+		err := await(relay, heartbeatReady)
+		if err == nil {
+			err = r.events(relay, w, auth, eventsReady, commandWake, &activity)
 		}
-		return r.events(live, w, auth, eventsReady, commandWake, &activity)
-	})
-	group.Go(func() error {
-		if err := await(live, eventsReady); err != nil {
-			return err
-		}
-		err := r.runCommands(live, commands, w, env, auth, commandWake, &activity)
-		if commands.Err() != nil && live.Err() == nil {
-			// Only command execution was canceled. Keep ownership and SSE until
-			// the timeout results have been journaled and offered to Anthropic.
-			return r.failExpiredCommands(live, w, auth)
+		if relay.Err() != nil && live.Err() == nil {
+			return nil
 		}
 		return err
+	})
+	group.Go(func() error {
+		err := await(relay, eventsReady)
+		if err == nil {
+			err = r.runCommands(live, relay, w, env, auth, commandWake, &activity)
+		}
+		if relay.Err() == nil || live.Err() != nil {
+			return err
+		}
+		// Stop reading SSE before we flush recorded calls under the PostgreSQL claim.
+		<-eventsDone
+		return r.failExpiredCommands(live, w, auth)
 	})
 	return group.Wait()
 }
@@ -294,6 +300,9 @@ func (r *Runner) failExpiredCommands(ctx context.Context, w assignment, auth []o
 			return err
 		}
 		if c.phase != "result" {
+			if c.phase == "running" && c.processID != "" {
+				r.killExpiredProcess(ctx, w, c.processID)
+			}
 			if err := r.result(ctx, w, c, "Command did not finish before the sandbox worker's heartbeat lease expired.", true); err != nil {
 				return err
 			}
