@@ -61,6 +61,9 @@ type Executor struct {
 	// identifies the component that currently owns native process cleanup:
 	// nil -> active -> parked -> active, or parked -> canceling -> nil.
 	state executorState
+	// executing holds tasks from activation until Execute returns. A task can
+	// leave state before its final event is yielded.
+	executing map[taskRef]struct{}
 }
 
 type executorState interface{ isExecutorState() }
@@ -144,7 +147,7 @@ func New(runner Runner, continuation ContinuationStore, telemetry tracing.Runtim
 		// Missing metrics must not stop the runtime, so the error is only reported.
 		otel.Handle(fmt.Errorf("create GenAI metrics: %w", err))
 	}
-	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry, metrics: metrics}, nil
+	return &Executor{runner: runner, continuation: continuation, telemetry: telemetry, metrics: metrics, executing: make(map[taskRef]struct{})}, nil
 }
 
 // Execute validates and serializes one A2A request onto the native Runner.
@@ -248,6 +251,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			fail("actor_unavailable", err)
 			return
 		}
+		defer e.endExecution(active.taskRef)
 		if continued != nil && continued.origin.IsValid() {
 			// A link states that this segment continues work another invocation
 			// started. It does not reparent spans or transfer ownership of the
@@ -684,7 +688,17 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			}
 			return
 		case nil:
+			_, executing := e.executing[ref]
 			e.mu.Unlock()
+			if executing {
+				// The turn ended and Execute is publishing its outcome, which
+				// cancellation must not replace.
+				return
+			}
+			// A previous process held this task and nothing here can finish it.
+			// A cancellation that yields no event never completes. The TaskStore
+			// rejects this update if the task already ended.
+			yieldCancellation(ctx, reqCtx, nil, yield)
 			return
 		default:
 			e.mu.Unlock()
@@ -738,6 +752,7 @@ func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, er
 			return nil, fmt.Errorf("runtime has no parked turn to continue")
 		}
 		e.state = task
+		e.executing[task.taskRef] = struct{}{}
 		return nil, nil
 	case *parkedTask:
 		if !resuming {
@@ -747,6 +762,7 @@ func (e *Executor) activate(task *activeTask, resuming bool) (*continuedTurn, er
 			return nil, fmt.Errorf("continuation does not match the parked task")
 		}
 		e.state = task
+		e.executing[task.taskRef] = struct{}{}
 		return &continuedTurn{pending: state.pending, origin: state.origin}, nil
 	default:
 		return nil, errBusy
@@ -797,6 +813,12 @@ func (e *Executor) park(task *activeTask, pending runtime.PendingTurn, origin tr
 	}
 	e.state = &parkedTask{taskRef: task.taskRef, pending: pending, origin: origin}
 	return true
+}
+
+func (e *Executor) endExecution(ref taskRef) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	delete(e.executing, ref)
 }
 
 func (e *Executor) deactivate(task *activeTask) bool {

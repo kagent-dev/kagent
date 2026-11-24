@@ -393,6 +393,49 @@ func TestCancellationWinsPendingTurnRace(t *testing.T) {
 	}
 }
 
+func TestCancelWithoutActiveTask(t *testing.T) {
+	t.Run("Given a working task whose process was replaced, when the caller cancels it, assert that the stored task is canceled", func(t *testing.T) {
+		executor, err := New(fakeRunner{}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+		require.NoError(t, err)
+		store := taskstore.NewInMemory(&taskstore.InMemoryStoreConfig{Authenticator: func(context.Context) (string, error) { return "user", nil }})
+		_, err = store.Create(t.Context(), &a2atype.Task{ID: "lost", ContextID: testContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}})
+		require.NoError(t, err)
+		handler := a2asrv.NewHandler(executor, a2asrv.WithTaskStore(store))
+
+		// The caller's deadline bounds a cancellation that never completes.
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		task, err := handler.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: "lost"})
+
+		require.NoError(t, err)
+		require.Equal(t, a2atype.TaskStateCanceled, task.Status.State)
+		stored, err := store.Get(t.Context(), "lost")
+		require.NoError(t, err)
+		require.Equal(t, a2atype.TaskStateCanceled, stored.Task.Status.State)
+	})
+
+	t.Run("Given a turn publishing its completion, when the caller cancels it, assert that only the completion is reported", func(t *testing.T) {
+		executor, err := New(fakeRunner{run: func(context.Context, runtime.Turn, runtime.EventSink) (runtime.Outcome, error) {
+			return runtime.Outcome{}, nil
+		}}, &fakeContinuation{}, tracing.RuntimeTelemetry{})
+		require.NoError(t, err)
+
+		completed := false
+		for event, err := range executor.Execute(t.Context(), requestContext("task-1", "hello")) {
+			require.NoError(t, err)
+			if update, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && update.Status.State == a2atype.TaskStateCompleted {
+				completed = true
+				events, errs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
+				require.Empty(t, errs)
+				require.Empty(t, events)
+			}
+		}
+
+		require.True(t, completed)
+		require.Empty(t, executor.executing)
+	})
+}
+
 func TestCancelParkedTurn(t *testing.T) {
 	canceled := false
 	executor, err := New(fakeRunner{
