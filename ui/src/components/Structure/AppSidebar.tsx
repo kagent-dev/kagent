@@ -105,6 +105,8 @@ export function AppSidebar() {
         position: "sticky",
         top: theme.layout.headerHeight,
         height: `calc(100vh - ${theme.layout.headerHeight}px)`,
+        // antd animates `all`, which made the height trail a window resize; only the collapse should ease.
+        "&&": { transition: "width 0.2s, min-width 0.2s, max-width 0.2s, flex-basis 0.2s" },
         alignSelf: "flex-start",
         display: "flex",
         flexDirection: "column",

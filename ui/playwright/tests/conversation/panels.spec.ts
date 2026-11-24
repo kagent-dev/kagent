@@ -220,28 +220,25 @@ test("conversation: the harness, an MCP server and the model open from a convers
     await expect(page.getByTestId("conversation-agent-context")).toBeVisible({ timeout: 30_000 });
   });
 
-  await test.step("3. tools explain themselves on focus, and the server name opens the server", async () => {
-    // Tools sit under their server, collapsed, with a selected-of-total count.
+  await test.step("3. tools list their descriptions inline, and the server name opens the server", async () => {
+    // Each tool shows what it does under its name.
     const group = page.getByTestId("conversation-agent-context-server-group").filter({ hasText: "kagent/kagent-tool-server" });
     const count = group.getByTestId("conversation-agent-context-server-count");
     const toggle = group.getByTestId("conversation-agent-context-server-toggle");
-    await expect(count).toHaveText(/^\d+\/3 tools$/);
-    // The whole row toggles: the count text, and the empty space between the name and the count.
-    await count.click();
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const nameBox = await group.getByTestId("conversation-agent-context-server").boundingBox();
-    const countBox = await count.boundingBox();
-    const toggleBox = await toggle.boundingBox();
-    if (!nameBox || !countBox || !toggleBox) throw new Error("the server row is not laid out");
-    expect(countBox.x - (nameBox.x + nameBox.width)).toBeGreaterThan(8);
-    await toggle.click({ position: { x: (nameBox.x + nameBox.width + countBox.x) / 2 - toggleBox.x, y: toggleBox.height / 2 } });
+    await expect(count).toHaveText(/^\d+ of 3$/);
+    const tool = group.getByTestId("conversation-agent-context-tool").filter({ hasText: "k8s_get_events" });
+    // Collapsed until asked for, and really hidden, not just flagged.
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(tool).toBeHidden();
+    await toggle.click({ position: { x: 4, y: 4 } });
+    await expect(tool).toBeVisible();
+    await expect(tool).toContainText("Read recent events for a resource.");
+    // The header toggles anywhere outside the name; the server name is the one link, and tools are not links.
+    await toggle.click({ position: { x: 4, y: 4 } });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await toggle.press("Enter");
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const tool = group.getByTestId("conversation-agent-context-tool").filter({ hasText: "k8s_get_events" });
     await expect(group.getByRole("link")).toHaveCount(1);
-    await tool.focus();
-    await expect(page.getByRole("tooltip")).toContainText("Read recent events for a resource.");
     await group.getByTestId("conversation-agent-context-server").click();
     await expect(page).toHaveURL(/\/mcp-servers\/kagent\/kagent-tool-server\?kind=RemoteMCPServer\.api\.kagent\.dev$/);
     const tools = page.getByTestId("mcp-server-tools");

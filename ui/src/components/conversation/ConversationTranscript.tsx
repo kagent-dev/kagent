@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Alert, Button, Empty, Skeleton, Tag, Tooltip } from "antd";
 import { ChevronDown } from "lucide-react";
@@ -130,6 +130,12 @@ export function ConversationTranscript({
   const bottomRef = useRef<HTMLDivElement>(null);
   /** The box that scrolls, which is this component's own — see the observer below. */
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 0 for overlay scrollbars, the bar's width for classic ones; `scrollbarGutter: stable` keeps it fixed.
+  const [gutter, setGutter] = useState(0);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el) setGutter(el.offsetWidth - el.clientWidth);
+  });
   const [isAtBottom, setAtBottom] = useState(true);
   /** How far short of the end still counts as being at it. */
   const AT_BOTTOM_SLACK = 32;
@@ -328,7 +334,11 @@ export function ConversationTranscript({
         overflowY: "auto",
         // Clear of the messages, which run to the right edge — the reader's own align
         // that way, so an unpadded bar sits on top of them.
-        paddingInlineEnd: theme.space(3),
+        // Pulled into the gutter so the messages sit as far from the toggle as the left
+        // side does; a classic bar gets a little air on both sides instead.
+        scrollbarGutter: "stable",
+        paddingInlineEnd: gutter ? theme.space(1) : 10,
+        marginInlineEnd: gutter ? 0 : -10,
         ...scrollbarStyles(theme),
       }}
     >
@@ -336,6 +346,8 @@ export function ConversationTranscript({
       data-testid="conversation-transcript"
       css={{
         display: "grid",
+        // Not `auto`, which grows to the widest table and scrolls the whole transcript sideways.
+        gridTemplateColumns: "minmax(0, 1fr)",
         gap: theme.space(4),
         /*
          * Messages sit at the *bottom* of the space, not the top.

@@ -58,6 +58,9 @@ export function ConversationMessageItem({
         display: "grid",
         gap: theme.space(2),
         justifyItems: isUser && !isQuestionRecord ? "end" : "start",
+        // Grid tracks default to their content's width; this lets a wide table scroll in its frame instead.
+        minWidth: 0,
+        gridTemplateColumns: "minmax(0, 1fr)",
       }}
     >
       <div
@@ -110,6 +113,7 @@ export function ConversationMessageItem({
           display: "grid",
           gap: theme.space(2),
           width: isUser && !isQuestionRecord ? "auto" : "100%",
+          minWidth: 0,
         }}
       >
         {message.parts.map((part, index) => {
@@ -156,6 +160,7 @@ function TextPart({ part, role }: ConversationPartRendererProps<"text">) {
     <div
       data-testid="conversation-message-text"
       css={{
+        minWidth: 0,
         // A rendered reply gets more room than a one-line user bubble.
         padding: isUser ? `${theme.space(2)} ${theme.space(3)}` : "12px 14px",
         // More room around a reply once the screen is wide enough to spare it.

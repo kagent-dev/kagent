@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useHref, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Alert, Button, Tooltip } from "antd";
-import { FileText, PanelRightClose, PanelRightOpen, Share2 } from "lucide-react";
+import { FileText, Share2 } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import toast from "react-hot-toast";
 import { ConversationComposer, type ConversationComposerHandle } from "@/components/conversation/ConversationComposer";
@@ -9,6 +9,7 @@ import { ShareDialog } from "@/components/conversation/ShareDialog";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { iconControlStyles } from "@/components/agent/controlStyles";
 import { AgentContextPanel } from "@/components/conversation/AgentContextPanel";
+import { AgentContextAside, agentSurfaceRow } from "@/components/conversation/AgentContextAside";
 import { ConversationDetailsModal } from "@/components/conversation/ConversationDetailsModal";
 import { SnapshotDetailsModal } from "@/components/conversation/SnapshotDetailsModal";
 import { SnapshotRenameDialog } from "@/components/conversation/SnapshotRenameDialog";
@@ -30,7 +31,6 @@ import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { AgentInstance, Checkpoint } from "@/api";
-import { useCollapsedBelow } from "@/components/conversation/useNarrowViewport";
 import { checkpointsByMessage } from "@/components/conversation/messageCheckpoints";
 import { messageSummary } from "@/components/conversation/messageText";
 import { handOffFirstMessage, takeFirstMessage, type FirstMessage } from "@/api/conversation/attachments";
@@ -104,21 +104,6 @@ const LIFECYCLE_POLL_MS = 1_000;
  * interceptor validates its `X-Share-Token`, and the A2A gateway authorises access
  * to that same instance as the share's owner.
  */
-/** Where the agent panel's open state is remembered, per reader. */
-const CONTEXT_OPEN = "kagent.conversation.agentPanel.open";
-
-/**
- * The widths at which the transcript stops having room for its neighbours.
- *
- * This one goes first, because it is reference you open when you want it. Then the
- * application sidebar, at antd's `lg`. Then the rail, last, because it is the only way
- * to the other conversations with this agent — its width lives in `AgentRail`.
- */
-const CONTEXT_COLLAPSES_BELOW = 1440;
-
-/** Wider when the window has room, so a `namespace/server` name fits on one line. */
-const CONTEXT_WIDTH = "clamp(272px, 25vw, 368px)";
-
 /** Boundaries saved on this page, and the conversation they were saved in. */
 interface SavedMarks {
   conversation?: string;
@@ -364,35 +349,6 @@ export function AgentConversationPage() {
    */
   const isAwaitingReply = Boolean(conversation.pendingQuestion);
 
-  /*
-   * The agent panel's state, remembered per reader.
-   *
-   * Absent means open: a reader who has never touched it gets the context, which is
-   * the more useful default for somebody meeting an agent for the first time.
-   */
-  const [isNarrowForContext, setNarrowForContext] = useCollapsedBelow(
-    CONTEXT_COLLAPSES_BELOW,
-  );
-  const [wantsContext, setWantsContext] = useState(
-    () => window.localStorage.getItem(CONTEXT_OPEN) !== "false",
-  );
-  const isContextOpen = wantsContext && !isNarrowForContext;
-
-  /*
-   * The reader's choice and the window's, kept apart.
-   *
-   * Only the stored preference is written: a panel closed because the window shrank is
-   * not a reader saying they do not want it, and remembering it that way would leave it
-   * shut on the next wide session. Opening it on a narrow window clears the width's
-   * veto until the next crossing — the same bargain antd's sidebar makes.
-   */
-  function toggleContext() {
-    const open = !isContextOpen;
-    window.localStorage.setItem(CONTEXT_OPEN, String(open));
-    setWantsContext(open);
-    if (open) setNarrowForContext(false);
-  }
-
   /** The message box, so the caret can be handed back to it after a question. */
   const composerRef = useRef<ConversationComposerHandle>(null);
 
@@ -555,7 +511,7 @@ export function AgentConversationPage() {
           // The columns are a rail, two one-icon gutters and the conversation between
           // them. At `space(6)` the gutters sat in more air than they are wide, which
           // read as three separated panels rather than one page.
-          gap: theme.space(2),
+          ...agentSurfaceRow,
           /*
            * `flex-start`, not `stretch`.
            *
@@ -769,94 +725,16 @@ export function AgentConversationPage() {
           </div>
         </section>
 
-        {/*
-          What the agent is, beside what it said.
-
-          Collapsible and remembered, like the rail: it is reference rather than
-          navigation, so a reader following a long answer should be able to put it away
-          — and find it away next time rather than having to close it on every
-          conversation.
-
-          Present from the first frame, with only its contents waiting for the instance
-          read: this column and the panel are 288px of the row, so gating them on that
-          read shifts the conversation sideways when the record lands.
-        */}
-        <div
-          css={{
-            flexShrink: 0,
-            position: "sticky",
-            top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
-            alignSelf: "start",
-            marginInlineEnd: isContextOpen ? -theme.space(2) : 0,
-            transition: "margin-inline-end 180ms ease",
-            /* Hidden rather than absent, so it keeps its place in the row while there
-               is nothing yet to show or hide. `visibility` also takes it out of the
-               accessibility tree and off the focus order, which `opacity` would not. */
-            visibility: instance.data ? "visible" : "hidden",
-          }}
-        >
-          <Button
-            type="text"
-            size="small"
-            css={iconControlStyles(theme)}
-            icon={
-              isContextOpen ? (
-                <PanelRightClose size={16} aria-hidden />
-              ) : (
-                <PanelRightOpen size={16} aria-hidden />
-              )
-            }
-            onClick={toggleContext}
-            aria-label={isContextOpen ? "Hide the agent panel" : "Show the agent panel"}
-            data-testid={isContextOpen ? "conversation-context-collapse" : "conversation-context-expand"}
-          />
-        </div>
-
-        {/* Slides rather than vanishing, for the same reason the rail does: an
-            unmounted panel makes the transcript jump its whole width in one frame,
-            which reads as a layout fault rather than as something closing. */}
-        <div
-          css={{
-            flexShrink: 0,
-            // Nothing to hold space for when the conversation could not be read: the
-            // panel draws from the instance, and the toggle beside it is hidden, so the
-            // reader would be left with an empty column they cannot collapse.
-            width: isContextOpen && !instance.error ? CONTEXT_WIDTH : 0,
-            overflow: "hidden",
-            // Sticky on the wrapper, not on the panel inside it: a sticky element
-            // travels within its parent's box, and this wrapper is exactly as tall
-            // as the panel. See the rail, which had the same fault.
-            position: "sticky",
-            top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
-            alignSelf: "start",
-            /* Hidden for real once closed rather than clipped to zero width — a
-               child of a zero-width box still has a bounding box. Delayed by the
-               width transition when closing, immediate when opening. */
-            visibility: isContextOpen ? "visible" : "hidden",
-            transition: `width 180ms ease, visibility 0s linear ${isContextOpen ? "0s" : "180ms"}`,
-          }}
-          aria-hidden={!isContextOpen}
-        >
-          {/* The panel's own content is what waits for the read: it is derived from the
-              template the instance names, so an empty one would be a frame around
-              nothing. The box holding it keeps its width either way. */}
+        {/* What the agent is, beside what it said. Its contents wait for the instance read; the column does not. */}
+        <AgentContextAside ready={Boolean(instance.data)} unavailable={Boolean(instance.error)}>
           {instance.data ? (
-            /* No drag handle. The panel had one, and the wrapper above clips to a
-               fixed 248 with `overflow: hidden` — so dragging widened the aside
-               inside a box that never grew, and the only visible effect was a grab
-               cursor on an edge that did nothing. */
-            <div
-              data-testid="conversation-context-aside"
-              css={{ width: CONTEXT_WIDTH, maxHeight: "calc(100vh - 160px)", overflowY: "auto" }}
-            >
-              <AgentContextPanel
-                instance={instance.data}
-                autoTitle={autoTitle}
-                onShowDetails={() => setShowingDetails(true)}
-              />
-            </div>
+            <AgentContextPanel
+              instance={instance.data}
+              autoTitle={autoTitle}
+              onShowDetails={() => setShowingDetails(true)}
+            />
           ) : null}
-        </div>
+        </AgentContextAside>
       </div>
 
       <ConversationDetailsModal

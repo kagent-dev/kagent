@@ -85,7 +85,7 @@ describe("AgentContextPanel", () => {
     renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     expect(screen.getByTestId("conversation-agent-context-template").textContent).toBe("kagent/helper-template");
     expect(screen.getByTestId("conversation-agent-context-harness").textContent).toBe("kagent/runner");
-    expect(screen.getByText("Agent template")).toBeTruthy();
+    expect(screen.getByText("Template")).toBeTruthy();
     expect(screen.getByText("Harness")).toBeTruthy();
     expect(screen.queryByText("Runs on")).toBeNull();
   });
@@ -96,14 +96,14 @@ describe("AgentContextPanel", () => {
     });
     expect(screen.queryByTestId("conversation-agent-context-template")).toBeNull();
     expect(screen.getByText(/None\. The agent defines its own/)).toBeTruthy();
-    await userEvent.hover(screen.getByTestId("conversation-agent-context-hint-agent-template"));
+    await userEvent.hover(screen.getByTestId("conversation-agent-context-hint-template"));
     expect(await screen.findByText(/This agent has no AgentTemplate/)).toBeTruthy();
   });
 
   it("explains each label in a tooltip", async () => {
     renderPanel([], undefined, { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance);
     await userEvent.hover(screen.getByTestId("conversation-agent-context-hint-harness"));
-    expect(await screen.findByText(/runtime that executes this agent/)).toBeTruthy();
+    expect(await screen.findByText(/How this agent runs/)).toBeTruthy();
   });
 
   it("puts the agent first, as a link to its page", async () => {
@@ -176,7 +176,6 @@ describe("AgentContextPanel", () => {
       "shared",
       { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance,
     );
-    await userEvent.click(screen.getByTestId("conversation-agent-context-server-toggle"));
     await userEvent.click(screen.getByTestId(testId));
     expect(screen.getByTestId("location-path").textContent).toBe(path);
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
@@ -197,7 +196,7 @@ describe("AgentContextPanel", () => {
     expect(screen.getByTestId("conversation-agent-context-server-count").textContent).toBe("All tools");
   });
 
-  it("groups tools under their server with a selected-of-total count, collapsed until opened", async () => {
+  it("lists each tool with its description once opened, collapsed at first", async () => {
     renderPanel(
       [
         { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } },
@@ -213,25 +212,66 @@ describe("AgentContextPanel", () => {
       }],
     );
     expect(screen.getAllByTestId("conversation-agent-context-server")).toHaveLength(1);
-    expect(screen.getByTestId("conversation-agent-context-server-count").textContent).toBe("2/3 tools");
+    expect(screen.getByTestId("conversation-agent-context-server-count").textContent).toBe("2 of 3");
 
     const toggle = screen.getByTestId("conversation-agent-context-server-toggle");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getAllByTestId("conversation-agent-context-tool")[0].closest("[inert]")).not.toBeNull();
     await userEvent.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getAllByTestId("conversation-agent-context-tool").map((tool) => tool.textContent)).toEqual([
-      "list_pods",
-      "get_logs",
-    ]);
+    const tools = screen.getAllByTestId("conversation-agent-context-tool");
+    expect(tools.map((tool) => tool.querySelector("span")?.textContent)).toEqual(["list_pods", "get_logs"]);
+    expect(tools[1].textContent).toContain("Does get_logs");
+    // Tools are not links.
+    expect(tools[1].querySelector("a")).toBeNull();
 
-    // Tools are not links; focus shows what each one does.
-    const tool = screen.getAllByTestId("conversation-agent-context-tool")[1];
-    expect(tool.closest("a")).toBeNull();
-    tool.focus();
-    expect(await screen.findByText("Does get_logs")).toBeTruthy();
+    await userEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(tools[0].closest("[inert]")).not.toBeNull();
   });
 
-  it("toggles the server row from its count text and the keyboard, but not from its link", async () => {
+  it("expands and collapses every server at once, offered only when there is more than one", async () => {
+    renderPanel([
+      { mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } },
+      { mcp: { server: { kind: "RemoteMCPServer", name: "logs" }, tools: ["tail"] } },
+    ]);
+    const toggles = screen.getAllByTestId("conversation-agent-context-server-toggle");
+    const all = screen.getByTestId("conversation-agent-context-servers-toggle-all");
+    expect(toggles.map((t) => t.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
+
+    await userEvent.click(all);
+    expect(toggles.map((t) => t.getAttribute("aria-expanded"))).toEqual(["true", "true"]);
+    expect(all.textContent).toBe("Collapse all");
+
+    // One closed by hand means not all are open, so the button offers to expand again.
+    await userEvent.click(toggles[0]);
+    expect(all.textContent).toBe("Expand all");
+    await userEvent.click(all);
+    await userEvent.click(all);
+    expect(toggles.map((t) => t.getAttribute("aria-expanded"))).toEqual(["false", "false"]);
+  });
+
+  it("links a sub-agent to its template and says when the agent calls it", async () => {
+    renderPanel(
+      [{ subAgent: { name: "helm", description: "Helm specialist.", templateRef: { name: "platform-helm" } } }],
+      undefined,
+      { id: "abc", name: "", agent: "kagent/assistant" } as AgentInstance,
+    );
+    const link = screen.getByTestId("conversation-agent-context-subagent-link");
+    expect(link.textContent).toBe("helm");
+    expect(screen.getByTestId("conversation-agent-context-subagent-when").textContent).toBe("When it's calledHelm specialist.");
+    await userEvent.hover(link);
+    expect(await screen.findByText("An AgentTemplate this agent can call as a tool")).toBeTruthy();
+    await userEvent.click(link);
+    expect(screen.getByTestId("location-path").textContent).toBe("/agent-templates/kagent/platform-helm");
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({ fromLabel: "Back to conversation" });
+  });
+
+  it("offers no expand-all for a single server", () => {
+    renderPanel([{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }]);
+    expect(screen.queryByTestId("conversation-agent-context-servers-toggle-all")).toBeNull();
+  });
+
+  it("toggles from the header and the keyboard, and opens the server from its name", async () => {
     renderPanel(
       [{ mcp: { server: { kind: "RemoteMCPServer", name: "tools" }, tools: ["list_pods"] } }],
       undefined,
@@ -241,30 +281,19 @@ describe("AgentContextPanel", () => {
     const link = screen.getByTestId("conversation-agent-context-server");
     expect(link.closest("button")).toBeNull();
 
-    await userEvent.click(screen.getByTestId("conversation-agent-context-server-count"));
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(toggle.getAttribute("aria-label")).toBe("Hide tools from kagent/tools");
-
     toggle.focus();
     await userEvent.keyboard("{Enter}");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     await userEvent.keyboard(" ");
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")?.hidden).toBe(false);
-
-    // Hold navigation back once, so the row's state after a link click can be read.
-    const hold = (event: Event) => event.preventDefault();
-    link.addEventListener("click", hold);
-    await userEvent.click(link);
-    expect(toggle.isConnected).toBe(true);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    link.removeEventListener("click", hold);
+    expect(document.getElementById(toggle.getAttribute("aria-controls") ?? "")?.hasAttribute("inert")).toBe(false);
 
     await userEvent.click(link);
+    expect(toggle.isConnected).toBe(false);
     expect(screen.getByTestId("location-path").textContent).toBe("/mcp-servers/kagent/tools?kind=RemoteMCPServer.api.kagent.dev");
-    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
-      fromLabel: "Back to conversation",
-    });
   });
 });
 

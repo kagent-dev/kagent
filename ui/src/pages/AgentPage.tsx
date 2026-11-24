@@ -8,6 +8,7 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { AgentSchedules } from "@/components/agent/AgentSchedules";
 import { AgentContextPanel } from "@/components/conversation/AgentContextPanel";
+import { AgentContextAside, agentSurfaceRow } from "@/components/conversation/AgentContextAside";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
@@ -366,7 +367,7 @@ export function AgentPage() {
         data-testid="agent-surface"
         css={{
           display: "flex",
-          gap: theme.space(6),
+          ...agentSurfaceRow,
           /*
            * `flex-start`, not `stretch`.
            *
@@ -485,7 +486,28 @@ export function AgentPage() {
           />
         ) : null}
 
-        {agent || definition.isLoading ? <AgentIdentityCard agent={agent} /> : null}
+        {agent || definition.isLoading ? (
+          <AgentIdentityCard
+            agent={agent}
+            // Here rather than under the agent panel, which folds away on narrower windows.
+            actions={agent ? (
+              <Space size={8} wrap>
+                  <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
+                    <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
+                  </Link>
+                  <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
+                    onDelete={removeAgent}
+                    // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
+                    onDeleted={() => {
+                      navigate(paths.agents);
+                      void invalidateAgents().catch(() => {});
+                    }}
+                    description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
+                  />
+                </Space>
+            ) : null}
+          />
+        ) : null}
 
         <FilterBar
           testId="conversations-filters"
@@ -624,35 +646,12 @@ export function AgentPage() {
         show them without an instance to read them through. Only the prepared revision
         needs a conversation, and it is left out here rather than guessed at.
       */}
-      <div
-        css={{
-          flexShrink: 0,
-          position: "sticky",
-          top: `var(--agent-rail-sticky-top, ${theme.layout.headerHeight + 24}px)`,
-          alignSelf: "start",
-          width: 248,
-        }}
-        data-testid="agent-context-aside"
-      >
+      <AgentContextAside>
+      <div data-testid="agent-context-aside">
         <AgentContextPanel agentRef={{ namespace: namespace ?? "", name }} />
 
-        {agent ? (
-          <Space size={8} wrap css={{ marginTop: theme.space(5) }}>
-            <Link to={buildPath(paths.agentEdit, { namespace: agent.namespace, name: agent.name })}>
-              <Button icon={<Pencil size={14} />} data-testid="agent-edit">Edit agent</Button>
-            </Link>
-            <DeleteResourceButton kind="agent" name={agent.name} label="Delete agent" outlined
-              onDelete={removeAgent}
-              // Navigate first: re-reading here would flash "does not exist" for the deleted agent.
-              onDeleted={() => {
-                navigate(paths.agents);
-                void invalidateAgents().catch(() => {});
-              }}
-              description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
-            />
-          </Space>
-        ) : null}
       </div>
+      </AgentContextAside>
       </div>
     </PageFrame>
   );
@@ -699,7 +698,7 @@ function IdentityPlaceholder({ height }: { height: number }) {
  * What this agent is made of: each half is a shared resource or inline in the Agent.
  * Without an agent it holds the same layout with placeholders, so the table below stays put.
  */
-function AgentIdentityCard({ agent }: { agent?: Agent }) {
+function AgentIdentityCard({ agent, actions }: { agent?: Agent; actions?: ReactNode }) {
   const theme = useTheme();
 
   return (
@@ -721,17 +720,25 @@ function AgentIdentityCard({ agent }: { agent?: Agent }) {
           ))
         )}
       </div>
-      <Paragraph
+      <div
         css={{
-          margin: `${theme.space(3)} 0 0`,
-          color: theme.color.textMuted,
-          fontSize: 12,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: theme.space(3),
+          marginTop: theme.space(3),
         }}
-        data-testid="agent-identity-note"
       >
-        The template says what this agent does and the Harness says how it runs.
-        Templates may be inline or shared; Harnesses are always referenced.
-      </Paragraph>
+        <Paragraph
+          css={{ "&&": { margin: 0 }, color: theme.color.textMuted, fontSize: 12, flex: "1 1 280px" }}
+          data-testid="agent-identity-note"
+        >
+          The template says what this agent does and the Harness says how it runs.
+          Templates may be inline or shared; Harnesses are always referenced.
+        </Paragraph>
+        {actions}
+      </div>
     </Card>
   );
 }

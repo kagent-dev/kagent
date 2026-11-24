@@ -682,7 +682,9 @@ export function AgentRail({
          * too large on the rest, where it dragged the gutter off the left of the page.
          */
         marginInlineEnd: isCollapsed ? -rowGap : 0,
-        transition: `width 180ms ease, margin-inline-end 180ms ease, visibility 0s linear ${isCollapsed ? "180ms" : "0s"}`,
+        // A surface can also pull the gutter toward the page's sidebar once the rail is gone.
+        marginInlineStart: isCollapsed ? "calc(-1 * var(--agent-gutter-collapsed-pull, 0px))" : 0,
+        transition: `width 180ms ease, margin-inline-end 180ms ease, margin-inline-start 180ms ease, visibility 0s linear ${isCollapsed ? "180ms" : "0s"}`,
       }}
       aria-hidden={isCollapsed}
     >
@@ -1128,7 +1130,6 @@ export function AgentRail({
             fontSize: 11,
             textTransform: "uppercase",
             letterSpacing: 0.6,
-            paddingInline: theme.space(2),
             // A little more room above the heading than the rail's gap, so it reads as a section start.
             marginTop: 4,
           }}

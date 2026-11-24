@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from "react";
 import { referenceLabel } from "@/api/domain/agentTemplates";
 import { Alert, Button, Skeleton, Tooltip, Typography } from "antd";
 import { useTheme, type Theme } from "@emotion/react";
-import { ArrowUpRight, ChevronRight, FileText, Info } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, FileText, Info } from "lucide-react";
 import { useLocation, type To } from "react-router-dom";
 import {
   bindingGroupKind,
@@ -13,11 +13,12 @@ import {
 import { conversationHeading } from "@/components/agent-instances/instanceLabels";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { useAgent, useAgentTemplate, useMcpServers, bareName, type AgentInstance, type ObjectReference } from "@/api";
+import type { SubAgentToolBinding } from "@/api/domain/agentTemplates";
 import { ResourceLink } from "@/components/common/ResourceLink";
+import { iconControlStyles } from "@/components/agent/controlStyles";
 import { resourceIcons } from "@/components/common/resourceIcons";
 import { buildPath, mcpServerTo, paths } from "@/router/routes";
 import { backLinkState, type BackLinkState } from "@/router/backLink";
-import { ToolTooltip } from "@/components/mcp/ToolTooltip";
 
 const { Text, Paragraph } = Typography;
 
@@ -26,27 +27,9 @@ const { Text, Paragraph } = Typography;
 // Model, three rows of tools and a clamped prompt: the tallest of the live agents measured.
 const DETAILS_MIN_HEIGHT = 328;
 
-/** A tool: focusable for its tooltip, but not a link. */
-const toolPill = (theme: Theme) =>
-  ({
-    display: "inline-flex",
-    alignItems: "center",
-    minHeight: 22,
-    padding: "1px 8px",
-    borderRadius: 6,
-    border: `1px solid ${theme.color.borderStrong}`,
-    background: theme.color.bgElevated,
-    color: theme.color.text,
-    fontFamily: theme.font.mono,
-    fontSize: 11.5,
-    lineHeight: 1.5,
-    wordBreak: "break-word",
-    cursor: "default",
-    transition: "background-color 120ms ease",
-    "&:hover": { background: `${theme.color.text}14` },
-    "&:active": { background: `${theme.color.text}24` },
-    "&:focus-visible": { outline: `2px solid ${theme.color.textMuted}`, outlineOffset: 2 },
-  }) as const;
+/** The list under a server or of sub-agents: unstyled, one row per entry. */
+const toolList = (theme: Theme) =>
+  ({ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: theme.space(2) }) as const;
 
 const hintIcon = (theme: Theme) =>
   ({
@@ -94,6 +77,10 @@ export function AgentContextPanel({
   const subAgents = tools.flatMap((binding) => (binding.subAgent ? [binding.subAgent] : []));
   const mcpServers = useMcpServers();
   const serversByRef = useMemo(() => indexToolServers(mcpServers.data ?? []), [mcpServers.data]);
+  const serverGroups = groupToolsByServer(tools, serversByRef, templateNamespace);
+  // Every server starts collapsed; the card's "Expand all" opens them together.
+  const [openServers, setOpenServers] = useState<ReadonlySet<string>>(() => new Set());
+  const allServersOpen = serverGroups.length > 0 && serverGroups.every((group) => openServers.has(serverGroupKey(group)));
   const back = backLinkState(location, instance ? "Back to conversation" : "Back to agent");
   const linkCss = { justifySelf: "start", fontSize: 12 } as const;
   const agentTo = agentPageUrl({ namespace, name });
@@ -113,7 +100,14 @@ export function AgentContextPanel({
         paddingBlockEnd: theme.space(4),
       }}
     >
-      <Field label="Agent" hint="The Agent this conversation runs.">
+      <Field
+        label="Agent"
+        hint={
+          instance
+            ? "The Agent this conversation is with: its AgentTemplate says what it does, its Harness how it runs."
+            : "This Agent: its AgentTemplate says what it does, its Harness how it runs."
+        }
+      >
         {agentTo ? (
           <ResourceLink
             mono
@@ -132,11 +126,11 @@ export function AgentContextPanel({
       </Field>
 
       <Field
-        label="Agent template"
+        label="Template"
         hint={
           definition.data?.resource.spec.template.inline
             ? "This agent has no AgentTemplate: the model, tools and instructions below are written into the agent itself."
-            : "The AgentTemplate that sets the model, tools and instructions below. Every agent built from it shares them."
+            : "The AgentTemplate that sets the model, tools and instructions below."
         }
       >
         {templateName && templateNamespace ? (
@@ -160,7 +154,10 @@ export function AgentContextPanel({
         )}
       </Field>
 
-      <Field label="Harness" hint="The runtime that executes this agent, such as the built-in kagent engine, Codex or Claude.">
+      <Field
+        label="Harness"
+        hint="How this agent runs: the engine behind it (the built-in kagent engine, Codex or Claude) and the platform's runtime settings."
+      >
         {harnessRef && namespace ? (
           <ResourceLink
             mono
@@ -201,7 +198,7 @@ export function AgentContextPanel({
           data-testid="conversation-agent-context-spec"
           css={{ display: "grid", gap: theme.space(2) }}
         >
-          <Field label="Model" hint="The ModelConfig that picks the LLM provider and model.">
+          <Field label="Model" hint="The ModelConfig that determines which LLM provider and model to use.">
             {spec.modelConfig?.name ? (
               <ResourceLink
                 mono
@@ -218,22 +215,56 @@ export function AgentContextPanel({
             )}
           </Field>
 
-          <Field label="Tools" hint="The MCP tools and sub-agents the agent can call.">
+          <Field
+            label="Tools"
+            hint="Tools from MCP servers and referenced agent-templates that this agent can call."
+            action={
+              serverGroups.length > 1 ? (
+                <Button
+                  type="text"
+                  size="small"
+                  icon={allServersOpen ? <ChevronsDownUp size={14} aria-hidden /> : <ChevronsUpDown size={14} aria-hidden />}
+                  onClick={() => setOpenServers(allServersOpen ? new Set() : new Set(serverGroups.map(serverGroupKey)))}
+                  data-testid="conversation-agent-context-servers-toggle-all"
+                  css={{ ...iconControlStyles(theme), fontSize: 12, height: 20, paddingInline: theme.space(1), marginBlock: -2 }}
+                >
+                  {allServersOpen ? "Collapse all" : "Expand all"}
+                </Button>
+              ) : null
+            }
+          >
             {tools.length === 0 ? (
               <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None — this agent answers from the model alone.</Text>
             ) : (
               <div css={{ display: "grid", gap: theme.space(2) }}>
-                {groupToolsByServer(tools, serversByRef, templateNamespace).map((group) => (
-                  <ServerTools key={`${group.groupKind}|${group.ref}`} group={group} to={serverTo(group.server)} back={back} />
+                {serverGroups.map((group) => (
+                  <ServerTools
+                    key={serverGroupKey(group)}
+                    group={group}
+                    open={openServers.has(serverGroupKey(group))}
+                    onToggle={() => setOpenServers((current) => toggled(current, serverGroupKey(group)))}
+                    to={serverTo(group.server)}
+                    back={back}
+                  />
                 ))}
                 {subAgents.length ? (
-                  <div css={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  <ul
+                    data-testid="conversation-agent-context-subagents"
+                    css={{
+                      ...toolList(theme),
+                      ...(serverGroups.length ? { borderTop: `1px solid ${theme.color.border}`, paddingTop: theme.space(2) } : {}),
+                    }}
+                  >
                     {subAgents.map((subAgent, index) => (
-                      <span key={`${index}-${subAgent.name}`} css={toolPill(theme)} tabIndex={0}>
-                        {subAgent.name}
-                      </span>
+                      <SubAgentRow
+                        key={`${index}-${subAgent.name}`}
+                        subAgent={subAgent}
+                        templateTo={refPath(paths.agentTemplateDetail, subAgent.templateRef)}
+                        templateNamespace={templateNamespace}
+                        back={back}
+                      />
                     ))}
-                  </div>
+                  </ul>
                 ) : null}
               </div>
             )}
@@ -305,18 +336,38 @@ export function AgentContextPanel({
   );
 }
 
+const serverGroupKey = (group: ServerToolGroup) => `${group.groupKind}|${group.ref}`;
+
+/** `set` with `key` added, or removed when it was there. */
+function toggled(set: ReadonlySet<string>, key: string): ReadonlySet<string> {
+  const next = new Set(set);
+  if (!next.delete(key)) next.add(key);
+  return next;
+}
+
 /** What `count` says for one server: how many of its tools the agent takes. */
 function toolCountLabel({ allTools, selected, discovered }: ServerToolGroup): string {
   const total = discovered?.length;
   const tools = (n: number) => (n === 1 ? "tool" : "tools");
-  if (allTools) return total ? `All ${total} ${tools(total)}` : "All tools";
-  return total ? `${selected.length}/${total} ${tools(total)}` : `${selected.length} ${tools(selected.length)}`;
+  if (allTools) return total ? `All ${total}` : "All tools";
+  return total ? `${selected.length} of ${total}` : `${selected.length} ${tools(selected.length)}`;
 }
 
-/** One MCP server's row: toggles its tools from anywhere, with a link to the server in the middle. */
-function ServerTools({ group, to, back }: { group: ServerToolGroup; to: To; back: BackLinkState }) {
+/** One MCP server's tools, as a collapsible group. The header toggles; the server name in it is a link. */
+function ServerTools({
+  group,
+  to,
+  back,
+  open,
+  onToggle,
+}: {
+  group: ServerToolGroup;
+  to: To;
+  back: BackLinkState;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const theme = useTheme();
-  const [open, setOpen] = useState(false);
   const listId = useId();
   const descriptions = new Map(group.discovered?.map((tool) => [tool.name, tool.description]));
   const names = group.allTools ? (group.discovered ?? []).map((tool) => tool.name) : group.selected;
@@ -324,101 +375,184 @@ function ServerTools({ group, to, back }: { group: ServerToolGroup; to: To; back
   return (
     <div
       data-testid="conversation-agent-context-server-group"
-      css={{
-        display: "grid",
-        gap: theme.space(2),
-        "& + &": { borderTop: `1px solid ${theme.color.border}`, paddingTop: theme.space(2) },
-      }}
+      css={{ border: `1px solid ${theme.color.border}`, borderRadius: theme.radius.md, overflow: "hidden" }}
     >
-      {/* The toggle spans the whole row; the link sits above it in the middle column, so neither nests in the other. */}
-      <div css={{ display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) auto", margin: "-2px -4px" }}>
+      {/* The button fills the header, so anywhere in it toggles; the link sits above it, so neither nests in the other. */}
+      <div
+        css={{
+          position: "relative",
+          display: "grid",
+          gridTemplateColumns: "14px minmax(0, 1fr) auto",
+          alignItems: "center",
+          columnGap: theme.space(1),
+          minHeight: 40,
+          padding: `6px ${theme.space(2)}`,
+          color: theme.color.textMuted,
+          fontSize: 12,
+          lineHeight: "20px",
+          // Raised above the card; the tools below sit recessed, at the page's level.
+          background: `${theme.color.text}0a`,
+          "&:hover": { background: `${theme.color.text}14` },
+          "&:active": { background: `${theme.color.text}1f` },
+          "&:has(> button:focus-visible)": { outline: `2px solid ${theme.color.textMuted}`, outlineOffset: -2 },
+          "& > :not(button)": { position: "relative", pointerEvents: "none" },
+        }}
+      >
         <button
           type="button"
           aria-expanded={open}
           aria-controls={listId}
           aria-label={`${open ? "Hide" : "Show"} tools from ${group.ref}`}
           data-testid="conversation-agent-context-server-toggle"
-          onClick={() => setOpen((value) => !value)}
-          css={{
-            gridArea: "1 / 1 / 2 / -1",
-            display: "grid",
-            gridTemplateColumns: "subgrid",
-            alignItems: "center",
-            columnGap: theme.space(1),
-            padding: "2px 4px",
-            border: 0,
-            borderRadius: 6,
-            background: "transparent",
-            color: theme.color.textMuted,
-            font: "inherit",
-            textAlign: "start",
-            cursor: "pointer",
-            transition: "background-color 120ms ease",
-            "&:hover": { background: `${theme.color.text}0f` },
-            "&:active": { background: `${theme.color.text}1f` },
-            "&:focus-visible": { outline: `2px solid ${theme.color.textMuted}`, outlineOffset: 0 },
-          }}
-        >
-          <ChevronRight
-            size={14}
-            aria-hidden
-            css={{ justifySelf: "center", transition: "transform 150ms ease", transform: open ? "rotate(90deg)" : undefined }}
-          />
-          <span
-            data-testid="conversation-agent-context-server-count"
-            css={{
-              gridColumn: 3,
-              paddingInlineStart: theme.space(2),
-              fontSize: 12,
-              lineHeight: "20px",
-              fontVariantNumeric: "tabular-nums",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {toolCountLabel(group)}
-          </span>
-        </button>
+          onClick={onToggle}
+          css={{ position: "absolute", inset: 0, border: 0, padding: 0, background: "transparent", cursor: "pointer", outline: "none" }}
+        />
+        <ChevronRight
+          size={14}
+          aria-hidden
+          css={{ transition: "transform 150ms ease", transform: open ? "rotate(90deg)" : undefined }}
+        />
         <ResourceLink
           mono
-          icon={resourceIcons.mcpServer}
           to={to}
           state={back}
+          icon={resourceIcons.mcpServer}
           tooltip="Open this MCP server"
           data-testid="conversation-agent-context-server"
-          css={{
-            gridArea: "1 / 2",
-            justifySelf: "start",
-            alignSelf: "center",
-            position: "relative",
-            margin: `2px 0 2px ${theme.space(1)}`,
-            fontSize: 12,
-          }}
+          css={{ justifySelf: "start", "&&": { pointerEvents: "auto" } }}
         >
           {group.ref}
-          <ArrowUpRight size={12} aria-hidden css={{ marginInlineStart: 2, verticalAlign: "-1px" }} />
         </ResourceLink>
+        <span
+          data-testid="conversation-agent-context-server-count"
+          css={{ paddingInlineStart: theme.space(2), fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}
+        >
+          {toolCountLabel(group)}
+        </span>
       </div>
-      <div id={listId} hidden={!open} css={{ paddingInlineStart: 24 }}>
+      {/* Indented past the chevron and the server icon, so each tool lines up with the server name. */}
+      {/* Grows from 0fr to 1fr, so it animates to its own height; inert and hidden once closed. */}
+      <div
+        id={listId}
+        inert={!open}
+        data-testid="conversation-agent-context-server-tools"
+        css={{
+          display: "grid",
+          gridTemplateRows: open ? "1fr" : "0fr",
+          visibility: open ? "visible" : "hidden",
+          transition: `grid-template-rows 50ms ease-out, visibility 0s linear ${open ? "0s" : "50ms"}`,
+          "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+        }}
+      >
+      <div css={{ minHeight: 0, overflow: "hidden" }}>
+      <ul
+        css={{
+          ...toolList(theme),
+          background: theme.color.bg,
+          borderTop: `1px solid ${theme.color.border}`,
+          padding: `${theme.space(2)} ${theme.space(2)} ${theme.space(2)} calc(${theme.space(2)} + 36px)`,
+        }}
+      >
         {names.length ? (
-          <div css={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-            {names.map((tool) => (
-              <ToolTooltip key={tool} name={tool} description={descriptions.get(tool)} placement="left">
-                <span tabIndex={0} data-testid="conversation-agent-context-tool" css={toolPill(theme)}>
-                  {tool}
-                </span>
-              </ToolTooltip>
-            ))}
-          </div>
+          names.map((tool) => (
+            <li key={tool} data-testid="conversation-agent-context-tool">
+              <ToolRow name={tool} description={descriptions.get(tool)} />
+            </li>
+          ))
         ) : (
-          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>Every tool this server reports.</Text>
+          <li css={{ color: theme.color.textMuted, fontSize: 12 }}>Every tool this server reports.</li>
         )}
+      </ul>
+      </div>
       </div>
     </div>
   );
 }
 
+/** A tool or sub-agent: its name, and what it does clamped to two lines. Not a link. */
+function ToolRow({ name, description }: { name: React.ReactNode; description?: string }) {
+  const theme = useTheme();
+  return (
+    <div css={{ display: "grid", minWidth: 0, lineHeight: "18px", fontSize: 12 }}>
+      <span css={{ fontFamily: theme.font.mono, color: theme.color.text, overflowWrap: "anywhere" }}>{name}</span>
+      <ClampedText>{description || "No description reported."}</ClampedText>
+    </div>
+  );
+}
+
+/** Muted text cut to two lines, with more/less when there is more to see. */
+function ClampedText({ children }: { children: string }) {
+  const theme = useTheme();
+  return (
+    <Paragraph
+      css={{ "&&": { margin: 0, fontSize: 12, lineHeight: "18px", color: theme.color.textMuted } }}
+      ellipsis={{ rows: 2, expandable: "collapsible", symbol: (expanded) => (expanded ? "less" : "more") }}
+    >
+      {children}
+    </Paragraph>
+  );
+}
+
+/**
+ * An AgentTemplate bound as a tool: a link to the template, what the template is, and
+ * the binding's own description, which is what the agent reads to decide when to call it.
+ */
+function SubAgentRow({
+  subAgent,
+  templateTo,
+  templateNamespace,
+  back,
+}: {
+  subAgent: SubAgentToolBinding;
+  templateTo: To;
+  templateNamespace: string;
+  back: BackLinkState;
+}) {
+  const theme = useTheme();
+  const template = useAgentTemplate(templateNamespace, subAgent.templateRef.name);
+  const about = template.data?.resource.spec.description;
+  const heading = { fontSize: 12, lineHeight: "18px", fontWeight: 600, color: theme.color.text } as const;
+
+  return (
+    <li data-testid="conversation-agent-context-subagent" css={{ display: "grid", gap: theme.space(1), minWidth: 0, fontSize: 12 }}>
+      <ResourceLink
+        mono
+        to={templateTo}
+        state={back}
+        icon={resourceIcons.template}
+        tooltip="An AgentTemplate this agent can call as a tool"
+        data-testid="conversation-agent-context-subagent-link"
+        css={{ justifySelf: "start", lineHeight: "18px" }}
+      >
+        {subAgent.name}
+      </ResourceLink>
+      {about ? (
+        <div data-testid="conversation-agent-context-subagent-about">
+          <div css={heading}>Description</div>
+          <ClampedText>{about}</ClampedText>
+        </div>
+      ) : null}
+      <div data-testid="conversation-agent-context-subagent-when">
+        <div css={heading}>When it&apos;s called</div>
+        <ClampedText>{subAgent.description || "No description given."}</ClampedText>
+      </div>
+    </li>
+  );
+}
+
 /** A label, with an info icon explaining what it names when there is a `hint`. */
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  action,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  /** A control for the whole card, at the label row's far end. */
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   const theme = useTheme();
   return (
     <section
@@ -433,7 +567,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
         minWidth: 0,
       }}
     >
-      <span css={{ display: "inline-flex", alignItems: "center", gap: theme.space(1) }}>
+      <span css={{ display: "flex", alignItems: "center", gap: theme.space(1), minHeight: 20 }}>
         <Text css={{ color: theme.color.textMuted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.6 }}>
           {label}
         </Text>
@@ -449,6 +583,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
             />
           </Tooltip>
         ) : null}
+        {action ? <span css={{ marginInlineStart: "auto" }}>{action}</span> : null}
       </span>
       {children}
     </section>
