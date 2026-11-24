@@ -65,3 +65,17 @@ def test_load_generated_root_settings(tmp_path, monkeypatch):
     cfg = KAgentConfig.from_file(tmp_path / "config.json")
     assert cfg.api_url == runtime["control_plane_url"]
     assert cfg.app_name == "team__NS__test"
+    assert cfg.session_db_path is None
+
+
+def test_load_durable_session_path(tmp_path, monkeypatch):
+    runtime = {
+        "control_plane_url": "http://c:8083",
+        "gateway_url": "http://g:8083",
+        "name": "test",
+        "namespace": "team",
+    }
+    agent = {"session_db_url": "sqlite+aiosqlite:////data/sessions.db"}
+    monkeypatch.delenv("KAGENT_BOOTSTRAP_JSON", raising=False)
+    (tmp_path / "config.json").write_text(json.dumps({"runtime": runtime, "agent": agent}))
+    assert KAgentConfig.from_file(tmp_path / "config.json").session_db_path == "/data/sessions.db"

@@ -72,6 +72,7 @@ export function ChatMessageItem({
         <Text css={{ color: "inherit", fontSize: "inherit" }}>
           {isUser ? "You" : "Agent"}
         </Text>
+        {/* TODO: show the message's sent time here once the backend sends one per message (#3746; UI work in 432c174). */}
         {onManagePush ? (
           <Tooltip title="Task notifications">
             <Button
@@ -104,6 +105,8 @@ export function ChatMessageItem({
         data-testid="chat-message-content"
         css={{
           maxWidth: "min(80ch, 100%)",
+          // A reply holding a table or code block grows to 1120px; past that, wide tables scroll in their frame.
+          "&:has([data-md-table-frame], [data-md-code])": { maxWidth: "min(1120px, 100%)" },
           display: "grid",
           gap: theme.space(2),
           width: isUser && !isQuestionRecord ? "auto" : "100%",
@@ -153,7 +156,10 @@ function TextPart({ part, role }: ChatPartRendererProps<"text">) {
     <div
       data-testid="chat-message-text"
       css={{
-        padding: `${theme.space(2)} ${theme.space(3)}`,
+        // A rendered reply gets more room than a one-line user bubble.
+        padding: isUser ? `${theme.space(2)} ${theme.space(3)}` : "12px 14px",
+        // More room around a reply once the screen is wide enough to spare it.
+        ...(isUser ? {} : { "@media (min-width: 1280px)": { padding: "20px 24px" } }),
         borderRadius: theme.radius.md,
         background: isUser ? theme.color.primary : theme.color.bgElevated,
         border: isUser ? "none" : `1px solid ${theme.color.border}`,

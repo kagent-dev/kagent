@@ -9,7 +9,7 @@ import { AgentRail } from "@/components/agent/AgentRail";
 import { agentPageUrl } from "@/components/agent/agentUrl";
 import { ChatComposer } from "@/components/chat/ChatComposer";
 import { buildPath, paths } from "@/router/routes";
-import { apiClient, useAgentConversations, useAgentTakesFiles } from "@/api";
+import { apiClient, useAgentTakesFiles, useOwnAgentConversations } from "@/api";
 import { randomId } from "@/api/randomId";
 import { handOffFirstMessage } from "@/api/chat/attachments";
 
@@ -48,9 +48,9 @@ export function AgentNewChatPage() {
   const navigate = useNavigate();
   const { namespace, name } = useParams();
 
-  const conversations = useAgentConversations(namespace, name);
+  const conversations = useOwnAgentConversations(namespace, name);
   const canAttach = useAgentTakesFiles(namespace && name && `${namespace}/${name}`);
-  const rows = useMemo(() => conversations.data?.own ?? [], [conversations.data]);
+  const rows = useMemo(() => conversations.data ?? [], [conversations.data]);
 
   const [isCreating, setCreating] = useState(false);
   const [error, setError] = useState<Error>();

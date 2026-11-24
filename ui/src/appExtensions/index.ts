@@ -120,6 +120,8 @@ export { readEnv } from "@/env";
 // and Table both take a light/dark choice that no design token can stand in for.
 export { useThemeMode } from "@/theme/useThemeMode";
 export type { ThemeMode } from "@/theme/theme";
+// The rail's `Menu` indent, so a contributed entry lines up with the core ones.
+export { NAV_INSET as navInlineIndent } from "@/components/Structure/navItems";
 
 export {
   AppExtensionConfigError,

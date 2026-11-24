@@ -2,6 +2,9 @@ package a2a
 
 import a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 
+// ToolResultImagesKey is the key in a tool result's response that holds its images.
+const ToolResultImagesKey = "images"
+
 type ToolActivityKind string
 
 const (

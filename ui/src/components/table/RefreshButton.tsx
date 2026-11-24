@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button } from "antd";
+import { Button, Tooltip } from "antd";
 import { RotateCw } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -41,16 +41,18 @@ export function useRefreshToast(
 
     setRefreshing(true);
     try {
-      await onRefresh();
-      toast.success(`${what} refreshed`);
-    } catch (cause) {
-      // The reason where there is one: a refresh that failed because nothing is
-      // listening and one that failed on a rejected credential need different
-      // things done about them.
-      const detail = cause instanceof Error ? cause.message : undefined;
-      toast.error(
-        detail ? `Could not refresh ${what}: ${detail}` : `Could not refresh ${what}`,
-      );
+      // One toast from the click: "Refreshing…" at once, then replaced by the outcome.
+      await toast.promise(onRefresh(), {
+        loading: `Refreshing ${what.toLowerCase()}…`,
+        success: `${what} refreshed`,
+        // The reason where there is one: no listener and a rejected credential need different fixes.
+        error: (cause: unknown) => {
+          const detail = cause instanceof Error ? cause.message : undefined;
+          return detail ? `Could not refresh ${what}: ${detail}` : `Could not refresh ${what}`;
+        },
+      });
+    } catch {
+      // Already reported by the toast above.
     } finally {
       setRefreshing(false);
     }
@@ -64,8 +66,11 @@ export function RefreshButton({
   what,
   loading = false,
   disabled = false,
+  iconOnly = false,
   "data-testid": testId = "refresh-button",
 }: {
+  /** Just the icon, named by a tooltip: for a filter row where a labelled button crowds the controls. */
+  iconOnly?: boolean;
   /** Refetches, and rejects if the refetch failed. */
   onRefresh: () => Promise<unknown>;
   /** What was refreshed, as it should read in the message: "Agents", "Models". */
@@ -77,6 +82,22 @@ export function RefreshButton({
   "data-testid"?: string;
 }) {
   const { refresh, refreshing } = useRefreshToast(onRefresh, what);
+
+  if (iconOnly) {
+    const label = `Refresh ${what.toLowerCase()}`;
+    return (
+      <Tooltip title={label}>
+        <Button
+          onClick={refresh}
+          loading={loading || refreshing}
+          disabled={disabled}
+          data-testid={testId}
+          aria-label={label}
+          icon={<RotateCw size={14} aria-hidden />}
+        />
+      </Tooltip>
+    );
+  }
 
   return (
     <Button

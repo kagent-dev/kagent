@@ -212,6 +212,7 @@ func addToolset(ctx context.Context, log *slog.Logger, params mcpServerParams, t
 		log.ErrorContext(ctx, "failed to fetch MCP tools", "transport", label, "error", err, "url", params.URL)
 		return nil, err
 	}
+	ts.inner = withImages(ts.inner)
 	if params.ServerType != "stdio" {
 		ts.inner = withCallScope(ts.inner)
 	}
@@ -397,9 +398,10 @@ func initializeToolSet(ctx context.Context, params mcpServerParams, toolFilter m
 	}
 
 	discovery := &mcpAppDiscovery{listedAppNames: make(map[string]bool), appToolNames: make(map[string]bool)}
+	client := newMCPAppClient(params.displayName(), toolFilter, discovery)
 	cfg := mcptoolset.Config{
 		Transport: mcpTransport,
-		Client:    newMCPAppClient(params.displayName(), toolFilter, discovery),
+		Client:    client,
 	}
 
 	toolset, err := mcptoolset.New(cfg)

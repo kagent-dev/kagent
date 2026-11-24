@@ -6,10 +6,15 @@ import { KagentLogoWithText } from "@/components/branding/KagentLogo";
 import { paths } from "@/router/routes";
 import { ExtensionSlot, useExtensionBranding } from "@/appExtensions";
 import { useAuth } from "@/auth";
+import { NAV_INSET } from "./navItems";
 
 const { Text } = Typography;
 
 const { Header } = Layout;
+
+// Half the rail's 16px icon, and half the wordmark's mark at 26px tall (rounded to 15).
+const ICON_HALF_WIDTH = 8;
+const MARK_HALF_WIDTH = 15;
 
 /*
  * There is no Create menu here.
@@ -56,7 +61,7 @@ function CurrentUserBadge() {
       <Space
         size={6}
         data-testid="header-user"
-        css={{ color: theme.color.textMuted, fontSize: 13 }}
+        css={{ color: theme.color.navMuted, fontSize: 13, fontWeight: 500 }}
       >
         <UserRound size={14} />
         <Text css={{ color: "inherit" }}>{user.displayName}</Text>
@@ -78,7 +83,9 @@ export function AppHeader() {
         alignItems: "center",
         justifyContent: "space-between",
         height: theme.layout.headerHeight,
-        paddingInline: theme.space(4),
+        // Centres the mark on the rail's icon column, expanded (34px) or collapsed (33.5px).
+        paddingInlineStart: 8 + NAV_INSET + ICON_HALF_WIDTH - MARK_HALF_WIDTH,
+        paddingInlineEnd: 8 + NAV_INSET,
         borderBottom: `1px solid ${theme.color.border}`,
         // Held at the top while the page scrolls under it. The wordmark is also the
         // link home, so scrolling away took the one always-available way back with it
@@ -102,21 +109,19 @@ export function AppHeader() {
         // A tinted plate behind it rather than a colour change on the mark itself: the
         // mark is an SVG a distribution may replace with its own, and dimming somebody
         // else's logo on hover is not this component's business.
+        // Instant states on a plate behind the mark, never recolouring a distribution's logo.
         css={{
           display: "flex",
           alignItems: "center",
-          // Sized to the mark, with the plate extending a little past it.
           padding: `${theme.space(1)} ${theme.space(2)}`,
           marginInlineStart: `-${theme.space(2)}`,
           borderRadius: theme.radius.md,
           background: "transparent",
-          transition: "background 120ms ease, transform 120ms ease",
-          "&:hover": { background: theme.color.border },
-          // Pressed moves it down a pixel — the same acknowledgement a button gives,
-          // and the part that distinguishes "I clicked" from "I hovered".
-          "&:active": { transform: "translateY(1px)" },
+          transition: "none",
+          "&:hover": { background: theme.color.navHoverBg },
+          "&:active": { background: theme.color.navPressBg },
           "&:focus-visible": {
-            outline: `2px solid ${theme.color.primary}`,
+            outline: `2px solid ${theme.color.navFocus}`,
             outlineOffset: 2,
           },
         }}

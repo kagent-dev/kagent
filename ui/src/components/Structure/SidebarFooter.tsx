@@ -9,6 +9,7 @@ import {
   Sun,
 } from "lucide-react";
 import { useThemeMode } from "@/theme/useThemeMode";
+import { NAV_INSET } from "./navItems";
 
 /** Where the docs link points. The project's own documentation, not a deployment's. */
 const DOCS_URL = "https://kagent.dev/docs/kagent";
@@ -34,42 +35,38 @@ export function SidebarFooter({
   const theme = useTheme();
   const { mode, toggle, canToggle } = useThemeMode();
 
+  // Same height and icon column as the nav rows above, in the muted text role.
   const row = {
     display: "flex",
     alignItems: "center",
-    // Matched to the component library's own menu item, measured rather than assumed:
-    // it insets its icon 24px from the row's edge and leaves 10px before the label. The
-    // row boxes lining up is not enough on its own — with this row's own 12px inset the
-    // boxes agreed and every glyph still sat 12px to the left of the navigation above.
     gap: 10,
+    height: 40,
     marginBlock: 2,
-    // The 24px only applies while there is a label to line up with. On the collapsed
-    // rail it leaves 4px of content box for a 16px icon, which renders each of these as
-    // a speck; collapsed, the row just centres its icon like the navigation does.
-    padding: collapsed
-      ? `${theme.space(2)} ${theme.space(2)}`
-      : `${theme.space(2)} ${theme.space(6)}`,
-    // Full width of the rail's inset, which the container supplies as padding rather
-    // than each row as a margin. That is what makes these three the same width: a
-    // `<button>` shrinks to fit its content even as a flex container, while the `<a>`
-    // beside it stretched — so with the inset on the rows, Documentation spanned the
-    // rail and the two buttons under it were each as wide as their own label.
+    paddingBlock: 0,
+    paddingInline: `${NAV_INSET}px ${collapsed ? 0 : NAV_INSET}px`,
     width: "100%",
     boxSizing: "border-box" as const,
     border: "none",
     background: "transparent",
     borderRadius: theme.radius.md,
-    color: theme.color.textMuted,
+    color: theme.color.navMuted,
     font: "inherit",
     fontSize: 14,
+    fontWeight: 400,
+    lineHeight: "20px",
     textAlign: "left" as const,
     cursor: "pointer",
-    justifyContent: collapsed ? "center" : "flex-start",
-    transition: "background 120ms ease, color 120ms ease",
-    "&:hover": { background: theme.color.border, color: theme.color.text },
+    userSelect: "none" as const,
+    justifyContent: "flex-start",
+    transition: "none",
+    // While the rail widens the label arrives first; icons keep their size and the label clips.
+    overflow: "hidden",
+    "& svg": { flexShrink: 0 },
+    "&:hover": { background: theme.color.navHoverBg, color: theme.color.navHoverText },
+    "&:active": { background: theme.color.navPressBg, color: theme.color.navHoverText },
     "&:focus-visible": {
-      outline: `2px solid ${theme.color.primary}`,
-      outlineOffset: -2,
+      outline: `2px solid ${theme.color.navFocus}`,
+      outlineOffset: 0,
     },
   };
 
@@ -99,6 +96,7 @@ export function SidebarFooter({
           // console whose URL can name a cluster.
           rel="noopener noreferrer"
           data-testid="sidebar-docs"
+          aria-label="Documentation (opens in a new tab)"
           css={row}
         >
           <BookOpen size={16} aria-hidden />
@@ -119,7 +117,7 @@ export function SidebarFooter({
               }}
             >
               Documentation
-              <ExternalLink size={12} aria-hidden css={{ opacity: 0.7 }} />
+              <ExternalLink size={12} aria-hidden />
             </span>
           )}
         </a>

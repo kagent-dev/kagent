@@ -168,6 +168,92 @@ test("agents: a conversation is named by the reader, and never renders as a bare
   });
 });
 
+test("agents: the conversations table titles each row as the rail does", async ({ page }) => {
+  // Unnamed, with a first message, so its title is derived rather than typed.
+  const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+  await loadPage(page, agentPage(agents.sharedOnFastLane));
+  const derived = page.getByTestId(`conversation-link-${autoTitled}`);
+  await expect(derived).toContainText("Summarise last night's deploy");
+  await expect(page.getByTestId(`chat-session-${autoTitled}`)).toContainText(
+    "Summarise last night's deploy",
+  );
+
+  const links = page.locator('a[data-testid^="conversation-link-"]');
+  await expect(links).not.toHaveCount(0);
+  for (const link of await links.all()) {
+    const id = (await link.getAttribute("data-testid"))?.replace("conversation-link-", "");
+    const title = (await link.textContent()) ?? "";
+    // The rail appends the age after " · "; the title before it must match.
+    await expect(page.getByTestId(`chat-session-${id}`)).toContainText(title);
+  }
+});
+
+test("agents: a title still being read shows a placeholder, not Untitled", async ({ page }) => {
+  const autoTitled = "2b6e0c45-8a71-4f39-9d02-3c85f1a7e6d0";
+  // Holds every history read until the test releases it.
+  await page.addInitScript(() => {
+    const w = window as unknown as Record<string, unknown>;
+    w.__kagentMockHistoryGate = new Promise((resolve) => {
+      w.__releaseHistory = resolve;
+    });
+  });
+  await loadPage(page, agentPage(agents.sharedOnFastLane));
+  const link = page.getByTestId(`conversation-link-${autoTitled}`);
+  const railRow = page.getByTestId(`chat-session-${autoTitled}`);
+
+  await test.step("1. while held, both surfaces show the placeholder", async () => {
+    await expect(link.getByTestId(`conversation-title-loading-${autoTitled}`)).toBeVisible();
+    await expect(railRow.getByTestId(`conversation-title-loading-${autoTitled}`)).toBeVisible();
+    await expect(link).not.toContainText("Untitled");
+    await expect(railRow).not.toContainText("Untitled");
+    await expect(link).toHaveAccessibleName(`Open conversation Conversation ${autoTitled.slice(0, 8)}`);
+  });
+
+  await test.step("2. once released, the real title replaces it", async () => {
+    await page.evaluate(() =>
+      (window as unknown as { __releaseHistory: () => void }).__releaseHistory(),
+    );
+    await expect(link).toContainText("Summarise last night's deploy");
+    await expect(railRow).toContainText("Summarise last night's deploy");
+    await expect(page.getByTestId(`conversation-title-loading-${autoTitled}`)).toHaveCount(0);
+  });
+});
+
+test("agents: conversations list the most recently active first, and the reader can reverse it", async ({
+  page,
+}) => {
+  const lastActive = page.getByRole("columnheader", { name: "Last active" });
+  // `ready` was last active a day after `idle`, so their order shows the direction.
+  const order = () =>
+    page
+      .getByTestId("conversations-table")
+      .locator('a[data-testid^="conversation-link-"]')
+      .evaluateAll((links) => links.map((link) => link.getAttribute("data-testid")));
+  const newestFirst = [`conversation-link-${instances.ready}`, `conversation-link-${instances.idle}`];
+  await loadPage(page, agentPage(agents.k8s));
+  await expectSettled(page);
+
+  await test.step("1. with no sort in the address, newest activity is on top", async () => {
+    await expect(lastActive).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(order).toEqual(newestFirst);
+    await expect(page).not.toHaveURL(/sort=/);
+  });
+
+  await test.step("2. one click reverses it, and the address says so", async () => {
+    await lastActive.click();
+    await expect(lastActive).toHaveAttribute("aria-sort", "ascending");
+    await expect.poll(order).toEqual([...newestFirst].reverse());
+    await expect(page).toHaveURL(/sort=updatedAt/);
+  });
+
+  await test.step("3. another click returns to the default", async () => {
+    await lastActive.click();
+    await expect(lastActive).toHaveAttribute("aria-sort", "descending");
+    await expect.poll(order).toEqual(newestFirst);
+    await expect(page).not.toHaveURL(/sort=/);
+  });
+});
+
 /**
  * Item 7: the "include agents created by others" toggle is gone, and the consequence
  * of removing it is handled rather than hidden.
@@ -431,7 +517,7 @@ test("agents: a ready agent shows no failure alert", async ({ page }) => {
 test("agents: deleting an Agent preserves shared resources and conversations", async ({ page }) => {
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId(`delete-${agents.k8s.name}`).click();
+  await pressOnce(page.getByTestId(`delete-${agents.k8s.name}`));
   await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
   await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
   await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});

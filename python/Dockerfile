@@ -49,4 +49,4 @@ USER 65532:65532
 LABEL org.opencontainers.image.source=https://github.com/kagent-dev/kagent \
       org.opencontainers.image.description="Kagent ADK Python runtime." \
       org.opencontainers.image.version="$VERSION"
-ENTRYPOINT ["/.kagent/.venv/bin/kagent-adk", "run", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/.kagent/.venv/bin/kagent-adk", "run"]

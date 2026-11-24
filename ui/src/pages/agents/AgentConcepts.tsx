@@ -3,6 +3,7 @@ import { useTheme, type Theme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ExtensionSlot } from "@/appExtensions";
+import { inlineLink } from "@/components/common/linkStyles";
 import { CREATE_OPTIONS, type CreateOption } from "./createOptions";
 
 const { Text } = Typography;
@@ -49,7 +50,7 @@ export function AgentConcepts() {
           href="https://github.com/agent-substrate/substrate"
           target="_blank"
           rel="noreferrer"
-          css={{ color: theme.color.primaryText }}
+          css={inlineLink(theme)}
         >
           Agent Substrate
         </a>{" "}
@@ -156,19 +157,17 @@ function Box({
           borderRadius: theme.radius.md,
           border: `1px solid ${theme.color.border}`,
           background: theme.color.bg,
-          transition: "background 140ms ease, border-color 140ms ease, transform 140ms ease",
           cursor: interactive ? "pointer" : "default",
           ...(interactive
             ? {
+                // Hover is halfway to pressed: the same purple tint and edge at half strength.
                 "&:hover": {
-                  borderColor: `${theme.color.primary}A6`,
-                  background: theme.color.bgElevated,
+                  borderColor: `${theme.color.primary}53`,
+                  background: `${theme.color.primary}1A`,
                 },
-                // Pressed, and distinct from hovered: a press that looks like a hover
-                // reads as a click that did not register.
                 "&:active": {
+                  borderColor: `${theme.color.primary}A6`,
                   background: `${theme.color.primary}33`,
-                  transform: "translateY(1px)",
                 },
                 "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
               }
@@ -203,15 +202,22 @@ function Box({
               display: "flex",
               padding: 5,
               borderRadius: theme.radius.md,
-              // Outlined in the primary colour so it reads as an action without competing
-              // with the solid Create button in the page header.
+              // A faint outline at rest (about 2:1) so it doesn't compete with the header's Create
+              // button; hover fills it solid and pressed darkens the fill.
               color: theme.color.primaryText,
-              border: `1px solid ${theme.color.primary}`,
+              border: `1px solid ${theme.color.primaryText}66`,
               background: `${theme.color.primary}14`,
-              transition: "background 120ms ease, color 120ms ease",
-              // Filled solid on hover, like the Create button it is related to: a tint
-              // change on an outlined button was too faint to read as a response.
-              "&:hover": { background: theme.color.primary, color: theme.color.textOnPrimary },
+              transition: "none",
+              "&:hover": {
+                background: theme.color.primary,
+                borderColor: theme.color.primaryText,
+                color: theme.color.textOnPrimary,
+              },
+              "&:active": {
+                background: theme.color.primaryHover,
+                borderColor: theme.color.primaryText,
+                color: theme.color.textOnPrimary,
+              },
               "&:focus-visible": { outline: `2px solid ${theme.color.primaryText}` },
             }}
           >
