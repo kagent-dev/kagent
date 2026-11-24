@@ -199,6 +199,27 @@ Instrument: gauge. Unit: `{revision}`. Number of cleanup-eligible runtime revisi
 | Attribute | Requirement | Note |
 | --- | --- | --- |
 
+### `kagent.session.expired`
+
+Instrument: counter. Unit: `{session}`. Number of Sessions deleted by the idle expiration sweep. Counts successful idle Session removals. Conversation history cleanup is recorded separately.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+
+### `kagent.session.purge.blocked`
+
+Instrument: counter. Unit: `{attempt}`. Number of idle Session purge attempts deferred by retained checkpoints. Counts an attempt when checkpoint dependencies still prevent history cleanup and the worker cannot release a fork pin during that attempt. Repeated attempts for the same history count separately.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+
+### `kagent.session.purge.completed`
+
+Instrument: counter. Unit: `{session}`. Number of expired Session histories permanently purged. Counts histories after their checkpoints and Substrate Tags have been removed and the A2A context, tasks, and events have been deleted. Includes history left behind by earlier versions. Partial deletion batches add nothing.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+
 ### `kagent.session.quiescence.claimed`
 
 Instrument: counter. Unit: `{session}`. Number of session quiescence claims acquired. A synchronous integer counter incremented before runtime I/O. Each returned claim adds one, even if processing later fails. Every trigger series is initialized to zero at worker startup. Repeated quiescence of the same session counts separately; this is not a count of unique sessions or successful suspensions. Empty scans and failed claim requests add nothing. Only the first claim after startup, a settlement signal, a recovery timer, or a retry recheck uses that trigger. Continued claims and worker handoffs use backlog. Recovery therefore counts timer-driven discoveries of work, not all items processed afterward or items proven to have missed a signal. An unchanged counter does not establish that scans ran successfully. Session, task, and error identities are excluded.

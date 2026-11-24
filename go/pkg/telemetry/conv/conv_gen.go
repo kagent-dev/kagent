@@ -383,6 +383,27 @@ const (
 	KagentRuntimeRevisionGCPendingDescription = "Number of cleanup-eligible runtime revisions in the last successful discovery."
 )
 
+// KagentSessionExpired: Number of Sessions deleted by the idle expiration sweep.
+const (
+	KagentSessionExpired            = "kagent.session.expired"
+	KagentSessionExpiredUnit        = "{session}"
+	KagentSessionExpiredDescription = "Number of Sessions deleted by the idle expiration sweep."
+)
+
+// KagentSessionPurgeBlocked: Number of idle Session purge attempts deferred by retained checkpoints.
+const (
+	KagentSessionPurgeBlocked            = "kagent.session.purge.blocked"
+	KagentSessionPurgeBlockedUnit        = "{attempt}"
+	KagentSessionPurgeBlockedDescription = "Number of idle Session purge attempts deferred by retained checkpoints."
+)
+
+// KagentSessionPurgeCompleted: Number of expired Session histories permanently purged.
+const (
+	KagentSessionPurgeCompleted            = "kagent.session.purge.completed"
+	KagentSessionPurgeCompletedUnit        = "{session}"
+	KagentSessionPurgeCompletedDescription = "Number of expired Session histories permanently purged."
+)
+
 // KagentSessionQuiescenceClaimed: Number of session quiescence claims acquired.
 const (
 	KagentSessionQuiescenceClaimed            = "kagent.session.quiescence.claimed"

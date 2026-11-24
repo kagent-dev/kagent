@@ -126,8 +126,8 @@ Substrate settlement and the complete multi-replica rollout remain acceptance wo
 Sessions expire after seven days without task activity by default, using the same
 bounded deletion workflow as Sandboxes. `config.sessions.idleTtl` in Helm configures
 the controller. Values use protobuf durations (`604800s` for seven days,
-`2592000s` for thirty); `0s` disables the worker, including retries, and negative values
-are rejected. There is no per-agent override or maximum TTL.
+`2592000s` for thirty). `0s` disables idle expiration and conversation purge sweeps.
+Negative values are rejected. There is no per-agent override or maximum TTL.
 
 Idle time is measured from the later of session creation and the latest stored
 A2A event's database timestamp. Forks retain original event timestamps, so their
@@ -169,18 +169,32 @@ Service-level not-found errors use this same A2A mapping, including missing Agen
 Agent-card HTTP discovery returns 404 for not-found errors and 403 for permission
 denials. Starting a new conversation requires an existing, authorized Agent.
 
-The retention rule preserves the existing audit policy: A2A context, tasks, event
-history, and explicit checkpoints remain in PostgreSQL. Retained checkpoints can
-still be forked after the source session expires and retain their own snapshot
-pins. The ordinary Actor deletion workflow removes the session's runtime and
-releases its revision/checkpoint references; backend snapshot garbage collection
-remains governed by Substrate and retained checkpoint pins. Idle expiration does
-not bound audit-history or explicit-checkpoint storage; those need a separate
-retention policy. History is no longer accessible through the expired Session API.
+With `config.sessions.purgeOnIdleExpiry: true` and a positive TTL, idle expiry permanently removes the Session's A2A history, explicit
+checkpoints, and the checkpoints' Substrate Tag-owned snapshots. A leader scans
+history in bounded pages and finds expired conversations by the absence of their
+Session row. This also discovers history left behind by earlier versions. Such
+history becomes eligible as soon as purge is enabled with a positive TTL because its
+original Session record and expiry timing are already gone. Explicit deletion
+keeps its tombstone and stays outside this sweep.
+
+The checkpoint worker closes new fork admission while preserving Tags that
+already-admitted forks still borrow. It can release a fork's pin once the fork
+has an independent durable snapshot recorded in its history, or when the fork
+itself is deleted. The worker cleans up each Tag before removing its checkpoint
+row. It then deletes the context, tasks, and events in bounded transactions.
+Restarts rediscover unfinished work from the remaining history and checkpoints.
+
+Purge defaults to false. Idle expiration alone retains history and forkable
+checkpoints. Enabling purge includes the backlog from earlier expirations.
 
 `kagent.session.expired` counts completed sweep removals (Prometheus exports
 `kagent_session_expired_total`). Each removal logs `expired idle session` at debug
 level with `session_id` and `idle_time`.
+
+`kagent.session.purge.completed` counts histories after permanent cleanup.
+`kagent.session.purge.blocked` counts attempts deferred by checkpoint
+dependencies. A single history can count as blocked on several sweeps.
+See the [telemetry contract](telemetry-contract.md#kagentsessionpurgeblocked).
 
 ## Automatic quiescence
 

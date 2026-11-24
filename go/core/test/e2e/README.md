@@ -41,14 +41,15 @@ in the test install. CI enables it to exercise recovery through ordinary sends.
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets
-`sessions.idleTtl: 30s` and `sessions.expirationInterval: 5s` in controller config on the
+`sessions.purgeOnIdleExpiry: true`, `sessions.idleTtl: 30s`, and `sessions.expirationInterval: 5s` in controller config on the
 controller Deployment and restores its environment afterward, rolling the
 controller both times and waiting for a
 fresh API connection after each rollout. Use a disposable test cluster and a
 stable API endpoint for this case. It verifies completed-turn
-expiration, Actor removal, NotFound, and a fresh conversation from the same
-caller/request ID. PostgreSQL-backed service tests cover active/waiting turns,
-dispatch and quiescence races, retry recovery, and retained checkpoint history.
+expiration, Actor removal, checkpoint unavailability, NotFound, and a fresh
+conversation from the same caller/request ID. PostgreSQL-backed tests cover
+active and waiting turns, dispatch and quiescence races, retry recovery, and
+removal of previously expired history.
 Preparation and runtime failures also fail the tests. CI builds the guest image
 separately and passes its digest to Helm before installing. Substrate rewrites
 the runner's `localhost:5001` registry address when workers pull the image.

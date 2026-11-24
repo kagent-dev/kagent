@@ -79,8 +79,9 @@ The `CREATING` reservation blocks task writes and idle or explicit lifecycle cha
 copy completes or cleanup finishes. A lost response can reuse a completed Tag;
 an incomplete copy is deleted before the failed reservation is released. A
 failed database finalization leaves the reservation and completed Tag for retry.
-Idle lifecycle work records snapshots without retaining every turn: only explicit
-checkpoints survive subsequent suspends or source deletion.
+Idle lifecycle work records snapshots without retaining every turn. Explicit
+checkpoints survive subsequent suspends and explicit deletion of the source
+Session. [Idle expiration](runtime-and-lifecycle.md#idle-expiration) retires them when purgeOnIdleExpiry is enabled.
 
 The checkpoint retains source-session provenance, source history, prepared
 revision, name, head task, and history sequence. Reservation saves an event

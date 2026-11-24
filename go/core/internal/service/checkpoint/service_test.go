@@ -103,7 +103,7 @@ func (s *testStore) GetSessionCheckpoint(_ context.Context, _ string, owner stri
 	return s.prepared, nil
 }
 
-func (s *testStore) GetSessionCheckpointForkSource(ctx context.Context, id, owner string) (*database.SessionCheckpointForkSource, error) {
+func (s *testStore) GetSessionCheckpointForkSource(ctx context.Context, id, owner, _ string) (*database.SessionCheckpointForkSource, error) {
 	s.forkSourceReads++
 	checkpoint, err := s.GetSessionCheckpoint(ctx, id, owner)
 	if err != nil {

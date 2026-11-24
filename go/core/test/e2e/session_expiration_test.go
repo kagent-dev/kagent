@@ -54,6 +54,17 @@ func TestSessionIdleExpiration(t *testing.T) {
 		_, _, task := conversation.send(t, "What is 2+2?")
 		require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
 		assertActorSuspended(t, &conversation)
+		checkpoint := createCheckpoint(t, fixture.ctx, fixture.checkpoints, &apiv1.CreateCheckpointRequest{
+			SessionId: id, RequestId: uuid.NewString(), ExpectedHeadTaskId: string(task.ID),
+		}).GetCheckpoint()
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
+			defer cancel()
+			_, err := fixture.checkpoints.DeleteCheckpoint(ctx, &apiv1.DeleteCheckpointRequest{CheckpointId: checkpoint.Id})
+			if status.Code(err) != codes.NotFound {
+				require.NoError(t, err)
+			}
+		})
 		require.Eventually(t, func() bool {
 			_, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: id})
 			return status.Code(err) == codes.NotFound
@@ -75,6 +86,10 @@ func TestSessionIdleExpiration(t *testing.T) {
 		actor, err := findSubstrateActor(fixture.ctx, fixture.system, request.Agent.Namespace, substrate.ActorName(id))
 		require.NoError(t, err)
 		require.Nil(t, actor, "expiration must remove the Substrate Actor")
+		require.Eventually(t, func() bool {
+			_, err := fixture.checkpoints.GetCheckpoint(fixture.ctx, &apiv1.GetCheckpointRequest{CheckpointId: checkpoint.Id})
+			return status.Code(err) == codes.NotFound
+		}, time.Minute, time.Second, "expiration should make the checkpoint unavailable")
 		var fresh *apiv1.CreateSessionResponse
 		require.Eventually(t, func() bool {
 			fresh, err = fixture.sessions.CreateSession(fixture.ctx, request)
@@ -96,6 +111,7 @@ func setSessionExpirationPolicy(t *testing.T, target, ttl, pollInterval string) 
 	poll, err := time.ParseDuration(pollInterval)
 	require.NoError(t, err)
 	updateControllerConfig(t, target, func(cfg *configv1.ControllerConfig) {
+		cfg.Sessions.PurgeOnIdleExpiry = true
 		cfg.Sessions.IdleTtl = durationpb.New(idle)
 		cfg.Sessions.ExpirationInterval = durationpb.New(poll)
 	})

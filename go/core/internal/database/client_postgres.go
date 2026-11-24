@@ -13,12 +13,18 @@ import (
 // Client persists control-plane state in PostgreSQL. Callers define the narrow
 // interfaces they need; SQL rows and protobuf encoding stay inside the store.
 type Client struct {
+	purgeOnIdleExpiry    bool
 	db                   retryingPool
 	vectorCosineOperator string
 }
 
 // ClientOption configures a Client built by NewClient.
 type ClientOption func(*Client)
+
+// WithIdleExpiryPurge closes new fork admission when idle deletion starts.
+func WithIdleExpiryPurge(enabled bool) ClientOption {
+	return func(c *Client) { c.purgeOnIdleExpiry = enabled }
+}
 
 // WithConnectRetry makes each store call retry a failed PostgreSQL login for up
 // to timeout. A call can take up to timeout plus one attempt. Rejected

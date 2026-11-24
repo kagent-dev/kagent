@@ -195,6 +195,20 @@ KAGENT_RUNTIME_REVISION_GC_PENDING_DESCRIPTION: Final = (
     "Number of cleanup-eligible runtime revisions in the last successful discovery."
 )
 
+KAGENT_SESSION_EXPIRED: Final = "kagent.session.expired"
+KAGENT_SESSION_EXPIRED_UNIT: Final = "{session}"
+KAGENT_SESSION_EXPIRED_DESCRIPTION: Final = "Number of Sessions deleted by the idle expiration sweep."
+
+KAGENT_SESSION_PURGE_BLOCKED: Final = "kagent.session.purge.blocked"
+KAGENT_SESSION_PURGE_BLOCKED_UNIT: Final = "{attempt}"
+KAGENT_SESSION_PURGE_BLOCKED_DESCRIPTION: Final = (
+    "Number of idle Session purge attempts deferred by retained checkpoints."
+)
+
+KAGENT_SESSION_PURGE_COMPLETED: Final = "kagent.session.purge.completed"
+KAGENT_SESSION_PURGE_COMPLETED_UNIT: Final = "{session}"
+KAGENT_SESSION_PURGE_COMPLETED_DESCRIPTION: Final = "Number of expired Session histories permanently purged."
+
 KAGENT_SESSION_QUIESCENCE_CLAIMED: Final = "kagent.session.quiescence.claimed"
 KAGENT_SESSION_QUIESCENCE_CLAIMED_UNIT: Final = "{session}"
 KAGENT_SESSION_QUIESCENCE_CLAIMED_DESCRIPTION: Final = "Number of session quiescence claims acquired."
