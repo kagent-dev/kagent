@@ -159,11 +159,7 @@ func New(config Config) (*Server, error) {
 	apiv1.RegisterSessionServiceServer(grpcServer, &sessionServer{service: config.SessionService})
 	apiv1.RegisterScheduledRunServiceServer(grpcServer, &scheduledRunServer{service: config.ScheduledRunService})
 	apiv1.RegisterCheckpointServiceServer(grpcServer, &checkpointServer{service: config.CheckpointService})
-	// The pinned SDK gRPC handler drops the next-page token for push config List.
-	// Override only that method until upstream preserves the service response.
-	a2apb.RegisterA2AServiceServer(grpcServer, &pushListGRPCHandler{
-		A2AServiceServer: a2agrpc.NewHandler(config.A2AHandler), handler: config.A2AHandler,
-	})
+	a2apb.RegisterA2AServiceServer(grpcServer, a2agrpc.NewHandler(config.A2AHandler))
 	// After core's own, so reflection sees them and a consumer registering a
 	// duplicate service name panics here rather than silently taking over.
 	if config.RegisterServices != nil {
