@@ -27,7 +27,9 @@ cancellation, and lifecycle mutations are denied. Cards are not publicly cached.
 
 The card comes from the Agent's latest successful revision (or the shared
 session's pinned revision) and advertises
-JSON-RPC first, followed by gRPC. It retains runtime extensions while reporting
+JSON-RPC first, followed by gRPC, both with `protocolVersion: "1.0"`. When the
+gateway adds a protocol version, it must keep serving and advertising `1.0`
+alongside it. The card retains runtime extensions while reporting
 the gateway's streaming capabilities. JSON-RPC uses the pinned upstream A2A v1
 SDK and supports `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`,
 `CancelTask`, `SubscribeToTask`, and `GetExtendedAgentCard`. These are the v1
@@ -55,9 +57,11 @@ curl -H 'X-User-Id: alice' \
 
 Use the returned JSON-RPC interface URL with an A2A v1 client, supplying the
 credentials required by the deployment on discovery and subsequent requests.
-A2A calls must include `A2A-Version: 1.0` as an HTTP header or gRPC metadata.
-The upstream Go A2A client supplies it automatically; callers using generated
-protobuf clients or raw transports must set it explicitly.
+Send `A2A-Version: 1.0` as an HTTP header or gRPC metadata on A2A calls. The
+upstream Go A2A client supplies it automatically. The gateway interprets an
+omitted or empty version as `0.3` and rejects it because the gateway serves
+`1.0`. Unsupported versions return JSON-RPC error `-32009` or gRPC status
+`FAILED_PRECONDITION` with reason `VERSION_NOT_SUPPORTED`.
 
 For example, the initial JSON-RPC send body is:
 
