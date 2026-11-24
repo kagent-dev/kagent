@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { paths } from "@/router/routes";
 import { themeFor } from "@/theme/theme";
 import { McpServerNewPage } from "./McpServerNewPage";
 
@@ -19,10 +20,10 @@ vi.mock("@/api", async (importOriginal) => ({
 function renderPage() {
   const router = createMemoryRouter(
     [
-      { path: "/mcp", element: <p>Server list</p> },
-      { path: "/mcp/new", element: <McpServerNewPage /> },
+      { path: paths.mcpServers, element: <p>Server list</p> },
+      { path: paths.mcpServerNew, element: <McpServerNewPage /> },
     ],
-    { initialEntries: ["/mcp/new"] },
+    { initialEntries: [paths.mcpServerNew] },
   );
   render(
     <ThemeProvider theme={themeFor("dark")}>
@@ -121,7 +122,7 @@ describe("MCP server create form", () => {
     fireEvent.click(screen.getByTestId("form-back-link"));
     expect(await screen.findByTestId("mcp-discard-body")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-    expect(router.state.location.pathname).toBe("/mcp/new");
+    expect(router.state.location.pathname).toBe(paths.mcpServerNew);
 
     finish();
     expect(await screen.findByText("Server list")).toBeInTheDocument();
@@ -139,6 +140,6 @@ describe("MCP server create form", () => {
     fireEvent.click(screen.getByTestId("mcp-cancel"));
     expect(await screen.findByTestId("mcp-discard-body")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
-    expect(router.state.location.pathname).toBe("/mcp/new");
+    expect(router.state.location.pathname).toBe(paths.mcpServerNew);
   });
 });
