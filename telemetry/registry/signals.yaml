@@ -1,5 +1,38 @@
 file_format: definition/2
 metrics:
+  - name: kagent.session.expired
+    requirement_level: recommended
+    instrument: counter
+    unit: "{session}"
+    brief: Number of Sessions deleted by the idle expiration sweep.
+    note: Counts successful idle Session removals. Conversation history cleanup is recorded separately.
+    stability: development
+    attributes: []
+
+  - name: kagent.session.purge.completed
+    requirement_level: recommended
+    instrument: counter
+    unit: "{session}"
+    brief: Number of expired Session histories permanently purged.
+    note: >
+      Counts histories after their checkpoints and Substrate Tags have been removed
+      and the A2A context, tasks, and events have been deleted. Includes history
+      left behind by earlier versions. Partial deletion batches add nothing.
+    stability: development
+    attributes: []
+
+  - name: kagent.session.purge.blocked
+    requirement_level: recommended
+    instrument: counter
+    unit: "{attempt}"
+    brief: Number of idle Session purge attempts deferred by retained checkpoints.
+    note: >
+      Counts an attempt when checkpoint dependencies still prevent history cleanup
+      and the worker cannot release a fork pin during that attempt. Repeated
+      attempts for the same history count separately.
+    stability: development
+    attributes: []
+
   - name: kagent.session.quiescence.claimed
     requirement_level: recommended
     instrument: counter

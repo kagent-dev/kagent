@@ -154,10 +154,14 @@ Defaults follow protobuf presence. Ordinary scalars use their protobuf zero valu
 for example, omitted and explicit zero `database.pool.minConns` both mean zero.
 Optional scalars and message fields distinguish omission from an explicit value:
 `kubernetes.leaderElection` defaults to true but accepts false, `sessions.idleTtl`
-defaults to seven days but `0s` disables expiration, and omitted
+defaults to seven days but `0s` disables expiration and purge sweeps, and omitted
 `runtimeDefaults.maxContentLength` selects the runtime limit while zero disables
 that limit. Session shares have no TTL bound by default; nonzero intervals must
 be positive.
+
+With a positive `sessions.idleTtl`, opting into `sessions.purgeOnIdleExpiry` purges A2A history, explicit checkpoints, and
+checkpoint snapshots left by previous idle expirations. See
+[idle expiration](runtime-and-lifecycle.md#idle-expiration) for upgrade behavior.
 
 Helm's top-level `config` block mirrors the schema and includes both controller
 settings and managed runtime defaults. The chart writes one config file,

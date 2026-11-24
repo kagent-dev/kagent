@@ -441,7 +441,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
+	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice", "fork")
 	require.ErrorIs(t, err, ErrNotFound, "creating checkpoints cannot supply fork provenance")
 	if _, err := client.FinalizeSessionCheckpoint(ctx, checkpoint.GetId(), "tag-uid-1", "s3://tags/checkpoint", ""); err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 
 	_, err = client.GetSession(ctx, source.GetId(), "alice")
 	require.ErrorIs(t, err, ErrNotFound, "ordinary Session reads still hide deleted sources")
-	forkSource, err := client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice")
+	forkSource, err := client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "alice", "fork")
 	require.NoError(t, err)
 	require.Equal(t, revision.Namespace, forkSource.Agent.Namespace)
 	require.Equal(t, revision.AgentName, forkSource.Agent.Name)
@@ -479,9 +479,9 @@ func TestForkSessionCopiesBoundedHistory(t *testing.T) {
 	require.Equal(t, "Before the detour", forkSource.Checkpoint.GetName())
 	require.Equal(t, &SessionTaskSnapshot{Atespace: "team-a", URI: "s3://tags/checkpoint", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}, forkSource.Snapshot)
 	require.Equal(t, "tag-uid-1", forkSource.TagUID)
-	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "bob")
+	_, err = client.GetSessionCheckpointForkSource(ctx, checkpoint.GetId(), "bob", "fork")
 	require.ErrorIs(t, err, ErrNotFound, "retained provenance remains owner-scoped")
-	_, err = client.GetSessionCheckpointForkSource(ctx, uuid.NewString(), "alice")
+	_, err = client.GetSessionCheckpointForkSource(ctx, uuid.NewString(), "alice", "fork")
 	require.ErrorIs(t, err, ErrNotFound)
 
 	fork, created, err := client.ForkSession(ctx, checkpoint.GetId(), "alice", "fork-request-1", forkID)

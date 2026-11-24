@@ -2632,6 +2632,38 @@ refinements:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - brief: Number of Sessions deleted by the idle expiration sweep.
+    id: kagent.session.expired
+    instrument: counter
+    name: kagent.session.expired
+    note: Counts successful idle Session removals. Conversation history cleanup is recorded separately.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{session}\u0027
+  - brief: Number of idle Session purge attempts deferred by retained checkpoints.
+    id: kagent.session.purge.blocked
+    instrument: counter
+    name: kagent.session.purge.blocked
+    note: |
+      Counts an attempt when checkpoint dependencies still prevent history cleanup and the worker cannot release a fork pin during that attempt. Repeated attempts for the same history count separately.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{attempt}\u0027
+  - brief: Number of expired Session histories permanently purged.
+    id: kagent.session.purge.completed
+    instrument: counter
+    name: kagent.session.purge.completed
+    note: |
+      Counts histories after their checkpoints and Substrate Tags have been removed and the A2A context, tasks, and events have been deleted. Includes history left behind by earlier versions. Partial deletion batches add nothing.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{session}\u0027
   - attributes:
     - brief: What prompted a work claim, either initial discovery or continued backlog processing.
       key: kagent.worker.trigger
@@ -5964,6 +5996,35 @@ registry:
     requirement_level: recommended
     stability: development
     unit: \u0027{revision}\u0027
+  - brief: Number of Sessions deleted by the idle expiration sweep.
+    instrument: counter
+    name: kagent.session.expired
+    note: Counts successful idle Session removals. Conversation history cleanup is recorded separately.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{session}\u0027
+  - brief: Number of idle Session purge attempts deferred by retained checkpoints.
+    instrument: counter
+    name: kagent.session.purge.blocked
+    note: |
+      Counts an attempt when checkpoint dependencies still prevent history cleanup and the worker cannot release a fork pin during that attempt. Repeated attempts for the same history count separately.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{attempt}\u0027
+  - brief: Number of expired Session histories permanently purged.
+    instrument: counter
+    name: kagent.session.purge.completed
+    note: |
+      Counts histories after their checkpoints and Substrate Tags have been removed and the A2A context, tasks, and events have been deleted. Includes history left behind by earlier versions. Partial deletion batches add nothing.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{session}\u0027
   - attributes:
     - brief: What prompted a work claim, either initial discovery or continued backlog processing.
       key: kagent.worker.trigger

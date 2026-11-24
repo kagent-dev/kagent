@@ -202,6 +202,8 @@ config:
     # another message. It is off by default and not rendered, so the default config
     # stays readable by releases that predate the setting.
     # automaticRecovery: false
+    # Enable permanent cleanup of conversation history and checkpoints, including earlier idle expirations.
+    # purgeOnIdleExpiry: false
     idleTtl: 604800s
     shareMaxTtl: 0s
   sandboxes:

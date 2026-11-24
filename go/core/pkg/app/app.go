@@ -242,7 +242,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	defer db.Close()
+	idleTTL := cfg.GetSessions().GetIdleTtl().AsDuration()
+	purgeOnIdleExpiry := idleTTL > 0 && cfg.GetSessions().GetPurgeOnIdleExpiry()
 	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema(),
+		database.WithIdleExpiryPurge(purgeOnIdleExpiry),
 		database.WithConnectRetry(cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration()))
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -365,7 +368,8 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(sessionWorkflow); err != nil {
 		return fmt.Errorf("register idle session worker: %w", err)
 	}
-	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, cfg.GetSessions().GetIdleTtl().AsDuration(), cfg.GetSessions().GetExpirationInterval().AsDuration())
+	expirationInterval := cfg.GetSessions().GetExpirationInterval().AsDuration()
+	expiration, err := sessionsvc.NewExpirationWorker(store, sessionWorkflow, idleTTL, expirationInterval)
 	if err != nil {
 		return err
 	}
@@ -375,6 +379,15 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	shareMaxTTL := cfg.GetSessions().GetShareMaxTtl().AsDuration()
 	sessions := sessionsvc.NewService(store, authorizer, sessionWorkflow, sessionsvc.WithShareMaxTTL(shareMaxTTL))
 	checkpoints := checkpoint.NewService(store, authorizer, actors, sessionWorkflow)
+	if purgeOnIdleExpiry {
+		purge, err := checkpoint.NewPurgeWorker(store, checkpoints, expirationInterval, otel.GetMeterProvider())
+		if err != nil {
+			return err
+		}
+		if err := manager.Add(purge); err != nil {
+			return fmt.Errorf("register idle session purge worker: %w", err)
+		}
+	}
 	gatewayDialer, err := a2agateway.NewRuntimeDialer(
 		cfg.GetSubstrate(),
 		authenticator,

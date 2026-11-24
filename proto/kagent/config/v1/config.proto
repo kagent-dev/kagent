@@ -237,6 +237,8 @@ message SubstrateConfig {
 }
 
 message SessionsConfig {
+  // With a positive idle TTL, permanently purge data from new and previous idle expirations.
+  bool purge_on_idle_expiry = 6;
   // Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
   bool automatic_recovery = 5;
   // Zero disables idle expiration.

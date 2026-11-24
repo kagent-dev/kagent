@@ -59,6 +59,17 @@ func (c *Client) ForkSession(ctx context.Context, checkpointID, userID, requestI
 		if err != nil {
 			return fmt.Errorf("lock checkpoint: %w", err)
 		}
+		if c.purgeOnIdleExpiry {
+			// Serialize fresh admission with idle deletion. Explicit deletion
+			// retains a Session tombstone and its checkpoints remain forkable.
+			_, err := queryOne(ctx, tx, `
+				SELECT id FROM session WHERE history_id = $1
+				AND deletion_reason IS DISTINCT FROM 'idle_timeout' FOR SHARE
+			`, pgx.RowTo[uuid.UUID], checkpoint.SourceHistoryID)
+			if err != nil {
+				return notFoundOr(err)
+			}
+		}
 		source, err := toSessionCheckpoint(checkpoint)
 		if err != nil {
 			return err
@@ -403,12 +414,24 @@ type SessionCheckpointForkSource struct {
 	TagUID     string
 }
 
-// GetSessionCheckpointForkSource reads an owned READY checkpoint once and resolves
-// its target Agent from the retained revision, independently of the source Session.
-// Missing checkpoints, other owners, and other lifecycle states return ErrNotFound.
+// GetSessionCheckpointForkSource resolves an owned checkpoint's target Agent.
+// Only an already-admitted fork that still pins the checkpoint can retry using
+// a DELETING checkpoint. Fresh forks require a READY checkpoint.
 // The caller must authorize access before reading; this does not lock the records.
-func (c *Client) GetSessionCheckpointForkSource(ctx context.Context, id, userID string) (*SessionCheckpointForkSource, error) {
-	row, err := readCheckpoint(ctx, c.db, id, userID, new("READY"))
+func (c *Client) GetSessionCheckpointForkSource(ctx context.Context, id, userID, requestID string) (*SessionCheckpointForkSource, error) {
+	row, err := queryOne(ctx, c.db, `
+		SELECT cp.id, cp.source_session_id, cp.user_id, cp.request_id, cp.head_task_id, cp.history_sequence,
+		    cp.snapshot_atespace, cp.snapshot_uri, cp.snapshot_fidelity, cp.tag_uid, cp.state, cp.data,
+		    cp.source_history_id, cp.prepared_revision
+		FROM session_checkpoint cp WHERE cp.id = $1 AND cp.user_id = $2
+		  AND ((cp.state = 'READY' AND (NOT $4::boolean OR EXISTS (
+		    SELECT 1 FROM session src WHERE src.history_id = cp.source_history_id
+		    AND src.deletion_reason IS DISTINCT FROM 'idle_timeout'
+		  ))) OR (cp.state IN ('READY', 'DELETING') AND EXISTS (
+		    SELECT 1 FROM runtime_instance r JOIN session s USING (id)
+		    WHERE r.kind = 'agent' AND r.user_id = $2 AND r.request_id = $3 AND s.pinned_checkpoint_id = cp.id
+		  )))
+	`, pgx.RowToStructByName[sessionCheckpointRow], id, userID, requestID, c.purgeOnIdleExpiry)
 	if err != nil {
 		return nil, fmt.Errorf("get checkpoint fork source: %w", notFoundOr(err))
 	}
@@ -496,29 +519,15 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 		if err != nil {
 			return notFoundOr(err)
 		}
-		checkpoint, err := toSessionCheckpoint(row)
+		pinned, err := checkpointPinned(ctx, tx, row.ID)
 		if err != nil {
 			return err
 		}
-		checkpoint.State = apiv1.CheckpointState_CHECKPOINT_STATE_DELETING
-		data, err := proto.Marshal(checkpoint)
-		if err != nil {
-			return fmt.Errorf("encode checkpoint: %w", err)
-		}
-		tag, err := tx.Exec(ctx, `
-			UPDATE session_checkpoint
-			SET state = 'DELETING', data = $3
-			WHERE session_checkpoint.id = $1 AND session_checkpoint.user_id = $2
-			  AND session_checkpoint.state IN ('READY', 'FAILED', 'DELETING')
-			  AND NOT EXISTS (
-			      SELECT 1 FROM session i WHERE i.pinned_checkpoint_id = session_checkpoint.id
-			  )
-		`, row.ID, userID, data)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() != 1 {
+		if pinned {
 			return ErrNotFound
+		}
+		if err := markCheckpointDeleting(ctx, tx, row); err != nil {
+			return err
 		}
 		snapshot, tagUID = checkpointSnapshot(row), row.TagUID
 		return nil
@@ -527,6 +536,34 @@ func (c *Client) BeginDeleteSessionCheckpoint(ctx context.Context, id, userID st
 		return nil, "", fmt.Errorf("begin delete Session checkpoint: %w", err)
 	}
 	return snapshot, tagUID, nil
+}
+
+// checkpointPinned checks for fork dependencies while the caller holds the
+// checkpoint lock. Fork admission acquires that same lock before pinning it.
+func checkpointPinned(ctx context.Context, tx pgx.Tx, id uuid.UUID) (bool, error) {
+	return queryOne(ctx, tx, `SELECT EXISTS (SELECT 1 FROM session WHERE pinned_checkpoint_id = $1)`, pgx.RowTo[bool], id)
+}
+
+// markCheckpointDeleting closes new fork admission under the checkpoint lock.
+// The caller must check dependencies before issuing external Tag deletion.
+func markCheckpointDeleting(ctx context.Context, tx pgx.Tx, row sessionCheckpointRow) error {
+	checkpoint, err := toSessionCheckpoint(row)
+	if err != nil {
+		return err
+	}
+	switch checkpoint.GetState() {
+	case apiv1.CheckpointState_CHECKPOINT_STATE_DELETING:
+		return nil
+	case apiv1.CheckpointState_CHECKPOINT_STATE_READY, apiv1.CheckpointState_CHECKPOINT_STATE_FAILED:
+	default:
+		return ErrNotFound
+	}
+	checkpoint.State = apiv1.CheckpointState_CHECKPOINT_STATE_DELETING
+	data, err := proto.Marshal(checkpoint)
+	if err != nil {
+		return fmt.Errorf("encode checkpoint: %w", err)
+	}
+	return execSQL(ctx, tx, `UPDATE session_checkpoint SET state = 'DELETING', data = $2 WHERE id = $1`, row.ID, data)
 }
 
 // DeleteSessionCheckpoint removes an owned DELETING checkpoint after the caller

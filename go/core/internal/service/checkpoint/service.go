@@ -30,7 +30,7 @@ type store interface {
 	ReserveSessionCheckpoint(context.Context, *apiv1.Checkpoint, string, string) (*apiv1.Checkpoint, *database.SessionTaskSnapshot, error)
 	FinalizeSessionCheckpoint(context.Context, string, string, string, string) (*apiv1.Checkpoint, error)
 	GetSessionCheckpoint(context.Context, string, string) (*apiv1.Checkpoint, error)
-	GetSessionCheckpointForkSource(context.Context, string, string) (*database.SessionCheckpointForkSource, error)
+	GetSessionCheckpointForkSource(context.Context, string, string, string) (*database.SessionCheckpointForkSource, error)
 	ListSessionCheckpoints(context.Context, string, string, string, int) ([]*apiv1.Checkpoint, error)
 	BeginDeleteSessionCheckpoint(context.Context, string, string) (*database.SessionTaskSnapshot, string, error)
 	DeleteSessionCheckpoint(context.Context, string, string) error
@@ -270,6 +270,10 @@ func (s *Service) Delete(ctx context.Context, checkpointID string) error {
 	if err != nil {
 		return serviceerrors.NewInternal("Failed to begin checkpoint deletion", err)
 	}
+	return s.deleteRetainedCheckpoint(ctx, checkpointID, userID, snapshot, tagUID)
+}
+
+func (s *Service) deleteRetainedCheckpoint(ctx context.Context, checkpointID, userID string, snapshot *database.SessionTaskSnapshot, tagUID string) error {
 	tag, err := s.tags.GetTag(ctx, snapshot.Atespace, tagName(checkpointID))
 	if err != nil && status.Code(err) != codes.NotFound {
 		return serviceerrors.NewUnavailable("Failed to get checkpoint snapshot tag", err)
@@ -322,7 +326,7 @@ func (s *Service) Fork(ctx context.Context, checkpointID, requestID string) (*ap
 	if err != nil {
 		return nil, err
 	}
-	source, err := s.store.GetSessionCheckpointForkSource(ctx, checkpointID, userID)
+	source, err := s.store.GetSessionCheckpointForkSource(ctx, checkpointID, userID, requestID)
 	if errors.Is(err, database.ErrNotFound) {
 		return nil, serviceerrors.NewNotFound("Checkpoint not found", err)
 	}

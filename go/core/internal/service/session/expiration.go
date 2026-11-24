@@ -13,6 +13,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 type expirationStore interface {
@@ -42,7 +43,7 @@ func NewExpirationWorker(store expirationStore, workflow *ActorWorkflow, idleTTL
 		return nil, fmt.Errorf("session expiration poll interval must be positive")
 	}
 	deleted, err := otel.Meter("github.com/kagent-dev/kagent/go/core/internal/service/session").Int64Counter(
-		"kagent.session.expired", metric.WithDescription("Sessions deleted by the idle expiration sweep."), metric.WithUnit("{session}"))
+		conv.KagentSessionExpired, metric.WithDescription(conv.KagentSessionExpiredDescription), metric.WithUnit(conv.KagentSessionExpiredUnit))
 	if err != nil {
 		return nil, fmt.Errorf("create session expiration counter: %w", err)
 	}
