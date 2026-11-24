@@ -180,16 +180,49 @@ def _convert_content_to_converse_messages(
     return messages
 
 
+# Bedrock rejects a text block that is empty or only whitespace. ADK replays the
+# whole session on every call, so one blank tool result would fail every later
+# turn of that session. A result with nothing to show is sent as this instead.
+_EMPTY_TOOL_RESULT_TEXT = "(no output)"
+
+
 def _extract_tool_result_content(response: object) -> list[dict]:
+    text = _tool_result_text(response)
+    return [{"text": text if text.strip() else _EMPTY_TOOL_RESULT_TEXT}]
+
+
+def _tool_result_text(response: object) -> str:
     if isinstance(response, str):
-        return [{"text": response}]
+        return response
     if isinstance(response, dict):
         if "content" in response:
-            text = "\n".join(item["text"] for item in response["content"] if "text" in item)
-            return [{"text": text}]
+            return _mcp_result_text(response)
         if "result" in response:
-            return [{"text": str(response["result"])}]
-    return [{"text": str(response)}]
+            return str(response["result"])
+    return str(response)
+
+
+def _mcp_result_text(response: dict) -> str:
+    """Return the text of an MCP-shaped result: {"content": [...], "structuredContent": ...}.
+
+    Text items are joined. A result that carries no text (a tool with no output,
+    an image-only result, or only structuredContent) falls back to the structured
+    content, then to a note naming the content types that were left out. It may
+    return an empty string, which the caller replaces.
+    """
+    content = response["content"]
+    if isinstance(content, str):
+        return content
+    items = [item for item in content or [] if isinstance(item, dict)]
+    text = "\n".join(item["text"] for item in items if isinstance(item.get("text"), str))
+    if text.strip():
+        return text
+    if response.get("structuredContent"):
+        return json.dumps(response["structuredContent"], default=str)
+    omitted = sorted({str(item.get("type", "unknown")) for item in items if not isinstance(item.get("text"), str)})
+    if omitted:
+        return f"[Tool returned {', '.join(omitted)} content, which was not passed to the model.]"
+    return ""
 
 
 # Fields not valid in JSON Schema draft 2020-12

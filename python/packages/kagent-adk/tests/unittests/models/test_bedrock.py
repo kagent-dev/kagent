@@ -11,6 +11,7 @@ from kagent.adk.models._bedrock import (
     _cache_point_block,
     _convert_content_to_converse_messages,
     _convert_tools_to_converse,
+    _extract_tool_result_content,
     _get_bedrock_client,
     _sanitize_tool_name,
 )
@@ -165,6 +166,57 @@ class TestConvertContentWithNameMap:
         content = types.Content(role="model", parts=[part])
         messages = _convert_content_to_converse_messages([content], tool_name_map=name_map)
         assert messages[0]["content"][0]["toolUse"]["name"] == "unknown.tool"
+
+
+class TestExtractToolResultContent:
+    """Bedrock rejects blank text blocks, so a tool result must never become one."""
+
+    def test_text_items_are_joined(self):
+        response = {"content": [{"type": "text", "text": "line one"}, {"type": "text", "text": "line two"}]}
+        assert _extract_tool_result_content(response) == [{"text": "line one\nline two"}]
+
+    def test_plain_string_and_result_value_are_kept(self):
+        assert _extract_tool_result_content("done") == [{"text": "done"}]
+        assert _extract_tool_result_content({"result": 42}) == [{"text": "42"}]
+
+    def test_string_content_is_kept(self):
+        assert _extract_tool_result_content({"content": "file body"}) == [{"text": "file body"}]
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            pytest.param({"content": []}, id="mcp-tool-with-no-output"),
+            pytest.param({"content": [{"type": "text", "text": ""}]}, id="mcp-empty-text-item"),
+            pytest.param({"content": [{"type": "text", "text": "  \n"}]}, id="mcp-whitespace-text-item"),
+            pytest.param({"content": None}, id="mcp-null-content"),
+            pytest.param({"result": ""}, id="empty-result-value"),
+            pytest.param("", id="empty-string"),
+            pytest.param("   ", id="whitespace-string"),
+        ],
+    )
+    def test_result_without_text_is_not_blank(self, response):
+        assert _extract_tool_result_content(response) == [{"text": "(no output)"}]
+
+    def test_image_only_result_names_the_omitted_content(self):
+        response = {"content": [{"type": "image", "data": "iVBORw0KGgo=", "mimeType": "image/png"}]}
+        [block] = _extract_tool_result_content(response)
+        assert block["text"].strip()
+        assert "image" in block["text"]
+        assert "iVBORw0KGgo=" not in block["text"]
+
+    def test_structured_content_is_used_when_there_is_no_text(self):
+        response = {"content": [], "structuredContent": {"temperature": 21}}
+        assert _extract_tool_result_content(response) == [{"text": '{"temperature": 21}'}]
+
+    def test_tool_result_in_history_is_never_a_blank_text_block(self):
+        part = types.Part(
+            function_response=types.FunctionResponse(id="call-1", name="delete_file", response={"content": []})
+        )
+        messages = _convert_content_to_converse_messages([types.Content(role="user", parts=[part])])
+
+        tool_result = messages[0]["content"][0]["toolResult"]
+        assert tool_result["toolUseId"] == "call-1"
+        assert all(block["text"].strip() for block in tool_result["content"])
 
 
 class TestGetBedrockClient:
