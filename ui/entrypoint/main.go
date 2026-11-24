@@ -50,9 +50,9 @@ func render(environ []string) (string, string) {
 		name, value, _ := strings.Cut(kv, "=")
 		env[name] = value
 		if strings.HasPrefix(kv, "KAGENT_UI_EXTENSION_") {
-			// Sorted as whole NAME=value lines, first line of the value only, to match `env | sort`.
-			first, _, _ := strings.Cut(kv, "\n")
-			extensions = append(extensions, first)
+			// Sorted as whole NAME=value entries to keep the order of `env | sort`. The value keeps
+			// every line: CSS, markdown or SVG set with `helm --set-file` is naturally multi-line.
+			extensions = append(extensions, kv)
 		}
 	}
 	get := func(name, fallback string) string {
