@@ -547,6 +547,65 @@ func TestPushHandoffAcrossReplicasAndRestarts(t *testing.T) {
 	})
 }
 
+func TestPushHotReloadRetainsPreviousForRestartedPeer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg := pushHandoffConfig(t)
+		store := &fakePushSigningStore{}
+		running := pushHandoffSigner(t, store, cfg)
+		delay := cfg.ActivationDelay + pushKeyPropagationBuffer
+		time.Sleep(delay)
+		require.NoError(t, running.activateDue(t.Context()))
+		_, a, _ := pushTestToken(t, running)
+
+		rotate := func() {
+			t.Helper()
+			current, err := os.ReadFile(cfg.PrivateKeyFile)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg.PreviousPrivateKeyFile, current, 0o600))
+			_, next, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(cfg.PrivateKeyFile, pemKey(t, next), 0o600))
+			require.NoError(t, running.reload(t.Context()))
+		}
+		// Stage B in place, then restart a peer halfway through the handoff.
+		rotate()
+		time.Sleep(delay / 2)
+		peer := pushHandoffSigner(t, store, cfg)
+		time.Sleep(delay / 2)
+		require.NoError(t, running.activateDue(t.Context()))
+		_, b, _ := pushTestToken(t, running)
+		require.NotEqual(t, a, b)
+		time.Sleep(time.Minute)
+		require.NoError(t, peer.activateDue(t.Context()))
+		token, peerID, expiry := pushTestToken(t, peer)
+		require.Equal(t, a, peerID)
+
+		// Verify the peer's still-valid token against the running replica after
+		// its ordinary retirement deadline has passed.
+		time.Sleep(time.Until(expiry) - time.Second)
+		require.NoError(t, peer.activateDue(t.Context()))
+		keys := pushTestJWKS(t, running)
+		require.Contains(t, keys, a)
+		_, err := jwt.Parse(token, func(*jwt.Token) (any, error) { return keys[a], nil },
+			jwt.WithValidMethods([]string{"EdDSA"}))
+		require.NoError(t, err)
+		time.Sleep(24 * time.Hour)
+		keys = pushTestJWKS(t, running)
+		require.Contains(t, keys, a)
+		require.Equal(t, pushTestJWKS(t, peer), keys)
+
+		// The next handoff replaces A with B as the previous public key.
+		rotate()
+		time.Sleep(delay)
+		require.NoError(t, running.activateDue(t.Context()))
+		time.Sleep(pushJWTLifetime + pushKeyClockSkew)
+		keys = pushTestJWKS(t, running)
+		require.NotContains(t, keys, a)
+		require.Contains(t, keys, b)
+		require.Equal(t, keys, pushTestJWKS(t, pushHandoffSigner(t, store, cfg)))
+	})
+}
+
 func TestPushRestartBeforeActivationRestartsDelay(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		// Given an uncommitted B, when restarting, assert that the full delay starts

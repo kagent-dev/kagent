@@ -103,6 +103,7 @@ type PushJWTSigner struct {
 	path            string
 	activationDelay time.Duration
 	store           pushSigningStore
+	retainPrevious  bool
 	// Serialize file/DB updates separately so slow I/O never blocks signing/JWKS.
 	updateMu sync.Mutex
 	mu       sync.Mutex
@@ -138,10 +139,13 @@ func NewPushJWTSigner(ctx context.Context, store pushSigningStore, cfg PushJWTSi
 	if err != nil {
 		return nil, err
 	}
-	signer := &PushJWTSigner{issuer: issuer, path: cfg.PrivateKeyFile, activationDelay: cfg.ActivationDelay,
-		store: store, active: key, retired: make(map[string]retiredPushKey)}
+	signer := &PushJWTSigner{
+		issuer: issuer, path: cfg.PrivateKeyFile, activationDelay: cfg.ActivationDelay,
+		store: store, active: key, retired: make(map[string]retiredPushKey),
+		retainPrevious: cfg.PreviousPrivateKeyFile != "",
+	}
 	initial := key
-	if cfg.PreviousPrivateKeyFile != "" {
+	if signer.retainPrevious {
 		previous, err := readPushSigningKey(cfg.PreviousPrivateKeyFile)
 		if errors.Is(err, os.ErrNotExist) {
 			active, lookupErr := store.IsPushSigningKeyActive(ctx, issuer, key.jwk.KeyID)
@@ -158,7 +162,7 @@ func NewPushJWTSigner(ctx context.Context, store pushSigningStore, cfg PushJWTSi
 			return nil, fmt.Errorf("failed to load previous push signing key: %w", err)
 		}
 		initial = previous
-		signer.previous = &previous.jwk
+		signer.previous = new(previous.jwk)
 	}
 	state, err := store.LoadOrInitializePushSigningState(ctx, issuer, initial.jwk.KeyID)
 	if err != nil {
@@ -295,6 +299,10 @@ func (s *PushJWTSigner) activateDue(ctx context.Context) error {
 		expiration = s.active.lastExpiration
 	}
 	s.retired[s.active.jwk.KeyID] = retiredPushKey{jwk: s.active.jwk, removeAt: expiration.Add(pushKeyClockSkew)}
+	if s.retainPrevious {
+		// A hot reload advances the same current/previous pair a peer reads on restart.
+		s.previous = new(s.active.jwk)
+	}
 	s.active = s.pending.key
 	// A rollback may reactivate a key that still has valid earlier JWTs.
 	if old, found := s.retired[s.active.jwk.KeyID]; found {

@@ -170,6 +170,7 @@ Changing a signing Secret name rolls the controller. For a handoff, set
 `controller.push.signing.previousSecretName` to the old one. Both use `private-key.pem`.
 For CSI or custom mounts, use `config.push.previousSigningPrivateKeyFile` to point
 to a copy of the old key before replacing the current file. Previous is read at startup.
+With previous configured, hot reload retains the outgoing public key in JWKS until the next handoff.
 
 Replicas publish both available public keys. If current differs from the latest
 activation in the database, a starting replica with a distinct previous key signs
