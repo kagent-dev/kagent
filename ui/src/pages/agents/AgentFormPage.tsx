@@ -1,40 +1,55 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { Alert, Button, Card, Form, Input, Modal, Radio, Select, Skeleton, Space, Typography } from "antd";
-import { useTheme } from "@emotion/react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import toast from "react-hot-toast";
-import { PageFrame } from "@/components/Structure/PageFrame";
-import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
-import {
-  draftFromSpec,
-  draftProblems,
-  emptyDraft,
-  specFromDraft,
-} from "@/components/agent-template-form/agentTemplateDraft";
-import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
 import {
   apiClient,
   useAgent,
   useAgentTemplates,
-  useNamespaceEgressPolicies,
   useHarnesses,
   useInvalidateAgents,
   useModel,
+  useNamespaceEgressPolicies,
   useNamespaces,
   type Agent,
   type AgentSpec,
 } from "@/api";
-import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
-import { CopyNotice } from "@/components/table/CopyNotice";
-import { paths } from "@/router/routes";
+import { PageFrame } from "@/components/Structure/PageFrame";
+import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplateForm";
+import {
+  draftFromSpec,
+  emptyDraft,
+  specFromDraft,
+  templateDraftIssues,
+  type TemplateField,
+} from "@/components/agent-template-form/agentTemplateDraft";
+import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
+import { ReadError } from "@/components/common/ReadError";
+import { SubmitError } from "@/components/common/SubmitError";
+import { isValidNamespace, isValidObjectName, OBJECT_NAME_HINT } from "@/components/common/resourceName";
 import { egressCopy } from "@/components/egress-policy-form/egressPolicyCopy";
-import { HarnessForm } from "@/components/harness-form/HarnessForm";
+import { BackLink } from "@/components/form/BackLink";
+import { FormActions } from "@/components/form/FormActions";
+import { FormField } from "@/components/form/FormField";
+import { NameInput } from "@/components/form/NameInput";
+import { NamespaceSelect } from "@/components/form/NamespaceSelect";
+import { ResourceSelect } from "@/components/form/ResourceSelect";
+import { SectionHeader } from "@/components/form/SectionHeader";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { toastSaved } from "@/components/form/saveToast";
+import { useSubmitValidation, type FieldIssue, type FieldValidation } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { HarnessIntro } from "@/components/harness-form/HarnessFields";
+import { HarnessForm } from "@/components/harness-form/HarnessForm";
 import { harnessModelConflict, preferredHarness } from "@/components/harness-form/harnessChoice";
-
-const { Text } = Typography;
+import { CopyNotice } from "@/components/table/CopyNotice";
+import { copyName, copySource, useMountedBlank } from "@/components/table/copyFrom";
+import { paths } from "@/router/routes";
+import { useTheme } from "@emotion/react";
+import { Alert, Button, Form, Modal, Radio, Select, Skeleton } from "antd";
+import { Plus } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 type Source = "reference" | "inline";
+
+const agentsTab = `${paths.agents}?tab=agents`;
 
 /** Create or edit an Agent. Edit is the `agentEdit` route, whose name and namespace are fixed. */
 export function AgentFormPage() {
@@ -51,51 +66,54 @@ export function AgentFormPage() {
   const mountedBlank = useMountedBlank(from && `${from.namespace}/${from.name}`, formReady, Boolean(source.data));
 
   return (
-    <PageFrame
-      title={editing ? `Edit agent ${name}` : "New agent"}
-      description="An agent pairs inline or shared behavior with a platform-managed harness."
-    >
-      {!editing && namespaces.error ? (
-        <Alert
-          type="error"
-          showIcon
-          title="Could not load namespaces"
-          description={namespaces.error.message}
-          data-testid="agent-form-load-error"
-        />
-      ) : formReady ? (
-        // Mounted once namespaces arrive, so the ref lists never read an empty namespace.
-        // A copy source that could not be had leaves a blank form, with the reason above it.
-        <>
-          {copying ? (
-            <div css={{ maxWidth: 860 }}>
-              <CopyNotice kind="agent" from={from} error={source.error?.message} loaded={Boolean(source.data)} mountedBlank={mountedBlank} testId="agent-copy-error" />
-            </div>
-          ) : null}
-          <AgentForm
-            // Keyed on the requested source, so a late-arriving one never remounts an edited form.
-            key={from ? `${from.namespace}/${from.name}` : "new"}
-            copyOf={source.data}
+    <>
+      <BackLink to={agentsTab} resource="Agents" />
+      <PageFrame
+        title={editing ? `Edit agent ${name}` : "New agent"}
+        description="An agent pairs inline or shared behavior with a platform-managed harness."
+      >
+        {!editing && namespaces.error ? (
+          <ReadError
+            resource="namespaces"
+            error={namespaces.error}
+            testId="agent-form-load-error"
+            onRetry={namespaces.refresh}
           />
-        </>
-      ) : editing && existing.error ? (
-        <Alert
-          type="error"
-          showIcon
-          title="Could not load this agent"
-          description={existing.error.message}
-          data-testid="agent-form-load-error"
-        />
-      ) : editing && existing.data ? (
-        <AgentForm agent={existing.data} />
-      ) : (
-        <Card css={{ maxWidth: 860 }}>
-          <Skeleton active paragraph={{ rows: 8 }} />
-        </Card>
-      )}
-    </PageFrame>
+        ) : formReady ? (
+          // Mounted once namespaces arrive, so the ref lists never read an empty namespace.
+          // A copy source that could not be had leaves a blank form, with the reason above it.
+          <>
+            {copying ? (
+              <div css={{ maxWidth: 860 }}>
+                <CopyNotice kind="agent" from={from} error={source.error?.message} loaded={Boolean(source.data)} mountedBlank={mountedBlank} testId="agent-copy-error" />
+              </div>
+            ) : null}
+            <AgentForm
+              // Keyed on the requested source, so a late-arriving one never remounts an edited form.
+              key={from ? `${from.namespace}/${from.name}` : "new"}
+              copyOf={source.data}
+            />
+          </>
+        ) : editing && existing.error ? (
+          <ReadError
+            resource="this agent"
+            error={existing.error}
+            testId="agent-form-load-error"
+            onRetry={existing.refresh}
+          />
+        ) : editing && existing.data ? (
+          <AgentForm agent={existing.data} />
+        ) : (
+          <div css={{ maxWidth: 860 }}>
+            <Skeleton active paragraph={{ rows: 8 }} />
+          </div>
+        )}
+      </PageFrame>
+    </>
   );
 }
+
+type AgentField = "name" | "namespace" | "harness" | "template" | `inline:${TemplateField}`;
 
 function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const theme = useTheme();
@@ -130,35 +148,59 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
   const harnesses = useHarnesses(namespace || undefined);
   const egressPolicies = useNamespaceEgressPolicies(namespace || undefined);
   const [saving, setSaving] = useState(false);
-  const [failure, setFailure] = useState<string>();
+  const [failure, setFailure] = useState<unknown>();
 
   const inlineTemplate = { ...templateDraft, namespace };
   const harnessNames = (harnesses.data ?? []).map((row) => row.name);
   // A new agent starts on the obvious harness until one is chosen; an edit keeps its own.
   const harnessRef = chosenHarness ?? (agent ? undefined : preferredHarness(harnessNames));
   const adapter = harnesses.data?.find((row) => row.name === harnessRef)?.runtime;
+  const referencedTemplate = templates.data?.find((row) => row.name === templateRef);
   const modelRef = templateSource === "reference"
-    ? splitRef(templates.data?.find((row) => row.name === templateRef)?.modelConfigRef)
+    ? splitRef(referencedTemplate?.modelConfigRef)
     : inlineTemplate.modelConfig?.name.trim()
       ? { namespace: inlineTemplate.modelConfig.namespace || namespace, name: inlineTemplate.modelConfig.name.trim() }
       : undefined;
   const model = useModel(modelRef?.namespace, modelRef?.name);
   const conflict = harnessModelConflict(adapter, model.data?.spec);
-  const problems = [
-    ...(namespace ? [] : ["A namespace is required."]),
-    ...(name.trim() ? [] : ["A name is required."]),
-    ...(templateSource === "reference" && !templateRef ? ["Choose a template."] : []),
-    ...(templateSource === "inline" ? draftProblems(inlineTemplate, { isCreate: false }) : []),
+
+  const issues: FieldIssue<AgentField>[] = [
+    ...(!namespace
+      ? [{ field: "namespace" as const, message: "A namespace is required." }]
+      : !isValidNamespace(namespace)
+        ? [{ field: "namespace" as const, message: "The namespace must be a valid Kubernetes name." }]
+        : []),
+    ...(!name.trim()
+      ? [{ field: "name" as const, message: "A name is required." }]
+      : !agent && !isValidObjectName(name)
+        ? [{ field: "name" as const, message: OBJECT_NAME_HINT }]
+        : []),
+    ...(!harnessRef ? [{ field: "harness" as const, message: "Choose a harness." }] : []),
     // The compiler's rule, not the CRD's: only a bring-your-own harness runs without a model.
-    ...(templateSource === "inline" && adapter !== "byo" && !inlineTemplate.modelConfig?.name.trim()
-      ? ["Choose a model configuration for the inline template."]
+    ...(templateSource === "reference" && !templateRef
+      ? [{ field: "template" as const, message: "Choose an agent template." }]
+      : templateSource === "reference" && adapter && adapter !== "byo" && referencedTemplate && !referencedTemplate.modelConfigRef
+        ? [{ field: "template" as const, message: "This template has no model. Built-in harnesses need one." }]
+        : []),
+    // The inline template's namespace is the agent's, so its namespace issue is the agent's own.
+    ...(templateSource === "inline"
+      ? templateDraftIssues(inlineTemplate, { isCreate: false, modelRequired: adapter !== "byo" })
+          .filter((issue) => issue.field !== "namespace")
+          .map((issue) => ({ field: `inline:${issue.field}` as const, message: issue.message }))
       : []),
-    ...(!harnessRef ? ["Choose a harness."] : []),
   ];
+  const validation = useSubmitValidation(issues);
+
+  // Compared by value, so defaults filled in after mount and typed-then-deleted text are not edits.
+  const contents = () =>
+    JSON.stringify([chosenNamespace, name, templateSource, templateRef, { ...templateDraft, namespace: "" }, chosenHarness, egressRefs]);
+  const [baseline] = useState(contents);
+  const { blocker, release } = useUnsavedChangesGuard(contents() !== baseline);
 
   async function save() {
-    setSaving(true);
     setFailure(undefined);
+    if (!validation.attempt()) return;
+    setSaving(true);
     const agentSpec = {
       ...(egressRefs.length > 0 ? { egressPolicyRefs: egressRefs.map((ref) => ({ name: ref })) } : {}),
       template: templateSource === "reference"
@@ -175,39 +217,80 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
       },
     };
     try {
-      const saved = agent
+      const result = agent
         ? await apiClient.agentBuildingBlocks.updateAgent(input)
         : await apiClient.agentBuildingBlocks.createAgent(input);
       await invalidateAgents().catch(() => {});
-      toast.success(`Agent ${saved.name} ${agent ? "saved" : "created"}`);
-      navigate(`${paths.agents}?tab=agents`);
+      toastSaved(agent ? "saved" : "created", "agent", result.name);
+      release();
+      void navigate(agentsTab);
     } catch (cause: unknown) {
-      setFailure(cause instanceof Error ? cause.message : String(cause));
+      setFailure(cause);
     } finally {
       setSaving(false);
     }
   }
 
+  // Each section is a card, so the harness, template and egress groups read as separate parts.
+  const island = {
+    padding: theme.space(5),
+    border: `1px solid ${theme.color.border}`,
+    borderRadius: theme.radius.lg,
+    background: theme.color.bgElevated,
+  };
+
   return (
-    <Space orientation="vertical" size="large" css={{ display: "flex", maxWidth: 860 }}>
-      <Card size="small">
-        <Form layout="vertical" css={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", columnGap: theme.space(4) }}>
-          <Form.Item label="Name" required extra={agent ? "A Kubernetes name, so it cannot be changed." : undefined}>
-            <Input
+    <div
+      css={{
+        display: "flex",
+        flexDirection: "column",
+        gap: theme.space(5),
+        maxWidth: 860,
+        // A section's last field drops antd's item margin, so the card's padding alone frames it.
+        "& > section .ant-form:last-child > .ant-form-item:last-child": { marginBottom: 0 },
+      }}
+    >
+      <section data-testid="agent-form-identity">
+        <Form
+          layout="vertical"
+          component="div"
+          css={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: `${theme.space(6)} ${theme.space(4)}`,
+            "& > .ant-form-item": { marginBottom: 0 },
+          }}
+        >
+          <FormField
+            label="Name"
+            required
+            htmlFor="agent-form-name"
+            {...validation.field("name")}
+            help={agent ? "You can't change the name." : "Pick a name to refer to this agent."}
+          >
+            <NameInput
+              dots
+              id="agent-form-name"
               data-testid="agent-form-name"
               value={name}
               disabled={Boolean(agent)}
-              onChange={(event) => setName(event.target.value)}
+              onChange={setName}
               placeholder="my-agent"
             />
-          </Form.Item>
-          <Form.Item label="Namespace" required extra={agent ? "Fixed once the agent exists." : undefined}>
-            <Select
+          </FormField>
+          <FormField
+            label="Namespace"
+            required
+            htmlFor="agent-form-namespace"
+            {...validation.field("namespace")}
+            help={agent ? "Fixed once the agent exists." : "Pick the namespace to create the agent in."}
+          >
+            <NamespaceSelect
+              id="agent-form-namespace"
               data-testid="agent-form-namespace"
-              value={namespace || undefined}
+              value={namespace}
               disabled={Boolean(agent)}
-              loading={namespaces.isLoading}
-              onChange={(value: string) => {
+              onChange={(value) => {
                 // Refs resolve in the agent's namespace, so a new one clears them, sub-agents included.
                 setNamespace(value);
                 setTemplateRef(undefined);
@@ -215,39 +298,36 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
                 setEgressRefs([]);
                 setTemplateDraft({ ...templateDraft, modelConfig: undefined, subAgentTools: [] });
               }}
-              options={(namespaces.data ?? []).map((entry) => ({ value: entry.name, label: entry.name }))}
             />
-          </Form.Item>
+          </FormField>
         </Form>
-      </Card>
+      </section>
 
-      <Card
-        size="small"
-        data-testid="agent-form-harness"
-        title={
-          <div css={{ padding: `${theme.space(2)} 0` }}>
-            <div>Harness</div>
-            <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
-              Where the agent runs: the runtime adapter, its image and the Substrate worker pool.
-            </Text>
-          </div>
-        }
-        extra={
-          <Button
-            data-testid="agent-form-harness-create"
-            disabled={!namespace}
-            onClick={() => setCreatingHarness(true)}
-          >
-            New harness
-          </Button>
-        }
-      >
+      <section data-testid="agent-form-harness" aria-labelledby="agent-form-harness-title" css={island}>
+        <SectionHeader
+          id="agent-form-harness-title"
+          title="Harness"
+          hint="Where the agent runs: the runtime adapter, its image, and the Substrate worker pool."
+          actions={
+            // An agent can only reference a harness, so creating one is a side action rather than a source toggle.
+            <Button
+              data-testid="agent-form-harness-create"
+              icon={<Plus size={14} aria-hidden />}
+              disabled={!namespace}
+              onClick={() => setCreatingHarness(true)}
+            >
+              New harness
+            </Button>
+          }
+        />
         <RefSelect
           kind="harness"
+          label="Existing harness"
           value={harnessRef}
           onChange={setHarnessRef}
           loading={harnesses.isLoading}
-          error={harnesses.error?.message}
+          loadError={harnesses.error?.message}
+          {...validation.field("harness")}
           names={harnessNames}
           empty={
             <span>
@@ -267,7 +347,7 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
             description={conflict}
           />
         ) : null}
-      </Card>
+      </section>
 
       {/*
         A controlled modal rather than `Modal.confirm`: antd 6's static methods cannot
@@ -285,32 +365,46 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
         <HarnessIntro />
         <HarnessForm
           namespace={namespace}
-          onSaved={(saved) => {
-            setHarnessRef(saved.name);
+          inDialog
+          onSaved={(created) => {
+            setHarnessRef(created.name);
             setCreatingHarness(false);
-            toast.success(`Harness ${saved.name} created`);
           }}
-          onCancel={() => setCreatingHarness(false)}
+          cancel={{ onClick: () => setCreatingHarness(false) }}
         />
       </Modal>
 
-      <SourceSection
-        kind="template"
-        title="Template"
-        summary="What the agent does: its model, prompt and tools."
-        source={templateSource}
-        onSource={setTemplateSource}
-        reference={
+      <section data-testid="agent-form-template" aria-labelledby="agent-form-template-title" css={island}>
+        <SectionHeader
+          id="agent-form-template-title"
+          title="Agent template"
+          hint="What the agent does: its model, prompt and tools. Pick a shared one or define it here."
+          actions={
+            <Radio.Group
+              optionType="button"
+              aria-label="Agent template source"
+              data-testid="agent-form-template-source"
+              value={templateSource}
+              onChange={(event) => setTemplateSource(event.target.value)}
+              options={[
+                { value: "reference", label: "Use existing" },
+                { value: "inline", label: "Define here" },
+              ]}
+            />
+          }
+        />
+        {templateSource === "reference" ? (
           <RefSelect
             kind="template"
+            label="Existing template"
             value={templateRef}
             onChange={setTemplateRef}
             loading={templates.isLoading}
-            error={templates.error?.message}
+            loadError={templates.error?.message}
+            {...validation.field("template")}
             names={(templates.data ?? []).map((row) => row.name)}
           />
-        }
-        inline={
+        ) : (
           <AgentTemplateForm
             embedded
             draft={inlineTemplate}
@@ -318,31 +412,24 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
             isCreate={false}
             namespace={namespace}
             hasUnshownFields={spec?.template.inline ? hasUnshownSpecFields(spec.template.inline) : false}
+            modelRequired={adapter !== "byo"}
+            fieldFor={(field) => validation.field(`inline:${field}`)}
           />
-        }
-      />
+        )}
+      </section>
 
-      <Card
-        size="small"
-        data-testid="agent-form-egress"
-        title={
-          <div css={{ padding: `${theme.space(2)} 0` }}>
-            <div>{egressCopy.agent.field}</div>
-            <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
-              {egressCopy.agent.help}
-            </Text>
-          </div>
-        }
-      >
-        <Form layout="vertical">
-          <Form.Item
+      <section data-testid="agent-form-egress" aria-labelledby="agent-form-egress-title" css={island}>
+        <SectionHeader id="agent-form-egress-title" title={egressCopy.agent.field} hint={egressCopy.agent.help} />
+        <Form layout="vertical" component="div">
+          <FormField
             label={egressCopy.agent.field}
+            required={false}
             htmlFor="agent-form-egress-refs"
-            validateStatus={egressPolicies.error ? "error" : undefined}
-            help={egressPolicies.error?.message}
+            error={egressPolicies.error?.message}
           >
             <Select
               id="agent-form-egress-refs"
+              autoComplete="off"
               mode="multiple"
               allowClear
               data-testid="agent-form-egress-refs"
@@ -354,52 +441,32 @@ function AgentForm({ agent, copyOf }: { agent?: Agent; copyOf?: Agent }) {
               options={(egressPolicies.data ?? []).map((policy) => ({ value: policy.name, label: policy.name }))}
               notFoundContent={egressPolicies.isLoading ? undefined : egressCopy.agent.empty}
             />
-          </Form.Item>
+          </FormField>
         </Form>
-      </Card>
+      </section>
 
-      {failure ? (
-        <Alert
-          type="error"
-          showIcon
-          data-testid="agent-form-error"
-          title={agent ? "Could not save this agent" : "Could not create this agent"}
-          description={failure}
-        />
-      ) : null}
+      <FormActions
+        submitLabel={agent ? "Save" : "Create"}
+        onSubmit={() => void save()}
+        submitting={saving}
+        cancel={{ to: agentsTab }}
+        testIdPrefix="agent-form"
+        blocked={!validation.valid}
+        error={
+          failure !== undefined ? (
+            <SubmitError
+              error={failure}
+              what="agent"
+              outcome={agent ? "saved" : "created"}
+              onRetry={() => void save()}
+              data-testid="agent-form-error"
+            />
+          ) : null
+        }
+      />
 
-      <div
-        css={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: theme.space(2),
-          paddingTop: theme.space(5),
-          borderTop: `1px solid ${theme.color.border}`,
-        }}
-      >
-        <Button
-          type="primary"
-          data-testid="agent-form-submit"
-          loading={saving}
-          disabled={problems.length > 0}
-          onClick={() => void save()}
-        >
-          {agent ? "Save agent" : "Create agent"}
-        </Button>
-        <Button onClick={() => navigate(`${paths.agents}?tab=agents`)}>Cancel</Button>
-        {problems.length > 0 ? (
-          <ul
-            data-testid="agent-form-problems"
-            css={{ color: theme.color.textMuted, fontSize: 12, margin: 0, paddingLeft: theme.space(4) }}
-          >
-            {problems.map((problem) => (
-              <li key={problem}>{problem}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </Space>
+      <UnsavedChangesModal blocker={blocker} testIdPrefix="agent-form" />
+    </div>
   );
 }
 
@@ -409,91 +476,52 @@ function splitRef(ref: string | undefined): { namespace: string; name: string } 
   return namespace && name ? { namespace, name } : undefined;
 }
 
-function SourceSection({
-  kind,
-  title,
-  summary,
-  source,
-  onSource,
-  reference,
-  inline,
-}: {
-  kind: string;
-  title: string;
-  summary: string;
-  source: Source;
-  onSource: (next: Source) => void;
-  reference: ReactNode;
-  inline: ReactNode;
-}) {
-  const theme = useTheme();
-  return (
-    <Card
-      size="small"
-      data-testid={`agent-form-${kind}`}
-      title={
-        <div css={{ padding: `${theme.space(2)} 0` }}>
-          <div>{title}</div>
-          <Text css={{ color: theme.color.textMuted, fontSize: 12, fontWeight: "normal", whiteSpace: "normal" }}>
-            {summary}
-          </Text>
-        </div>
-      }
-      extra={
-        <Radio.Group
-          optionType="button"
-          aria-label={`${title} source`}
-          data-testid={`agent-form-${kind}-source`}
-          value={source}
-          onChange={(event) => onSource(event.target.value)}
-          options={[
-            { value: "reference", label: "Reference" },
-            { value: "inline", label: "Inline" },
-          ]}
-        />
-      }
-    >
-      {source === "reference" ? reference : inline}
-    </Card>
-  );
-}
-
 function RefSelect({
   kind,
+  label,
   value,
   onChange,
   loading,
+  loadError,
   error,
+  onTouch,
   names,
   empty,
 }: {
   kind: string;
+  label: string;
   value?: string;
   onChange: (next: string) => void;
   loading: boolean;
+  /** A failed read of the list. */
+  loadError?: string;
+  /** A problem with the choice, from `validation.field`. */
   error?: string;
+  onTouch?: FieldValidation["onTouch"];
   names: string[];
   empty?: ReactNode;
 }) {
   return (
-    <Form layout="vertical">
-      <Form.Item
-        label={`Shared ${kind}`}
+    <Form layout="vertical" component="div">
+      <FormField
+        label={label}
         required
-        validateStatus={error ? "error" : undefined}
-        help={error ?? `A ${kind} in this namespace. Other agents can use it too.`}
+        htmlFor={`agent-form-${kind}-ref`}
+        error={error ?? loadError}
+        onTouch={onTouch}
       >
-        <Select
+        <ResourceSelect
+          kind={kind}
+          id={`agent-form-${kind}-ref`}
           data-testid={`agent-form-${kind}-ref`}
-          placeholder={`Choose a ${kind}`}
           value={value}
           onChange={onChange}
           loading={loading}
-          showSearch
-          options={names.map((name) => ({ value: name, label: name }))}
-          notFoundContent={loading ? undefined : (empty ?? `No ${kind}s in this namespace`)}
+          error={loadError}
+          names={names}
+          empty={empty ?? `No ${kind}s in this namespace`}
         />
-      </Form.Item>
+      </FormField>
     </Form>
   );
 }

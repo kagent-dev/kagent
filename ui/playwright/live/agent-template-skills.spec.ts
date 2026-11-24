@@ -62,9 +62,8 @@ async function storedSpec(baseURL: string, name: string) {
 }
 
 /**
- * Picks an option from the dropdown just opened. Each skill row's kind select has its own
- * dropdown with the same titles, and the last one can still be fading out; antd appends a
- * dropdown to the body the first time it opens, so the newest open one is the last.
+ * Picks an option from the dropdown just opened. An earlier dropdown can still be fading
+ * out; antd appends each to the body the first time it opens, so the newest is the last.
  */
 async function choose(page: Page, testId: string, title: string) {
   await page.getByTestId(testId).click();
@@ -77,9 +76,9 @@ async function addBuiltinSkill(page: Page, name: string) {
 }
 
 async function addOwnSkill(page: Page, index: number, name: string, kind: "OCI image" | "Git" | "S3") {
-  await page.getByTestId("template-form-add-skill").click();
+  await page.getByTestId("template-form-skills-add").click();
   await page.getByTestId(`template-form-skill-name-${index}`).fill(name);
-  if (kind !== "OCI image") await choose(page, `template-form-skill-kind-${index}`, kind);
+  if (kind !== "OCI image") await page.getByTestId(`template-form-skill-kind-${index}`).getByText(kind, { exact: true }).click();
 }
 
 test("live: agent template skills are saved, read back and kept through an edit", async ({ page, baseURL }) => {
@@ -129,7 +128,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await page.getByTestId("template-form-skill-s3-version-3").fill(S3.versionId);
     await page.getByTestId("template-form-skill-path-3").fill("skills/incident-review");
 
-    await expect(page.getByTestId("template-form-problems")).toHaveCount(0);
+    await expect(page.getByTestId("template-blocked")).toHaveCount(0);
     templates.add(name);
     await page.getByTestId("template-submit").click();
     await expect(page).toHaveURL(/\/agents\?tab=templates/, { timeout: 60_000 });
@@ -143,7 +142,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await loadLive(page, `/agent-templates/${NAMESPACE}/${name}`);
     await expectNoLoadFailure(page);
     await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId("template-form-add-skill")).toHaveCount(0);
+    await expect(page.getByTestId("template-form-skills-add")).toHaveCount(0);
 
     const builtin = page.getByTestId("template-form-skill-0");
     await expect(builtin.locator(".ant-tag")).toHaveText("kagent");
@@ -185,10 +184,12 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await page.getByTestId("template-form-skill-git-url-0").fill(GIT_URL);
     await page.getByTestId("template-form-skill-git-commit-0").fill("abc");
 
-    const problems = page.getByTestId("template-form-problems");
-    await expect(problems).toContainText('The skill "team/runbooks" needs a name that is one path segment');
-    await expect(problems).toContainText('The skill "team/runbooks" needs a full Git commit ID: 40 or 64 hex characters.');
-    await expect(page.getByTestId("template-submit")).toBeDisabled();
+    // Each field flags itself under the row, and the submit is held back with a note.
+    const skill = page.getByTestId("template-form-skill-0");
+    await expect(skill).toContainText('The skill "team/runbooks" needs a name that is one path segment');
+    await expect(skill).toContainText('The skill "team/runbooks" needs a full Git commit ID: 40 or 64 hex characters.');
+    await expect(page.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("template-blocked")).toBeVisible();
   });
 });
 
@@ -200,7 +201,7 @@ test("live: an agent built with a kagent skill loads it in a conversation", asyn
     await loadLive(page, liveRoutes.agentNew);
     await expectNoLoadFailure(page);
     await page.getByTestId("agent-form-name").fill(name);
-    await page.getByTestId("agent-form-template-source").getByText("Inline", { exact: true }).click();
+    await page.getByTestId("agent-form-template-source").getByText("Define here", { exact: true }).click();
     await choose(page, "template-form-model", MODEL);
     await page.getByTestId("template-form-description").fill(`Live ${name}`);
     await page

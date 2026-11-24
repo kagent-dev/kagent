@@ -242,20 +242,21 @@ export async function confirmDelete(
 
 /** One field's label, by the text a reader sees on it. */
 function fieldLabel(page: Page, text: string): Locator {
-  // Exact, because these labels are prefixes of each other: "Name" would otherwise
-  // match "Namespace" too, and match it first.
+  // Anchored, because labels are prefixes of each other ("Name", "Namespace"), and
+  // `FieldLabel` appends "*(required)" or "(optional)" after the text.
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return page
     .locator(".ant-form-item-label label")
-    .filter({ has: page.getByText(text, { exact: true }) });
+    .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*(\\*\\s*\\(required\\)|\\(optional\\))\\s*$`) });
 }
 
 /**
- * The asterisk on a field the form will not submit without — and its absence.
+ * The required mark on a field the form will not submit without, and "(optional)" on
+ * every other one.
  *
- * antd draws the mark from `required` on a `Form.Item`, while every authoring surface
- * here gates its own submit in code (`draftProblems`, `modelDraftIssues`,
- * `validateMcpServerForm`). So the mark and the gate are two separate statements
- * about the same field, and nothing but a test keeps them agreeing.
+ * `FieldLabel` draws the mark from `required` on a `FormField`, while every authoring
+ * surface gates its own submit in code. So the mark and the gate are two separate
+ * statements about the same field, and nothing but a test keeps them agreeing.
  *
  * Both lists are taken so a call site reads as the claim it is making: a check of the
  * marks alone would pass just as well on a form that marked every field.
@@ -274,14 +275,12 @@ export async function expectRequired(
   for (const text of marked) {
     const label = fieldLabel(page, text);
     await expect(label, `"${text}" is required, so it must be marked`).toHaveCount(1);
-    await expect(label).toHaveClass(/ant-form-item-required/);
+    await expect(label.getByTestId("field-required")).toHaveCount(1);
   }
   for (const text of unmarked) {
     const label = fieldLabel(page, text);
-    await expect(label, `"${text}" is optional, so it must not be marked`).toHaveCount(
-      1,
-    );
-    await expect(label).not.toHaveClass(/ant-form-item-required/);
+    await expect(label, `"${text}" is optional, so it must say so`).toHaveCount(1);
+    await expect(label.getByTestId("field-optional")).toHaveCount(1);
   }
 }
 

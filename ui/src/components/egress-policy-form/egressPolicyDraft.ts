@@ -7,6 +7,7 @@ import {
 } from "@/api/domain/egressPolicies";
 import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { DEFAULT_NAMESPACE, isValidResourceName } from "@/components/common/resourceName";
+import type { FieldIssue } from "@/components/form/useSubmitValidation";
 import { egressCopy } from "./egressPolicyCopy";
 
 export type AuthChoice = "none" | "secret" | "actorJwt";
@@ -153,4 +154,49 @@ export function draftIssues(draft: EgressPolicyDraft): DraftIssues {
     }
   });
   return { policy, destinations, count };
+}
+
+export type DestinationField = "origin" | "auth" | "header" | "prefix" | "secretName" | "secretKey" | "audiences" | "lifetime";
+
+/** The key a destination field's issue is filed under. */
+export const destinationFieldKey = (rowId: number, field: DestinationField) => `destination-${rowId}-${field}`;
+
+/** Which field of a destination a problem message belongs to. */
+function fieldOfProblem(problem: string, row: DestinationDraft): DestinationField {
+  if (/wildcard|Actor JWT/.test(problem)) return "auth";
+  if (/header/i.test(problem)) return "header";
+  if (/prefix/.test(problem)) return "prefix";
+  if (/Secret name and key/.test(problem)) return row.secretName.trim() ? "secretKey" : "secretName";
+  if (/audience/i.test(problem)) return "audiences";
+  if (/lifetime/.test(problem)) return "lifetime";
+  return "origin";
+}
+
+/** Every problem with a draft, filed under the field that shows it. */
+export function draftFieldIssues(draft: EgressPolicyDraft): FieldIssue[] {
+  const issues: FieldIssue[] = [];
+  const nameProblem = policyNameProblem(draft.name);
+  if (nameProblem) issues.push({ field: "name", message: nameProblem });
+  const namespace = draft.namespace.trim();
+  if (!namespace) issues.push({ field: "namespace", message: egressCopy.form.namespaceRequired });
+  else if (namespace.length > NAMESPACE_MAX || !isValidResourceName(namespace)) {
+    issues.push({ field: "namespace", message: egressCopy.form.namespaceInvalid });
+  }
+  const spec = { destinations: draft.destinations.map(destinationFromDraft) };
+  for (const message of specProblems(spec)) issues.push({ field: "destinations", message });
+  draft.destinations.forEach((row, index) => {
+    for (const message of destinationProblems(spec.destinations[index])) {
+      if (/Secret name and key/.test(message)) {
+        if (!row.secretName.trim()) {
+          issues.push({ field: destinationFieldKey(row.id, "secretName"), message: egressCopy.form.secretNameRequired });
+        }
+        if (!row.secretKey.trim()) {
+          issues.push({ field: destinationFieldKey(row.id, "secretKey"), message: egressCopy.form.secretKeyRequired });
+        }
+        continue;
+      }
+      issues.push({ field: destinationFieldKey(row.id, fieldOfProblem(message, row)), message });
+    }
+  });
+  return issues;
 }

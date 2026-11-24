@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyHarnessDraft, harnessDraftFromSpec, harnessDraftProblems, harnessSpecFromDraft } from "./harnessDraft";
+import { emptyHarnessDraft, harnessDraftFromSpec, harnessDraftIssues, harnessSpecFromDraft } from "./harnessDraft";
 import type { HarnessSpec } from "@/api/domain/harnesses";
 
 const image = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
@@ -13,7 +13,7 @@ const spec: HarnessSpec = {
 describe("harness draft", () => {
   it("round-trips a spec and keeps fields the form does not author", () => {
     const draft = harnessDraftFromSpec(spec);
-    expect(harnessDraftProblems(draft)).toEqual([]);
+    expect(harnessDraftIssues(draft)).toEqual([]);
     expect(harnessSpecFromDraft(draft, spec)).toEqual(spec);
   });
   it("switching adapter drops the old one so exactly one remains", () => {
@@ -30,7 +30,7 @@ describe("harness draft", () => {
   });
   it("starts on the release image and the default snapshot location", () => {
     const draft = { ...emptyHarnessDraft(), workerPool: "kagent-default" };
-    expect(harnessDraftProblems(draft)).toEqual([]);
+    expect(harnessDraftIssues(draft)).toEqual([]);
     expect(harnessSpecFromDraft(draft)).toEqual({
       kagent: {},
       substrate: {
@@ -49,16 +49,16 @@ describe("harness draft", () => {
     expect(next.workload).toEqual({ command: ["run"] });
   });
   it("rejects a tag but not an empty image on a built-in adapter", () => {
-    expect(harnessDraftProblems({ ...harnessDraftFromSpec(spec), image: "x:latest" })).toEqual([
-      "The workload image must be pinned by sha256 digest.",
+    expect(harnessDraftIssues({ ...harnessDraftFromSpec(spec), image: "x:latest" })).toEqual([
+      { field: "image", message: "The workload image must be pinned by sha256 digest." },
     ]);
-    expect(harnessDraftProblems({ ...harnessDraftFromSpec(spec), image: "" })).toEqual([]);
+    expect(harnessDraftIssues({ ...harnessDraftFromSpec(spec), image: "" })).toEqual([]);
   });
   it("requires an image and a command for byo", () => {
     const draft = { ...harnessDraftFromSpec(spec), image: "", adapter: "byo" as const };
-    expect(harnessDraftProblems(draft)).toEqual([
-      "A bring-your-own harness needs a workload image.",
-      "A bring-your-own harness needs a command.",
+    expect(harnessDraftIssues(draft)).toEqual([
+      { field: "image", message: "A bring-your-own harness needs a workload image." },
+      { field: "command", message: "A bring-your-own harness needs a command." },
     ]);
   });
 });

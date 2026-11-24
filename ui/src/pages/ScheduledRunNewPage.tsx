@@ -1,6 +1,5 @@
-import { Button } from "antd";
-import { ArrowLeft } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { BackLink } from "@/components/form/BackLink";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { ScheduledRunForm } from "@/components/scheduled-runs/ScheduledRunForm";
 import { buildPath, paths } from "@/router/routes";
@@ -16,19 +15,17 @@ export function ScheduledRunNewPage() {
   const navigate = useNavigate();
 
   return (
-    <PageFrame
-      title="New schedule"
-      description="Run an agent automatically. Each execution starts a new conversation."
-      actions={
-        <Link to={paths.scheduledRuns}>
-          <Button icon={<ArrowLeft size={14} />}>Back</Button>
-        </Link>
-      }
-    >
-      <ScheduledRunForm
-        onCancel={() => void navigate(paths.scheduledRuns)}
-        onSaved={(saved) => void navigate(buildPath(paths.scheduledRun, { id: saved.id }))}
-      />
-    </PageFrame>
+    <>
+      <BackLink to={paths.scheduledRuns} resource="Schedules" />
+      <PageFrame
+        title="New schedule"
+        description="Run an agent automatically. Each execution starts a new conversation."
+      >
+        <ScheduledRunForm
+          cancelTo={paths.scheduledRuns}
+          onSaved={(saved) => void navigate(buildPath(paths.scheduledRun, { id: saved.id }))}
+        />
+      </PageFrame>
+    </>
   );
 }

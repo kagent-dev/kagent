@@ -216,7 +216,7 @@ export function McpServersPage() {
           const { namespace, name } = parseRef(row.server.ref);
           return (
             <DeleteResourceButton
-              kind="tool server"
+              kind="MCP server"
               name={name}
               onDelete={() => apiClient.mcpServers.remove(namespace, name)}
               onDeleted={invalidateServers}
@@ -236,7 +236,7 @@ export function McpServersPage() {
   return (
     <PageFrame
       title="MCP servers"
-      description="Tool servers agents can call. Expand a server to see the tools it exposes."
+      description="MCP servers agents can call. Expand a server to see its tools."
       actions={
         <Space size={8}>
           <Link to={paths.mcpServerNew}>
@@ -250,7 +250,7 @@ export function McpServersPage() {
           </Link>
           <RefreshButton
             onRefresh={refresh}
-            what="Tool servers"
+            what="MCP servers"
             loading={isLoading}
             iconOnly
           />

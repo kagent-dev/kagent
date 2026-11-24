@@ -1,5 +1,4 @@
 import { Button, Tabs } from "antd";
-import { useTheme } from "@emotion/react";
 import { Plus } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -18,7 +17,6 @@ type TabKey = (typeof TABS)[number];
 
 /** Every policy kind on one page, one tab each. The tab lives in the URL, as on the agents page. */
 export function PoliciesPage() {
-  const theme = useTheme();
   const [params, setParams] = useSearchParams();
   const requested = params.get("tab");
   const active: TabKey = TABS.includes(requested as TabKey) ? (requested as TabKey) : "egress";
@@ -34,9 +32,7 @@ export function PoliciesPage() {
         </Link>
       }
     >
-      <div css={{ marginTop: `-${theme.space(3)}` }}>
-        <PolicyConcepts />
-      </div>
+      <PolicyConcepts />
 
       <Tabs
         activeKey={active}

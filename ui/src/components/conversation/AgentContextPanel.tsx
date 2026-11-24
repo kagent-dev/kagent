@@ -1,5 +1,6 @@
 import { referenceLabel } from "@/api/domain/agentTemplates";
-import { Alert, Skeleton, Space, Tag, Tooltip, Typography } from "antd";
+import { Alert, Skeleton, Space, Tooltip, Typography } from "antd";
+import { DataPill } from "@/components/form/DataPill";
 import { useTheme } from "@emotion/react";
 import { Info } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
@@ -86,7 +87,7 @@ export function AgentContextPanel({
             })}
             // So the template page can lead back here rather than only to the
             // template list. Without a conversation open, "here" is the agent's page.
-            state={backLinkState(location, instance ? "Back to conversation" : "Back to agent")}
+            state={backLinkState(location, instance ? "Conversation" : "Agent")}
             tooltip="Open the AgentTemplate this agent is built from"
             testId="conversation-agent-context-template"
           >
@@ -161,28 +162,25 @@ export function AgentContextPanel({
               <Space
                 size={4}
                 wrap
-                // A long server and tool name would otherwise run past the panel's edge.
-                css={{ maxWidth: "100%", ".ant-tag": { whiteSpace: "normal", wordBreak: "break-word", marginInlineEnd: 0 } }}
+                css={{ maxWidth: "100%" }}
               >
                 {tools.flatMap((binding, index) => {
                   const mcp = binding.mcp;
                   return mcp
                     ? mcp.tools?.length
                       ? mcp.tools.map((tool) => (
-                          <Tag key={`${index}-${tool}`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)}: {tool}
-                          </Tag>
+                          <DataPill key={`${index}-${tool}`} wrap>
+                            {`${referenceLabel(mcp.server, templateNamespace)}: ${tool}`}
+                          </DataPill>
                         ))
                       : [
-                          <Tag key={`${index}-mcp-all`} css={{ fontFamily: theme.font.mono }}>
-                            {referenceLabel(mcp.server, templateNamespace)} (all tools)
-                          </Tag>,
+                          <DataPill key={`${index}-mcp-all`} wrap>
+                            {`${referenceLabel(mcp.server, templateNamespace)} (all tools)`}
+                          </DataPill>,
                         ]
                     : binding.subAgent
                       ? [
-                          <Tag key={`${index}-agent`} color="processing">
-                            {binding.subAgent.name}
-                          </Tag>,
+                          <DataPill key={`${index}-agent`} wrap>{binding.subAgent.name}</DataPill>,
                         ]
                       : [];
                 })}
@@ -314,6 +312,7 @@ function RefLink({
           color: theme.color.primaryText,
           wordBreak: "break-word",
           "&:hover, &:focus-visible": { textDecoration: "underline" },
+          "&:active": { textDecoration: "underline", opacity: 0.8 },
         }}
       >
         {children}

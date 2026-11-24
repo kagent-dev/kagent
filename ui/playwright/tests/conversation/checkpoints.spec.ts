@@ -164,7 +164,7 @@ test("conversation: a fork holds only what was above its line, takes the snapsho
 
   await test.step("naming it from the mark, which is what the fork will be called", async () => {
     await dividers(page).first().locator('[data-testid^="conversation-checkpoint-rename-"]').click();
-    await page.getByTestId("snapshot-rename-input").locator("input").fill(SNAPSHOT_NAME);
+    await page.getByTestId("snapshot-rename-input").fill(SNAPSHOT_NAME);
     // Exact, because an accessible name matches on substring: "Save" alone would
     // also find any control whose label merely starts with it.
     // The rename dialog animates in; a raw click can land on the backdrop.

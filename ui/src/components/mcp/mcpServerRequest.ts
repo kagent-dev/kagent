@@ -9,6 +9,7 @@ import type { ToolServerCreateRequest, ValueRef } from "@/api";
 import {
   DEFAULT_NAMESPACE,
   RESOURCE_NAME_HINT,
+  isValidNamespace,
   isValidResourceName,
   slugifyResourceName,
 } from "@/components/common/resourceName";
@@ -27,10 +28,15 @@ export const schemeFor = (tlsEnabled: boolean): string =>
 export const stripScheme = (raw: string): string =>
   raw.trim().replace(/^https?:\/\//i, "");
 
-/** Whether a string parses as an absolute URL. */
-function isParsableUrl(url: string): boolean {
+/** Optional userinfo, a (possibly unicode) host name, IPv4 or [IPv6] address, optional port and path; no whitespace. */
+const HOST_AND_PATH =
+  /^(?:[^\s/?#@]+@)?(?:[\p{L}\p{N}_-]+(?:\.[\p{L}\p{N}_-]+)*\.?|\[[0-9a-f:.]+\])(?::\d{1,5})?(?:[/?#]\S*)?$/iu;
+
+/** Whether a scheme-less host and path is usable. Chrome's URL parser accepts a host with spaces. */
+function isValidHostAndPath(host: string): boolean {
+  if (!HOST_AND_PATH.test(host)) return false;
   try {
-    new URL(url);
+    new URL(`http://${host}`);
     return true;
   } catch {
     return false;
@@ -88,19 +94,17 @@ export function validateMcpServerForm(
     issues.push({ field: "name", message: RESOURCE_NAME_HINT });
   }
 
-  if (values.namespace.trim() && !isValidResourceName(values.namespace)) {
-    issues.push({
-      field: "namespace",
-      message: "Namespaces follow the same rules as names.",
-    });
+  if (!values.namespace.trim()) {
+    issues.push({ field: "namespace", message: "A namespace is required." });
+  } else if (!isValidNamespace(values.namespace)) {
+    issues.push({ field: "namespace", message: "The namespace must be a valid Kubernetes name." });
   }
 
-  // The scheme lives on the TLS toggle, so the field holds only the host and
-  // path; validate the whole thing the toggle would produce.
+  // The scheme lives on the TLS toggle, so the field holds only the host and path.
   const host = stripScheme(values.url);
   if (!host) {
     issues.push({ field: "url", message: "A server URL is required." });
-  } else if (!isParsableUrl(schemeFor(values.tlsEnabled) + host)) {
+  } else if (!isValidHostAndPath(host)) {
     issues.push({
       field: "url",
       message: "Enter a valid host and path, for example api.example.com/mcp.",
@@ -109,7 +113,7 @@ export function validateMcpServerForm(
   if (values.headersJson.trim() && parseHeaders(values.headersJson) === undefined) {
     issues.push({
       field: "headersJson",
-      message: "Headers must be a JSON object, for example {\"Authorization\": \"...\"}.",
+      message: "Headers must be a JSON object, for example {\"X-Environment\": \"development\"}.",
     });
   }
 
@@ -180,7 +184,7 @@ export function suggestName(values: McpServerFormValues): string {
 
 function hostnameOf(url: string): string {
   const host = stripScheme(url);
-  if (!host) return "";
+  if (!isValidHostAndPath(host)) return "";
   try {
     // The field is scheme-less, so a scheme is added to make it parseable —
     // which one does not matter, only the hostname is read back out.
