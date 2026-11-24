@@ -2,7 +2,8 @@ import { ThemeProvider } from "@emotion/react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { paths } from "@/router/routes";
 import { themeFor } from "@/theme/theme";
 import { McpServerNewPage } from "./McpServerNewPage";
@@ -41,6 +42,8 @@ const type = (testId: string, value: string) =>
 
 beforeEach(() => vi.clearAllMocks());
 
+afterEach(() => vi.useRealTimers());
+
 describe("MCP server create form", () => {
   it("shows a header back link and marks every field required or optional", () => {
     renderPage();
@@ -74,10 +77,12 @@ describe("MCP server create form", () => {
   });
 
   it("flags headers that are not a JSON object as they are typed", () => {
+    useTypingTimers();
     renderPage();
     type("mcp-name", "tools");
     type("mcp-url", "mcp.example.com/mcp");
     type("mcp-headers", "not json");
+    pauseTyping();
     expect(screen.getByText(/Headers must be a JSON object/)).toBeInTheDocument();
     expect(screen.getByTestId("mcp-submit")).toHaveAttribute("aria-disabled", "true");
   });

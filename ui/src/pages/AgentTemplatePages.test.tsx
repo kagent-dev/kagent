@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { ThemeProvider } from "@emotion/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 import { themeFor } from "@/theme/theme";
 import { AgentTemplateNewPage } from "./AgentTemplateNewPage";
@@ -124,6 +125,8 @@ function addSubAgent(template: string) {
   fill("template-form-sub-agent-description-0", "Review a change.");
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe("new agent template page", () => {
   it("marks every field required or optional", () => {
     renderAt("/agent-templates/new");
@@ -204,6 +207,7 @@ describe("new agent template page", () => {
   });
 
   it("takes a typed namespace, kept to a namespace's characters, when the list cannot be read", async () => {
+    useTypingTimers();
     api.namespacesError = new Error("forbidden");
     api.createAgentTemplate.mockResolvedValue({ name: "helper" });
     const router = renderAt("/agent-templates/new");
@@ -216,6 +220,7 @@ describe("new agent template page", () => {
     expect(box).toHaveAccessibleDescription(/A namespace is required\./);
     fireEvent.input(box, { target: { value: "Team A-" } });
     expect(box).toHaveValue("team-a-");
+    pauseTyping();
     expect(box).toHaveAccessibleDescription(/The namespace must be a valid Kubernetes name\./);
     expect(screen.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
     fireEvent.click(screen.getByTestId("template-submit"));

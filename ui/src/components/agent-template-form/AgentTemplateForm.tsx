@@ -659,6 +659,6 @@ export function AgentTemplateForm({
 }
 
 /** A FormField while editing; reading is not a form, so labels drop the required and optional marks. */
-function Field({ readOnly, required, error, onTouch, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
-  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} onTouch={onTouch} {...props} />;
+function Field({ readOnly, required, error, onTouch, onType, ...props }: Parameters<typeof FormField>[0] & { readOnly: boolean }) {
+  return readOnly ? <Form.Item {...props} /> : <FormField required={required} error={error} onTouch={onTouch} onType={onType} {...props} />;
 }

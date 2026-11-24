@@ -43,8 +43,10 @@ type FormFieldProps = Omit<FormItemProps, "label" | "required" | "requiredMark">
   required: boolean;
   /** Message shown under the control and marks it invalid. */
   error?: string;
-  /** Called when the user leaves the field or types a value into it (a picker's search box does not count); from `validation.field`. */
+  /** Called when the user leaves the field, or types a value into it when there is no `onType`; from `validation.field`. */
   onTouch?: () => void;
+  /** Called on each keystroke with the value (a picker's search box does not count); from `validation.field`. */
+  onType?: (value: string) => void;
 };
 
 type ControlProps = {
@@ -75,6 +77,7 @@ export function FormField({
   help,
   extra,
   onTouch,
+  onType,
   children,
   ...rest
 }: FormFieldProps) {
@@ -82,6 +85,7 @@ export function FormField({
   const autoId = useId();
   // `help` and `extra` are both supporting text: it sits between label and control, and the error below.
   const hasHint = help !== undefined || extra !== undefined;
+  const reserve = error !== undefined || onTouch !== undefined || onType !== undefined;
 
   // A lone control gets the label's id and points at its hint and error. Fragments, plain wrapper
   // elements and children whose id differs from the caller's htmlFor are left as they are.
@@ -131,10 +135,11 @@ export function FormField({
         </FieldLabel>
       }
       validateStatus={error ? "error" : validateStatus}
-      css={error ? { ".ant-form-item-explain": { paddingBottom: theme.space(2) } } : undefined}
-      help={error ? <span id={errorId}>{error}</span> : undefined}
+      // A validated field keeps a line for its message, so the form does not move when one shows.
+      css={reserve ? { ".ant-form-item-explain": { minHeight: `calc(22px + ${theme.space(2)})`, paddingBottom: theme.space(2) } } : undefined}
+      help={reserve ? <span id={errorId}>{error}</span> : undefined}
     >
-      {onTouch && typeof body !== "function" ? (
+      {(onTouch || onType) && typeof body !== "function" ? (
         <div
           css={{ display: "contents" }}
           onBlur={onTouch}
@@ -143,7 +148,10 @@ export function FormField({
             // Typing in a picker's search box filters its list; it does not touch the field.
             if (target.getAttribute?.("role") === "combobox") return;
             const value = target.value;
-            if (typeof value === "string" && value.trim() !== "") onTouch();
+            if (typeof value !== "string") return;
+            // A click on a checkbox or radio is a finished choice, not typing.
+            if (onType && target.type !== "checkbox" && target.type !== "radio") onType(value);
+            else if (value.trim() !== "") onTouch?.();
           }}
         >
           {body}

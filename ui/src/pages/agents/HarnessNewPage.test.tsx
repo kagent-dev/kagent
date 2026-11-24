@@ -2,7 +2,8 @@ import { ThemeProvider } from "@emotion/react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { ConfigProvider } from "antd";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { themeFor } from "@/theme/theme";
 import { HarnessEditPage, HarnessNewPage } from "./HarnessNewPage";
 import { FIX_FIELDS_MESSAGE } from "@/components/form/useSubmitValidation";
@@ -63,6 +64,8 @@ beforeEach(() => {
   mocks.harnesses = [];
 });
 
+afterEach(() => vi.useRealTimers());
+
 describe("harness create form", () => {
   it("shows a back link and marks every field required or optional", () => {
     renderAt("/harnesses/new");
@@ -82,12 +85,14 @@ describe("harness create form", () => {
   });
 
   it("flags a typed problem at once, an emptied field once left, and holds Create back", () => {
+    useTypingTimers();
     renderAt("/harnesses/new");
     const submit = screen.getByTestId("harness-submit");
     expect(submit).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByTestId("harness-blocked")).toHaveTextContent(FIX_FIELDS_MESSAGE);
 
     type("harness-image", "ghcr.io/example/runtime:latest");
+    pauseTyping();
     expect(screen.getByText("The workload image must be pinned by sha256 digest.")).toBeInTheDocument();
     type("harness-snapshot", "");
     expect(screen.queryByText("A snapshot location is required.")).not.toBeInTheDocument();

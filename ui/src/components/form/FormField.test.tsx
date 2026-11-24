@@ -197,6 +197,40 @@ describe("FormField", () => {
     expect(onTouch).toHaveBeenCalledTimes(2);
   });
 
+  it("passes every keystroke to onType instead of touching, and still touches on leaving", () => {
+    const onTouch = vi.fn();
+    const onType = vi.fn();
+    render(
+      <FormField label="Name" required onTouch={onTouch} onType={onType}>
+        <Input />
+      </FormField>,
+    );
+    const box = screen.getByLabelText(/^Name/);
+    fireEvent.input(box, { target: { value: "a" } });
+    fireEvent.input(box, { target: { value: "" } });
+    expect(onType.mock.calls).toEqual([["a"], [""]]);
+    expect(onTouch).not.toHaveBeenCalled();
+    fireEvent.blur(box);
+    expect(onTouch).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the message's line whether or not there is a message", () => {
+    const { container, rerender } = render(
+      <FormField label="Name" required onTouch={() => {}}>
+        <Input />
+      </FormField>,
+    );
+    expect(container.querySelector(".ant-form-item-explain")).not.toBeNull();
+    rerender(
+      <ThemeProvider theme={themeFor("light")}>
+        <FormField label="Name" required onTouch={() => {}} error="A name is required.">
+          <Input />
+        </FormField>
+      </ThemeProvider>,
+    );
+    expect(container.querySelector(".ant-form-item-explain")?.textContent).toBe("A name is required.");
+  });
+
   it("lays out vertically with no colon outside an antd Form", () => {
     const { container } = render(
       <FormField label="Name" required>

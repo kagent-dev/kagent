@@ -2,7 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@emotion/react";
 import { ConfigProvider } from "antd";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pauseTyping, useTypingTimers } from "@/components/form/typingPause.testing";
 import { themeFor } from "@/theme/theme";
 import type { ConversationRef } from "@/api/conversation/types";
 
@@ -37,6 +38,8 @@ function renderModal() {
   );
 }
 
+afterEach(() => vi.useRealTimers());
+
 describe("TaskPushNotificationsModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,10 +57,12 @@ describe("TaskPushNotificationsModal", () => {
   });
 
   it("flags an invalid URL inline as it is typed and sends nothing", async () => {
+    useTypingTimers();
     renderModal();
     const field = await screen.findByLabelText(/^Callback URL/);
     expect(field).not.toHaveAttribute("aria-invalid");
     await userEvent.type(field, "not a url");
+    pauseTyping();
     expect(screen.getByText(/absolute HTTP or HTTPS/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add callback" }));
