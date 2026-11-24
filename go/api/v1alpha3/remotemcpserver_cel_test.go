@@ -87,4 +87,18 @@ func testMCPCredentialHeaderValidation(t *testing.T, cl ctrlclient.Client, names
 		server.Spec.HeadersFrom = append(server.Spec.HeadersFrom, ValueRef{Name: "X-Extra", Value: "example"})
 		require.ErrorContains(t, cl.Update(t.Context(), server), "must have at most 64 items")
 	})
+	t.Run("Given two headers with the same name, when the RemoteMCPServer is created, assert that the API server rejects it", func(t *testing.T) {
+		server := &RemoteMCPServer{
+			ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: "mcp-header-duplicate"},
+			Spec: RemoteMCPServerSpec{
+				Description: "Duplicate header validation",
+				URL:         "https://mcp.example.com/mcp",
+				HeadersFrom: []ValueRef{
+					{Name: "Authorization", Value: "Bearer first"},
+					{Name: "Authorization", Value: "Bearer second"},
+				},
+			},
+		}
+		require.ErrorContains(t, cl.Create(t.Context(), server), "Duplicate value")
+	})
 }
