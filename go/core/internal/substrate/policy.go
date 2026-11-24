@@ -28,6 +28,23 @@ func ActorEgressPolicy(atespace string, destinations []string, credentials []egr
 		return nil, fmt.Errorf("invalid runtime control-plane origin: %w", err)
 	}
 	runtimeOrigin := u.String()
+	return originEgressPolicy(atespace, access, runtimeOrigin)
+}
+
+// goldenEgressPolicy has no Session identity or live runtime grants.
+func goldenEgressPolicy(atespace string, access egress.Access) (*ateapipb.EgressPolicyTemplate, error) {
+	canonical, err := egress.CanonicalAccess(access.Destinations, access.Credentials, nil)
+	if err != nil {
+		return nil, err
+	}
+	policy, err := originEgressPolicy(atespace, canonical, "")
+	if err != nil {
+		return nil, err
+	}
+	return &ateapipb.EgressPolicyTemplate{Rules: policy.Rules}, nil
+}
+
+func originEgressPolicy(atespace string, access egress.Access, runtimeOrigin string) (*ateapipb.EgressPolicy, error) {
 	effects := map[string]*ateapipb.HttpRuleEffects{}
 	for _, binding := range access.Credentials {
 		if binding.Origin == runtimeOrigin && binding.Header == "authorization" {
@@ -144,20 +161,25 @@ func policyHeaders(policy *ateapipb.EgressPolicy) (map[string]*ateapipb.Credenti
 	return headers, nil
 }
 
-// bootstrapEgressPolicy grants golden initialization only bootstrap authority.
-func bootstrapEgressPolicy(atespace, controlPlaneURL string) (*ateapipb.EgressPolicyTemplate, error) {
-	policy, err := ActorEgressPolicy(atespace, []string{controlPlaneURL}, nil, controlPlaneURL)
+// bootstrapEgressPolicy combines the bootstrap binding with preparation-only
+// access. Runtime grants and invoking-user credentials do not enter a golden.
+func bootstrapEgressPolicy(atespace, controlPlaneURL string, preparation *egress.Access) (*ateapipb.EgressPolicyTemplate, error) {
+	u, err := egress.ParseOrigin(controlPlaneURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid bootstrap control-plane origin: %w", err)
 	}
-	for _, rule := range policy.Rules {
-		effects := rule.GetHttp().GetEffects()
-		if rule.GetHttps() != nil {
-			effects = rule.GetHttps().GetEffects()
-		}
-		for _, header := range effects.GetReplaceHeaders() {
-			header.ActorJwt.Audiences = []string{bootstrap.Audience}
+	access := egress.Access{
+		Destinations: []string{u.String()},
+		Credentials: []egress.Credential{{
+			Origin: u.String(), Header: "authorization", Prefix: "Bearer ",
+			ActorJWT: &egress.ActorJWT{Audiences: []string{bootstrap.Audience}, ExpirationSeconds: 300},
+		}},
+	}
+	if preparation != nil {
+		access, err = egress.MergeAccess(access, *preparation)
+		if err != nil {
+			return nil, fmt.Errorf("combine bootstrap and preparation access: %w", err)
 		}
 	}
-	return &ateapipb.EgressPolicyTemplate{Rules: policy.Rules}, nil
+	return goldenEgressPolicy(atespace, access)
 }

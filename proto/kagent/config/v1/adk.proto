@@ -14,6 +14,7 @@ option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1;co
 message ADKConfig {
   ADKRuntimeConfig runtime = 1;
   ADKAgentConfig agent = 2;
+  GitWorkspaceConfig workspace = 3;
 }
 
 // ADKAgentConfig defines an agent and its subagents within one runtime.
@@ -431,4 +432,21 @@ message ADKRuntimeConfig {
     expression: "!('service.name' in this.resource_attributes) && !('service.namespace' in this.resource_attributes)"
   }];
   BuiltinToolsConfig builtin_tools = 11;
+}
+
+// GitWorkspaceConfig initializes a private repository before golden readiness.
+// It contains no credentials. Authorization is an inert header replaced by the
+// golden actor's egress gateway. Restored instances reuse the saved checkout.
+message GitWorkspaceConfig {
+  string url = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 2048
+    prefix: "https://"
+  }];
+  string ref = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 256
+    pattern: "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+  }];
+  bool authorization = 3;
 }

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -24,6 +26,7 @@ import (
 	processconfig "github.com/kagent-dev/kagent/go/core/pkg/config"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
+	"github.com/kagent-dev/kagent/go/pkg/workspace"
 )
 
 const (
@@ -45,7 +48,9 @@ func main() {
 }
 
 func run(logLevel, host, port, configDir string) error {
-	if err := config.MaterializeFromBootstrap(context.Background(), configDir); err != nil {
+	startupCtx, stopStartup := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopStartup()
+	if err := config.MaterializeFromBootstrap(startupCtx, configDir); err != nil {
 		return fmt.Errorf("materialize agent config in %s: %w", configDir, err)
 	}
 
@@ -64,12 +69,15 @@ func run(logLevel, host, port, configDir string) error {
 		return err
 	}
 	slog.SetDefault(logger)
+	if err := workspace.Initialize(logging.IntoContext(startupCtx, logger), "/data", compiled.Workspace); err != nil {
+		return fmt.Errorf("initialize repository workspace: %w", err)
+	}
 	host = cmp.Or(host, runtime.Host)
 	if port == "" && runtime.Port != nil {
 		port = fmt.Sprint(runtime.GetPort())
 	}
 	if err := config.MaterializeAgentPlugins(
-		logging.IntoContext(context.Background(), logger), agentConfig,
+		logging.IntoContext(startupCtx, logger), agentConfig,
 		config.AgentPluginPaths{
 			Packages: defaultPluginPackagesRoot,
 			Skills:   config.DefaultSkillsRoot,
@@ -78,6 +86,7 @@ func run(logLevel, host, port, configDir string) error {
 	); err != nil {
 		return fmt.Errorf("materialize Agent Plugins: %w", err)
 	}
+	stopStartup()
 	logger.Info("loaded agent config", "config_dir", configDir)
 	logger.Info("agent configuration",
 		"model", config.ModelType(agentConfig.Model),

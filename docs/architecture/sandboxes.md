@@ -33,6 +33,9 @@ recovery decisions; there is no public generic runtime-instance API.
 
 `SandboxTemplate` is a namespaced `api.kagent.dev/v1alpha3` Kubernetes resource.
 Creating one prepares a reusable runtime; it does not allocate a user Sandbox.
+An optional [workspace source](workspace-sources.md) checks out a repository
+before golden readiness. New Sandboxes reuse that prepared commit; restored
+Sandboxes retain their own files.
 The workload image must be pinned by SHA-256 digest. The template has no startup
 command or guest toggle: kagent supplies the guest entrypoint.
 

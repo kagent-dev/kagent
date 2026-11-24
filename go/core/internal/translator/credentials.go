@@ -26,6 +26,10 @@ const (
 	mcpActorJWTPrefix = "Bearer "
 )
 
+func secretURI(namespace, name, key string) string {
+	return "ate-secret://k8s.io/default/" + namespace + "/" + name + "/" + key
+}
+
 // MCPActorJWTHeaders returns a copy with the placeholder for the MCP gateway
 // credential, leaving the caller's headers unchanged.
 func MCPActorJWTHeaders(headers map[string]string) map[string]string {
@@ -112,7 +116,7 @@ func CompileCredentials(input *HarnessInput, extraModels []*ResolvedModelConfig,
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.Fragment != "" {
 			return NewValidationError("credential destination must be an absolute HTTP(S) URL without user information or fragment")
 		}
-		uri := "ate-secret://k8s.io/default/" + namespace + "/" + name + "/" + key
+		uri := secretURI(namespace, name, key)
 		bindings = append(bindings, egress.Credential{Origin: egress.Origin(u), Header: header, Prefix: prefix, URI: uri})
 		return nil
 	}
