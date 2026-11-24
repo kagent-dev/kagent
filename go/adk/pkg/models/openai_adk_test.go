@@ -46,6 +46,7 @@ func TestFunctionResponseContentString(t *testing.T) {
 			"content": []any{},
 			"result":  "fallback",
 		}, "fallback"},
+		{"model-visible tool error", map[string]any{"error": "ask_user: question 1 must be an object"}, `{"error":"ask_user: question 1 must be an object"}`},
 		{"other type falls back to JSON", 42, "42"},
 	}
 	for _, tt := range tests {
