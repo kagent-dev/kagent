@@ -269,6 +269,10 @@ func TestHTTPAgentCardDiscoveryAndRouting(t *testing.T) {
 	require.Equal(t, gatewayTestAgent, card.SupportedInterfaces[1].Tenant)
 	require.True(t, card.Capabilities.PushNotifications)
 	require.Len(t, card.Capabilities.Extensions, 1)
+	require.Equal(t, a2atype.NamedSecuritySchemes{
+		"bearer": a2atype.HTTPAuthSecurityScheme{Scheme: "Bearer"},
+	}, card.SecuritySchemes, "discovery should advertise bearer authentication")
+	require.Equal(t, a2atype.SecurityRequirementsOptions{{"bearer": {}}}, card.SecurityRequirements)
 
 	// A standard SDK client can use the discovered URL without a routing header.
 	client, err := a2aclient.NewFromCard(t.Context(), &card)

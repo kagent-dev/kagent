@@ -29,6 +29,7 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 )
 
@@ -548,12 +549,17 @@ func TestGatewayBuildsAgentCardFromAgentRevision(t *testing.T) {
 				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 				Capabilities:        &a2apb.AgentCapabilities{PushNotifications: new(true), Extensions: []*a2apb.AgentExtension{{Uri: "https://kagent.dev/extensions/hitl/v1"}}},
 				DefaultInputModes:   []string{"text"}, DefaultOutputModes: []string{"text"},
+				SecuritySchemes: map[string]*a2apb.SecurityScheme{
+					"runtime": {Scheme: &a2apb.SecurityScheme_MtlsSecurityScheme{MtlsSecurityScheme: &a2apb.MutualTlsSecurityScheme{}}},
+				},
+				SecurityRequirements: []*a2apb.SecurityRequirement{{Schemes: map[string]*a2apb.StringList{"runtime": {}}}},
 			},
 		},
 	}
 	authorizer := &gatewayTestAuthorizer{}
 	dialer := &gatewayTestDialer{}
-	gateway := newTestGateway(store, authorizer, dialer, gatewayTestURL)
+	interactions := sessionsvc.NewInteractionService(store, gatewayTestAgents{store, authorizer}, newTestSessions(store, authorizer), false, true)
+	gateway := New(interactions, dialer, gatewayTestURL, false)
 
 	card, err := gateway.GetExtendedAgentCard(gatewayTestContext(), &a2atype.GetExtendedAgentCardRequest{})
 	if err != nil {
@@ -582,6 +588,26 @@ func TestGatewayBuildsAgentCardFromAgentRevision(t *testing.T) {
 	if authorizer.verb != auth.VerbGet || dialer.session != nil {
 		t.Fatalf("authorization verb = %q, runtime dialed = %v", authorizer.verb, dialer.session != nil)
 	}
+	require.Empty(t, card.SecuritySchemes)
+	require.Empty(t, card.SecurityRequirements)
+
+	t.Run("Given bearer authentication, when a client requests the extended card over gRPC, assert that the card advertises bearer authentication", func(t *testing.T) {
+		address := startCoreTestServer(t, New(interactions, dialer, gatewayTestURL, true), nil)
+		conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, conn.Close()) })
+		ctx := metadata.AppendToOutgoingContext(t.Context(), a2atype.SvcParamVersion, string(a2atype.Version), "authorization", "Bearer valid")
+		response, err := a2apb.NewA2AServiceClient(conn).GetExtendedAgentCard(ctx, &a2apb.GetExtendedAgentCardRequest{Tenant: gatewayTestAgent})
+		require.NoError(t, err)
+		require.Len(t, response.GetSecuritySchemes(), 1)
+		require.Equal(t, "Bearer", response.GetSecuritySchemes()["bearer"].GetHttpAuthSecurityScheme().GetScheme())
+		require.Len(t, response.GetSecurityRequirements(), 1)
+		schemes := response.GetSecurityRequirements()[0].GetSchemes()
+		require.Len(t, schemes, 1)
+		require.Contains(t, schemes, "bearer")
+		require.Empty(t, schemes["bearer"].GetList())
+		require.Contains(t, store.revision.AgentCard.GetSecuritySchemes(), "runtime")
+	})
 }
 
 // A share selects its stored owner only after the recipient passes policy checks.

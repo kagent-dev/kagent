@@ -43,18 +43,21 @@ type runtimeDialer interface {
 // Gateway owns actor dispatch and live observation for both public transports.
 // Session policy, resolution, and persistence stay behind the service boundary.
 type Gateway struct {
-	interactions interactionService
-	dialer       runtimeDialer
-	gatewayURL   string
+	interactions        interactionService
+	dialer              runtimeDialer
+	gatewayURL          string
+	requiresBearerToken bool
 }
 
 var _ runtimeDialer = (*RuntimeDialer)(nil)
 var _ a2asrv.RequestHandler = (*Gateway)(nil)
 var _ interactionService = (*sessionsvc.InteractionService)(nil)
 
-func New(interactions interactionService, dialer runtimeDialer, gatewayURL string) a2asrv.RequestHandler {
+func New(interactions interactionService, dialer runtimeDialer, gatewayURL string, requiresBearerToken bool) a2asrv.RequestHandler {
 	return &a2asrv.InterceptedHandler{
-		Handler:      &Gateway{interactions: interactions, dialer: dialer, gatewayURL: gatewayURL},
+		Handler: &Gateway{
+			interactions: interactions, dialer: dialer, gatewayURL: gatewayURL, requiresBearerToken: requiresBearerToken,
+		},
 		Interceptors: []a2asrv.CallInterceptor{a2aext.NewServerPropagator(nil)},
 	}
 }
@@ -171,6 +174,11 @@ func (g *Gateway) GetExtendedAgentCard(ctx context.Context, req *a2a.GetExtended
 	card.Capabilities = a2a.AgentCapabilities{Streaming: true, ExtendedAgentCard: true, PushNotifications: true, Extensions: extensions}
 	card.SecurityRequirements = nil
 	card.SecuritySchemes = nil
+	if g.requiresBearerToken {
+		const bearer a2a.SecuritySchemeName = "bearer"
+		card.SecuritySchemes = a2a.NamedSecuritySchemes{bearer: a2a.HTTPAuthSecurityScheme{Scheme: "Bearer"}}
+		card.SecurityRequirements = a2a.SecurityRequirementsOptions{{bearer: {}}}
+	}
 	card.Signatures = nil
 	return card, nil
 }

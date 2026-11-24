@@ -343,6 +343,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}
 
 	authenticator, authorizer := opts.resolve()
+	_, requiresBearerToken := authenticator.(*authimpl.ProxyAuthenticator)
 	if machine := cfg.GetServer().GetAuth().GetServiceAccount(); machine != nil {
 		reviewer, err := typedauth.NewForConfig(kubeConfig)
 		if err != nil {
@@ -398,7 +399,7 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	}, otel.GetMeterProvider())); err != nil {
 		return fmt.Errorf("failed to add push worker: %w", err)
 	}
-	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl())
+	gateway := a2agateway.New(interactions, gatewayDialer, cfg.GetGateway().GetPublicUrl(), requiresBearerToken)
 	schedules := scheduledrun.NewService(store, manager.GetClient(), authorizer)
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store, cfg.GetScheduledRuns().GetPollInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
