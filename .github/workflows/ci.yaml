@@ -198,11 +198,8 @@ jobs:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
                 metrics:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
-          ui:
-            # Only the gvisor leg runs the live UI lane.
-            replicas: ${{ matrix.sandbox_class == 'gvisor' && 1 || 0 }}
-            service:
-              type: ${{ matrix.sandbox_class == 'gvisor' && 'LoadBalancer' || 'ClusterIP' }}
+          # Only the gvisor leg runs the live UI lane.
+          ui: ${{ matrix.sandbox_class == 'gvisor' && '{replicas: 1, service: {type: LoadBalancer}}' || '{replicas: 0}' }}
           kagent-tools:
             enabled: false
           # The example Agent needs kagent-tools, and the e2e suites do not use it.
@@ -297,8 +294,7 @@ jobs:
             sleep 5
           done
           test "$READY" = True
-          # The live UI lane runs before the Go suite, which restarts the controller. A failure
-          # is held until the Go suite has run, so one run reports both.
+          # Runs before the Go suite, which restarts the controller; a failure is held so one run reports both.
           live_ui_rc=0
           if [ "${{ matrix.sandbox_class }}" = gvisor ]; then
             bash ../scripts/ci/live-ui-tests.sh || live_ui_rc=$?
