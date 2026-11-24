@@ -483,6 +483,16 @@ spec:
                                     route work to this binding.
                                   minLength: 1
                                   type: string
+                                isolation:
+                                  description: |-
+                                    Isolation selects how the parent runs the subagent. Omitting it is Shared.
+                                    Session gives every call a Session of its own, which a parent needs when
+                                    it fans out to the same subagent in parallel. Only the kagent and BYO
+                                    Harnesses support Session.
+                                  enum:
+                                  - Shared
+                                  - Session
+                                  type: string
                                 name:
                                   minLength: 1
                                   type: string
