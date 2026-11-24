@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { getChatClient } from "@/api/chat";
+import { getConversationClient } from "@/api/conversation";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
-import { messageSummary } from "@/components/chat/messageText";
+import { messageSummary } from "@/components/conversation/messageText";
 import type { AgentInstance } from "@/api";
 
 /**
@@ -29,7 +29,7 @@ const TITLE_BUDGET = 30;
  * them. The gateway now answers a task read from the store whatever state the
  * instance is in, because that is where the transcript lives.
  *
- * Display only, exactly as on the chat page: nothing is written back. A stored
+ * Display only, exactly as on the conversation page: nothing is written back. A stored
  * auto-title would be a name nobody chose, indistinguishable from one somebody did.
  *
  * Failures are silent and per-conversation. A title is a convenience over an id that
@@ -91,7 +91,7 @@ export function useConversationTitles(
           if (derived.has(instance.id)) return [instance.id, null];
           try {
             if (!instance.agent) return [instance.id, null];
-            const history = await getChatClient().history({
+            const history = await getConversationClient().history({
               id: instance.id,
               agent: instance.agent,
             });

@@ -24,7 +24,7 @@ export interface RailItem {
   alsoActiveOn?: string[];
 }
 
-export const CORE_RAIL_KEYS = ["agentDetails", "newChat"] as const;
+export const CORE_RAIL_KEYS = ["agentDetails", "newConversation"] as const;
 
 /** The rail entries the application ships, addressable by an extension override. */
 export type CoreRailKey = (typeof CORE_RAIL_KEYS)[number];
@@ -40,14 +40,14 @@ export type CoreRailKey = (typeof CORE_RAIL_KEYS)[number];
  */
 export function coreRailItems(targets: {
   agentHref?: string;
-  newChatHref?: string;
+  newConversationHref?: string;
 }): RailItem[] {
   const items: RailItem[] = [];
 
   if (targets.agentHref) {
     items.push({
       key: "agentDetails",
-      // "Agent Details" rather than "Agent": beside "New chat" and a list of chats,
+      // "Agent Details" rather than "Agent": beside "New conversation" and a list of conversations,
       // a bare noun reads as a heading for the section rather than a place to go.
       label: "Agent Details",
       to: targets.agentHref,
@@ -57,14 +57,14 @@ export function coreRailItems(targets: {
     });
   }
 
-  if (targets.newChatHref) {
+  if (targets.newConversationHref) {
     items.push({
-      key: "newChat",
-      label: "New chat",
-      to: targets.newChatHref,
+      key: "newConversation",
+      label: "New conversation",
+      to: targets.newConversationHref,
       icon: SquarePen,
       order: 200,
-      testId: "chat-new-session",
+      testId: "rail-new-conversation",
     });
   }
 
@@ -80,7 +80,7 @@ export type RailEntrySlot =
  * The application's entries and every contribution, in one order.
  *
  * Interleaved rather than appended, which is the whole point of the `order` field: a
- * product can put its entry between Agent Details and New chat instead of below both.
+ * product can put its entry between Agent Details and New conversation instead of below both.
  * Ties keep the application's entry first, so adopting a core entry's order cannot
  * silently displace it.
  */

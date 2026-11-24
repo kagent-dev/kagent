@@ -37,7 +37,7 @@ export const exampleAppExtension: AppExtensionConfig = {
     { key: "example", order: 250, path: EXAMPLE_PATH, Component: ExampleNavItem },
   ],
 
-  // The agent rail: an entry between Agent Details (100) and New chat (200), which
+  // The agent rail: an entry between Agent Details (100) and New conversation (200), which
   // is what `order` is for. `agentRailOverrides` would change those two.
   agentRailItems: [
     { key: "exampleRail", order: 150, path: EXAMPLE_PATH, Component: ExampleRailItem },
@@ -61,7 +61,7 @@ export const exampleAppExtension: AppExtensionConfig = {
     app_shell_appLayout_appSidebar_footer: ExampleSidebarFooter,
     app_agents_agentsList_pageHeader_actions: ExampleAgentsHeaderAction,
     app_agents_agentsList_agentListItem_badge: ExampleAgentBadge,
-    app_agents_agentChat_agentChatMessage_additionalActionsButton: ExampleMessageAction,
+    app_agents_agentConversation_agentConversationMessage_additionalActionsButton: ExampleMessageAction,
     app_dashboard_dashboardOverview_summaryGrid_leadingCard: ExampleDashboardCard,
   },
 

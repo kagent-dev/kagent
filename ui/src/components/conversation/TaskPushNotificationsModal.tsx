@@ -1,0 +1,185 @@
+import { useState } from "react";
+import useSWR from "swr";
+import { Alert, Button, Empty, Input, Modal, Space, Table, Typography } from "antd";
+import { FormField } from "@/components/form/FormField";
+import { toastSaved } from "@/components/form/saveToast";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import type { ConversationRef } from "@/api/conversation/types";
+import {
+  deleteTaskPushConfig,
+  listTaskPushConfigs,
+  saveTaskPushConfig,
+  taskAcceptsPushConfigs,
+  type TaskPushConfig,
+} from "@/api/conversation/taskPushConfigs";
+import { DeleteModal, useModalState } from "@/components/table/DeleteConfirmModal";
+
+function callbackURL(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
+export function TaskPushNotificationsModal({
+  conversation,
+  taskId,
+  onClose,
+}: {
+  conversation: ConversationRef;
+  taskId: string;
+  onClose: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState<string>();
+  const [removing, setRemoving] = useState<string>();
+  const removal = useModalState();
+  const [error, setError] = useState<string>();
+  const [editing, setEditing] = useState<string>();
+  const [id, setId] = useState("");
+  const [url, setURL] = useState("");
+  const validation = useSubmitValidation(
+    callbackURL(url.trim())
+      ? []
+      : [{ field: "url", message: "Enter an absolute HTTP or HTTPS callback URL without credentials." }],
+  );
+  const { data: configs = [], error: readError, isLoading: loading, mutate } = useSWR(
+    ["task-push-configs", conversation.id, taskId],
+    () => listTaskPushConfigs(conversation, taskId),
+  );
+  const { data: editable, error: stateError, isLoading: stateLoading } = useSWR(
+    ["task-push-editable", conversation.id, taskId],
+    () => taskAcceptsPushConfigs(conversation, taskId),
+  );
+
+  function edit(config: TaskPushConfig) {
+    setEditing(config.id);
+    setId(config.id);
+    setURL(config.url);
+    setError(undefined);
+  }
+
+  function resetForm() {
+    setEditing(undefined);
+    setId("");
+    setURL("");
+    validation.reset();
+  }
+
+  async function save() {
+    if (!editable || saving || !validation.attempt()) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      await saveTaskPushConfig(conversation, taskId, { id: id.trim(), url: url.trim() });
+      toastSaved("saved", "task callback", id.trim() || url.trim());
+      resetForm();
+      await mutate();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(configId: string) {
+    setDeleting(configId);
+    setError(undefined);
+    try {
+      await deleteTaskPushConfig(conversation, taskId, configId);
+      if (editing === configId) resetForm();
+      await mutate();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDeleting(undefined);
+    }
+  }
+
+  return (
+    <Modal open title="Task notifications" footer={null} onCancel={onClose} width={720} data-testid="task-push-modal">
+      <Space orientation="vertical" size="middle" css={{ width: "100%" }}>
+        <Typography.Text type="secondary" copyable={{ text: taskId }}>
+          Task {taskId}
+        </Typography.Text>
+        <Typography.Paragraph type="secondary" css={{ marginBottom: 0 }}>
+          Add a callback while the task is active. New callbacks are rejected after it finishes.
+          Only future updates are sent when the task needs input or reaches a final state.
+          Failed attempts are retried, so a
+          receiver may see duplicates. Kagent signs each callback with a short-lived JWT.
+        </Typography.Paragraph>
+        {editable === false ? (
+          <Alert type="info" showIcon title="This task has finished. You can view or remove its callbacks, but cannot add or edit them." />
+        ) : null}
+        {error || readError || stateError ? (
+          <Alert
+            type="error"
+            showIcon
+            title={error ?? (readError instanceof Error ? readError.message : stateError instanceof Error ? stateError.message : String(stateError))}
+            data-testid="task-push-error"
+          />
+        ) : null}
+        <Table
+          size="small"
+          rowKey="id"
+          loading={loading}
+          dataSource={configs}
+          pagination={false}
+          locale={{ emptyText: <Empty description="No active callbacks for this task" /> }}
+          columns={[
+            { title: "ID", dataIndex: "id", key: "id" },
+            { title: "Callback URL", dataIndex: "url", key: "url", ellipsis: true },
+            {
+              title: "Actions",
+              key: "actions",
+              render: (_, config: TaskPushConfig) => (
+                <Space>
+                  <Button size="small" onClick={() => edit(config)} disabled={!editable}>Edit</Button>
+                  <Button size="small" danger loading={deleting === config.id}
+                    onClick={() => { setRemoving(config.id); removal.show(); }}>Remove</Button>
+                </Space>
+              ),
+            },
+          ]}
+          data-testid="task-push-list"
+        />
+        {editable ? <Typography.Text strong>{editing ? `Edit ${editing}` : "Add callback"}</Typography.Text> : null}
+        {editable ? <>
+        <FormField label="Callback ID" htmlFor="task-push-id" required={false} help="Generated when blank." css={{ marginBottom: 0 }}>
+          <Input id="task-push-id" value={id} disabled={Boolean(editing)} onChange={(event) => setId(event.target.value)} />
+        </FormField>
+        <FormField
+          label="Callback URL"
+          htmlFor="task-push-url"
+          required
+          {...validation.field("url")}
+          css={{ marginBottom: 0 }}
+        >
+          <Input
+            id="task-push-url"
+            placeholder="https://example.com/a2a/callback"
+            value={url}
+            onChange={(event) => setURL(event.target.value)}
+            onPressEnter={() => void save()}
+          />
+        </FormField>
+        <Space>
+          <Button type="primary" onClick={() => void save()} loading={saving || stateLoading}>
+            {editing ? "Save changes" : "Add callback"}
+          </Button>
+          {editing ? <Button onClick={resetForm}>Cancel edit</Button> : null}
+        </Space>
+        </> : null}
+      </Space>
+      {removal.mounted && removing !== undefined && <DeleteModal okText="Remove" open={removal.open}
+        onClose={removal.hide} afterClose={removal.afterClose} confirmation={{
+          title: `Remove callback ${removing}?`,
+          message: "Pending updates will be canceled. An in-flight request may still arrive.",
+          isDeleting: deleting === removing,
+          confirm: (afterDelete) => remove(removing).then(afterDelete),
+        }} />}
+    </Modal>
+  );
+}

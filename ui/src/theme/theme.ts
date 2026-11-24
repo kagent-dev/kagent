@@ -31,7 +31,7 @@ const darkColor = {
    * Its own token because `text` is the foreground for the *page*, and on this theme
    * the two happen to agree — which is what hid the bug. On the light theme `text` is
    * near-black, and anything painted on the primary purple with it came out as dark on
-   * dark: the chat's own messages were the worst of it. An extension overriding `primary`
+   * dark: the conversation's own messages were the worst of it. An extension overriding `primary`
    * needs somewhere to say what goes on top of it, too.
    */
   textOnPrimary: "#f9fafb",

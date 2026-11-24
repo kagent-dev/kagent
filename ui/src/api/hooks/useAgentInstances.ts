@@ -102,8 +102,8 @@ const OWN_LIST = ["agentInstances.list", false] as const;
 const OWN_LIST_KEY = unstable_serialize(OWN_LIST);
 
 /**
- * The caller's conversations with one Agent, for the new-chat rail.
- * The chat page's cached list stands in until they land, and `refresh` re-reads that list too.
+ * The caller's conversations with one Agent, for the new-conversation rail.
+ * The conversation page's cached list stands in until they land, and `refresh` re-reads that list too.
  */
 export function useOwnAgentConversations(
   namespace: string | undefined,
@@ -125,7 +125,7 @@ export function useOwnAgentConversations(
     data,
     isLoading: conversations.isLoading && !cached,
     isEmpty: !conversations.error && data?.length === 0,
-    // No hook holds the chat page's list here, so it is written rather than revalidated.
+    // No hook holds the conversation page's list here, so it is written rather than revalidated.
     refresh: async () => {
       await Promise.all([
         conversations.refresh(),

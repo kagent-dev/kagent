@@ -233,7 +233,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
-            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.sessionId })}
+            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentConversation, { id: row.sessionId })}
               css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Open conversation<ExternalLink size={14} /></Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[

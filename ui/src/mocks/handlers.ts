@@ -7,9 +7,9 @@
  * is the *proxy's*, and it is what the app reads to find out whether anybody is
  * signed in. There is no gRPC service to fake it with.
  *
- * A conversation is not here either, and never was: chat in mock mode is
- * `MockChatClient` in `@/api/chat/mockChatClient`, a fake of the chat port rather
- * than of the network, driven by the `?chat=` axis.
+ * A conversation is not here either, and never was: conversation in mock mode is
+ * `MockConversationClient` in `@/api/conversation/mockConversationClient`, a fake of the conversation port rather
+ * than of the network, driven by the `?conversation=` axis.
  */
 
 import { HttpResponse, http } from "msw";

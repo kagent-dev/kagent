@@ -22,7 +22,7 @@ import {
   useNamespaces,
   type Agent,
 } from "@/api";
-import { agentNewChatUrl } from "@/components/agent/agentUrl";
+import { agentNewConversationUrl } from "@/components/agent/agentUrl";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { FilterBar } from "@/components/table/FilterBar";
 import { useListView } from "@/components/table/useListView";
@@ -135,7 +135,7 @@ export function AgentsTab() {
         render: (_, row) => (
           <Space orientation="vertical" size={0}>
             <Link
-              to={agentNewChatUrl(row) ?? paths.agents}
+              to={agentNewConversationUrl(row) ?? paths.agents}
               data-testid={`agent-link-${row.namespace}-${row.name}`}
               css={{ fontFamily: theme.font.mono, color: theme.color.primaryText }}
             >
@@ -339,7 +339,7 @@ export function AgentsTab() {
         }}
         onRow={(row) =>
           clickableRow(() => {
-            const destination = agentNewChatUrl(row);
+            const destination = agentNewConversationUrl(row);
             if (destination) void navigate(destination);
           })
         }

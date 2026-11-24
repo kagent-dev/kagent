@@ -150,7 +150,7 @@ function problemsIn(
   }
 
   // Rail keys are checked against the application's own as well as each other: an
-  // entry keyed `newChat` would sit beside the entry it was probably meant to
+  // entry keyed `newConversation` would sit beside the entry it was probably meant to
   // replace, and `agentRailOverrides` is how a product changes that one.
   const seenRailKeys = new Set<string>();
   for (const item of config.agentRailItems ?? []) {

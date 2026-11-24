@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
-import { agentNewChat, dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
+import { agentNewConversation, dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
 import { anyDialog, confirmDelete, dialog, expectRequired, pressOnce, rowAction, selectOption } from "../../helpers/resource";
 import { clickNav } from "../../helpers/nav";
 
@@ -74,11 +74,11 @@ for (const template of CASES) {
 
     // One case is enough: the link does not depend on where the template comes from.
     if (template === "reference") {
-      await test.step("3. opening it lands on its new chat", async () => {
+      await test.step("3. opening it lands on its new conversation", async () => {
         await page.getByTestId(`agent-link-kagent-${name}`).click();
-        await expect(page).toHaveURL(new RegExp(`${agentNewChat({ name, template: "", harness: "" })}$`));
-        await expect(page.getByTestId("new-chat-empty")).toBeVisible();
-        await expect(page.getByTestId("chat-input")).toBeEditable();
+        await expect(page).toHaveURL(new RegExp(`${agentNewConversation({ name, template: "", harness: "" })}$`));
+        await expect(page.getByTestId("new-conversation-empty")).toBeVisible();
+        await expect(page.getByTestId("conversation-input")).toBeEditable();
       });
     }
 

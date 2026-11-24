@@ -7,7 +7,7 @@ import {
   defineExtensionFormField,
   extensionAgentLinks,
   extensionBranding,
-  extensionChatPartRenderers,
+  extensionConversationPartRenderers,
   extensionFormFields,
   extensionNavItems,
   extensionNavOverrides,
@@ -218,7 +218,7 @@ describe("buildSidebarSections", () => {
   });
 
   it("matches nav paths by prefix, except the root", () => {
-    expect(isNavPathActive("/agents", "/agents/foo/chat")).toBe(true);
+    expect(isNavPathActive("/agents", "/agents/foo/conversation")).toBe(true);
     expect(isNavPathActive("/", "/agents")).toBe(false);
     expect(isNavPathActive("/", "/")).toBe(true);
   });
@@ -439,15 +439,15 @@ describe("composing several installed extensions", () => {
   });
 
   it("merges agent links, so a partial redirect keeps the other links", () => {
-    const chat = () => "/chat";
+    const conversation = () => "/conversation";
     const details = () => "/details";
 
     const links = extensionAgentLinks([
-      extension("a", { agentLinks: { chat, details } }),
+      extension("a", { agentLinks: { conversation, details } }),
       extension("b", { agentLinks: { details: () => "/other" } }),
     ]);
 
-    expect(links.chat).toBe(chat);
+    expect(links.conversation).toBe(conversation);
     expect(links.details).not.toBe(details);
   });
 
@@ -461,11 +461,11 @@ describe("composing several installed extensions", () => {
     expect(icons.OpenAI).not.toBe(noopComponent);
   });
 
-  it("merges chat part renderers, later extensions replacing a shared key", () => {
+  it("merges conversation part renderers, later extensions replacing a shared key", () => {
     const later = () => null;
-    const renderers = extensionChatPartRenderers([
-      extension("a", { chatPartRenderers: { text: noopComponent, tool_call: noopComponent } }),
-      extension("b", { chatPartRenderers: { text: later } }),
+    const renderers = extensionConversationPartRenderers([
+      extension("a", { conversationPartRenderers: { text: noopComponent, tool_call: noopComponent } }),
+      extension("b", { conversationPartRenderers: { text: later } }),
     ]);
 
     expect(Object.keys(renderers).sort()).toEqual(["text", "tool_call"]);
@@ -717,11 +717,11 @@ describe("validateExtensionConfig", () => {
   });
 
   it("rejects an agent rail key that is one of the application's own", () => {
-    // Contributing `newChat` would sit a second entry beside the one it was
+    // Contributing `newConversation` would sit a second entry beside the one it was
     // presumably meant to change, and `agentRailOverrides` is how that is done.
     const config: AppExtensionConfig = {
       ...base,
-      agentRailItems: [extensionItem("newChat", 10)],
+      agentRailItems: [extensionItem("newConversation", 10)],
     };
     expect(() => validateExtensionConfig(config)).toThrow(/agentRailOverrides/);
   });
