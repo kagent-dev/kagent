@@ -68,7 +68,7 @@ CLI binaries, checksums, and commit-specific chart archives.
 
 - **Docker** with **Docker Buildx** (v0.23.0+)
 - **Git**
-- **Go** (v1.27.3+)
+- **Go** (v1.27+)
 - **Helm**
 - **Kind** (v0.33.0+)
 - **kubectl** (v1.36.0+)
