@@ -21,11 +21,11 @@ export function FieldRow({
         ...(columns ? { "@media (max-width: 560px)": { gridTemplateColumns: "minmax(0, 1fr)" } } : {}),
         columnGap: theme.space(4),
         alignItems: "start",
-        // Each field joins three shared rows (label, hint, control), so hints and inputs line up
+        // Each field joins four shared rows (label, hint, control, error), so hints and inputs line up
         // across the row whatever the hint length or however many pills sit under a control.
         "& > .ant-form-item": {
           display: "grid",
-          gridRow: "span 3",
+          gridRow: "span 4",
           gridTemplateRows: "subgrid",
           alignItems: "start",
           minWidth: 0,
