@@ -193,10 +193,12 @@ config:
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
     # Publish replacement keys before use (max 24h), plus a fixed 30s buffer.
-    # Must cover receivers' JWKS refresh intervals. Key files are polled every 15s.
+    # Must cover receivers' JWKS refresh intervals. Replicas poll the current key every 12–18s.
     signingKeyActivationDelay: 300s
     # Custom/CSI-mounted PEM path; controller.push.signing.secretName overrides it.
     # signingPrivateKeyFile: /mnt/signing/private-key.pem
+    # Optional previous key for restart handoff; read only at startup.
+    # previousSigningPrivateKeyFile: /mnt/signing/previous-private-key.pem
   sessions:
     # Set automaticRecovery: true to recover crashed runtimes when a client sends
     # another message. It is off by default and not rendered, so the default config
@@ -254,6 +256,9 @@ controller:
       # Optional operator-managed Secret with an unencrypted PKCS#8 Ed25519 key
       # in private-key.pem. Empty disables push JWT signing.
       secretName: ""
+      # Optional separate Secret with the previous key in private-key.pem.
+      # If set, the file is required at startup until the current key is recorded as active.
+      previousSecretName: ""
   # -- ServiceAccount settings for the controller pod
   serviceAccount:
     # -- Create the controller ServiceAccount. Set to false to use one managed outside the chart.

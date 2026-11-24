@@ -70,6 +70,14 @@ spec:
               - key: private-key.pem
                 path: push-private-key.pem
           {{- end }}
+          {{- if .Values.controller.push.signing.previousSecretName }}
+          - secret:
+              name: {{ .Values.controller.push.signing.previousSecretName }}
+              optional: true
+              items:
+              - key: private-key.pem
+                path: push-previous-private-key.pem
+          {{- end }}
       {{- if .Values.database.postgres.clientCertificate.enabled }}
       - name: postgres-client-certificate
         projected:

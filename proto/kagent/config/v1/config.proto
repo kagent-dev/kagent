@@ -268,7 +268,12 @@ message GatewayConfig {
 
 // PushConfig controls callback delivery and authentication in the controller.
 message PushConfig {
-  // Optional unencrypted PKCS#8 Ed25519 PEM key, reloaded every 15s. Empty disables signing.
+  option (buf.validate.message).cel = {
+    id: "push.previous_requires_current"
+    message: "previous_signing_private_key_file requires signing_private_key_file"
+    expression: "this.previous_signing_private_key_file == '' || this.signing_private_key_file != ''"
+  };
+  // Optional unencrypted PKCS#8 Ed25519 PEM key, polled for changes. Empty disables signing.
   string signing_private_key_file = 1;
   optional string issuer = 2 [(buf.validate.field).string = {
     uri: true
@@ -294,6 +299,9 @@ message PushConfig {
     gt: {}
     lte: {seconds: 86400}
   }];
+  // Optional previous PKCS#8 Ed25519 PEM key, read only at startup. If configured,
+  // the file may be missing only after the current key's activation is recorded.
+  string previous_signing_private_key_file = 9;
 }
 
 message SandboxConfig {

@@ -16,7 +16,6 @@ import (
 	"maps"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -191,11 +190,6 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 			return err
 		}
 	}
-	pushSigner, err := sessionsvc.NewPushJWTSigner(cfg.GetPush().GetSigningPrivateKeyFile(),
-		strings.TrimRight(cfg.GetPush().GetIssuer(), "/"), cfg.GetPush().GetSigningKeyActivationDelay().AsDuration())
-	if err != nil {
-		return fmt.Errorf("configure push JWT signing: %w", err)
-	}
 	if err := SetupLogger(cfg.GetLogging().GetLevel()); err != nil {
 		return err
 	}
@@ -244,6 +238,15 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	defer db.Close()
 	store := database.NewClient(db, cfg.GetDatabase().GetVectorSchema(),
 		database.WithConnectRetry(cfg.GetDatabase().GetPool().GetConnectRetryTimeout().AsDuration()))
+	pushSigner, err := sessionsvc.NewPushJWTSigner(ctx, store, sessionsvc.PushJWTSignerConfig{
+		PrivateKeyFile:         cfg.GetPush().GetSigningPrivateKeyFile(),
+		PreviousPrivateKeyFile: cfg.GetPush().GetPreviousSigningPrivateKeyFile(),
+		Issuer:                 cfg.GetPush().GetIssuer(),
+		ActivationDelay:        cfg.GetPush().GetSigningKeyActivationDelay().AsDuration(),
+	})
+	if err != nil {
+		return fmt.Errorf("configure push JWT signing: %w", err)
+	}
 
 	kubeConfig, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{},

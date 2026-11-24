@@ -320,7 +320,7 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	for _, source := range sources {
 		expected := []int64{0, 1}
 		if source.Name == "core" {
-			expected = append(expected, 2, 3)
+			expected = append(expected, 2, 3, 4)
 		}
 		if versions := testVersions(t, dsn, source.TrackingTable); !slices.Equal(versions, expected) {
 			t.Fatalf("%s versions = %v, want %v", source.Name, versions, expected)
@@ -337,6 +337,11 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	if !testColumnExists(t, dsn, "session", "deletion_reason") {
 		t.Fatal("session deletion reason is missing")
 	}
+	// Given all built-in migrations, when upgrading, assert that handoff state can be persisted.
+	if !testTableExists(t, dsn, "push_signing_state") {
+		t.Fatal("push signing state is missing")
+	}
+	execSQL(t, dsn, `INSERT INTO push_signing_state (issuer, last_activated_key_id) VALUES ('issuer', 'key')`)
 	if !testTableExists(t, dsn, "agent_definition") || testTableExists(t, dsn, "agent_template_harness_pair") {
 		t.Fatal("initial migration must create explicit Agent definitions without legacy pairs")
 	}
@@ -370,6 +375,10 @@ func TestBuiltinMigrationsRoundTrip(t *testing.T) {
 	}
 	if !testExtensionExists(t, dsn, "vector") {
 		t.Fatal("the vector down migration removed the shared extension")
+	}
+	// When rolling migrations down, assert that the new table is removed.
+	if testTableExists(t, dsn, "push_signing_state") {
+		t.Fatal("push signing state survived down migration")
 	}
 	if err := RunUp(context.Background(), config, sources); err != nil {
 		t.Fatalf("second RunUp: %v", err)
