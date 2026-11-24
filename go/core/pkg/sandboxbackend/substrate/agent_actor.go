@@ -68,7 +68,7 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 	tmplNS := sa.Namespace
 	atespace := sa.Namespace
 
-	actor, err := b.client.GetActor(ctx, atespace, actorID)
+	_, err = b.client.GetActor(ctx, atespace, actorID)
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate GetActor %q: %w", actorID, err)
@@ -76,24 +76,13 @@ func (b *SandboxAgentActorBackend) EnsureSessionActor(ctx context.Context, sa *v
 		if err := b.client.EnsureAtespace(ctx, atespace); err != nil {
 			return sandboxbackend.EnsureResult{}, fmt.Errorf("substrate EnsureAtespace %q: %w", atespace, err)
 		}
-		actor, err = b.client.CreateActor(ctx, atespace, actorID, tmplNS, tmplName)
+		_, err = b.client.CreateActor(ctx, atespace, actorID, tmplNS, tmplName)
 		if err != nil {
 			return sandboxbackend.EnsureResult{}, wrapCreateActorError(actorID, err)
 		}
 	}
 
-	switch actor.GetStatus() {
-	case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED,
-		ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
-		// PAUSED/PAUSING keep a node-local snapshot; ResumeActor brings them back
-		// the same as a suspended actor. RUNNING/RESUMING actors need nothing.
-		_, err = b.client.ResumeActor(ctx, atespace, actorID)
-		if err != nil {
-			return sandboxbackend.EnsureResult{}, wrapResumeActorError(actorID, err)
-		}
-	}
-
-	if err := waitForActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, atespace, actorID); err != nil {
+	if err := ensureActorReachableViaAtenet(ctx, b.client, nil, b.atenetRouterURL, atespace, actorID); err != nil {
 		return sandboxbackend.EnsureResult{}, err
 	}
 

@@ -17,15 +17,18 @@ const (
 	actorReachabilityProbePath       = "/health"
 )
 
-type actorGetter interface {
+type actorReachabilityClient interface {
 	GetActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error)
+	ResumeActor(ctx context.Context, atespace, actorID string) (*ateapipb.Actor, error)
 }
 
-// waitForActorReachableViaAtenet blocks until ate-api reports the actor RUNNING and
-// atenet-router can reach its workload (non-5xx on /health with actor Host routing).
-func waitForActorReachableViaAtenet(
+// ensureActorReachableViaAtenet resumes the actor if needed and waits for its
+// workload to respond via atenet-router (non-5xx on /health with actor Host routing).
+// Recheck whether to resume on each poll: an earlier request can be checkpointing
+// the actor after the caller's initial GetActor.
+func ensureActorReachableViaAtenet(
 	ctx context.Context,
-	actors actorGetter,
+	actors actorReachabilityClient,
 	httpClient *http.Client,
 	routerURL, atespace, actorID string,
 ) error {
@@ -54,6 +57,18 @@ func waitForActorReachableViaAtenet(
 
 	for {
 		actor, getErr := actors.GetActor(waitCtx, atespace, actorID)
+		if getErr == nil {
+			switch actor.GetStatus() {
+			case ateapipb.Actor_STATUS_SUSPENDED, ateapipb.Actor_STATUS_UNSPECIFIED,
+				ateapipb.Actor_STATUS_PAUSED, ateapipb.Actor_STATUS_PAUSING:
+				// SUSPENDING is intentionally left to the next poll.
+				resumed, resumeErr := actors.ResumeActor(waitCtx, atespace, actorID)
+				if resumeErr != nil {
+					return wrapResumeActorError(actorID, resumeErr)
+				}
+				actor = resumed
+			}
+		}
 		if getErr == nil && actor.GetStatus() == ateapipb.Actor_STATUS_RUNNING {
 			statusCode, probeErr := probeActorViaAtenetRouter(waitCtx, httpClient, probeURL, host)
 			if probeErr == nil && statusCode < http.StatusInternalServerError {

@@ -19,6 +19,10 @@ func (s *stubActorGetter) GetActor(context.Context, string, string) (*ateapipb.A
 	return &ateapipb.Actor{Status: ateapipb.Actor_Status(s.status.Load())}, nil
 }
 
+func (s *stubActorGetter) ResumeActor(context.Context, string, string) (*ateapipb.Actor, error) {
+	panic("unexpected ResumeActor in reachability-only test")
+}
+
 func TestProbeActorViaAtenetRouterSetsActorHost(t *testing.T) {
 	t.Parallel()
 
@@ -46,7 +50,7 @@ func TestProbeActorViaAtenetRouterSetsActorHost(t *testing.T) {
 	}
 }
 
-func TestWaitForActorReachableViaAtenetRetriesUntilHealthy(t *testing.T) {
+func TestEnsureActorReachableViaAtenetRetriesUntilHealthy(t *testing.T) {
 	t.Parallel()
 
 	var attempts atomic.Int32
@@ -65,7 +69,7 @@ func TestWaitForActorReachableViaAtenetRetriesUntilHealthy(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 
-	err := waitForActorReachableViaAtenet(
+	err := ensureActorReachableViaAtenet(
 		ctx,
 		actors,
 		srv.Client(),
@@ -74,14 +78,14 @@ func TestWaitForActorReachableViaAtenetRetriesUntilHealthy(t *testing.T) {
 		"asr-kagent-demo",
 	)
 	if err != nil {
-		t.Fatalf("waitForActorReachableViaAtenet() error = %v", err)
+		t.Fatalf("ensureActorReachableViaAtenet() error = %v", err)
 	}
 	if attempts.Load() < 3 {
 		t.Fatalf("attempts = %d, want >= 3", attempts.Load())
 	}
 }
 
-func TestWaitForActorReachableViaAtenetWaitsForRunningStatus(t *testing.T) {
+func TestEnsureActorReachableViaAtenetWaitsForRunningStatus(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +104,7 @@ func TestWaitForActorReachableViaAtenetWaitsForRunningStatus(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 
-	err := waitForActorReachableViaAtenet(
+	err := ensureActorReachableViaAtenet(
 		ctx,
 		actors,
 		srv.Client(),
@@ -109,11 +113,11 @@ func TestWaitForActorReachableViaAtenetWaitsForRunningStatus(t *testing.T) {
 		"asr-kagent-demo",
 	)
 	if err != nil {
-		t.Fatalf("waitForActorReachableViaAtenet() error = %v", err)
+		t.Fatalf("ensureActorReachableViaAtenet() error = %v", err)
 	}
 }
 
-func TestWaitForActorReachableViaAtenetTimesOut(t *testing.T) {
+func TestEnsureActorReachableViaAtenetTimesOut(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -127,7 +131,7 @@ func TestWaitForActorReachableViaAtenetTimesOut(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	t.Cleanup(cancel)
 
-	err := waitForActorReachableViaAtenet(
+	err := ensureActorReachableViaAtenet(
 		ctx,
 		actors,
 		srv.Client(),
