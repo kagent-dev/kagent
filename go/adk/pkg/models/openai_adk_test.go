@@ -543,3 +543,68 @@ func TestApplyOpenAIConfigPreservesInt64(t *testing.T) {
 		require.Equal(t, int64(math.MaxInt64), params.MaxCompletionTokens.Value)
 	}
 }
+
+func TestOpenAIModelGenerateContentReportsCachedAndReasoningTokens(t *testing.T) {
+	const usageJSON = `{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150,` +
+		`"prompt_tokens_details":{"cached_tokens":40},"completion_tokens_details":{"reasoning_tokens":30}}`
+	tests := []struct {
+		name   string
+		stream bool
+		body   string
+	}{
+		{
+			name: "non-streaming",
+			body: `{"id":"c1","object":"chat.completion","created":1,"model":"gpt-4o",` +
+				`"choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],` +
+				`"usage":` + usageJSON + `}`,
+		},
+		{
+			name:   "streaming",
+			stream: true,
+			body: "data: " + `{"id":"c1","object":"chat.completion.chunk","created":1,"model":"gpt-4o",` +
+				`"choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}` + "\n\n" +
+				"data: " + `{"id":"c1","object":"chat.completion.chunk","created":1,"model":"gpt-4o","choices":[],` +
+				`"usage":` + usageJSON + `}` + "\n\n" +
+				"data: [DONE]\n\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.stream {
+					w.Header().Set("Content-Type", "text/event-stream")
+				} else {
+					w.Header().Set("Content-Type", "application/json")
+				}
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer server.Close()
+
+			llm := &OpenAIModel{
+				Config: &OpenAIConfig{Model: "gpt-4o"},
+				Client: openai.NewClient(
+					option.WithAPIKey("test"),
+					option.WithBaseURL(server.URL),
+					option.WithHTTPClient(server.Client()),
+				),
+				Logger: slog.New(slog.DiscardHandler),
+			}
+			request := &model.LLMRequest{
+				Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hello"}}}},
+			}
+			var usage *genai.GenerateContentResponseUsageMetadata
+			for resp, err := range llm.GenerateContent(context.Background(), request, tt.stream) {
+				require.NoError(t, err)
+				if resp.UsageMetadata != nil {
+					usage = resp.UsageMetadata
+				}
+			}
+			require.NotNil(t, usage)
+			require.Equal(t, int32(100), usage.PromptTokenCount)
+			require.Equal(t, int32(40), usage.CachedContentTokenCount)
+			require.Equal(t, int32(30), usage.ThoughtsTokenCount)
+			require.Equal(t, int32(20), usage.CandidatesTokenCount)
+			require.Equal(t, int32(150), usage.TotalTokenCount)
+		})
+	}
+}
