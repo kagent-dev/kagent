@@ -11,7 +11,7 @@ import {
   rowNamed,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { confirmation, expectRequired, pressOnce, pressUntil } from "../../helpers/resource";
+import { dialog, expectRequired, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * An agent's own page — the surface between the agents list and a chat.
@@ -520,8 +520,8 @@ test("agents: deleting an Agent preserves shared resources and conversations", a
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
   await pressOnce(page.getByTestId(`delete-${agents.k8s.name}`));
-  await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
-  await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
+  await expect(dialog(page)).toContainText("Existing conversations keep their prepared revisions");
+  await pressOnce(dialog(page).getByRole("button", { name: "Delete" }));
   await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});
   await expect(rowNamed(page, agents.k8s.name)).toHaveCount(0);
   await loadPage(page, `/agent-templates/kagent/${agents.k8s.template}`);
@@ -560,9 +560,7 @@ test("agents: conversations can be picked and deleted together from the table to
   });
 
   await test.step("3. and deleting says what goes with it", async () => {
-    const prompt = confirmation(page);
-    // Clicked once, not pressed until: this is the popconfirm's own trigger, and a
-    // retry closes what the first press opened.
+    const prompt = dialog(page);
     await page.getByTestId("delete-1 selected").click();
     await expect(prompt).toBeVisible();
     await expect(prompt).toContainText("can be recovered");

@@ -11,7 +11,7 @@ import {
   expectLoading,
   clickRefresh,
   confirmDelete,
-  confirmation,
+  dialog,
   expectRequired,
   pressUntil,
   selectOption,
@@ -205,7 +205,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
 
   await test.step("9. deleting asks first, and Keep leaves it alone", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
-    const prompt = confirmation(page);
+    const prompt = dialog(page);
     // The confirmation names the row. "Delete this server?" is no help in a table of
     // four of them, and *which* is the one question the reader has.
     await expect(prompt).toContainText(CREATED);

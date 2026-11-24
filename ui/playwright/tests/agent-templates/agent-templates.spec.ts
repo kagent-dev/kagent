@@ -2,7 +2,7 @@ import { test, expect } from "../../fixtures/test";
 import { dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
-  confirmation,
+  dialog,
   expectRequired,
   optionNamed,
   pressOnce,
@@ -358,7 +358,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await deleteButton.click();
 
     // Existing revisions survive deletion; future configuration needs this reference.
-    const consequence = confirmation(page);
+    const consequence = dialog(page);
     await expect(consequence).toContainText("Existing conversations");
     await expect(consequence).toContainText(
       "last successful revisions are retained",
@@ -367,9 +367,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
   });
 
   await test.step("12. confirming removes it, and the list that opens does not show it", async () => {
-    // Scoped to the visible popconfirm: every row's confirmation is in the DOM at once,
-    // so an unscoped Delete can answer a prompt nobody is looking at.
-    await confirmation(page).getByRole("button", { name: "Delete" }).click();
+    await dialog(page).getByRole("button", { name: "Delete" }).click();
     await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 30_000 });
 
     // The claim worth making. The list is cached, so landing on it without re-reading

@@ -1,11 +1,12 @@
-import type { KeyboardEvent } from "react";
-import { Button, Popconfirm, Tooltip, Typography } from "antd";
+import { useState, type KeyboardEvent } from "react";
+import { Button, Tooltip, Typography } from "antd";
 import { Eraser, GitFork, Pencil, Save } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { halfway } from "@/theme/theme";
 import { useThemeMode } from "@/theme/useThemeMode";
 import type { Checkpoint } from "@/api";
 import { ExtensionSlot } from "@/appExtensions/ExtensionSlot";
+import { DeleteModal, useModalState } from "@/components/table/DeleteConfirmModal";
 import { snapshotLabel } from "./snapshotLabel";
 
 const { Text } = Typography;
@@ -46,10 +47,12 @@ export function CheckpointDivider({
   /** Names this boundary, and with it the forks taken from it. */
   onRename?: () => void;
   /** Removes this boundary. */
-  onDelete?: () => void;
+  onDelete?: () => void | Promise<void>;
 }) {
   const theme = useTheme();
   const { mode } = useThemeMode();
+  const deletion = useModalState();
+  const [isDeleting, setDeleting] = useState(false);
 
   // Whatever it is called, which until somebody renames it is the name the controller
   // generated. The id is in the record behind the line; the line says one thing.
@@ -280,32 +283,12 @@ export function CheckpointDivider({
           ) : null}
           {/* Confirmed, because the runtime behind the boundary goes with it and
               nothing brings it back. */}
-          {onDelete ? (
-            <Popconfirm
-              title="Delete this snapshot?"
-              description="The stored runtime goes with it and nothing brings it back. Chats already forked from here are kept."
-              // Capped, or the one line of copy sets the popover's width and it spans
-              // half the transcript.
-              overlayStyle={{ maxWidth: 320 }}
-              okText="Delete"
-              okButtonProps={{
-                danger: true,
-                "data-testid": `chat-checkpoint-delete-confirm-${checkpointId}`,
-              }}
-              cancelText="Cancel"
-              cancelButtonProps={{
-                "data-testid": `chat-checkpoint-delete-cancel-${checkpointId}`,
-              }}
-              onConfirm={onDelete}
-            >
-              {/* No tooltip, unlike its neighbours. The pointer that opens the
-                  confirmation is still resting on this button, so the tooltip stays up
-                  and its container covers the confirmation's own buttons — which is a
-                  reader unable to press Cancel, not just a test that cannot. What it
-                  would have said, the confirmation says. */}
+          {onDelete ? (<>
               <Button
                 size="small"
                 danger
+                onClick={deletion.show}
+                loading={isDeleting}
                 data-testid={`chat-checkpoint-delete-${checkpointId}`}
                 aria-label="Delete this snapshot and the runtime stored with it."
                 icon={<Eraser size={13} />}
@@ -336,8 +319,17 @@ export function CheckpointDivider({
               >
                 Delete
               </Button>
-            </Popconfirm>
-          ) : null}
+              {deletion.mounted && <DeleteModal open={deletion.open} onClose={deletion.hide} afterClose={deletion.afterClose}
+                confirmation={{
+                  title: "Delete this snapshot?",
+                  message: "The stored runtime goes with it and nothing brings it back. Chats already forked from here are kept.",
+                  isDeleting,
+                  confirm: async (afterDelete) => {
+                    setDeleting(true);
+                    try { await onDelete(); afterDelete(); } finally { setDeleting(false); }
+                  },
+                }} />}
+            </>) : null}
 
           {/* Beside the boundary's own controls, for a product whose snapshots mean
               something this application does not know about. */}

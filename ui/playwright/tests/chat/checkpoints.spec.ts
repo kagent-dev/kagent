@@ -10,6 +10,9 @@ const openMenu = (page: import("@playwright/test").Page) =>
 const dividers = (page: import("@playwright/test").Page) =>
   page.locator('[data-testid^="chat-checkpoint-mark-"]');
 
+const deletePrompt = (page: import("@playwright/test").Page) =>
+  page.getByRole("dialog", { name: "Delete this snapshot?" });
+
 /** The seeded boundary's generated name: its conversation, joined to its turn. */
 const SEEDED_NAME = `${instances.ready}-seed-task-1`;
 
@@ -113,13 +116,12 @@ test("chat: the mark names itself, carries its controls, and opens its record", 
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    // `pressOnce`, not a raw click: the popconfirm is still animating in here,
-    // and a click lands on the backdrop while it moves.
-    await pressOnce(page.getByTestId(`chat-checkpoint-delete-cancel-${id}`));
+    // `pressOnce`, not a raw click: the modal is still animating in here.
+    await pressOnce(deletePrompt(page).getByRole("button", { name: "Keep" }));
     await expect(dividers(page)).toHaveCount(1);
 
     await line.getByTestId(`chat-checkpoint-delete-${id}`).click();
-    await pressOnce(page.getByTestId(`chat-checkpoint-delete-confirm-${id}`));
+    await pressOnce(deletePrompt(page).getByRole("button", { name: "Delete" }));
     await expect(dividers(page)).toHaveCount(0);
   });
 });
@@ -214,14 +216,14 @@ test("chat: a snapshot is deleted from its record, and stays deleted", async ({ 
     // The record zooms in, and a press on a moving button can miss: wait for it to hold still.
     await pressOnce(page.getByTestId("snapshot-details-delete"));
     await expect(page.getByText("Delete this snapshot?")).toBeVisible();
-    await pressOnce(page.getByTestId("snapshot-details-delete-cancel"));
+    await pressOnce(deletePrompt(page).getByRole("button", { name: "Keep" }));
     await expect(page.getByText("Delete this snapshot?")).toBeHidden();
     await expect(dividers(page)).toHaveCount(2);
   });
 
   await test.step("confirming takes that line, closes the record and leaves the other", async () => {
     await page.getByTestId("snapshot-details-delete").click();
-    await pressOnce(page.getByTestId("snapshot-details-delete-confirm"));
+    await pressOnce(deletePrompt(page).getByRole("button", { name: "Delete" }));
     await expect(page.getByTestId(`chat-checkpoint-mark-${id}`)).toHaveCount(0);
     await expect(page.getByTestId("snapshot-details-body")).toHaveCount(0);
     await expect(dividers(page)).toHaveCount(1);

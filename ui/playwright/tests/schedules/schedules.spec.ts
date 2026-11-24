@@ -383,9 +383,8 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
   await test.step("15. and the delete on its own page asks in a modal, which Keep dismisses", async () => {
     /*
-     * The other delete surface, and a different control: the list asks in a popconfirm
-     * beside the row, while the page about one schedule asks in a modal from its danger
-     * zone. Both are reached here rather than only the list one, because the two are
+     * The other delete surface, and a different control: the list asks from the row, while the page about one
+     * schedule asks from its danger zone. Both are reached here rather than only the list one, because the two are
      * separate call sites and it is the page-level one that carries the sentence saying
      * what deleting costs.
      */
