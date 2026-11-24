@@ -68,7 +68,7 @@ The shared `atelet.storageBackend` becomes `objectStore.backend` for Atelet.
 For a different store, configure the main chart's storage settings and the
 Atelet chart's `objectStore` settings. Point `objectStore.credentialsSecret` at
 your existing Secret, or set it to `""` to use the SDK credential chain. See the
-[Atelet chart values](https://github.com/kagent-dev/substrate/blob/v1.0.0/charts/substrate-atelet/README.md#values).
+[Atelet chart values](https://github.com/kagent-dev/substrate/blob/v1.1.0-alpha1/charts/substrate-atelet/README.md#values).
 
 Existing installations can move Atelet to the separate release in place. Use
 Helm 3.17 or later and follow [Moving atelet to substrate-atelet in the rc4
@@ -94,11 +94,11 @@ before running `kagent install` again, with these Kagent-specific adjustments:
    helm upgrade kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
      --version "${KAGENT_CHART_VERSION:?Set the installed Kagent chart version}" \
      -n kagent --reuse-values \
-     --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1.0.0 \
+     --set substrateWorkerPool.workerImage=ghcr.io/kagent-dev/substrate/ateworker-gvisor:v1.1.0-alpha1 \
      --wait
    ```
 
-   For microVM WorkerPools, use `ateworker-microvm:v1.0.0` instead. Update any
+   For microVM WorkerPools, use `ateworker-microvm:v1.1.0-alpha1` instead. Update any
    other WorkerPools through their owning configuration as well.
 4. In step 5, pass `-n ate-system` when upgrading `substrate-crds` installed by
    the CLI. Upgrade the base chart with `atelet.enabled=false`, then remove the
@@ -136,12 +136,12 @@ when overriding its ServiceAccount or certificate trust domain.
 
 Rc1 also changes Substrate's node-local image cache format. Stop actors on each
 node before deleting its old image cache (`/var/lib/ate/image-cache` by default);
-Atelet recreates it. See the [Substrate chart upgrade notes](https://github.com/kagent-dev/substrate/blob/v1.0.0/charts/substrate/README.md)
+Atelet recreates it. See the [Substrate chart upgrade notes](https://github.com/kagent-dev/substrate/blob/v1.1.0-alpha1/charts/substrate/README.md)
 before upgrading an existing installation.
 
 Substrate v0.7.0-alpha2 squashed its PostgreSQL migrations. Databases created by
 earlier releases, including v0.7.0-alpha1, cannot be upgraded in place and must be
-recreated. See Substrate's [schema evolution guide](https://github.com/kagent-dev/substrate/blob/v1.0.0/docs/dev/postgresql-schema-evolution.md).
+recreated. See Substrate's [schema evolution guide](https://github.com/kagent-dev/substrate/blob/v1.1.0-alpha1/docs/dev/postgresql-schema-evolution.md).
 
 The v0.6.0 snapshot-format transition requires a fresh development database and
 recreated Actors, Tags, and WorkerPools; Substrate does not migrate the older
@@ -273,7 +273,7 @@ Each run sets each login's password to its variable. An empty value removes the 
 
 Set `config.database.owner.role`, `config.database.readWrite.role` and `config.database.schema` to the values you used, and put a connection string for each login in the Secrets that `database.postgres.ownerConnectionStringSecretRef` and `database.postgres.readWriteConnectionStringSecretRef` name. Leave role settings out of the connection strings: Kagent assumes each role after it connects. With `config.database.skipMigrations: true`, only the read/write Secret and role are needed.
 
-Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v1.0.0/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
+Substrate needs its own identities. Run Substrate's [`pkg/postgressetup/setup.sql`](https://github.com/kagent-dev/substrate/blob/v1.1.0-alpha1/pkg/postgressetup/setup.sql) the same way, with its `substrate_*` variables.
 
 When vectors are enabled, install pgvector into `config.database.vectorSchema` before Kagent starts, and grant both Kagent roles `USAGE` on that schema. Migrations do not create the extension, and startup fails if it is installed in a different schema.
 
