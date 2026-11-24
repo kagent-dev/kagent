@@ -17,17 +17,17 @@ export const paths = {
    * A conversation with this agent that does not exist yet.
    *
    * Addressed by the *agent* rather than by an instance, because there is no instance
-   * — that is the whole point. Clicking "New chat" used to call
+   * — that is the whole point. Clicking "New conversation" used to call
    * `CreateAgentInstance` and navigate to the result, so every visit that changed its
    * mind left a permanent empty conversation behind. The live cluster carries nine of
    * them, all unnamed, all with no messages, and each holding a prepared revision that
    * is not collected when the last instance referencing it goes.
    *
    * So the instance is created by the first message instead, and this route is where a
-   * reader waits in the meantime. It redirects to `agentChat` as soon as the create
+   * reader waits in the meantime. It redirects to `agentConversation` as soon as the create
    * returns.
    */
-  agentNewChat: "/agents/:namespace/:name/new",
+  agentNewConversation: "/agents/:namespace/:name/new",
   /*
    * Conversations that belong to no agent.
    *
@@ -47,7 +47,7 @@ export const paths = {
    * `contextId`, so a second conversation with the same template and harness is a
    * second instance rather than a second session under this one.
    */
-  agentChat: "/agents/:id/chat",
+  agentConversation: "/agents/:id/conversation",
 
   /*
    * Agent templates: the behaviour half an agent is cut from.
@@ -57,6 +57,8 @@ export const paths = {
    */
   agentTemplates: "/agent-templates",
   agentTemplateNew: "/agent-templates/new",
+  /** Not a route of its own: the prefix every harness page sits under, for the nav. */
+  harnesses: "/harnesses",
   harnessNew: "/harnesses/new",
   /** After `new`, whose single static segment must win over this pattern. */
   harnessEdit: "/harnesses/:namespace/:name/edit",

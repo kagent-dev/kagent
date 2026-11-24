@@ -13,8 +13,8 @@ import {
 import { useTheme, type Theme } from "@emotion/react";
 import { byNewestFirst } from "@/components/agent-instances/conversationOrder";
 import { RenameConversationDialog } from "@/components/agent-instances/RenameConversationDialog";
-import { ConversationDetailsModal } from "@/components/chat/ConversationDetailsModal";
-import { ShareDialog } from "@/components/chat/ShareDialog";
+import { ConversationDetailsModal } from "@/components/conversation/ConversationDetailsModal";
+import { ShareDialog } from "@/components/conversation/ShareDialog";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import toast from "react-hot-toast";
 import {
@@ -46,7 +46,7 @@ import {
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
-import { useCollapsedBelow } from "@/components/chat/useNarrowViewport";
+import { useCollapsedBelow } from "@/components/conversation/useNarrowViewport";
 import {
   useExtensionAgentLinks,
   useExtensionAgentRailItems,
@@ -121,7 +121,7 @@ export interface AgentRailProps {
   /**
    * Which agent this rail is scoped to, where the surface already knows.
    *
-   * Reconstructed from the open conversation otherwise, which is fine on a chat page
+   * Reconstructed from the open conversation otherwise, which is fine on a conversation page
    * and impossible on the agent's own page or a new conversation — neither has a
    * conversation to read an Agent reference from. The switcher needs the Agent reference to leave the
    * current agent out of its own list, so a surface that knows it says so rather than
@@ -132,7 +132,7 @@ export interface AgentRailProps {
    * Controls the surface wants in the rail's gutter, under the collapse toggle.
    *
    * The gutter is a column this component already owns and keeps sticky, so a page
-   * with one more icon control — chat has Share — can put it there rather than
+   * with one more icon control — the conversation page has Share — can put it there rather than
    * spending a whole row of the conversation on it. Stacked under the toggle, so the
    * column stays one icon wide whatever is in it.
    */
@@ -164,11 +164,11 @@ export interface AgentRailProps {
    */
   autoTitle?: string;
   /** Starts another conversation with this agent: a new instance of the same agent. */
-  onNewChat?: () => void;
+  onNewConversation?: () => void;
   /**
    * Told after a conversation is deleted, for a surface that must react.
    *
-   * The chat page is the one that must: deleting the conversation it is showing leaves
+   * The conversation page is the one that must: deleting the conversation it is showing leaves
    * it on an address that no longer resolves, so it navigates away. Everything else can
    * ignore it — the list has already been re-read.
    */
@@ -184,7 +184,7 @@ export function AgentRail({
   instance,
   instances,
   autoTitle,
-  onNewChat,
+  onNewConversation,
   onDeleted,
 }: AgentRailProps) {
   const theme = useTheme();
@@ -201,7 +201,7 @@ export function AgentRail({
    */
   const links = useExtensionAgentLinks();
   const url = {
-    chat: (ref: AgentInstanceRef) => links?.chat?.(ref) ?? agentUrl.chat(ref),
+    conversation: (ref: AgentInstanceRef) => links?.conversation?.(ref) ?? agentUrl.conversation(ref),
     details: (ref: AgentInstanceRef) => links?.details?.(ref) ?? agentUrl.details(ref),
   };
 
@@ -302,7 +302,7 @@ export function AgentRail({
   const isReadingConversation = Boolean(ref.id) && !instance;
 
   /*
-   * Where "New chat" goes.
+   * Where "New conversation" goes.
    *
    * The new-conversation route is the agent's own address with `/new` on the end, so
    * it is derivable wherever the agent is known — including on the pages that have no
@@ -313,7 +313,7 @@ export function AgentRail({
    * Built from `agentPageHref`, never `agentHref`: a redirected details link addresses
    * the conversation, and `/new` under it is a route nothing serves.
    */
-  const newChatHref = agentPageHref ? `${agentPageHref}/new` : undefined;
+  const newConversationHref = agentPageHref ? `${agentPageHref}/new` : undefined;
 
   /*
    * The rail's navigation, as data an extension can reach.
@@ -328,12 +328,12 @@ export function AgentRail({
   const railOverrides = useExtensionAgentRailOverrides();
   const railContributions = useExtensionAgentRailItems();
   const railEntries = mergeRailEntries(
-    applyAgentRailOverrides(coreRailItems({ agentHref, newChatHref }), railOverrides),
+    applyAgentRailOverrides(coreRailItems({ agentHref, newConversationHref }), railOverrides),
     railContributions,
   );
 
   // Only show instances belonging to this Agent, even when other Agents reuse its template.
-  const chats = useMemo(() => {
+  const shownConversations = useMemo(() => {
     /*
      * With a conversation open, the list is narrowed to its siblings here — the
      * surfaces that mount this rail read every visible instance, and only
@@ -378,7 +378,7 @@ export function AgentRail({
   /*
    * Deleting is the rail's own job now.
    *
-   * It used to depend on a caller passing a handler, so the control existed on the chat
+   * It used to depend on a caller passing a handler, so the control existed on the conversation
    * page and nowhere else — the same row behaved differently depending on which surface
    * had mounted it. The rail lists the conversations, so it deletes them; a surface that
    * cares what happened afterwards says so through `onDeleted`.
@@ -401,7 +401,7 @@ export function AgentRail({
    * were already looking at.
    */
   const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(
-    chats,
+    shownConversations,
     ref.id ? { id: ref.id, title: autoTitle } : undefined,
   );
 
@@ -414,7 +414,7 @@ export function AgentRail({
    * which re-runs the transcript's history effect, whose cleanup aborts the controller
    * the in-flight send is using. The message went nowhere and nothing said so.
    *
-   * So the surface refreshes its own list when its turn is idle — see `AgentChatPage`.
+   * So the surface refreshes its own list when its turn is idle — see `AgentConversationPage`.
    */
 
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -458,7 +458,7 @@ export function AgentRail({
     setSelected((current) => {
       const next = new Set(current);
       if (withShift && anchorId) {
-        const ids = chats.map((chat) => chat.id);
+        const ids = shownConversations.map((conversation) => conversation.id);
         const from = ids.indexOf(anchorId);
         const to = ids.indexOf(id);
         if (from !== -1 && to !== -1) {
@@ -489,7 +489,7 @@ export function AgentRail({
    * which are already state, and a copy would go stale the moment either changed.
    */
 
-  const visibleIds = chats.map((chat) => chat.id);
+  const visibleIds = shownConversations.map((conversation) => conversation.id);
   const allVisibleSelected =
     visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
 
@@ -502,7 +502,7 @@ export function AgentRail({
     setBulkDeleting(true);
     setActionError(undefined);
     try {
-      const targets = chats.filter((chat) => selected.has(chat.id));
+      const targets = shownConversations.filter((conversation) => selected.has(conversation.id));
       await Promise.all(
         targets.map((target) =>
           apiClient.agentInstances.remove(target.id, { force: forceBulkDelete }),
@@ -588,7 +588,7 @@ export function AgentRail({
       const copy = await apiClient.agentInstances.fork(target.id, `${title} (copy)`);
       await conversations.refresh();
       toast.success(`Duplicated "${title}"`);
-      navigate(url.chat({ id: copy.id }));
+      navigate(url.conversation({ id: copy.id }));
     } catch (cause: unknown) {
       reportActionFailure("duplicate", cause, setActionError);
     } finally {
@@ -611,7 +611,7 @@ export function AgentRail({
   const isCollapsed = wantsCollapsed || isNarrow;
 
   /*
-   * The reader's choice and the window's, kept apart — see the same controls on the chat
+   * The reader's choice and the window's, kept apart — see the same controls on the conversation
    * page's agent panel. Only the choice is stored, so a rail folded away by a narrow
    * window is open again in the next wide one.
    */
@@ -883,11 +883,11 @@ export function AgentRail({
         </div>
       ) : null}
 
-      {/* Agent Details and New chat are the same kind of thing — somewhere to go — so
+      {/* Agent Details and New conversation are the same kind of thing — somewhere to go — so
           they sit together at one gap, and the sections around them at the rail's own.
-          New chat used to live with the conversation list, which put a nav entry inside
+          New conversation used to live with the conversation list, which put a nav entry inside
           a section it did not belong to and left the two gaps visibly different. */}
-      <nav data-testid="chat-sessions-nav" css={{ display: "grid", gap: theme.space(3) }}>
+      <nav data-testid="rail-conversations-nav" css={{ display: "grid", gap: theme.space(3) }}>
         {!agentHref && isReadingConversation ? (
           <span
             // Its own testid, not the entry's: a suite that clicks Agent Details must
@@ -928,18 +928,18 @@ export function AgentRail({
         {/*
           The one entry that is not always a link.
 
-          "New chat" is an address whenever the agent has one, so it is a core rail
+          "New conversation" is an address whenever the agent has one, so it is a core rail
           item like Agent Details and behaves like every other entry. Where the agent
           cannot be resolved there is nothing to link to, and a caller may still offer
           to handle it — so this stands in, and honours a `hidden` override the same
           way the item would.
         */}
-        {!newChatHref && !isRailEntryHidden("newChat", railOverrides) ? (
+        {!newConversationHref && !isRailEntryHidden("newConversation", railOverrides) ? (
           <button
             type="button"
-            disabled={!onNewChat}
-            onClick={() => onNewChat?.()}
-            data-testid="chat-new-session"
+            disabled={!onNewConversation}
+            onClick={() => onNewConversation?.()}
+            data-testid="rail-new-conversation"
             css={{
               ...rowStyles(theme, false),
               fontSize: 13,
@@ -950,14 +950,14 @@ export function AgentRail({
               fontFamily: "inherit",
               lineHeight: "inherit",
               width: "100%",
-              cursor: onNewChat ? "pointer" : "not-allowed",
-              opacity: onNewChat ? 1 : 0.5,
+              cursor: onNewConversation ? "pointer" : "not-allowed",
+              opacity: onNewConversation ? 1 : 0.5,
               background: "none",
               textAlign: "left",
             }}
           >
             <SquarePen size={14} aria-hidden />
-            New chat
+            New conversation
           </button>
         ) : null}
       </nav>
@@ -966,7 +966,7 @@ export function AgentRail({
           below its content without it, which is what would push the list's own scrollbar
           off the bottom of the rail instead of creating one. */}
       <div
-        data-testid="chat-sessions"
+        data-testid="rail-conversations"
         css={{
           display: "flex",
           flexDirection: "column",
@@ -984,11 +984,11 @@ export function AgentRail({
           in a column of tinted rows read as the one element that had been dropped in
           from a settings page. It takes the same ground and radius the rows use, loses
           the border until it is focused, and states what it searches — "Search" alone,
-          under a heading that says CHATS, is a question a reader has to answer by
+          under a heading that says CONVERSATIONS, is a question a reader has to answer by
           trying it.
         */}
         <Input
-          data-testid="chat-search"
+          data-testid="conversation-search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onClear={() => setQuery("")}
@@ -997,12 +997,12 @@ export function AgentRail({
           prefix={
             <Search size={13} color={theme.color.textMuted} css={{ marginInlineEnd: 2 }} />
           }
-          placeholder="Search chats"
+          placeholder="Search conversations"
           css={{
             ...searchInputStyles(theme),
             fontSize: 13,
             "& input": { fontSize: 13 },
-            // Clear of New chat above it: the two are different kinds of thing — one
+            // Clear of New conversation above it: the two are different kinds of thing — one
             // goes somewhere, one narrows what is below — and at the entries' own gap
             // they read as a third and fourth entry. Six rather than the scale's eight,
             // which separated them more than the sections are separated from each other.
@@ -1022,7 +1022,7 @@ export function AgentRail({
           selection exists anyway. The button sits at the end of the row behind an auto
           margin, so its arrival moves nothing.
         */}
-        {chats.length > 0 || conversations.isLoading ? (
+        {shownConversations.length > 0 || conversations.isLoading ? (
           <div
             css={{
               display: "flex",
@@ -1042,7 +1042,7 @@ export function AgentRail({
               // The list's reserved scrollbar track, measured — see `listGutter`.
               paddingInlineEnd: listGutter,
             }}
-            data-testid="chat-bulk-bar"
+            data-testid="conversation-bulk-bar"
           >
             <Checkbox
               checked={allVisibleSelected}
@@ -1051,11 +1051,11 @@ export function AgentRail({
               // Drawn while the list is read so the bar does not arrive under the
               // reader's pointer, but there is nothing to select until it lands.
               disabled={conversations.isLoading}
-              data-testid="chat-select-all"
+              data-testid="conversation-select-all"
               css={checkboxStyles(theme)}
             >
               <Text
-                data-testid="chat-selection-count"
+                data-testid="conversation-selection-count"
                 css={{ fontSize: 12, color: theme.color.textMuted }}
               >
                 {/* The count once there is one, and what the box does before that.
@@ -1077,7 +1077,7 @@ export function AgentRail({
                     key: "delete",
                     danger: true,
                     icon: <Trash size={13} />,
-                    label: `Delete ${selected.size === 1 ? "chat" : "all selected"}`,
+                    label: `Delete ${selected.size === 1 ? "conversation" : "all selected"}`,
                     onClick: () => setConfirmingBulk(true),
                   },
                 ],
@@ -1094,7 +1094,7 @@ export function AgentRail({
                   />
                 }
                 aria-label="Actions for the selected conversations"
-                data-testid="chat-bulk-menu"
+                data-testid="conversation-bulk-menu"
                 // The same square as the menu on each row below it.
                 css={{ ...menuButtonStyles(theme, isBulkMenuOpen), marginInlineStart: "auto" }}
               />
@@ -1109,7 +1109,7 @@ export function AgentRail({
               okButtonProps={{ danger: true, loading: isBulkDeleting }}
               cancelText="Keep"
               title={`Delete ${selected.size} ${selected.size === 1 ? "conversation" : "conversations"}?`}
-              data-testid="chat-bulk-confirm"
+              data-testid="conversation-bulk-confirm"
             >
               <Text css={{ color: theme.color.textMuted }}>
                 Everything said in them goes too, and none of it can be recovered. The
@@ -1133,14 +1133,14 @@ export function AgentRail({
             marginTop: 4,
           }}
         >
-          Chats
+          Conversations
         </Text>
 
         {actionError ? (
           <Alert
             type="error"
             showIcon
-            data-testid="chat-delete-error"
+            data-testid="conversation-delete-error"
             title={`Could not ${actionError.action}`}
             // The controller's own words. Two are common and neither is a fault: the
             // conversation belongs to somebody else, which is a fact about permission;
@@ -1155,14 +1155,14 @@ export function AgentRail({
              list that replaces it, so the first visit to an agent shifted everything
              below it the moment the conversations arrived — and only the first, because
              every visit after that is served from cache with nothing to wait for. */
-          <div data-testid="chat-sessions-loading" css={{ minHeight: 132, paddingInline: theme.space(2) }}>
+          <div data-testid="rail-conversations-loading" css={{ minHeight: 132, paddingInline: theme.space(2) }}>
             <Skeleton active paragraph={{ rows: 4 }} title={false} />
           </div>
         ) : conversations.error ? (
           <Alert
             type="error"
             showIcon
-            data-testid="chat-sessions-error"
+            data-testid="rail-conversations-error"
             title="Could not load conversations"
             description={conversations.error.message}
             action={
@@ -1171,9 +1171,9 @@ export function AgentRail({
               </Button>
             }
           />
-        ) : chats.length === 0 ? (
+        ) : shownConversations.length === 0 ? (
           <Text
-            data-testid="chat-sessions-empty"
+            data-testid="rail-conversations-empty"
             css={{
               color: theme.color.textMuted,
               fontSize: 12,
@@ -1190,7 +1190,7 @@ export function AgentRail({
         ) : (
           <ul
             ref={measureGutter}
-            data-testid="chat-sessions-list"
+            data-testid="rail-conversations-list"
             css={{
               listStyle: "none",
               margin: 0,
@@ -1225,8 +1225,8 @@ export function AgentRail({
               ...scrollbarStyles(theme),
             }}
           >
-            {chats.map((candidate) => {
-              const href = url.chat({ id: candidate.id });
+            {shownConversations.map((candidate) => {
+              const href = url.conversation({ id: candidate.id });
               /* The open row prefers its transcript's title, and keeps the listed one
                  until that transcript loads, so opening a row never shows its id. */
               const candidateTitle =
@@ -1234,7 +1234,7 @@ export function AgentRail({
                 derivedTitles[candidate.id];
 
               return (
-              <ChatEntry
+              <ConversationEntry
                 key={candidate.id}
                 instance={candidate}
                 autoTitle={candidateTitle}
@@ -1356,7 +1356,7 @@ export function AgentRail({
  *
  * The reader's own name where there is one, and an honest "untitled" plus enough id
  * to tell it from its neighbours where there is not — `conversationTitle` decides
- * that, and it decides it identically for the rail, the agent's page and the chat
+ * that, and it decides it identically for the rail, the agent's page and the conversation
  * header, so the same conversation cannot be called three things.
  *
  * The age is appended here and nowhere else: the rail's rows carry nothing but a
@@ -1393,7 +1393,7 @@ function RailEntry({ item, isActive }: { item: RailItem; isActive: boolean }) {
   );
 }
 
-function ChatEntry({
+function ConversationEntry({
   instance,
   autoTitle,
   isTitleLoading,
@@ -1458,11 +1458,11 @@ function ChatEntry({
    *
    * `ExtensionSlot` renders nothing when no extension contributes, but a menu item whose
    * label renders nothing is still a menu item — the menu would show an empty,
-   * clickable strip under Chat details. So whether the item exists at all is decided by
+   * clickable strip under Conversation details. So whether the item exists at all is decided by
    * whether there is anything to put in it.
    */
   const contributedMenuItems = useExtensionSlotComponents(
-    "app_agents_agentRail_chatRow_menuItems",
+    "app_agents_agentRail_conversationRow_menuItems",
   );
 
   return (
@@ -1482,7 +1482,7 @@ function ChatEntry({
         okButtonProps={{ danger: true, loading: isDeleting }}
         cancelText="Keep"
         title={`Delete "${conversationLabel(instance, autoTitle, isTitleLoading)}"?`}
-        data-testid={`chat-session-confirm-${instance.id}`}
+        data-testid={`rail-conversation-confirm-${instance.id}`}
       >
         <Text css={{ color: theme.color.textMuted }}>
           This conversation and everything said in it cannot be recovered. The worker it
@@ -1528,7 +1528,7 @@ function ChatEntry({
         />
         <Checkbox
           checked={isSelected}
-          data-testid={`chat-session-select-${instance.id}`}
+          data-testid={`rail-conversation-select-${instance.id}`}
           aria-label={`Select ${conversationLabel(instance, autoTitle, isTitleLoading)}`}
           onClick={(event) => {
             // Read from the event rather than a keydown listener: the shift state that
@@ -1552,7 +1552,7 @@ function ChatEntry({
 
       <Link
         to={href}
-        data-testid={`chat-session-${instance.id}`}
+        data-testid={`rail-conversation-${instance.id}`}
         data-active={isActive}
         // As `RailEntry` does for the entries above. The row is a link to a page, so
         // when it is that page a screen reader should be told -- the highlight is the
@@ -1602,7 +1602,7 @@ function ChatEntry({
         nowhere else to say it.
       */}
       <ExtensionSlot
-        id="app_agents_agentRail_chatRow_marker"
+        id="app_agents_agentRail_conversationRow_marker"
         context={slotContext}
       />
       {/*
@@ -1613,7 +1613,7 @@ function ChatEntry({
         undo it. Behind a menu it takes two deliberate actions, and the row is quieter
         for the reader who is not deleting anything, which is almost always.
 
-        It also only existed where a caller passed a handler, so it appeared on the chat
+        It also only existed where a caller passed a handler, so it appeared on the conversation
         and nowhere else. The rail owns the delete now, so the row behaves the same on
         every surface that mounts it.
       */}
@@ -1622,13 +1622,13 @@ function ChatEntry({
         onOpenChange={setMenuOpen}
         menu={{
           items: [
-            /* Details and Share are the gutter controls from the chat page, offered here
+            /* Details and Share are the gutter controls from the conversation page, offered here
                for the rows the reader is not in. Both take an instance id, so neither
                needs the conversation open. */
             {
               key: "details",
               icon: <FileText size={13} />,
-              label: "Chat details",
+              label: "Conversation details",
               onClick: () => setShowingDetails(true),
             },
             /*
@@ -1657,7 +1657,7 @@ function ChatEntry({
                     style: { position: "relative" as const },
                     label: (
                       <ExtensionSlot
-                        id="app_agents_agentRail_chatRow_menuItems"
+                        id="app_agents_agentRail_conversationRow_menuItems"
                         context={slotContext}
                       />
                     ),
@@ -1667,19 +1667,19 @@ function ChatEntry({
             {
               key: "share",
               icon: <Share2 size={13} />,
-              label: "Share chat",
+              label: "Share conversation",
               onClick: () => setSharing(true),
             },
             {
               key: "rename",
               icon: <Pencil size={13} />,
-              label: "Rename chat",
+              label: "Rename conversation",
               onClick: () => setRenaming(true),
             },
             {
               key: "duplicate",
               icon: <Copy size={13} />,
-              label: "Duplicate chat",
+              label: "Duplicate conversation",
               onClick: () => onDuplicate(instance),
             },
             { type: "divider" as const },
@@ -1687,7 +1687,7 @@ function ChatEntry({
               key: "delete",
               danger: true,
               icon: <Trash size={13} />,
-              label: "Delete chat",
+              label: "Delete conversation",
               onClick: () => setConfirming(true),
             },
           ],
@@ -1697,7 +1697,7 @@ function ChatEntry({
           type="text"
           size="small"
           loading={isDeleting || isDuplicating}
-          data-testid={`chat-session-menu-${instance.id}`}
+          data-testid={`rail-conversation-menu-${instance.id}`}
           aria-label={`Actions for ${conversationLabel(instance, autoTitle, isTitleLoading)}`}
           icon={
             <MoreVertical

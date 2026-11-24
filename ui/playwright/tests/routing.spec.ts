@@ -1,5 +1,5 @@
 import { test, expect } from "../fixtures/test";
-import { agentChat, instances, loadPage, expectPageTitle, routes } from "../helpers/app";
+import { agentConversation, instances, loadPage, expectPageTitle, routes } from "../helpers/app";
 import { clickNav, expectNoShell, expectShell } from "../helpers/nav";
 
 /**
@@ -44,7 +44,7 @@ test("routing: in-app navigation, deep links, 404, and standalone routes", async
 
   await test.step("4. a deep link renders that route on a cold load", async () => {
     // A full page load, not a client-side transition: this is the link someone
-    // pastes into chat, and the one a server that does not fall back to
+    // pastes into a message, and the one a server that does not fall back to
     // index.html would break.
     await loadPage(page, routes.substrate, { title: "Substrate" });
     await expectShell(page);
@@ -54,7 +54,7 @@ test("routing: in-app navigation, deep links, 404, and standalone routes", async
   await test.step("5. a deep link with route params renders too", async () => {
     // Two params: the namespace and the AgentInstance id, which is how every agent
     // surface is addressed now.
-    await loadPage(page, agentChat(instances.ready));
+    await loadPage(page, agentConversation(instances.ready));
     // The agent surfaces carry no page heading — the rail names the agent instead —
     // so what proves the params reached the route is the rail being scoped to them.
     // The card shows the template, which is what a reader recognises the agent by,
@@ -62,7 +62,7 @@ test("routing: in-app navigation, deep links, 404, and standalone routes", async
     await expect(page.getByTestId("agent-rail-identity")).toContainText(
       instances.ready.slice(0, 8),
     );
-    await expect(page.getByTestId("chat-panel")).toBeVisible();
+    await expect(page.getByTestId("conversation-panel")).toBeVisible();
   });
 
   await test.step("6. an unknown path renders 404 inside the shell", async () => {

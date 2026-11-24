@@ -21,12 +21,12 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { AgentsLandingPage } from "@/pages/agents/AgentsLandingPage";
 import { HarnessEditPage, HarnessNewPage } from "@/pages/agents/HarnessNewPage";
 import { HarnessDetailsPage } from "@/pages/agents/HarnessDetailsPage";
-import { AgentNewChatPage } from "@/pages/AgentNewChatPage";
+import { AgentNewConversationPage } from "@/pages/AgentNewConversationPage";
 import { UnmappedConversationsPage } from "@/pages/UnmappedConversationsPage";
 import { AgentPage } from "@/pages/AgentPage";
 import { AgentFormPage } from "@/pages/agents/AgentFormPage";
 import { AgentDetailsPage } from "@/pages/AgentDetailsPage";
-import { AgentChatPage } from "@/pages/AgentChatPage";
+import { AgentConversationPage } from "@/pages/AgentConversationPage";
 
 import { AgentTemplateNewPage } from "@/pages/AgentTemplateNewPage";
 import { AgentTemplateDetailsPage } from "@/pages/AgentTemplateDetailsPage";
@@ -69,10 +69,10 @@ const coreLayoutRoutes: (RouteObject & { key: string })[] = [
   { key: "agentNew", path: paths.agentNew, element: <AgentFormPage /> },
   { key: "agent", path: paths.agent, element: <AgentPage /> },
   { key: "agentEdit", path: paths.agentEdit, element: <AgentFormPage /> },
-  { key: "agentNewChat", path: paths.agentNewChat, element: <AgentNewChatPage /> },
+  { key: "agentNewConversation", path: paths.agentNewConversation, element: <AgentNewConversationPage /> },
   /* After the static `/agents/...` segments, which must win over this pattern. */
   { key: "agentDetail", path: paths.agentDetail, element: <AgentDetailsPage /> },
-  { key: "agentChat", path: paths.agentChat, element: <AgentChatPage /> },
+  { key: "agentConversation", path: paths.agentConversation, element: <AgentConversationPage /> },
   { key: "harnessNew", path: paths.harnessNew, element: <HarnessNewPage /> },
   { key: "harnessEdit", path: paths.harnessEdit, element: <HarnessEditPage /> },
   { key: "harness", path: paths.harness, element: <HarnessDetailsPage /> },

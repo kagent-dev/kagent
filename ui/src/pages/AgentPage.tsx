@@ -7,7 +7,7 @@ import { useTheme } from "@emotion/react";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { AgentSchedules } from "@/components/agent/AgentSchedules";
-import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
+import { AgentContextPanel } from "@/components/conversation/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
 import { backLinkState } from "@/router/backLink";
@@ -126,14 +126,14 @@ export function AgentPage() {
   /**
    * Where a conversation row leads.
    *
-   * A distribution serving its own chat redirects it through
+   * A distribution serving its own conversation page redirects it through
    * `agentLinks.fromInstancesList` — which is where instance rows are listed now — and
    * a contribution that throws or answers with nothing falls back to this
    * application's own route rather than to a dead link.
    */
   const { fromInstancesList } = useExtensionAgentLinks();
-  const chatPath = (row: AgentInstance) => {
-    const own = agentUrl.chat({ id: row.id });
+  const conversationPath = (row: AgentInstance) => {
+    const own = agentUrl.conversation({ id: row.id });
     if (!fromInstancesList) return own;
     try {
       const destination = fromInstancesList(row);
@@ -152,10 +152,10 @@ export function AgentPage() {
    * Creating on the click is what left nine empty conversations on the live cluster —
    * every visit that changed its mind kept its instance, and an instance holds a
    * prepared revision that is not collected when the last one referencing it goes. The
-   * create now belongs to the first message; see `AgentNewChatPage`.
+   * create now belongs to the first message; see `AgentNewConversationPage`.
    */
   function startConversation(): void {
-    if (namespace && name) navigate(buildPath(paths.agentNewChat, { namespace, name }));
+    if (namespace && name) navigate(buildPath(paths.agentNewConversation, { namespace, name }));
   }
 
   async function removeAgent(): Promise<void> {
@@ -215,7 +215,7 @@ export function AgentPage() {
             <Space size={8}>
               {openable ? (
                 <Link
-                  to={chatPath(row)}
+                  to={conversationPath(row)}
                   aria-label={`Open conversation ${title}`}
                   data-testid={`conversation-link-${row.id}`}
                   css={{
@@ -321,7 +321,7 @@ export function AgentPage() {
         },
       },
     ],
-    // `chatPath` is rebuilt every render and closes only over the extension link, which
+    // `conversationPath` is rebuilt every render and closes only over the extension link, which
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -336,7 +336,7 @@ export function AgentPage() {
     // No heading and no actions row.
     //
     // The rail beside this page names the agent and carries both the way back to the
-    // agents list and New chat, so a title repeating the name, a subtitle repeating the
+    // agents list and New conversation, so a title repeating the name, a subtitle repeating the
     // harness, and three buttons duplicating rail entries cost a band across the top and
     // said nothing new.
     //
@@ -348,7 +348,7 @@ export function AgentPage() {
       {/*
         The same rail as the conversation surfaces.
 
-        This page was the one agent surface without it, so arriving here from a chat
+        This page was the one agent surface without it, so arriving here from a conversation
         took the navigation away — and arriving from the agents list gave a reader no
         way onward except back. The rail is the navigation *within* an agent, so a
         surface that drops it is a dead end.
@@ -372,7 +372,7 @@ export function AgentPage() {
            *
            * Stretched, each sidebar is as tall as the whole conversation — and a sticky
            * element as tall as its scroll container has nowhere to stick, so on a long
-           * chat both rails scrolled away with the page. At `flex-start` they keep
+           * conversation both rails scrolled away with the page. At `flex-start` they keep
            * their own height and stay put, which is the entire reason they are sticky.
            */
           alignItems: "flex-start",
@@ -390,7 +390,7 @@ export function AgentPage() {
             // own list without waiting for a conversation that does not exist.
             agentRef={{ namespace: namespace ?? "", name }}
             instances={{ ...conversations, data: conversations.data?.own }}
-            onNewChat={startConversation}
+            onNewConversation={startConversation}
           />
         ) : null}
 
@@ -599,11 +599,11 @@ export function AgentPage() {
               : view.isNarrowed
                 ? "No conversations match those filters."
                 : conversations.data
-                  ? "No conversations with this agent yet. Start one with “New chat”."
+                  ? "No conversations with this agent yet. Start one with “New conversation”."
                   : " ",
           }}
           onRow={(row) =>
-            clickableRow(() => void navigate(chatPath(row)), {
+            clickableRow(() => void navigate(conversationPath(row)), {
               enabled: openableIds === undefined || openableIds.has(row.id),
             })
           }
@@ -619,7 +619,7 @@ export function AgentPage() {
       {/*
         What this agent is, beside the conversations it has had.
 
-        The same panel the chat carries, given the Agent reference rather than a conversation: the
+        The same panel the conversation page carries, given the Agent reference rather than a conversation: the
         model, the instructions and the tools all live on the template, so this page can
         show them without an instance to read them through. Only the prepared revision
         needs a conversation, and it is left out here rather than guessed at.

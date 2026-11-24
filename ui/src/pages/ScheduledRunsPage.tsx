@@ -228,7 +228,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
-            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.sessionId })}
+            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentConversation, { id: row.sessionId })}
               css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Open conversation<ExternalLink size={14} /></Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
@@ -253,7 +253,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
         <Typography.Text css={{ color: theme.color.textMuted }}>
           Deleting this schedule stops future executions. Accepted executions continue; history and conversations are retained.
         </Typography.Text>
-        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
+        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" outlined disabled={disabled}
           description="Stops future executions. Accepted executions continue; history and conversations are retained."
           onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }}
           onDeleted={async () => { await invalidate(); await navigate(paths.scheduledRuns); }} />

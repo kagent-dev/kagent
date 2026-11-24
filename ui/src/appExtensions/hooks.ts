@@ -7,7 +7,7 @@ import {
   extensionFormFields,
   extensionNavItems,
   extensionNavOverrides,
-  extensionChatPartRenderers,
+  extensionConversationPartRenderers,
   extensionProviderIcons,
   extensionRoutes,
   extensionShell,
@@ -28,7 +28,7 @@ import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import type {
   AppExtensionConfig,
   ExtensionAgentLinks,
-  ExtensionChatPartRenderers,
+  ExtensionConversationPartRenderers,
   ExtensionAgentRailItemContribution,
   ExtensionNavItemContribution,
   ExtensionRouteContribution,
@@ -154,8 +154,8 @@ export function useExtensionProviderIcons(): Readonly<
   return useMemo(() => extensionProviderIcons(extensions), [extensions]);
 }
 
-/** Chat part renderers from every extension, later ones replacing earlier keys. */
-export function useExtensionChatPartRenderers(): ExtensionChatPartRenderers {
+/** Conversation part renderers from every extension, later ones replacing earlier keys. */
+export function useExtensionConversationPartRenderers(): ExtensionConversationPartRenderers {
   const extensions = useAppExtensions();
-  return useMemo(() => extensionChatPartRenderers(extensions), [extensions]);
+  return useMemo(() => extensionConversationPartRenderers(extensions), [extensions]);
 }

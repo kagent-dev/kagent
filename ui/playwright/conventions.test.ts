@@ -30,7 +30,7 @@ const TESTS = join(__dirname, "tests");
  * and a new resource folder then had to be remembered into it — which is the drift this
  * file exists to catch, so it should not need remembering here either.
  */
-const NOT_RESOURCES = ["agents", "auth", "chat", "extension-points", "substrate"];
+const NOT_RESOURCES = ["agents", "auth", "conversation", "extension-points", "substrate"];
 
 /** Folders whose subject is one resource, and which therefore hold one spec. */
 function resources(): string[] {
@@ -66,7 +66,7 @@ describe("playwright layout", () => {
     const expected = folder.replace(/-/g, " ");
     for (const spec of specsIn(join(TESTS, folder))) {
       for (const title of titles(join(TESTS, folder, spec))) {
-        // The prefix is everything before the first colon: `chat agent rail: …` is the
+        // The prefix is everything before the first colon: `conversation agent rail: …` is the
         // folder plus a narrower subject, and both halves count as beginning with it.
         const prefix = title.split(":")[0];
         expect(
@@ -114,7 +114,7 @@ describe("playwright layout", () => {
 
   it("a journey in one test carries the lifecycle budget", () => {
     /*
-     * Applied by shape rather than by folder, which is how `chat/questions.spec.ts`
+     * Applied by shape rather than by folder, which is how `conversation/questions.spec.ts`
      * came to hold twelve steps on the thirty-second default and time out in CI at
      * step eight. A resource folder is not what makes a test long; the number of
      * steps sharing one budget is.

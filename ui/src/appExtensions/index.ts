@@ -21,7 +21,7 @@ export {
   useExtensionAgentLinks,
   useExtensionApis,
   useExtensionBranding,
-  useExtensionChatPartRenderers,
+  useExtensionConversationPartRenderers,
   useExtensionFormFields,
   useExtensionAgentRailItems,
   useExtensionAgentRailOverrides,
@@ -41,7 +41,7 @@ export {
   extensionAgentLinks,
   extensionApis,
   extensionBranding,
-  extensionChatPartRenderers,
+  extensionConversationPartRenderers,
   extensionFormFields,
   extensionAgentRailItems,
   extensionAgentRailOverrides,
@@ -74,10 +74,10 @@ export type {
 
 export type {
   AppExtensionConfig,
-  ChatPartForKey,
-  ChatPartRendererKey,
-  ChatPartRendererProps,
-  ExtensionChatPartRenderers,
+  ConversationPartForKey,
+  ConversationPartRendererKey,
+  ConversationPartRendererProps,
+  ExtensionConversationPartRenderers,
   ExtensionAgentLinks,
   ExtensionAgentInstanceRef,
   ExtensionAgentRef,
@@ -107,7 +107,12 @@ export type {
   ExtensionFormPayload,
 } from "./formFields";
 
-export { buildSidebarSections, isNavPathActive } from "./composition";
+export {
+  activeKeyFor,
+  activeSidebarKey,
+  buildSidebarSections,
+  isNavPathActive,
+} from "./composition";
 export type { SidebarSection } from "./composition";
 
 // One deployment setting, by name. An extension's own settings are named

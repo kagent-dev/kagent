@@ -110,7 +110,7 @@ export function DashboardPage() {
    * The hook reads one task list per conversation and only for the ones nobody has
    * named, so this is at most five reads and usually fewer — well inside the budget it
    * enforces for the rail, which does the same thing for thirty. Without it a card
-   * headed "Recent agent chat sessions" lists rows called "Untitled", which is true and
+   * headed "Recent agent conversations" lists rows called "Untitled", which is true and
    * useless.
    */
   const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(recent);
@@ -205,21 +205,21 @@ export function DashboardPage() {
             />
           </Card>
 
-          <Card title="Recent agent chat sessions" data-testid="dashboard-recent-card">
+          <Card title="Recent agent conversations" data-testid="dashboard-recent-card">
             <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
               {agents.error ? (
                 <Text
                   data-testid="recent-agents-unavailable"
                   css={{ color: theme.color.textMuted }}
                 >
-                  Recent activity is unavailable while chat sessions cannot be read.
+                  Recent activity is unavailable while conversations cannot be read.
                 </Text>
               ) : recent.length === 0 ? (
                 agents.isLoading ? null : (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     data-testid="recent-agents-empty"
-                    description="No chat sessions yet."
+                    description="No conversations yet."
                   />
                 )
               ) : (
@@ -281,7 +281,7 @@ function RecentAgent({
     >
       <div css={{ minWidth: 0 }}>
         <Link
-          to={buildPath(paths.agentChat, { id: row.id })}
+          to={buildPath(paths.agentConversation, { id: row.id })}
           css={{ fontWeight: 500 }}
         >
           {/* The name the reader gave it, the title derived from its first message, or

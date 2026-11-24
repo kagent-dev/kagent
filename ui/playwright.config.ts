@@ -185,7 +185,7 @@ export default defineConfig({
           //
           // Not redundancy: the two disagree about things this app depends on —
           // flex and grid sizing, scroll metrics, focus and selection, and how
-          // streamed responses are delivered. A chat that pins to the bottom and
+          // streamed responses are delivered. A conversation that pins to the bottom and
           // a rail that stays put are exactly the kind of thing one engine gets
           // right by accident.
           //

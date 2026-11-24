@@ -2,7 +2,7 @@ import { test, expect } from "../../fixtures/test";
 import { dataRows, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
-  confirmation,
+  dialog,
   expectRequired,
   optionNamed,
   pressOnce,
@@ -344,7 +344,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     await deleteButton.click();
 
     // Existing revisions survive deletion; future configuration needs this reference.
-    const consequence = confirmation(page);
+    const consequence = dialog(page);
     await expect(consequence).toContainText("Existing conversations");
     await expect(consequence).toContainText(
       "last successful revisions are retained",
@@ -353,9 +353,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
   });
 
   await test.step("12. confirming removes it, and the list that opens does not show it", async () => {
-    // Scoped to the visible popconfirm: every row's confirmation is in the DOM at once,
-    // so an unscoped Delete can answer a prompt nobody is looking at.
-    await confirmation(page).getByRole("button", { name: "Delete" }).click();
+    await dialog(page).getByRole("button", { name: "Delete" }).click();
     await page.waitForURL(/\/agents\?.*tab=templates/, { timeout: 30_000 });
 
     // The claim worth making. The list is cached, so landing on it without re-reading
@@ -423,7 +421,7 @@ test("agent templates: a template is created, read, edited and deleted", async (
     // row of its own: the rail names the agent and holds both, so the offer of a new
     // conversation is what says the page arrived.
     await page.waitForURL(/\/agents\/kagent\/k8s-agent-7f3a91c$/);
-    await expect(page.getByTestId("chat-new-session")).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId("rail-new-conversation")).toBeVisible({ timeout: 30_000 });
   });
 
   await test.step("14. an empty result says so instead of showing a bare table", async () => {

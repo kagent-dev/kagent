@@ -90,7 +90,7 @@ export interface FoundryConfig {
   endpoint?: string;
   deployment: string;
   apiVersion?: string;
-  /** OpenAI-compatible chat completions (default) or the Anthropic Messages API for Claude models. */
+  /** OpenAI-compatible conversation completions (default) or the Anthropic Messages API for Claude models. */
   apiFormat?: "OpenAI" | "Anthropic";
 }
 

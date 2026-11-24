@@ -117,7 +117,7 @@ export function ExampleDashboardCard() {
 }
 
 /**
- * Mounted on every chat message. Demonstrates the richest context any point
+ * Mounted on every conversation message. Demonstrates the richest context any point
  * passes — which message, who sent it, and what it said — so a contribution can
  * act on one turn rather than on the conversation as a whole.
  */
@@ -125,7 +125,7 @@ export function ExampleMessageAction({
   messageId,
   role,
   text,
-}: ExtensionPointProps<"app_agents_agentChat_agentChatMessage_additionalActionsButton">) {
+}: ExtensionPointProps<"app_agents_agentConversation_agentConversationMessage_additionalActionsButton">) {
   return (
     <Button
       size="small"

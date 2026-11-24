@@ -21,7 +21,7 @@ function fill(template: string, ref: Partial<AgentInstanceRef>): string {
 /** A conversation's two surfaces. It has no spec to edit; its Agent does, at `paths.agentEdit`. */
 export const agentUrl = {
   details: (ref: Partial<AgentInstanceRef>) => fill(paths.agentDetail, ref),
-  chat: (ref: Partial<AgentInstanceRef>) => fill(paths.agentChat, ref),
+  conversation: (ref: Partial<AgentInstanceRef>) => fill(paths.agentConversation, ref),
 };
 
 export interface AgentRef { namespace: string; name: string; }
@@ -29,7 +29,7 @@ export function agentPageUrl(ref: Partial<AgentRef>): string | undefined {
  if (!ref.namespace || !ref.name) return undefined;
  return paths.agent.replace(":namespace", encodeURIComponent(ref.namespace)).replace(":name", encodeURIComponent(ref.name));
 }
-export function agentNewChatUrl(ref: Partial<AgentRef>): string | undefined {
+export function agentNewConversationUrl(ref: Partial<AgentRef>): string | undefined {
  const base = agentPageUrl(ref);
  return base ? `${base}/new` : undefined;
 }

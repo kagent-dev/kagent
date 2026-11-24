@@ -2,10 +2,10 @@ import { Alert, Skeleton, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
-import { ChatTranscript } from "@/components/chat/ChatTranscript";
+import { ConversationTranscript } from "@/components/conversation/ConversationTranscript";
 import { useAgentInstanceShareToken } from "@/api/shareToken";
 import { useAgentInstance } from "@/api";
-import { useChat } from "@/api/hooks/useChat";
+import { useConversation } from "@/api/hooks/useConversation";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
 import { shortInstanceId } from "@/components/agent-instances/instanceLabels";
 
@@ -34,21 +34,21 @@ export function SharedAgentPage() {
     token: string;
   }>();
 
-  // Before the read below, and that ordering is load-bearing: the chat client reads
+  // Before the read below, and that ordering is load-bearing: the conversation client reads
   // the registered token when it builds a call, and registering after the first
   // request has gone means an unauthenticated read that looks like success.
   useAgentInstanceShareToken(id, token);
 
   const instance = useAgentInstance(id);
-  const conversation = id && instance.data?.agent ? { id, agent: instance.data.agent } : undefined;
+  const conversationRef = id && instance.data?.agent ? { id, agent: instance.data.agent } : undefined;
 
-  const chat = useChat(conversation);
-  const error = instance.error ?? chat.historyError;
+  const conversation = useConversation(conversationRef);
+  const error = instance.error ?? conversation.historyError;
 
   // Keep up with messages the owner sends while this page is open.
-  useLiveTranscript(chat.refreshTranscript, {
-    enabled: Boolean(conversation),
-    isBusy: chat.phase === "streaming",
+  useLiveTranscript(conversation.refreshTranscript, {
+    enabled: Boolean(conversationRef),
+    isBusy: conversation.phase === "streaming",
   });
 
   return (
@@ -79,7 +79,7 @@ export function SharedAgentPage() {
           // sent the link.
           description={error.message}
         />
-      ) : instance.isLoading || chat.isLoadingHistory ? (
+      ) : instance.isLoading || conversation.isLoadingHistory ? (
         <Skeleton active paragraph={{ rows: 6 }} data-testid="shared-agent-loading" />
       ) : (
         // Bound the transcript height so long conversations scroll within it.
@@ -92,7 +92,7 @@ export function SharedAgentPage() {
             height: `calc(100vh - ${theme.layout.headerHeight}px - ${theme.space(48)})`,
           }}
         >
-          <ChatTranscript chat={chat} sessionId={id} readOnly />
+          <ConversationTranscript conversation={conversation} conversationId={id} readOnly />
         </div>
       )}
 
