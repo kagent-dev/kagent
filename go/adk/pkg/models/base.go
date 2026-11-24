@@ -62,12 +62,16 @@ func BuildHTTPClient(tc TransportConfig) (*http.Client, error) {
 	// root traces at tracing-aware proxies (kagent-dev/kagent#2550).
 	transport = otelhttp.NewTransport(transport)
 
-	timeout := defaultTimeout
-	if tc.Timeout != nil {
-		timeout = *tc.Timeout
-	}
+	return &http.Client{Timeout: tc.requestTimeout(), Transport: transport}, nil
+}
 
-	return &http.Client{Timeout: timeout, Transport: transport}, nil
+// requestTimeout returns the timeout for one whole request: Timeout when set,
+// otherwise defaultTimeout.
+func (tc TransportConfig) requestTimeout() time.Duration {
+	if tc.Timeout != nil {
+		return *tc.Timeout
+	}
+	return defaultTimeout
 }
 
 // withConnectTimeout returns a copy of base (which must be an *http.Transport)
