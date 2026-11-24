@@ -374,6 +374,25 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	readActive, err := second.GetTask(publicCtx, &a2apb.GetTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	require.Equal(t, taskID, readActive.Id)
+	visitor := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("x-user-id", "bob", a2a.SvcParamVersion, string(a2a.Version)))
+	for _, scenario := range []struct {
+		name      string
+		ctx       context.Context
+		tenant    string
+		taskID    string
+		contextID string
+	}{
+		{"missing conversation", publicCtx, "team-a/assistant", uuid.NewString(), uuid.NewString()},
+		{"another user's conversation", visitor, "team-a/assistant", taskID, id},
+		{"conversation on another Agent", publicCtx, "team-a/other", taskID, id},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			_, err := second.GetTask(scenario.ctx, &a2apb.GetTaskRequest{Tenant: scenario.tenant, Id: scenario.taskID})
+			require.Equal(t, codes.NotFound, status.Code(err), "GetTask: %v", err)
+			_, err = second.ListTasks(scenario.ctx, &a2apb.ListTasksRequest{Tenant: scenario.tenant, ContextId: scenario.contextID})
+			require.Equal(t, codes.NotFound, status.Code(err), "ListTasks: %v", err)
+		})
+	}
 	resumed, err := second.SubscribeToTask(publicCtx, &a2apb.SubscribeToTaskRequest{Tenant: "team-a/assistant", Id: taskID})
 	require.NoError(t, err)
 	initial, err := resumed.Recv()

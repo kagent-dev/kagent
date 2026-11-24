@@ -85,11 +85,23 @@ func (s *InteractionService) storedSession(ctx context.Context, verb auth.Verb, 
 		return nil, err
 	}
 	session, err := s.sessions.getAuthorized(ctx, contextID, verb)
+	denied := serviceerrors.CodeOf(err) == serviceerrors.CodePermissionDenied
+	if denied && verb != auth.VerbGet {
+		// A permission error can disclose existence only to a reader of this Agent's Session.
+		session, err = s.sessions.Get(ctx, contextID)
+	}
 	if err != nil {
+		if serviceerrors.CodeOf(err) == serviceerrors.CodePermissionDenied {
+			return nil, a2atype.ErrTaskNotFound
+		}
 		return nil, interactionError(ctx, err)
 	}
-	if session.GetAgent().GetRef().GetNamespace() != agent.Namespace || session.GetAgent().GetRef().GetName() != agent.Name {
-		return nil, a2atype.NewError(a2atype.ErrUnauthorized, "context does not belong to this Agent")
+	ref := session.GetAgent().GetRef()
+	if ref.GetNamespace() != agent.Namespace || ref.GetName() != agent.Name {
+		return nil, a2atype.ErrTaskNotFound
+	}
+	if denied {
+		return nil, a2atype.ErrUnauthorized
 	}
 	return session, nil
 }

@@ -681,7 +681,7 @@ func TestRecoverRejectedSendReturnsSessionErrors(t *testing.T) {
 		want       error
 	}{
 		{name: "not found", store: &serviceTestStore{getErr: database.ErrNotFound}, want: a2a.ErrTaskNotFound},
-		{name: "permission denied", store: &serviceTestStore{}, authorizer: serviceTestAuthorizer{err: serviceerrors.NewPermissionDenied("denied", nil)}, want: a2a.ErrUnauthorized},
+		{name: "permission denied", store: &serviceTestStore{}, authorizer: serviceTestAuthorizer{err: serviceerrors.NewPermissionDenied("denied", nil)}, want: a2a.ErrTaskNotFound},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			interactions := NewInteractionService(nil, nil, NewService(test.store, test.authorizer, serviceTestWorkflow{}), false, true)

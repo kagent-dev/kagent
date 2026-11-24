@@ -147,11 +147,16 @@ func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
 		}{
 			{name: "missing context", storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
 			{name: "expired task", taskErr: database.ErrNotFound, storeErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
-			{name: "permission denied", authErr: errors.New("denied"), want: a2atype.ErrUnauthorized},
+			{name: "permission denied", authErr: errors.New("denied"), want: a2atype.ErrTaskNotFound},
 			{name: "store failure", storeErr: errors.New("private database details"), want: a2atype.ErrInternalError},
 		} {
 			t.Run(string(protocol)+"/"+test.name, func(t *testing.T) {
-				store := &gatewayTestStore{session: gatewayTestSession(), err: test.storeErr, taskErr: test.taskErr}
+				store := &gatewayTestStore{session: gatewayTestSession(), err: test.storeErr, taskErr: test.taskErr,
+					task: &a2atype.Task{ID: "old-task", ContextID: gatewayTestContextID, Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}}
+				agentWant := test.want
+				if test.authErr != nil {
+					agentWant = a2atype.ErrUnauthorized
+				}
 				dialer := &gatewayTestDialer{}
 				gateway := newTestGateway(store, &gatewayTestAuthorizer{err: test.authErr}, dialer, "")
 				transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
@@ -166,20 +171,28 @@ func TestGatewayMissingConversationAcrossTransports(t *testing.T) {
 				} {
 					request := gatewayTestRequest()
 					request.Message.ContextID, request.Message.TaskID = ids.contextID, ids.taskID
+					want := test.want
+					if ids.contextID == "" && ids.taskID == "" {
+						want = agentWant
+					}
 					_, err := transport.SendMessage(t.Context(), params, request)
-					require.ErrorIs(t, err, test.want)
+					require.ErrorIs(t, err, want)
 					events := 0
 					for event, err := range transport.SendStreamingMessage(t.Context(), params, request) {
 						require.Nil(t, event)
-						require.ErrorIs(t, err, test.want)
+						require.ErrorIs(t, err, want)
 						events++
 					}
 					require.Equal(t, 1, events)
 				}
 				_, err := transport.GetTask(t.Context(), params, &a2atype.GetTaskRequest{Tenant: gatewayTestAgent, ID: "old-task"})
 				require.ErrorIs(t, err, test.want)
-				_, err = transport.GetExtendedAgentCard(t.Context(), params, &a2atype.GetExtendedAgentCardRequest{Tenant: gatewayTestAgent})
+				_, err = transport.ListTasks(t.Context(), params, &a2atype.ListTasksRequest{Tenant: gatewayTestAgent, ContextID: gatewayTestID})
 				require.ErrorIs(t, err, test.want)
+				_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: "old-task"})
+				require.ErrorIs(t, err, test.want)
+				_, err = transport.GetExtendedAgentCard(t.Context(), params, &a2atype.GetExtendedAgentCardRequest{Tenant: gatewayTestAgent})
+				require.ErrorIs(t, err, agentWant)
 				events := 0
 				for event, err := range transport.SubscribeToTask(t.Context(), params, &a2atype.SubscribeToTaskRequest{Tenant: gatewayTestAgent, ID: "old-task"}) {
 					require.Nil(t, event)
@@ -205,7 +218,7 @@ func TestHTTPAgentURLIsAuthoritative(t *testing.T) {
 		{name: "matching tenant", path: gatewayTestAgent, tenant: gatewayTestAgent},
 		{name: "conflicting tenant", path: gatewayTestAgent, tenant: "team-a/other", want: a2atype.ErrInvalidRequest},
 		{name: "invalid URL", path: "INVALID/assistant", want: a2atype.ErrInvalidRequest},
-		{name: "Session belongs to another Agent", path: "team-a/other", want: a2atype.ErrUnauthorized},
+		{name: "Session belongs to another Agent", path: "team-a/other", want: a2atype.ErrTaskNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &gatewayTestStore{session: gatewayTestSession()}
@@ -428,8 +441,14 @@ func TestGatewayReadOnlySharesAcrossTransports(t *testing.T) {
 					require.Equal(t, digest[:], shares.digest)
 					_, err = transport.CancelTask(t.Context(), params, &a2atype.CancelTaskRequest{Tenant: gatewayTestAgent, ID: "task"})
 					require.Error(t, err)
+					if test.canRead {
+						require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+					}
 					_, err = transport.SendMessage(t.Context(), params, gatewayTestRequest())
 					require.Error(t, err)
+					if test.canRead {
+						require.ErrorIs(t, err, a2atype.ErrUnauthorized)
+					}
 					errorsSeen := 0
 					for _, err := range transport.SendStreamingMessage(t.Context(), params, gatewayTestRequest()) {
 						require.Error(t, err)

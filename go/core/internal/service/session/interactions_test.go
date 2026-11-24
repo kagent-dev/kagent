@@ -231,11 +231,11 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 		}{
 			{name: "unauthenticated", ctx: context.Background(), agent: agent, want: a2atype.ErrUnauthenticated},
 			{name: "missing Agent", ctx: serviceTestContext("visitor"), want: a2atype.ErrInvalidRequest},
-			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
+			{name: "denied caller", ctx: serviceTestContext("visitor"), agent: agent, denied: true, want: a2atype.ErrTaskNotFound},
 			{name: "missing session", ctx: serviceTestContext("visitor"), agent: agent, getErr: database.ErrNotFound, want: a2atype.ErrTaskNotFound},
 			{name: "read-only share", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent},
-			{name: "denied share recipient", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true, want: a2atype.ErrUnauthorized},
-			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, denied: true, want: a2atype.ErrUnauthorized},
+			{name: "denied share recipient", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: agent, denied: true, want: a2atype.ErrTaskNotFound},
+			{name: "other Agent", ctx: auth.ShareContextTo(serviceTestContext("visitor"), &auth.ShareContext{SessionID: id, UserID: "owner"}), agent: types.NamespacedName{Namespace: "team-a", Name: "other"}, want: a2atype.ErrTaskNotFound},
 		} {
 			t.Run(operation.name+"/"+test.name, func(t *testing.T) {
 				stored := &apiv1.Session{Id: id, ContextId: id, State: apiv1.RuntimeState_RUNTIME_STATE_SUSPENDED,
@@ -249,7 +249,7 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				service := NewInteractionService(tasks, nil, NewService(sessionStore, authorizer, nil), false, false)
 				want := test.want
 				_, shared := auth.ShareContextFrom(test.ctx)
-				if shared && operation.verb != auth.VerbGet {
+				if want == nil && shared && operation.verb != auth.VerbGet {
 					want = a2atype.ErrUnauthorized
 				}
 				// No A2A SDK tenant or interceptor is installed for this call.
@@ -266,8 +266,13 @@ func TestInteractionsEnforcePermissionsWithoutGateway(t *testing.T) {
 				if _, authenticated := auth.AuthSessionFrom(test.ctx); !authenticated && tasks.taskLookups != 0 {
 					t.Fatal("unauthenticated operation looked up a task")
 				}
-				if test.denied && !shared && (authorizer.verb != operation.verb || authorizer.resource.Type != "Session" || authorizer.resource.Name != id) {
-					t.Fatalf("operation used the wrong permission: %+v", authorizer)
+				if test.denied && !shared {
+					wantVerbs := []auth.Verb{operation.verb}
+					if operation.verb != auth.VerbGet {
+						wantVerbs = append(wantVerbs, auth.VerbGet)
+					}
+					require.Equal(t, wantVerbs, authorizer.verbs)
+					require.Equal(t, auth.Resource{Type: "Session", Name: id}, authorizer.resource)
 				}
 			})
 		}
@@ -301,14 +306,14 @@ func TestExistingConversationDoesNotRequireCurrentAgentGrant(t *testing.T) {
 			message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("continue"))
 			message.ContextID = id
 			_, err := NewInteractionService(nil, nil, sessions, false, false).messageSession(ctx, agent, message)
+			wantChecks := 1
 			if denySession {
-				if !errors.Is(err, a2atype.ErrUnauthorized) {
-					t.Fatalf("error = %v, want Session denial", err)
-				}
+				require.ErrorIs(t, err, a2atype.ErrTaskNotFound)
+				wantChecks++
 			} else if err != nil {
 				t.Fatal(err)
 			}
-			if len(policy.resources) != 1 || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
+			if len(policy.resources) != wantChecks || policy.resources[0] != (auth.Resource{Type: "Session", Name: id}) {
 				t.Fatalf("unexpected authorization: %+v", policy.resources)
 			}
 		})
