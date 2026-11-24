@@ -29,8 +29,8 @@ const TITLE_BUDGET = 30;
  * them. The gateway now answers a task read from the store whatever state the
  * instance is in, because that is where the transcript lives.
  *
- * Display only, exactly as on the chat page: nothing is written back. A stored
- * auto-title would be a name nobody chose, indistinguishable from one somebody did.
+ * Display only, exactly as on the chat page: the UI writes nothing back. The runtime
+ * names a session after its first turn; this covers sessions still unnamed.
  *
  * Failures are silent and per-conversation. A title is a convenience over an id that
  * already identifies the row, so a conversation whose read fails keeps its id rather

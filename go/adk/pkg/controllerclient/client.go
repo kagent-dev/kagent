@@ -16,6 +16,7 @@ import (
 
 	"github.com/kagent-dev/kagent/go/adk/pkg/auth"
 	"github.com/kagent-dev/kagent/go/api/client"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	runtimev1 "github.com/kagent-dev/kagent/go/api/gen/kagent/runtime/v1"
 )
 
@@ -45,6 +46,7 @@ type Client struct {
 	tokenProvider    TokenProvider
 	memoryService    runtimev1.MemoryServiceClient
 	taskStoreService runtimev1.TaskStoreServiceClient
+	sessionService   apiv1.SessionServiceClient
 	closeOnce        sync.Once
 	closeErr         error
 }
@@ -93,6 +95,7 @@ func New(config Config) (*Client, error) {
 		tokenProvider:    config.TokenProvider,
 		memoryService:    runtimev1.NewMemoryServiceClient(connection),
 		taskStoreService: runtimev1.NewTaskStoreServiceClient(connection),
+		sessionService:   apiv1.NewSessionServiceClient(connection),
 	}, nil
 }
 
@@ -120,6 +123,10 @@ func (client *Client) MemoryService() runtimev1.MemoryServiceClient {
 
 func (client *Client) TaskStoreService() runtimev1.TaskStoreServiceClient {
 	return client.taskStoreService
+}
+
+func (client *Client) SessionService() apiv1.SessionServiceClient {
+	return client.sessionService
 }
 
 func (client *Client) MaxMessageBytes() int {

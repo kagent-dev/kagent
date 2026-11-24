@@ -27,6 +27,7 @@ import {
 } from "@/api";
 import { autoTitleFrom } from "@/components/agent-instances/instanceLabels";
 import { useLiveTranscript } from "@/api/hooks/useLiveTranscript";
+import { useRefreshConversationsOnTurnEnd } from "@/api/hooks/useRefreshConversationsOnTurnEnd";
 import { useInvalidateConversations } from "@/api/hooks/useInvalidateConversations";
 import { useCheckpoints } from "@/api/hooks/useCheckpoints";
 import type { AgentInstance, Checkpoint } from "@/api";
@@ -154,6 +155,9 @@ export function AgentChatPage() {
     enabled: Boolean(conversation),
     isBusy: chat.phase === "streaming",
   });
+
+  // Picks up the name the runtime wrote during the turn.
+  useRefreshConversationsOnTurnEnd(chat.phase);
 
   /**
    * What to call this conversation when nobody has named it.
@@ -392,6 +396,7 @@ export function AgentChatPage() {
 
   /** The message box, so the caret can be handed back to it after a question. */
   const composerRef = useRef<ChatComposerHandle>(null);
+  const chatPaneRef = useRef<HTMLElement>(null);
 
   /*
    * Opening a conversation puts the caret in its box.
@@ -614,6 +619,7 @@ export function AgentChatPage() {
         ) : null}
 
         <section
+          ref={chatPaneRef}
           data-testid="chat-panel"
           css={{
             flex: 1,
@@ -703,6 +709,8 @@ export function AgentChatPage() {
           {/* The transcript owns its own scrolling now, so this passes it the room to
               do it in and nothing else. */}
           <ChatTranscript
+            key={id}
+            onAway={() => void invalidateConversations()}
             chat={chat}
             isLoading={instance.isLoading}
             sessionId={id}
@@ -720,6 +728,9 @@ export function AgentChatPage() {
             }}
             checkpointsById={checkpointsById}
             checkpointByMessage={checkpointByMessage}
+            recap={instance.data?.recap}
+            startedAt={instance.data?.createdAt}
+            recapTarget={chatPaneRef}
             // The question is answered in a field inside the transcript, and once it
             // has been, the next thing typed is an ordinary message. The transcript
             // has no business knowing the composer exists, so the page it belongs to

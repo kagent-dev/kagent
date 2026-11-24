@@ -270,6 +270,94 @@ func (c *Client) UpdateSessionName(ctx context.Context, id, userID, name string)
 	return result, nil
 }
 
+// SetSessionNameIfEmpty names an owned session only while it has no name and
+// reports whether it did. Missing, deleted, and foreign sessions return ErrNotFound.
+func (c *Client) SetSessionNameIfEmpty(ctx context.Context, id, userID, name string) (*apiv1.Session, bool, error) {
+	var result *apiv1.Session
+	applied := false
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, id)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if row.UserID != userID || row.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED.String() {
+			return ErrNotFound
+		}
+		session, err := toSession(row)
+		if err != nil {
+			return err
+		}
+		result = session
+		if session.Name != "" {
+			return nil
+		}
+		session.Name = name
+		session.UpdatedAt = timestamppb.Now()
+		data, err := marshalSession(session)
+		if err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE session SET data = $1 WHERE id = $2
+		`, data, row.ID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		applied = true
+		return nil
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("name Session %s: %w", id, err)
+	}
+	return result, applied, nil
+}
+
+// SetSessionRecap stores the latest recap of an owned session. A write covering
+// fewer turns than the stored recap is ignored. It leaves UpdatedAt alone so a
+// recap never reorders the session list.
+func (c *Client) SetSessionRecap(ctx context.Context, id, userID, text string, turnCount int32) (*apiv1.Session, error) {
+	var result *apiv1.Session
+	err := c.withTx(ctx, func(tx pgx.Tx) error {
+		row, err := lockSession(ctx, tx, id)
+		if err != nil {
+			return notFoundOr(err)
+		}
+		if row.UserID != userID || row.State == apiv1.RuntimeState_RUNTIME_STATE_DELETED.String() {
+			return ErrNotFound
+		}
+		session, err := toSession(row)
+		if err != nil {
+			return err
+		}
+		result = session
+		if session.GetRecap().GetTurnCount() > turnCount {
+			return nil
+		}
+		session.Recap = &apiv1.SessionRecap{Text: text, TurnCount: turnCount, GeneratedAt: timestamppb.Now()}
+		data, err := marshalSession(session)
+		if err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `
+			UPDATE session SET data = $1 WHERE id = $2
+		`, data, row.ID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return ErrNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("set recap of Session %s: %w", id, err)
+	}
+	return result, nil
+}
+
 type sessionRow struct {
 	runtimeInstanceRow
 	Data               []byte

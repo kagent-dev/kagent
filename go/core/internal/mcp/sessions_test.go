@@ -78,6 +78,30 @@ func (s *sessionStore) UpdateSessionName(_ context.Context, id, _, name string) 
 	return session, nil
 }
 
+func (s *sessionStore) SetSessionNameIfEmpty(_ context.Context, id, _, name string) (*apiv1.Session, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.byID[id]
+	if !ok {
+		return nil, false, database.ErrNotFound
+	}
+	if session.Name != "" {
+		return session, false, nil
+	}
+	session.Name = name
+	return session, true, nil
+}
+
+func (s *sessionStore) SetSessionRecap(_ context.Context, id, _, _ string, _ int32) (*apiv1.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.byID[id]
+	if !ok {
+		return nil, database.ErrNotFound
+	}
+	return session, nil
+}
+
 func (s *sessionStore) ListSessions(_ context.Context, query database.SessionQuery) ([]*apiv1.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
