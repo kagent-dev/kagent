@@ -15,6 +15,8 @@ import { saveAgent } from "./state";
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Code, createClient } from "@connectrpc/connect";
+import { ModelService } from "@/generated/kagent/api/v1/models_pb";
 import { ApiError } from "@/api/ApiError";
 import { clearApiExtensions } from "@/api/extensionPoints";
 import { invoke, operationIds } from "@/api/operations";
@@ -72,6 +74,7 @@ const INPUTS = {
   "models.delete": { namespace: "kagent", name: "swept-model" },
   "models.providers": {},
   "models.providerModels": {},
+  "models.discover": { providerName: "example-openai-proxy" },
 
   "mcpServers.list": {},
   "mcpServers.create": {
@@ -348,6 +351,26 @@ describe("the fixture backend", () => {
 
     // The stock RPC must not also report it, or the picker shows it twice.
     expect(stock.map((provider) => provider.name)).not.toContain(configured[0].name);
+  });
+
+  it("lists the models a configured provider's endpoint offers", async () => {
+    const [configured] = (await invoke("models.providers", {})).filter(
+      (provider) => provider.source === "configured",
+    );
+    const models = await invoke("models.discover", { providerName: configured.name });
+    expect(models).toContain("litellm/team-a-sonnet");
+  });
+
+  // The controller keeps no inventory, so without `refresh` it answers NotFound; a
+  // refresh of a name that is not a ModelProviderConfig fails as Internal.
+  it("answers NotFound without refresh, and Internal for a provider that is not configured", async () => {
+    const client = createClient(ModelService, mockTransport);
+    await expect(
+      client.listProviderModels({ providerName: "example-openai-proxy" }),
+    ).rejects.toMatchObject({ code: Code.NotFound });
+    await expect(
+      client.listProviderModels({ providerName: "OpenAI", refresh: true }),
+    ).rejects.toMatchObject({ code: Code.Internal });
   });
 
   it("lists only the prompt libraries in the namespace asked about", async () => {

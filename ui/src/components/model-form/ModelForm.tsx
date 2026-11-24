@@ -31,6 +31,7 @@ import {
 } from "@/components/common/resourceName";
 import { paths } from "@/router/routes";
 import {
+  useDiscoveredModels,
   useNamespaces,
   useProviderModels,
   useProviders,
@@ -59,6 +60,9 @@ import {
 import { ProviderIconWithLabel } from "./ProviderIcon";
 
 const { Text } = Typography;
+
+/** The provider param (`baseUrl` in the OpenAI config) a discovery source's endpoint fills. */
+const BASE_URL_PARAM = "baseUrl";
 
 /**
  * Provider params whose values are a fixed CRD enum (`OpenAIAPIFormat`,
@@ -147,6 +151,10 @@ export function ModelForm({
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<unknown>();
+  // The discovery source chosen for the model picker. UI-only: never in the payload.
+  const [sourceName, setSourceName] = useState<string>();
+  // The base URL this form filled in from a source, so it can be told from one typed.
+  const [autoFilledUrl, setAutoFilledUrl] = useState<string>();
 
   const set = <K extends keyof ModelDraft>(key: K, value: ModelDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -187,11 +195,15 @@ export function ModelForm({
       defaultHeaders: current.defaultHeaders.filter((row) => row.id !== id),
     }));
 
+  // Stock providers only: a configured one is a discovery source, with no parameter
+  // lists, and sharing a `type` with a stock one it would shadow it in the lookup below.
   const providerList = useMemo(
     () =>
-      [...(providers.data ?? [])].sort((a, b) =>
-        providerDisplayName(a.type).localeCompare(providerDisplayName(b.type)),
-      ),
+      (providers.data ?? [])
+        .filter((item) => item.source !== "configured")
+        .sort((a, b) =>
+          providerDisplayName(a.type).localeCompare(providerDisplayName(b.type)),
+        ),
     [providers.data],
   );
   const providerSelectOptions = useMemo(() => {
@@ -225,11 +237,32 @@ export function ModelForm({
     [selectedProvider],
   );
 
+  const sources = useMemo(
+    () =>
+      (providers.data ?? []).filter(
+        (item) => item.source === "configured" && item.type === draft.provider,
+      ),
+    [providers.data, draft.provider],
+  );
+  // Looked up rather than trusted: a source that stops being Ready leaves the list,
+  // and the form then falls back to the built-in models instead of a dead choice.
+  const source = sources.find((item) => item.name === sourceName);
+  const discovery = useDiscoveredModels(source?.name);
+
   const modelsForProvider = useMemo(
     () => (draft.provider ? (providerModels.data?.[draft.provider] ?? []) : []),
     [draft.provider, providerModels.data],
   );
-  const selectedModel = modelsForProvider.find((m) => m.name === draft.model);
+  // Discovered ids carry no function-calling metadata, so with a source chosen
+  // there is no `selectedModel` and the warning below stays quiet: unknown is not
+  // "unsupported".
+  const modelOptions = source
+    ? (discovery.data ?? [])
+    : modelsForProvider.map((item) => item.name);
+  const discovering = !!source && (discovery.isLoading || discovery.isValidating);
+  const selectedModel = source
+    ? undefined
+    : modelsForProvider.find((m) => m.name === draft.model);
   const isOllama = draft.provider === OLLAMA_PROVIDER;
   const info = draft.provider ? PROVIDER_INFO[draft.provider] : undefined;
 
@@ -325,7 +358,31 @@ export function ModelForm({
     [effective, requiredKeys, isEdit],
   );
 
+  const hasBaseUrlParam =
+    requiredKeys.includes(BASE_URL_PARAM) || optionalKeys.includes(BASE_URL_PARAM);
+
+  // Fills the base URL from the source's endpoint, but only over an empty field or
+  // one this form filled itself; a URL the user typed is theirs.
+  const chooseSource = (next?: string) => {
+    const endpoint = sources.find((item) => item.name === next)?.endpoint ?? "";
+    setSourceName(next);
+    const current = draft.params[BASE_URL_PARAM] ?? "";
+    if (hasBaseUrlParam && (current === "" || current === autoFilledUrl)) {
+      setParam(BASE_URL_PARAM, endpoint);
+      setAutoFilledUrl(endpoint || undefined);
+    }
+  };
+
+  const refreshModels = () => {
+    void providers.refresh();
+    void providerModels.refresh();
+    // Failure shows in the discovery notice, so it is not re-thrown here.
+    if (source) discovery.refresh().catch(() => {});
+  };
+
   const changeProvider = (type: string) => {
+    setSourceName(undefined);
+    setAutoFilledUrl(undefined);
     // The previous model, tag and parameters belong to the old provider, so they
     // are cleared rather than carried onto one that does not offer them.
     // The auth mode is reset whenever the new provider does not offer it: a
@@ -414,10 +471,7 @@ export function ModelForm({
           action={
             <Button
               size="small"
-              onClick={() => {
-                void providers.refresh();
-                void providerModels.refresh();
-              }}
+              onClick={refreshModels}
             >
               Try again
             </Button>
@@ -476,11 +530,12 @@ export function ModelForm({
                 <Button
                   data-testid="model-fetch"
                   icon={<RefreshCw size={14} aria-hidden />}
-                  loading={providers.isLoading || providerModels.isLoading}
-                  onClick={() => {
-                    void providers.refresh();
-                    void providerModels.refresh();
-                  }}
+                  loading={
+                    providers.isLoading ||
+                    providerModels.isLoading ||
+                    discovering
+                  }
+                  onClick={refreshModels}
                 >
                   Refresh models
                 </Button>
@@ -513,9 +568,8 @@ export function ModelForm({
                   !draft.provider ||
                   (identityLocked && !allowProviderSelectionWhenIdentityLocked)
                 }
-                options={modelsForProvider.map((item) => ({
-                  value: item.name,
-                }))}
+                notFoundContent={discovering ? "Loading models…" : undefined}
+                options={modelOptions.map((name) => ({ value: name }))}
                 filterOption={(input, option) =>
                   (option?.value ?? "")
                     .toLowerCase()
@@ -543,6 +597,61 @@ export function ModelForm({
             </Form.Item>
           </Col>
         </Row>
+
+        {sources.length > 0 ? (
+          <Form.Item
+            label="Discover models from"
+            help={
+              source?.endpoint
+                ? `Models are listed live from ${source.endpoint}.`
+                : "Optional. Lists the models a configured endpoint offers right now."
+            }
+          >
+            <Select
+              data-testid="model-discovery-source"
+              aria-label="Discover models from"
+              placeholder="None — use the built-in list"
+              allowClear
+              loading={discovering}
+              value={source?.name}
+              disabled={identityLocked && !allowProviderSelectionWhenIdentityLocked}
+              options={sources.map((item) => ({
+                value: item.name,
+                label: item.name,
+                endpoint: item.endpoint,
+              }))}
+              optionRender={(o) => (
+                <div>
+                  <div>{o.label}</div>
+                  {o.data.endpoint ? (
+                    <Text css={{ fontSize: 12, color: theme.color.textMuted }}>
+                      {o.data.endpoint}
+                    </Text>
+                  ) : null}
+                </div>
+              )}
+              onChange={chooseSource}
+            />
+            {discovery.error ? (
+              <Alert
+                type="warning"
+                showIcon
+                css={{ marginTop: 8 }}
+                data-testid="model-discovery-error"
+                title="Could not list models from this source"
+                description="You can still type a model id above."
+                action={
+                  <Button
+                    size="small"
+                    onClick={() => discovery.refresh().catch(() => {})}
+                  >
+                    Try again
+                  </Button>
+                }
+              />
+            ) : null}
+          </Form.Item>
+        ) : null}
 
         {isOllama ? (
           <Form.Item

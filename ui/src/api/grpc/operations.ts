@@ -27,7 +27,6 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  *
  * ## What is not reachable from here
  *
- * `ListProviderModels` (refresh one provider's catalogue),
  * `ListToolServerTypes`, the MCP-app RPCs
  * (`ListMCPAppTools`, `CallMCPAppTool`, `ReadMCPAppResource`), the
  * `SystemService`'s `GetVersion` and `GetCurrentUser` exist on the controller and
@@ -203,6 +202,7 @@ const models: Pick<
   | "models.delete"
   | "models.providers"
   | "models.providerModels"
+  | "models.discover"
 > = {
   "models.list": async (_input, options) => {
     const name = "ModelService/ListModelConfigs";
@@ -334,6 +334,18 @@ const models: Pick<
       }));
     }
     return grouped;
+  },
+
+  // `refresh: true` is required: without it the controller keeps no inventory to
+  // answer from and replies NotFound.
+  "models.discover": async (input, options) => {
+    const response = await rpc("ModelService/ListProviderModels", options.signal, () =>
+      serviceClient(ModelService).listProviderModels(
+        { providerName: input.providerName, refresh: true },
+        call("models.discover", options),
+      ),
+    );
+    return list(response.models);
   },
 };
 

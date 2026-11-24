@@ -96,6 +96,7 @@ export { useMcpServers, useTools } from "./hooks/useMcpServers";
 export {
   useModel,
   useModels,
+  useDiscoveredModels,
   useProviderModels,
   useProviders,
 } from "./hooks/useModels";

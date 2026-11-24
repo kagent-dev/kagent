@@ -134,6 +134,7 @@ import {
   MOCK_INSTANCE_CREATOR,
   mockNamespaces,
   mockSandboxTemplates,
+  mockDiscoveredModels,
   mockProviderModels,
   mockProviders,
   mockSubstrateInventory,
@@ -495,16 +496,24 @@ on(ModelService.method.listSupportedModels, (_input, call) => ({
 }));
 
 /**
- * One provider's catalogue.
- *
- * No operation id reaches this RPC today; it is served because the controller
- * serves it, so a deployment that overrides an operation to call it finds a fake
- * rather than an `Unimplemented`.
+ * What a configured provider's endpoint lists. The controller keeps no cached
+ * inventory, so without `refresh` it answers NotFound. With it, a name that is not
+ * a `ModelProviderConfig` fails the refresh itself, which the controller reports as
+ * Internal.
  */
-on(ModelService.method.listProviderModels, (input) => ({
-  provider: input.providerName,
-  models: (mockProviderModels[input.providerName] ?? []).map((model) => model.name),
-}));
+on(ModelService.method.listProviderModels, (input) => {
+  const configured = mockProviders.some(
+    (provider) => provider.source === "configured" && provider.name === input.providerName,
+  );
+  if (!input.refresh) throw notFound(`provider ${input.providerName}`);
+  if (!configured) {
+    throw new ConnectError("Failed to refresh models for model provider", Code.Internal);
+  }
+  return {
+    provider: input.providerName,
+    models: mockDiscoveredModels[input.providerName] ?? [],
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Tool servers
