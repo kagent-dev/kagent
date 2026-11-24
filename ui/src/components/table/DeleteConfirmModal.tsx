@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Checkbox, Modal } from "antd";
 import toast from "react-hot-toast";
 
-/** What a delete confirmation needs to know; shared by the button's popover and modal and by row menus. */
+/** What a delete confirmation needs to know; shared by the button and by row menus. */
 export interface DeleteConfirmProps {
   /** What this is, in words a reader would use: "agent", "model configuration". */
   kind: string;
@@ -78,16 +78,22 @@ export function useModalState() {
   };
 }
 
-/** The modal itself, over a `useDeleteConfirm` the caller owns so its trigger can share the state. */
-export function DeleteModal({ confirmation: { isDeleting, confirm, title, message }, open, onClose, afterClose }: {
-  confirmation: ReturnType<typeof useDeleteConfirm>;
+/** The modal itself, over a confirmation the caller owns so its trigger can share the state. */
+export function DeleteModal({ confirmation: { isDeleting, confirm, title, message }, okText = "Delete", open, onClose, afterClose }: {
+  confirmation: {
+    isDeleting: boolean;
+    title: string;
+    message: React.ReactNode;
+    confirm: (afterDelete: () => void) => void | Promise<void>;
+  };
+  okText?: string;
   open: boolean;
   onClose: () => void;
   afterClose: () => void;
 }) {
   return (
     <Modal open={open} afterClose={afterClose} title={title} onOk={() => void confirm(onClose)} onCancel={onClose}
-      okText="Delete" okButtonProps={{ danger: true }} confirmLoading={isDeleting}
+      okText={okText} okButtonProps={{ danger: true }} confirmLoading={isDeleting}
       cancelText="Keep" cancelButtonProps={{ disabled: isDeleting }} closable={!isDeleting}
       mask={{ closable: !isDeleting }} keyboard={!isDeleting}>
       {message}

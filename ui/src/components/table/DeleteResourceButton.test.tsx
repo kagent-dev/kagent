@@ -3,12 +3,12 @@ import { ConfigProvider } from "antd";
 import { describe, expect, it, vi } from "vitest";
 import { DeleteResourceButton } from "./DeleteResourceButton";
 
-describe.each(["modal", "popover"] as const)("%s deletion confirmation", (confirmation) => {
+describe("deletion confirmation", () => {
   it("deletes normally unless the user explicitly chooses to stop active turns", async () => {
     const onDelete = vi.fn().mockResolvedValue(undefined);
     render(
       <ConfigProvider theme={{ token: { motion: false } }}>
-        <DeleteResourceButton kind="conversation" name="test" confirmation={confirmation}
+        <DeleteResourceButton kind="conversation" name="test"
           forceLabel="Stop active turns and delete" onDelete={onDelete} onDeleted={() => {}} />
       </ConfigProvider>,
     );
@@ -24,7 +24,7 @@ describe.each(["modal", "popover"] as const)("%s deletion confirmation", (confir
     const onDelete = vi.fn().mockResolvedValue(undefined);
     render(
       <ConfigProvider theme={{ token: { motion: false } }}>
-        <DeleteResourceButton kind="conversation" name="test" confirmation={confirmation}
+        <DeleteResourceButton kind="conversation" name="test"
           forceLabel="Stop active turns and delete" onDelete={onDelete} onDeleted={() => {}} />
       </ConfigProvider>,
     );
@@ -44,7 +44,7 @@ describe.each(["modal", "popover"] as const)("%s deletion confirmation", (confir
   it("unticks force when the confirmation is cancelled and reopened", async () => {
     render(
       <ConfigProvider theme={{ token: { motion: false } }}>
-        <DeleteResourceButton kind="conversation" name="test" confirmation={confirmation}
+        <DeleteResourceButton kind="conversation" name="test"
           forceLabel="Stop active turns and delete" onDelete={vi.fn()} onDeleted={() => {}} />
       </ConfigProvider>,
     );
@@ -64,7 +64,7 @@ it("keeps the modal mounted while it closes, then unmounts it and reopens with f
   // Motion left on: the exit animation is what keeps the modal in the DOM after cancel.
   // jsdom runs no animations, so the test ends it by hand.
   render(
-    <DeleteResourceButton kind="conversation" name="test" confirmation="modal"
+    <DeleteResourceButton kind="conversation" name="test"
       forceLabel="Stop active turns and delete" onDelete={vi.fn()} onDeleted={() => {}} />,
   );
 
