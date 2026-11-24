@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import { SWRConfig } from "swr";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentInstance } from "@/api";
-import { resetChatClient, setChatClientFactory } from "../chat";
-import type { ChatClient, ChatMessage } from "../chat/types";
+import { resetConversationClient, setConversationClientFactory } from "../conversation";
+import type { ConversationClient, ConversationMessage } from "../conversation/types";
 import { useConversationTitles, type ConversationTitles } from "./useConversationTitles";
 
 /** An unnamed conversation, as the rail lists it. */
@@ -22,12 +22,12 @@ function conversation(id: string): AgentInstance {
   };
 }
 
-function said(text: string): ChatMessage {
+function said(text: string): ConversationMessage {
   return { id: `${text}-msg`, role: "user", parts: [{ kind: "text", text }], createdAt: "" };
 }
 
 /** A transport whose histories the test fills in, counting the reads of each. */
-function client(histories: Map<string, ChatMessage[]>, reads: string[]): ChatClient {
+function client(histories: Map<string, ConversationMessage[]>, reads: string[]): ConversationClient {
   return {
     protocolVersion: "test",
     history: async ({ id }) => {
@@ -50,13 +50,13 @@ function sharedCache() {
 /** The conversation on screen, as the rail passes it: its title only once one exists. */
 type Open = { id: string; title?: string };
 
-afterEach(() => resetChatClient());
+afterEach(() => resetConversationClient());
 
 describe("useConversationTitles", () => {
   it("reports a row loading only while its read is in flight", async () => {
     let release: () => void = () => {};
     const held = new Promise<void>((resolve) => { release = resolve; });
-    setChatClientFactory(() => ({
+    setConversationClientFactory(() => ({
       ...client(new Map(), []),
       history: async ({ id }) => {
         await held;
@@ -83,7 +83,7 @@ describe("useConversationTitles", () => {
   it("reads a conversation's title once, not again when the list grows", async () => {
     const histories = new Map([["named", [said("An older question")]]]);
     const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
+    setConversationClientFactory(() => client(histories, reads));
 
     const { result, rerender } = renderHook(
       ({ listed }) => useConversationTitles(listed),
@@ -103,9 +103,9 @@ describe("useConversationTitles", () => {
 
   // The open row is titled from its transcript; the rail's read of it came before that.
   it("keeps the open conversation's title once another is opened", async () => {
-    const histories = new Map<string, ChatMessage[]>();
+    const histories = new Map<string, ConversationMessage[]>();
     const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
+    setConversationClientFactory(() => client(histories, reads));
     const wrapper = sharedCache();
     const listed = [conversation("fresh"), conversation("other")];
 
@@ -124,9 +124,9 @@ describe("useConversationTitles", () => {
   });
 
   it("takes the title back when the transcript takes back a refused first message", async () => {
-    const histories = new Map<string, ChatMessage[]>();
+    const histories = new Map<string, ConversationMessage[]>();
     const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
+    setConversationClientFactory(() => client(histories, reads));
     const listed = [conversation("fresh"), conversation("other")];
 
     const { result, rerender } = renderHook<ConversationTitles, { open: Open }>(
@@ -144,9 +144,9 @@ describe("useConversationTitles", () => {
   });
 
   it("takes the title back even after a read that ran while it was remembered", async () => {
-    const histories = new Map<string, ChatMessage[]>();
+    const histories = new Map<string, ConversationMessage[]>();
     const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
+    setConversationClientFactory(() => client(histories, reads));
     const two = [conversation("fresh"), conversation("other")];
     const three = [...two, conversation("third")];
 
@@ -171,16 +171,16 @@ describe("useConversationTitles", () => {
 
   // Each page's rail is its own read; one cached before the first message is not final.
   it("re-reads a cached read that left a row untitled when another page mounts it", async () => {
-    const histories = new Map<string, ChatMessage[]>();
+    const histories = new Map<string, ConversationMessage[]>();
     const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
+    setConversationClientFactory(() => client(histories, reads));
     const wrapper = sharedCache();
     const listed = [conversation("fresh")];
 
-    const newChatPage = renderHook(() => useConversationTitles(listed), { wrapper });
+    const newConversationPage = renderHook(() => useConversationTitles(listed), { wrapper });
     await waitFor(() => expect(reads).toEqual(["fresh"]));
-    expect(newChatPage.result.current.titles).toEqual({});
-    newChatPage.unmount();
+    expect(newConversationPage.result.current.titles).toEqual({});
+    newConversationPage.unmount();
 
     histories.set("fresh", [said("This is twin B.")]);
     const detailsPage = renderHook(() => useConversationTitles(listed), { wrapper });
@@ -189,12 +189,12 @@ describe("useConversationTitles", () => {
   });
 
   it("keeps a settled untitled row out of loading when a new mount lists another set", async () => {
-    setChatClientFactory(() => client(new Map(), []));
+    setConversationClientFactory(() => client(new Map(), []));
     const wrapper = sharedCache();
 
-    const chatPage = renderHook(() => useConversationTitles([conversation("empty")]), { wrapper });
-    await waitFor(() => expect(chatPage.result.current.loading.size).toBe(0));
-    chatPage.unmount();
+    const conversationPage = renderHook(() => useConversationTitles([conversation("empty")]), { wrapper });
+    await waitFor(() => expect(conversationPage.result.current.loading.size).toBe(0));
+    conversationPage.unmount();
 
     // A new conversation re-keys the read; only that row waits for it.
     const next = renderHook(
@@ -206,23 +206,23 @@ describe("useConversationTitles", () => {
   });
 
   it("answers from a title found under another set of conversations, without reading", async () => {
-    const histories = new Map<string, ChatMessage[]>();
+    const histories = new Map<string, ConversationMessage[]>();
     const reads: string[] = [];
-    setChatClientFactory(() => client(histories, reads));
+    setConversationClientFactory(() => client(histories, reads));
     const wrapper = sharedCache();
 
     const before = renderHook(() => useConversationTitles([conversation("fresh")]), { wrapper });
     await waitFor(() => expect(reads).toEqual(["fresh"]));
     before.unmount();
 
-    // The chat page's rail lists more than the new-chat page's did, and finds the title.
+    // The conversation page's rail lists more than the new-conversation page's did, and finds the title.
     histories.set("fresh", [said("This is twin B.")]);
-    const chatPage = renderHook(
+    const conversationPage = renderHook(
       () => useConversationTitles([conversation("fresh"), conversation("other")]),
       { wrapper },
     );
-    await waitFor(() => expect(chatPage.result.current.titles).toEqual({ fresh: "This is twin B." }));
-    chatPage.unmount();
+    await waitFor(() => expect(conversationPage.result.current.titles).toEqual({ fresh: "This is twin B." }));
+    conversationPage.unmount();
     reads.length = 0;
 
     // Back on a page listing the first set, whose cached read still says nothing.

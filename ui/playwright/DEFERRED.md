@@ -17,14 +17,14 @@ missing is the page.
 | `onboarding/onboarding.spec.ts` | No onboarding wizard exists on this architecture | — nothing; drop it unless the flow is rebuilt |
 | `cleanup.spec.ts` | Not applicable while the suite runs on the mock backend: each test gets a fresh browser context, so there is nothing to sweep. Revisit if the suite gains a live-backend mode. | — |
 
-## Ported since: chat
+## Ported since: conversation
 
-`chat/chat.spec.ts` and `chat/chat-errors.spec.ts` are live. The chat page was
-rebuilt on the `ChatClient` port, so both journeys assert against the real page:
+`conversation/conversation.spec.ts` and `conversation/conversation-errors.spec.ts` are live. The conversation page was
+rebuilt on the `ConversationClient` port, so both journeys assert against the real page:
 history, sending, streaming deltas, tool call and result rendering, a failed
-turn with retry, cancelling mid-stream, and the session list failing on its own.
+turn with retry, cancelling mid-stream, and the conversation list failing on its own.
 
-The chat-message extension point is covered too, now that the example mounts a
+The conversation-message extension point is covered too, now that the example mounts a
 component there: `extension-points.withExtension.spec.ts` asserts one slot per message
 and four *distinguishable* contributions, so per-message context is proven rather
 than assumed. Every extension point the app declares now has a runtime
@@ -102,7 +102,7 @@ Two things worth keeping from writing it, because both cost time and neither is 
   `page.goto` therefore starts a backend that has never heard of the thing just created,
   and the failure reads as "the create did not stick" when nothing is wrong. Click through
   from the list.
-- **The second read is the point.** `chat-capabilities-toggle` is asserted rather than the
+- **The second read is the point.** `conversation-capabilities-toggle` is asserted rather than the
   heading or the panel, because those render from the URL and would appear for an agent
   that does not exist. That button renders only when the per-agent read resolved a row, so
   it is what distinguishes "the list re-fetched" from "the thing exists". The weaker
@@ -136,7 +136,7 @@ browser is that an agent's readiness *reason* is readable end to end, because th
 `AgentInstance` record reports a failure message and the template reports a condition, and
 no single surface shows both.
 
-## What the chat fixes could not be covered against
+## What the conversation fixes could not be covered against
 
 Two gaps remain in streaming and interaction coverage against a live controller.
 
@@ -145,14 +145,14 @@ Two gaps remain in streaming and interaction coverage against a live controller.
 The client now honours an artifact's `append` flag, which is how this runtime streams: one
 `artifactId` for the reply, one frame per token, `append` on every frame after the first,
 then a closing frame repeating the whole answer. That shape is pinned in
-`src/api/chat/a2aGrpcChatClient.test.ts` against frames captured from the controller on
+`src/api/conversation/a2aGrpcConversationClient.test.ts` against frames captured from the controller on
 2026-08-24, and it was confirmed by hand — `grpcurl` at the gateway, and a throwaway
 Playwright run against a live instance that rendered the reply.
 
-**The mock chat client does not reproduce that shape.** It streams with `delta` events,
+**The mock conversation client does not reproduce that shape.** It streams with `delta` events,
 which is the port's own vocabulary rather than the wire's, so no browser test exercises the
 artifact path. Teaching the fixture to emit artifact frames would mean it stopped being a
-`ChatClient` and started being an A2A server, which is the wrong seam — the transport is
+`ConversationClient` and started being an A2A server, which is the wrong seam — the transport is
 already covered by unit tests over real bytes. The browser-level gap is a `playwright/live/`
 spec that sends a message and asserts the reply grows on screen before the turn completes.
 
@@ -246,7 +246,7 @@ total is the lie a separate summary read exists to prevent, which is what
 
 A conversation is named by the reader, and an unnamed one can be titled from its first
 message — `ListTasks{ContextID: instanceId}` returns the history. That is **free on the
-chat page**, which has already read the transcript because it is rendering it.
+conversation page**, which has already read the transcript because it is rendering it.
 
 The **rail** now pays for the rest, bounded at thirty: every row but the open one used to
 read `Untitled · 50b46891`, which made the list very nearly unusable — the one row a
@@ -268,7 +268,7 @@ Two ways it could stop being a trade-off, both server-side and neither invented 
 - **`ListAgentInstances` gains a field mask** for it, so callers that want it pay and
   callers that do not are unaffected.
 
-Either would let a list show what the chat page already shows. Until then, what a list
+Either would let a list show what the conversation page already shows. Until then, what a list
 renders for an unnamed conversation is pinned by `agents/agent-page.spec.ts` —
 both that it is never a bare UUID, and that the derived title appears where the
 transcript is in hand.

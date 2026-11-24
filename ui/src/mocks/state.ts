@@ -401,7 +401,7 @@ export function generatedCheckpointName(
 /**
  * One boundary already saved against the seeded conversation.
  *
- * So the chat has a checkpointed message to render, and a fork to start from, before
+ * So the conversation has a checkpointed message to render, and a fork to start from, before
  * anybody presses anything — the same reason `SEEDED_INSTANCE_SHARE` exists.
  */
 export const SEEDED_CHECKPOINT: MockCheckpoint = {

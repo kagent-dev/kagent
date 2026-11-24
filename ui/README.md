@@ -93,7 +93,7 @@ to have landed.
 | `KAGENT_UI_API_BASE_URL` | where the browser calls the API (default `/api`) |
 | `KAGENT_UI_ENABLE_MOCK` | `true` serves the whole API from in-browser fixtures |
 | `KAGENT_UI_SSO_REDIRECT_PATH` | where "Sign in with SSO" sends the browser |
-| `KAGENT_UI_STREAM_TIMEOUT_MS` | chat stream inactivity timeout |
+| `KAGENT_UI_STREAM_TIMEOUT_MS` | conversation stream inactivity timeout |
 
 `KAGENT_UI_ENABLE_MOCK` is a development setting. The release image deliberately ships no
 mock backend, so a built bundle logs a warning and uses the real API rather than
@@ -117,7 +117,7 @@ port-forward, and no provider credentials**. See
 
 | Path | Contents |
 | --- | --- |
-| `src/api/` | data layer — typed domain models, SWR hooks, the chat client interface |
+| `src/api/` | data layer — typed domain models, SWR hooks, the conversation client interface |
 | `src/mocks/` | in-browser mock backend and its fixtures |
 | `src/pages/` | one module per route |
 | `src/components/Structure/` | app shell — header, sidebar, page frame |

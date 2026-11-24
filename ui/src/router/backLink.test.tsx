@@ -22,10 +22,10 @@ function renderAt(state: unknown) {
 describe("useBackLink", () => {
   it("leads back to the page that opened this one, search included", () => {
     const link = renderAt(
-      backLinkState({ pathname: "/agents/abc/chat", search: "?mock=ok" }, "Back to conversation"),
+      backLinkState({ pathname: "/agents/abc/conversation", search: "?mock=ok" }, "Back to conversation"),
     );
     expect(link.textContent).toBe("Back to conversation");
-    expect(link.getAttribute("href")).toBe("/agents/abc/chat?mock=ok");
+    expect(link.getAttribute("href")).toBe("/agents/abc/conversation?mock=ok");
   });
 
   it("falls back to the list on a direct visit", () => {

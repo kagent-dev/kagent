@@ -1,0 +1,148 @@
+import { expect, test } from "../../fixtures/test";
+import { agentConversation, instances } from "../../helpers/app";
+import { pressOnce } from "../../helpers/resource";
+
+/**
+ * Sharing a conversation: create a link, see it listed, revoke it, open one.
+ *
+ * A share is over an `AgentInstance`, because the instance *is* the conversation.
+ * The gRPC interceptor validates the share token, and the A2A gateway reads the
+ * instance as the share's owner; reading it as the visitor would find nothing.
+ *
+ * ## What a fixture can and cannot prove here
+ *
+ * It can prove the page spends a token and reports a refusal. It **cannot** prove
+ * the header reaches a backend: conversation in mock mode is served by a client-side fake
+ * that builds no request, so it reads the registration directly rather than seeing
+ * what travelled. That gap is real and recorded in `playwright/DEFERRED.md`; only
+ * the live suite can close it.
+ */
+
+const CONVERSATION = agentConversation(instances.ready);
+/** A link issued before this tab opened — see `SEEDED_INSTANCE_SHARE` in the mock. */
+const SEEDED_LINK = `/shared/agent/${instances.ready}/mock-instance-token-seed`;
+
+test("conversation sharing: a link is created, shown once, listed and revoked", async ({ page }) => {
+  await page.goto(CONVERSATION);
+
+  await test.step("1. sharing is offered on a conversation", async () => {
+    await expect(page.getByTestId("conversation-share")).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId("conversation-share").click();
+    await expect(page.getByTestId("share-dialog")).toBeVisible();
+    await expect(page.getByTestId("share-create")).toBeVisible();
+  });
+
+  await test.step("2. shares are always read-only", async () => {
+    await expect(page.getByTestId("share-dialog")).toContainText("read-only");
+    await expect(page.getByRole("switch")).toHaveCount(0);
+  });
+
+  await test.step("3. a created link is shown once, and says so", async () => {
+    /*
+     * Once, and only once: every answer to this button issues another share, so a retry
+     * would put a second link in the list and fail the count below rather than here.
+     * The dialog opened a step ago and antd is still zooming it in, which is the window
+     * in which a click is computed against geometry it no longer has.
+     */
+    await pressOnce(page.getByTestId("share-create"));
+
+    const fresh = page.getByTestId("share-fresh-link");
+    await expect(fresh).toBeVisible({ timeout: 15_000 });
+    // The controller stores only a digest, so this is the one moment the token
+    // exists to be shown — and the page has to say that rather than imply it can be
+    // fetched again.
+    await expect(fresh).toContainText("cannot be shown again");
+    // A whole link, not a bare token: that is the form a person actually sends.
+    await expect(fresh).toContainText("/shared/agent/");
+  });
+
+  await test.step("3b. copying says whether it worked", async () => {
+    // The token is shown once, so a copy that quietly does nothing loses it. The
+    // button reports the outcome rather than implying one.
+    await page.getByTestId("share-copy-fresh-link").click();
+    await expect(page.getByTestId("share-copy-fresh-link")).toHaveText("Copied");
+    await expect(page.getByTestId("share-copy-failed")).toHaveCount(0);
+  });
+
+  await test.step("4. the list shows the share, and never the token", async () => {
+    const list = page.getByTestId("share-list");
+    // Two: the one just created and the one seeded as "issued before this tab
+    // opened". Waited for rather than counted immediately — the list reloads after a
+    // create, and counting mid-reload reads a number that is about to change.
+    await expect(list.locator("tbody tr")).toHaveCount(2, { timeout: 15_000 });
+    await expect(
+      list,
+      "the list cannot show a token — only its digest is stored",
+    ).not.toContainText("mock-instance-token");
+  });
+
+  await test.step("5. revoking removes it", async () => {
+    await page.locator('[data-testid^="revoke-share-"]').first().click();
+    await expect(page.getByTestId("share-list").locator("tbody tr")).toHaveCount(1, {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("share-error")).toHaveCount(0);
+    // The link on screen may be the one just revoked, and a copy button for a dead
+    // link is worse than none.
+    await expect(page.getByTestId("share-fresh-link")).toHaveCount(0);
+  });
+});
+
+test("conversation sharing: a link issued earlier opens the conversation, read-only", async ({
+  page,
+}) => {
+  await test.step("1. it opens and says what it is", async () => {
+    await page.goto(SEEDED_LINK);
+
+    // Said on the page, not only in the URL: a reader who was sent a link has no
+    // other way to know this is somebody else's conversation.
+    await expect(page.getByTestId("shared-agent-notice")).toContainText("read-only", {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId("shared-agent-error")).toHaveCount(0);
+  });
+
+  await test.step("2. the conversation is there", async () => {
+    await expect(page.getByTestId("shared-agent-transcript")).toBeVisible();
+    await expect(page.getByTestId("conversation-message").first()).toBeVisible({
+      timeout: 30_000,
+    });
+  });
+
+  await test.step("3. a read-only link offers no composer", async () => {
+    // An input that could not send is worse than none: the send would be refused by
+    // the controller and the reader would have typed for nothing.
+    await expect(page.getByTestId("conversation-input")).toHaveCount(0);
+  });
+});
+
+test("conversation sharing: a token the backend never issued is refused", async ({ page }) => {
+  // The assertion that makes the one above mean something: the fixture refuses a
+  // token it cannot resolve, exactly as the controller does. Without it, a build
+  // that mangled the token would serve the conversation anyway and the miss would
+  // read on screen as success.
+  await page.goto(`/shared/agent/${instances.ready}/not-a-real-token`);
+
+  await expect(page.getByTestId("shared-agent-error")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("shared-agent-transcript")).toHaveCount(0);
+});
+
+test("conversation sharing: query parameters cannot enable replies", async ({ page }) => {
+  await page.goto(`${SEEDED_LINK}?reply`);
+
+  await expect(page.getByTestId("shared-agent-transcript")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("shared-agent-notice")).toContainText("read-only");
+  await expect(page.getByTestId("conversation-input")).toHaveCount(0);
+});
+
+test("conversation sharing: a pending question offers no reply or cancellation controls", async ({ page }) => {
+  await page.goto(`${CONVERSATION}?conversation=asks`);
+  await page.getByTestId("conversation-input").fill("What should I order?");
+  await page.getByTestId("conversation-send").click();
+  await expect(page.getByTestId("conversation-awaiting-reply")).toBeVisible({ timeout: 20_000 });
+
+  await page.goto(SEEDED_LINK);
+  await expect(page.getByTestId("conversation-awaiting-owner")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("conversation-awaiting-reply")).toHaveCount(0);
+  await expect(page.getByTestId("conversation-input")).toHaveCount(0);
+});

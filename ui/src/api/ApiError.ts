@@ -89,7 +89,7 @@ export function isNotFound(error: unknown): boolean {
 }
 
 /**
- * `ApiError.reason` of a send the gateway kept refusing as not accepted until chat's
+ * `ApiError.reason` of a send the gateway kept refusing as not accepted until the conversation client's
  * retry window ran out. The runtime may have crashed.
  */
 export const SEND_NOT_ACCEPTED = "KAGENT_SEND_NOT_ACCEPTED";
@@ -107,7 +107,7 @@ export function isSendNotAccepted(error: unknown): boolean {
 }
 
 /**
- * Whether chat should offer a revert after `error`. `RevertSession` returns a
+ * Whether the conversation page should offer a revert after `error`. `RevertSession` returns a
  * healthy runtime unchanged, so a refusal that only might mean a crash is enough.
  */
 export function mayNeedRecovery(error: unknown): boolean {

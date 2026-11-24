@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import {
-  agentNewChat,
+  agentNewConversation,
   agentPage,
   agents,
   dataRows,
@@ -70,10 +70,10 @@ test("agents: the list is Agent resources with explicit template and harness sou
 
   await test.step("3. two Agents with identical refs are two rows with two addresses", async () => {
     await expect(page.getByTestId("agent-link-kagent-shared-brain")).toHaveAttribute(
-      "href", agentNewChat(agents.sharedOnK8s),
+      "href", agentNewConversation(agents.sharedOnK8s),
     );
     await expect(page.getByTestId("agent-link-kagent-shared-brain-twin")).toHaveAttribute(
-      "href", agentNewChat({ name: "shared-brain-twin", template: "", harness: "" }),
+      "href", agentNewConversation({ name: "shared-brain-twin", template: "", harness: "" }),
     );
   });
 

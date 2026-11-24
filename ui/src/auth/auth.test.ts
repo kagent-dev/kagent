@@ -202,7 +202,7 @@ describe("runtimeConfig", () => {
     });
   });
 
-  // A zero would abort every chat stream the instant it opened, which reads as
+  // A zero would abort every conversation stream the instant it opened, which reads as
   // the backend hanging up rather than as a bad setting.
   it("rejects a non-positive timeout", () => {
     window.environmentVariables = { STREAM_TIMEOUT_MS: "0" };

@@ -7,17 +7,17 @@ import {
 } from "./railOverrides";
 import { coreRailItems } from "@/components/agent/railItems";
 
-const items = coreRailItems({ agentHref: "/a", newChatHref: "/a/new" });
+const items = coreRailItems({ agentHref: "/a", newConversationHref: "/a/new" });
 
 describe("merging rail overrides from several extensions", () => {
   it("keeps independent choices from different extensions", () => {
     // The whole reason this merges two levels deep: one product hiding an entry and
     // another renaming it should produce a hidden, renamed entry.
     const merged = mergeExtensionAgentRailOverrides([
-      { newChat: { hidden: true } },
-      { newChat: { label: "Start something" } },
+      { newConversation: { hidden: true } },
+      { newConversation: { label: "Start something" } },
     ]);
-    expect(merged.newChat).toEqual({ hidden: true, label: "Start something" });
+    expect(merged.newConversation).toEqual({ hidden: true, label: "Start something" });
   });
 
   it("lets the later extension win one field", () => {
@@ -47,7 +47,7 @@ describe("applying rail overrides", () => {
   });
 
   it("drops a hidden entry", () => {
-    const applied = applyAgentRailOverrides(items, { newChat: { hidden: true } });
+    const applied = applyAgentRailOverrides(items, { newConversation: { hidden: true } });
     expect(applied.map((item) => item.key)).toEqual(["agentDetails"]);
   });
 
@@ -64,12 +64,12 @@ describe("applying rail overrides", () => {
   });
 
   it("reorders the application's own entries", () => {
-    const applied = applyAgentRailOverrides(items, { newChat: { order: 50 } });
-    expect(applied.map((item) => item.key)).toEqual(["newChat", "agentDetails"]);
+    const applied = applyAgentRailOverrides(items, { newConversation: { order: 50 } });
+    expect(applied.map((item) => item.key)).toEqual(["newConversation", "agentDetails"]);
   });
 
   it("leaves untouched entries as they were", () => {
-    const [details] = applyAgentRailOverrides(items, { newChat: { label: "x" } });
+    const [details] = applyAgentRailOverrides(items, { newConversation: { label: "x" } });
     expect(details.icon).toBe(Bot);
     expect(details.label).toBe("Agent Details");
   });
@@ -77,10 +77,10 @@ describe("applying rail overrides", () => {
 
 describe("isRailEntryHidden", () => {
   it("answers for the fallback that is not a rail item", () => {
-    // "New chat" becomes a button where the agent has no address, and a `hidden`
+    // "New conversation" becomes a button where the agent has no address, and a `hidden`
     // override has to reach that form too or hiding it would only half work.
-    expect(isRailEntryHidden("newChat", { newChat: { hidden: true } })).toBe(true);
-    expect(isRailEntryHidden("newChat", { newChat: { label: "x" } })).toBe(false);
-    expect(isRailEntryHidden("newChat", undefined)).toBe(false);
+    expect(isRailEntryHidden("newConversation", { newConversation: { hidden: true } })).toBe(true);
+    expect(isRailEntryHidden("newConversation", { newConversation: { label: "x" } })).toBe(false);
+    expect(isRailEntryHidden("newConversation", undefined)).toBe(false);
   });
 });

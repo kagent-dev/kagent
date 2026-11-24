@@ -164,7 +164,7 @@ export function hasApiTransforms(): boolean {
   return transforms.length > 0;
 }
 
-/** @internal — read by the transport and by the chat client. */
+/** @internal — read by the transport and by the conversation client. */
 export async function applyRequestTransforms(
   context: ApiRequestContext,
 ): Promise<ApiRequestContext> {

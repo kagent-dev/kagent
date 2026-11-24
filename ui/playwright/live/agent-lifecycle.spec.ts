@@ -93,10 +93,10 @@ for (const { template, slug } of CASES) {
       await expectReady(page, name);
     });
 
-    await test.step("3. opening it lands on its new chat", async () => {
+    await test.step("3. opening it lands on its new conversation", async () => {
       await page.getByTestId(`agent-link-${NAMESPACE}-${name}`).click();
       await expect(page).toHaveURL(new RegExp(`/agents/${NAMESPACE}/${name}/new$`));
-      await expect(page.getByTestId("chat-input")).toBeEditable();
+      await expect(page.getByTestId("conversation-input")).toBeEditable();
     });
 
     await test.step("4. an edit is saved, read back and becomes a new revision", async () => {
@@ -127,7 +127,7 @@ for (const { template, slug } of CASES) {
 test("live: two agents with the same template and harness keep separate conversations", async ({ page }) => {
   test.setTimeout(READY_TIMEOUT * 2 + 240_000);
   const [first, second] = [`e2e-twin-a-${RUN}`, `e2e-twin-b-${RUN}`];
-  let chatId = "";
+  let conversationId = "";
 
   await test.step("1. create both from the same refs", async () => {
     await createAgent(page, first, "reference");
@@ -136,28 +136,28 @@ test("live: two agents with the same template and harness keep separate conversa
     await expectReady(page, second);
   });
 
-  await test.step("2. chat with the first and get a real reply", async () => {
+  await test.step("2. talk to the first and get a real reply", async () => {
     await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
-    await page.getByTestId("chat-input").fill("Say hello in three words.");
-    await page.getByTestId("chat-send").click();
-    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 60_000 });
-    chatId = new URL(page.url()).pathname.split("/")[2];
-    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]')).toHaveCount(1, { timeout: 180_000 });
-    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 180_000 });
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible();
+    await page.getByTestId("conversation-input").fill("Say hello in three words.");
+    await page.getByTestId("conversation-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/conversation$/, { timeout: 60_000 });
+    conversationId = new URL(page.url()).pathname.split("/")[2];
+    await expect(page.locator('[data-testid="conversation-message"][data-role="agent"]')).toHaveCount(1, { timeout: 180_000 });
+    await expect(page.getByTestId("conversation-cancel")).toHaveCount(0, { timeout: 180_000 });
+    await expect(page.getByTestId(`rail-conversation-${conversationId}`)).toBeVisible();
   });
 
-  await test.step("3. the second agent does not list that chat", async () => {
+  await test.step("3. the second agent does not list that conversation", async () => {
     await loadLive(page, liveRoutes.agents);
     await page.getByTestId(`agent-link-${NAMESPACE}-${second}`).click();
     await expect(page.getByTestId("agent-rail-identity")).toContainText(second);
-    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toHaveCount(0);
+    await expect(page.getByTestId("rail-conversations-empty")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId(`rail-conversation-${conversationId}`)).toHaveCount(0);
   });
 
   await test.step("4. and the first still does", async () => {
     await loadLive(page, liveRoutes.agents);
     await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId(`rail-conversation-${conversationId}`)).toBeVisible({ timeout: 60_000 });
   });
 });

@@ -81,7 +81,7 @@ export function UnmappedConversationsPage() {
       key: "name",
       render: (_, row) => (
         <Link
-          to={agentUrl.chat({ id: row.id })}
+          to={agentUrl.conversation({ id: row.id })}
           data-testid={`unmapped-link-${row.id}`}
         >
           {conversationTitle(row)}
