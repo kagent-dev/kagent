@@ -100,13 +100,13 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		A2APartConverter:   a2aPartConverter,
 		GenAIPartConverter: structuredOutputPartConverter(output, rootName),
 		AfterEventCallback: func(ctx adka2a.ExecutorContext, event *adksession.Event, processed *a2atype.TaskArtifactUpdateEvent) error {
-			// Preserve the artifact's protocol type and assign kagent's ordering key.
+			// Preserve the ADK event time on the artifact.
 			if processed.Artifact != nil {
 				position := event.Timestamp
 				if position.IsZero() {
 					position = time.Now()
 				}
-				apia2a.SetTimelinePosition(processed.Artifact, position)
+				apia2a.SetItemTimestamps(processed.Artifact, position, position)
 			}
 			return transformStructuredOutput(output, rootName, event, processed)
 		},
@@ -354,7 +354,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 			}
 			// Status messages are outbound timeline items regardless of whether they
 			// represent HITL, validation failures, or another runtime status.
-			stampStatusMessageTimeline(event)
+			stampStatusMessageTimestamps(event)
 			canonicalizeADKEvent(event)
 			if endsTurn(event, err) {
 				e.flushTurnSpans(ctx)
@@ -366,7 +366,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 	}
 }
 
-func stampStatusMessageTimeline(event a2atype.Event) {
+func stampStatusMessageTimestamps(event a2atype.Event) {
 	update, ok := event.(*a2atype.TaskStatusUpdateEvent)
 	if !ok || update.Status.Message == nil {
 		return
@@ -375,7 +375,7 @@ func stampStatusMessageTimeline(event a2atype.Event) {
 	if update.Status.Timestamp != nil {
 		position = update.Status.Timestamp.UTC()
 	}
-	apia2a.SetTimelinePosition(update.Status.Message, position)
+	apia2a.SetItemTimestamps(update.Status.Message, position, position)
 }
 
 // requestSpanAttributes is the request identity every span of the turn
@@ -478,7 +478,7 @@ func (e *KAgentExecutor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorCont
 			if status, ok := event.(*a2atype.TaskStatusUpdateEvent); ok && status.Status.State == a2atype.TaskStateCanceled {
 				usage.stampEvent(status)
 			}
-			stampStatusMessageTimeline(event)
+			stampStatusMessageTimestamps(event)
 			canonicalizeADKEvent(event)
 			if !yield(event, err) {
 				return

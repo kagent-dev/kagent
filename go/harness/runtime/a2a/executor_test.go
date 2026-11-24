@@ -137,13 +137,17 @@ func TestExecuteStreamsCompletesAndPersistsSession(t *testing.T) {
 }
 
 func TestExecutePreservesTextAndToolOrder(t *testing.T) {
+	startedAt := time.Unix(10, 0).UTC()
+	finishedAt := startedAt.Add(19 * time.Millisecond)
 	executor, err := New(fakeRunner{run: func(_ context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
 		steps := []func() error{
 			func() error { return sink.TextDelta(runtime.TextDelta{Text: "before "}) },
 			func() error { return sink.TextDelta(runtime.TextDelta{Text: "tool"}) },
-			func() error { return sink.ToolCall(runtime.ToolCall{ID: "tool-1", Name: "Read"}) },
 			func() error {
-				return sink.ToolResult(runtime.ToolResult{ID: "tool-1", Name: "Read", Result: "contents"})
+				return sink.ToolCall(runtime.ToolCall{ID: "tool-1", Name: "Read", ProducedAt: startedAt})
+			},
+			func() error {
+				return sink.ToolResult(runtime.ToolResult{ID: "tool-1", Name: "Read", Result: "contents", ProducedAt: finishedAt})
 			},
 			func() error { return sink.TextDelta(runtime.TextDelta{Text: "after "}) },
 			func() error { return sink.TextDelta(runtime.TextDelta{Text: "tool"}) },
@@ -190,6 +194,20 @@ func TestExecutePreservesTextAndToolOrder(t *testing.T) {
 	}
 	if secondAppend.Artifact.ID != second.Artifact.ID || !secondAppend.Append {
 		t.Fatalf("second text run append = %#v, want artifact %q append", secondAppend, second.Artifact.ID)
+	}
+
+	if got := call.Artifact.Metadata[apia2a.ProducedAtMetadataKey]; got != startedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("tool call produced-at = %v, want %v", got, startedAt)
+	}
+	if got := result.Artifact.Metadata[apia2a.ProducedAtMetadataKey]; got != finishedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("tool result produced-at = %v, want %v", got, finishedAt)
+	}
+	for _, artifact := range []*a2atype.Artifact{first.Artifact, second.Artifact} {
+		value, _ := artifact.Metadata[apia2a.ProducedAtMetadataKey].(string)
+		producedAt, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil || !producedAt.After(finishedAt) {
+			t.Fatalf("text artifact produced-at = %q, want emission time", value)
+		}
 	}
 
 	positioned := []map[string]any{

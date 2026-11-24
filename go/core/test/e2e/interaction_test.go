@@ -476,11 +476,33 @@ func TestMCPInteraction(t *testing.T) {
 		t.Parallel()
 		target := interactionTarget(t)
 		mcpURL, mcpServer := startMCPMock(t)
-		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, false, nil)
+		template, toolName := createMCPInteractionTemplate(t, harness, mcpURL, false, nil)
 		fixture := newInteractionFixtureForTemplate(t, harness, target, template)
 		_, _, task := fixture.send(t, "Add 3 and 5 using the configured MCP server.")
 		if task.Status.State != a2atype.TaskStateCompleted || !strings.Contains(taskText(task), "result is 8") {
 			t.Fatalf("A2A task state = %s, text = %q, want completed task with MCP result", task.Status.State, taskText(task))
+		}
+		persisted := getTask(t, fixture, task.ID)
+		assertToolEvents(t, taskToolEvents(persisted), toolName)
+		timestamps := make(map[string]time.Time)
+		for _, artifact := range persisted.Artifacts {
+			for _, event := range toolEvents(artifact.Parts) {
+				if event.name != toolName {
+					continue
+				}
+				producedAt, ok := kagenta2a.ProducedAt(artifact)
+				if !ok {
+					t.Fatalf("artifact %s has no valid produced-at timestamp", artifact.ID)
+				}
+				if _, ok := kagenta2a.TimelinePosition(artifact); !ok {
+					t.Fatalf("artifact %s has no legacy timeline position", artifact.ID)
+				}
+				timestamps[event.partType] = producedAt
+			}
+		}
+		startedAt, finishedAt := timestamps["function_call"], timestamps["function_response"]
+		if startedAt.IsZero() || finishedAt.IsZero() || finishedAt.Before(startedAt) {
+			t.Fatalf("reloaded task %s has invalid call/result timestamps for %q: %v", task.ID, toolName, timestamps)
 		}
 		for _, request := range mcpServer.Requests() {
 			if bytes.Contains(request.Body, []byte(`"method":"tools/call"`)) && bytes.Contains(request.Body, []byte(`"name":"add_numbers"`)) {

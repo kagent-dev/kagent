@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 )
@@ -43,8 +44,8 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	sink := &recordingSink{}
 	messages := []string{
 		`{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"thread","turnId":"turn","itemId":"message","delta":"hello"}}`,
-		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","status":"inProgress"}}}`,
-		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","aggregatedOutput":"/data/workspace","exitCode":0,"status":"completed"}}}`,
+		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","startedAtMs":1791578328535,"item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","status":"inProgress"}}}`,
+		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","completedAtMs":1791578328554,"item":{"type":"commandExecution","id":"cmd","command":"pwd","commandActions":[],"cwd":"/data/workspace","aggregatedOutput":"/data/workspace","exitCode":0,"status":"completed"}}}`,
 		`{"jsonrpc":"2.0","method":"item/started","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"status":"inProgress"}}}`,
 		`{"jsonrpc":"2.0","method":"item/completed","params":{"threadId":"thread","turnId":"turn","item":{"type":"mcpToolCall","id":"mcp","server":"tools","tool":"lookup","arguments":{"query":"safe"},"result":{"content":"ok"},"status":"completed"}}}`,
 		`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"thread","turn":{"id":"turn","status":"completed"}}}`,
@@ -76,6 +77,15 @@ func TestTranslatePinnedNotifications(t *testing.T) {
 	}
 	if call := sink.calls[0]; call.MCPServer != "" || call.MCPTool != "" {
 		t.Fatalf("non-MCP call = %#v, want no MCP server or tool", call)
+	}
+	if got := sink.calls[0].ProducedAt; !got.Equal(time.UnixMilli(1791578328535)) {
+		t.Fatalf("command call produced-at = %v, want notification start time", got)
+	}
+	if got := sink.results[0].ProducedAt; !got.Equal(time.UnixMilli(1791578328554)) {
+		t.Fatalf("command result produced-at = %v, want notification completion time", got)
+	}
+	if !sink.calls[1].ProducedAt.IsZero() || !sink.results[1].ProducedAt.IsZero() {
+		t.Fatal("MCP events without source timestamps should leave emission time to the adapter")
 	}
 }
 

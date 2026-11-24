@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/kagent-dev/kagent/go/harness/claude/config"
 )
@@ -91,8 +92,8 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 		`{"type":"system","subtype":"init","session_id":"11111111-1111-4111-8111-111111111111"}`,
 		`{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg_tool"}}}`,
 		`{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-1","name":"Read","input":{}}}}`,
-		`{"type":"assistant","message":{"id":"msg_tool","content":[{"type":"tool_use","id":"tool-1","name":"Read","input":{"file_path":"/data/workspace/README.md"}}]}}`,
-		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"file contents","is_error":false}]}}`,
+		`{"type":"assistant","timestamp":"2026-10-09T16:38:48.535189-04:00","message":{"id":"msg_tool","content":[{"type":"tool_use","id":"tool-1","name":"Read","input":{"file_path":"/data/workspace/README.md"}}]}}`,
+		`{"type":"user","timestamp":"2026-10-09T20:38:48.554181Z","message":{"content":[{"type":"tool_result","tool_use_id":"tool-1","content":"file contents","is_error":false}]}}`,
 		`{"type":"assistant","message":{"id":"msg_edit","content":[{"type":"tool_use","id":"tool-2","name":"Edit","input":{"file_path":"/data/workspace/missing.md"}}]}}`,
 		`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tool-2","content":[{"type":"text","text":"file not found"}],"is_error":true}]}}`,
 		`{"type":"assistant","message":{"id":"msg_done","content":[{"type":"text","text":"done"}]}}`,
@@ -125,6 +126,24 @@ func TestParseJSONLBuiltInToolLifecycle(t *testing.T) {
 	}
 	if tools[3].ToolPhase != "completed" || tools[3].ToolID != "tool-2" || tools[3].ToolName != "Edit" || !tools[3].ToolError {
 		t.Fatalf("failed tool result = %#v", tools[3])
+	}
+	sink := &recordingSink{}
+	for _, event := range tools {
+		if _, err := emitEvent(event, sink, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sink.calls) != 2 || len(sink.results) != 2 {
+		t.Fatalf("runtime tool events = %d calls and %d results, want two of each", len(sink.calls), len(sink.results))
+	}
+	if got := sink.calls[0].ProducedAt.UTC().Format(time.RFC3339Nano); got != "2026-10-09T20:38:48.535189Z" {
+		t.Fatalf("tool call produced-at = %s, want the assistant envelope timestamp", got)
+	}
+	if got := sink.results[0].ProducedAt.UTC().Format(time.RFC3339Nano); got != "2026-10-09T20:38:48.554181Z" {
+		t.Fatalf("tool result produced-at = %s, want the user envelope timestamp", got)
+	}
+	if sink.calls[1].ProducedAt.IsZero() || sink.results[1].ProducedAt.IsZero() {
+		t.Fatal("runtime tool events without source timestamps have no receipt time")
 	}
 }
 

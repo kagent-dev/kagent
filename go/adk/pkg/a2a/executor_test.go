@@ -247,6 +247,9 @@ func TestKAgentExecutor_StampsStructuredOutputFailureMessage(t *testing.T) {
 	if got == nil || got.Status.State != a2atype.TaskStateFailed || got.Status.Message == nil {
 		t.Fatalf("status update = %#v, want failed status with validation message", got)
 	}
+	if gotAt := got.Status.Message.Metadata[apia2a.ProducedAtMetadataKey]; gotAt != timestamp.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("status message produced-at = %v, want %v", gotAt, timestamp)
+	}
 	position, ok := apia2a.TimelinePosition(got.Status.Message)
 	if !ok || !position.Equal(timestamp) {
 		t.Fatalf("timeline position = %v, %v; want %v", position, ok, timestamp)
@@ -599,6 +602,7 @@ func TestKAgentExecutorFailsCompletedStructuredOutputWithoutResult(t *testing.T)
 }
 
 func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
+	finalTime := time.Date(2026, 10, 9, 16, 38, 48, 535189000, time.FixedZone("test", -4*60*60))
 	const (
 		appName   = "test-app"
 		contextID = "context-1"
@@ -622,6 +626,7 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 				}
 
 				final := &adksession.Event{
+					Timestamp:    finalTime,
 					Author:       ic.Agent().Name(),
 					InvocationID: ic.InvocationID(),
 					Branch:       ic.Branch(),
@@ -685,6 +690,9 @@ func TestKAgentExecutor_StreamsArtifactsThroughUpstreamExecutor(t *testing.T) {
 		if _, ok := update.Artifact.Metadata[apia2a.TimelinePositionMetadataKey].(string); !ok {
 			t.Fatalf("artifact update %d metadata = %#v, want timeline position", index, update.Artifact.Metadata)
 		}
+	}
+	if got := updates[1].Artifact.Metadata[apia2a.ProducedAtMetadataKey]; got != finalTime.UTC().Format(time.RFC3339Nano) {
+		t.Fatalf("final artifact produced-at = %v, want %v", got, finalTime)
 	}
 	if completed == nil || completed.Status.Message != nil {
 		t.Fatalf("completed status = %#v, want content-free completion", completed)

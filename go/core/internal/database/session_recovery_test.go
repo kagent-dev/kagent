@@ -2,6 +2,7 @@ package database
 
 import (
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/google/uuid"
@@ -302,6 +303,7 @@ func TestCrashedRecoveryNotePinsItsTimelinePosition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, a2a.TaskStateFailed, failed.Status.State)
 	require.NotNil(t, failed.Status.Timestamp)
+	require.Equal(t, failed.Status.Timestamp.UTC().Format(time.RFC3339Nano), failed.Status.Message.Metadata[apia2a.ProducedAtMetadataKey])
 	position, ok := apia2a.TimelinePosition(failed.Status.Message)
 	require.True(t, ok, "the crash note has a timeline position")
 	require.True(t, position.Equal(*failed.Status.Timestamp), "position %s, status timestamp %s", position, failed.Status.Timestamp)

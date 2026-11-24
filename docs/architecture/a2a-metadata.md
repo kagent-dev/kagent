@@ -31,26 +31,53 @@ They should not interpret runtime-specific metadata.
 
 ## Current contract
 
-| Key                                   | Carrier             | Meaning                                                                                              |
-| ------------------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------- |
-| `kagent.dev/a2a/timeline-position`    | message or artifact | Temporary RFC 3339 timestamp used to order task history until the upstream A2A timeline is available |
-| `kagent.dev/a2a/task-created-at`      | task                | Durable task creation RFC 3339 timestamp used by task projections                                    |
-| `kagent.dev/a2a/part-type`            | data part           | Semantic data kind                                                                                   |
-| `kagent.dev/a2a/usage`                | task event          | Model usage reported by runtimes that support it                                                     |
-| `kagent.dev/a2a/output-schema-sha256` | result part         | Binds a structured result to the compiled output schema                                              |
-| `kagent.dev/a2a/thought`              | text part           | Boolean that indicates model reasoning rather than its answer                                        |
+| Key                                   | Carrier             | Meaning                                                                          |
+| ------------------------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| `kagent.dev/a2a/produced-at`          | message or artifact | Supported wall-clock timestamp for the message or artifact                       |
+| `kagent.dev/a2a/timeline-position`    | message or artifact | Ordering key scheduled for retirement after migration to the native A2A timeline |
+| `kagent.dev/a2a/task-created-at`      | task                | Durable task creation RFC 3339 timestamp used by task projections                |
+| `kagent.dev/a2a/part-type`            | data part           | Semantic data kind                                                               |
+| `kagent.dev/a2a/usage`                | task event          | Model usage reported by runtimes that support it                                 |
+| `kagent.dev/a2a/output-schema-sha256` | result part         | Binds a structured result to the compiled output schema                          |
+| `kagent.dev/a2a/thought`              | text part           | Boolean that indicates model reasoning rather than its answer                    |
 
 The `kagent.dev/a2a/part-type` key identifies a data part's semantic type.
 Supported values depend on the harness adapter:
 
-* The Go ADK adapter recognizes `function_call` and `function_response` for
+- The Go ADK adapter recognizes `function_call` and `function_response` for
   function calls and responses.
-* The Python ADK adapter recognizes `executable_code` and
+- The Python ADK adapter recognizes `executable_code` and
   `code_execution_result` for code-execution results and executable code.
 
-Timeline positions are written at the boundary producing an item: the gateway
-for inbound messages and runtime adapters for outbound messages and artifacts.
-The gateway remains responsible for applying the resulting durable order.
+### Item timestamps
+
+`kagent.dev/a2a/produced-at` is a UTC RFC 3339 timestamp with fractional
+seconds when available. Its source depends on the producer.
+
+- The gateway uses acceptance time for inbound messages. Control-plane status
+  messages use the corresponding status time.
+- The Go ADK harness uses the ADK event time for artifacts and falls back to
+  the adapter clock when the event has no timestamp. Status messages use the
+  status timestamp when available.
+- Claude tool artifacts use the timestamp of the envelope containing the tool
+  request or result. The driver uses receipt time if the envelope timestamp is
+  absent or invalid.
+- Codex tool artifacts use the app server's `startedAtMs` or `completedAtMs`
+  notification timestamp when present.
+- The shared Claude and Codex adapter uses its emission time for items without
+  a supplied timestamp. Text artifacts are stamped on their first chunk.
+
+To measure elapsed time between tool events, match the `function_call` and
+`function_response` parts by tool call ID and subtract the timestamps on their
+artifacts. The interval can include approval waits and other runtime overhead.
+Older records and runtimes outside this contract, including Python BYO, may
+omit `produced-at`.
+
+`kagent.dev/a2a/timeline-position` is deprecated and will be retired once kagent
+and its clients migrate to native A2A timeline ordering. During the transition,
+clients should use `produced-at` for time and continue using
+`timeline-position` for ordering. On older Go ADK artifacts, clients can fall
+back to `timeline-position` for the event time.
 
 ## Other metadata
 

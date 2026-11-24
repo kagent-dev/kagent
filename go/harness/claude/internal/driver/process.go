@@ -447,12 +447,12 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 	case EventToolActivity:
 		switch event.ToolPhase {
 		case "started":
-			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata, ParentToolID: event.ParentToolID}
+			call := runtime.ToolCall{ID: event.ToolID, Name: event.ToolName, Arguments: event.Metadata, ParentToolID: event.ParentToolID, ProducedAt: event.ProducedAt}
 			call.MCPServer, call.MCPTool = splitMCPName(event.ToolName)
 			return nil, sink.ToolCall(call)
 		case "completed":
 			return nil, sink.ToolResult(runtime.ToolResult{
-				ID: event.ToolID, Name: event.ToolName, Result: event.ToolResult, IsError: event.ToolError,
+				ID: event.ToolID, Name: event.ToolName, Result: event.ToolResult, IsError: event.ToolError, ProducedAt: event.ProducedAt,
 			})
 		default:
 			return nil, fmt.Errorf("claude tool activity has unsupported phase %q", event.ToolPhase)

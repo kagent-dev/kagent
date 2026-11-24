@@ -10,14 +10,17 @@ import (
 func TestSanitizeCallerRequest(t *testing.T) {
 	part := NewToolResultPart("call-1", "lookup", map[string]any{"result": "ok"})
 	part.SetMeta(outputSchemaSHA256MetadataKey, "caller-controlled")
+	part.SetMeta(ProducedAtMetadataKey, "caller-controlled")
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, part)
 	message.Metadata = map[string]any{
 		HITLExtensionURI:            map[string]any{"type": HITLTypeToolApprovalResponse},
 		TimelinePositionMetadataKey: "caller-controlled",
+		ProducedAtMetadataKey:       "caller-controlled",
 		"application.example/value": "preserved",
 	}
 	req := &a2atype.SendMessageRequest{Message: message, Metadata: map[string]any{
 		TaskCreatedAtMetadataKey: "caller-controlled",
+		ProducedAtMetadataKey:    "caller-controlled",
 		"application.example/id": "preserved",
 	}}
 
@@ -28,6 +31,11 @@ func TestSanitizeCallerRequest(t *testing.T) {
 	}
 	if _, ok := message.Metadata[TimelinePositionMetadataKey]; ok {
 		t.Fatalf("gateway-owned metadata remains: %#v", message.Metadata)
+	}
+	for _, metadata := range []map[string]any{req.Metadata, message.Metadata, part.Metadata} {
+		if _, ok := metadata[ProducedAtMetadataKey]; ok {
+			t.Fatalf("caller-supplied produced-at remains: %#v", metadata)
+		}
 	}
 	if req.Metadata["application.example/id"] != "preserved" {
 		t.Fatalf("application metadata was removed: %#v", req.Metadata)
@@ -47,6 +55,14 @@ func TestTimelineAndTaskCreatedAt(t *testing.T) {
 	gotPosition, ok := TimelinePosition(message)
 	if !ok || !gotPosition.Equal(position) {
 		t.Fatalf("timeline position = %v, %v", gotPosition, ok)
+	}
+	if _, ok := ProducedAt(message); ok {
+		t.Fatal("a message with only a timeline position reported a production time")
+	}
+	producedAt := position.Add(-time.Second)
+	SetProducedAt(message, producedAt)
+	if got, ok := ProducedAt(message); !ok || !got.Equal(producedAt) {
+		t.Fatalf("produced-at = %v, %v, want %v", got, ok, producedAt)
 	}
 
 	task := &a2atype.Task{}
