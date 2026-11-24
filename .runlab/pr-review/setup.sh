@@ -18,7 +18,7 @@ HELM_VERSION=v3.19.0
 echo "pr-review setup starting"
 
 apt-get update
-apt-get install -y jq git make build-essential curl ca-certificates
+apt-get install -y jq git gh make build-essential curl ca-certificates
 
 fetch() { curl -fL --retry 3 -o "$1" "$2"; }
 
@@ -88,6 +88,11 @@ grep -q extraPortMappings scripts/kind/kind-config.yaml || { echo "the port mapp
 make create-kind-cluster
 make use-kind-cluster
 
+# The cluster exists, so the edited kind config has done its job. Put the file back: trylab checks out the pull
+# request's commit in this clone, and git refuses when the pull request's version of a file differs from the one
+# the clone has local changes to.
+git checkout -- scripts/kind/kind-config.yaml
+
 # One build of main warms docker's layer cache, the Go modules and the yarn cache, and fills the registry.
 # The provider key is a placeholder: the image must not hold a real key.
 MODEL_PROVIDER=openAI OPENAI_API_KEY=sk-placeholder make build
@@ -121,4 +126,7 @@ EOF2
 
 # The cluster and the registry are stopped in the image: story/ready.sh starts them when the lab boots, before the snapshot is taken.
 docker stop kagent-control-plane kind-registry
+
+# The clone must be clean for the same reason; anything listed here would block the checkout of some pull request.
+git status --short
 echo "pr-review setup done"
