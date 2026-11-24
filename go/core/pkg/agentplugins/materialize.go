@@ -214,7 +214,11 @@ func materializeResources(ctx context.Context, resources agentplugin.Resources, 
 	return plugins, nil
 }
 
+// packageDirectory names a source's cache entry by its artifact. Path only
+// selects a directory inside the artifact, so sources that differ only in
+// Path share one entry and one fetch.
 func packageDirectory(packages string, source agentplugin.Source) (string, error) {
+	source.Path = ""
 	raw, err := json.Marshal(source)
 	if err != nil {
 		return "", fmt.Errorf("encode artifact source: %w", err)
@@ -305,9 +309,6 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 			return "", err
 		}
 	}
-	if err := os.RemoveAll(destination); err != nil {
-		return "", err
-	}
 	staging, err := os.MkdirTemp(filepath.Dir(destination), ".fetch-")
 	if err != nil {
 		return "", err
@@ -325,6 +326,9 @@ func fetchSource(ctx context.Context, source agentplugin.Source, destination str
 		return "", err
 	}
 	if err := requirePackageFile(root, requiredFiles); err != nil {
+		return "", err
+	}
+	if err := os.RemoveAll(destination); err != nil {
 		return "", err
 	}
 	if err := os.Rename(staging, destination); err != nil {

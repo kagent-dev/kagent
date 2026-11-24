@@ -33,14 +33,14 @@ func TestMaterializeReusesReorderedSources(t *testing.T) {
 	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
 	initial, err := store.materialize(t, resources, paths)
 	require.NoError(t, err)
-	require.Len(t, store.fetched, 4, "identical sources share a fetch")
+	require.Len(t, store.fetched, 1, "sources from one commit share a fetch")
 	slices.Reverse(resources.Skills)
 	slices.Reverse(resources.Plugins)
 
 	reordered, err := store.materialize(t, resources, paths)
 
 	require.NoError(t, err)
-	require.Len(t, store.fetched, 4, "cached sources must not be fetched again")
+	require.Len(t, store.fetched, 1, "cached sources must not be fetched again")
 	require.ElementsMatch(t, initial.ClaudeFormatPluginRoots(), reordered.ClaudeFormatPluginRoots())
 	for name, want := range map[string]string{"first": "# First", "second": "# Second", "alias": "# First"} {
 		content, err := os.ReadFile(filepath.Join(paths.Skills, name, "SKILL.md"))
@@ -49,7 +49,7 @@ func TestMaterializeReusesReorderedSources(t *testing.T) {
 	}
 	entries, err := os.ReadDir(paths.Packages)
 	require.NoError(t, err)
-	require.Len(t, entries, 4, "identical sources share a cache entry")
+	require.Len(t, entries, 1, "sources from one commit share a cache entry")
 }
 
 func TestMaterializeDoesNotPublishFailedFetch(t *testing.T) {
