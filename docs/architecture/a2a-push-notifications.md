@@ -159,8 +159,10 @@ accepted callbacks promptly with 2xx; use your own A2A credentials to call
 Helm chooses the issuer from `config.push.issuer`,
 `ui.externalUrl`, then the in-cluster gateway URL; outside Helm,
 `push.issuer` defaults to `gateway.publicUrl`. Keep the issuer stable.
-The controller polls the current key file every 15s and keeps the last valid key
-if an update fails. It publishes the replacement public key in JWKS and waits
+Each replica loads the issuer’s public keys from PostgreSQL at startup, including
+keys absent from its mounts. It refreshes this snapshot as it polls the current
+key file every 12–18s. JWKS requests read the snapshot from memory.
+The replica keeps its last valid key and publishes each replacement in JWKS for
 `config.push.signingKeyActivationDelay` (default `300s`, maximum `86400s`) plus
 30s before signing with it. Set the delay to cover the longest receiver JWKS
 refresh interval.
@@ -170,20 +172,22 @@ Changing a signing Secret name rolls the controller. For a handoff, set
 `controller.push.signing.previousSecretName` to the old one. Both use `private-key.pem`.
 For CSI or custom mounts, use `config.push.previousSigningPrivateKeyFile` to point
 to a copy of the old key before replacing the current file. Previous is read at startup.
-With previous configured, hot reload retains the outgoing public key in JWKS until the next handoff.
+With previous configured, a replica keeps publishing its outgoing public key until its next handoff.
 
-Replicas publish both available public keys. If current differs from the latest
-activation in the database, a starting replica with a distinct previous key signs
-with previous for a fresh delay. Once current is recorded, startups use it
-immediately and running replicas finish their own delays. If previous is omitted
+If current differs from the latest activation in the database, a starting
+replica with a distinct previous key signs with previous for a fresh delay.
+Once current is recorded, startups use it immediately and running replicas
+finish their own delays. If previous is omitted
 or identical to current, startup uses current immediately and preserves any existing
 activation record. If a configured previous file is missing, startup fails unless
 current is already recorded, in which case the replica logs a warning and uses current.
 
-To roll back, swap the key references. Keep the previous key through rollout and
-until its last JWT expires, plus 30s for clock skew. Other retired public keys stay
-in JWKS through their last JWT’s expiry plus 30s, with a minimum of 5m30s after
-activation. Callbacks retry on authentication failures.
+A key stays published while any replica renews it and through the expiry of its
+last JWT plus 30s. If database refreshes fail, replicas serve their last
+snapshot and pause signing once they can no longer cover a new JWT’s lifetime.
+A replica restarts a pending key’s delay if its confirmed publication expires.
+
+To roll back, swap the key references. Callbacks retry on authentication failures.
 If B was active before an A-only rollback, retrying B skips the delay, so receivers caching only A may reject callbacks until they refresh JWKS.
 
 HTTPS and public destinations are required by default. Operators can enable

@@ -273,7 +273,7 @@ message PushConfig {
     message: "previous_signing_private_key_file requires signing_private_key_file"
     expression: "this.previous_signing_private_key_file == '' || this.signing_private_key_file != ''"
   };
-  // Optional unencrypted PKCS#8 Ed25519 PEM key, reloaded every 15s. Empty disables signing.
+  // Optional unencrypted PKCS#8 Ed25519 PEM key, polled for changes. Empty disables signing.
   string signing_private_key_file = 1;
   optional string issuer = 2 [(buf.validate.field).string = {
     uri: true

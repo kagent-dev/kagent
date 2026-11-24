@@ -193,7 +193,7 @@ config:
     # Recovery scans for missed wake-ups and unbound registration cleanup.
     recoveryInterval: 60s
     # Publish replacement keys before use (max 24h), plus a fixed 30s buffer.
-    # Must cover receivers' JWKS refresh intervals. Key files are polled every 15s.
+    # Must cover receivers' JWKS refresh intervals. Replicas poll the current key every 12–18s.
     signingKeyActivationDelay: 300s
     # Custom/CSI-mounted PEM path; controller.push.signing.secretName overrides it.
     # signingPrivateKeyFile: /mnt/signing/private-key.pem

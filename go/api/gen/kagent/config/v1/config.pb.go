@@ -1384,7 +1384,7 @@ func (x *GatewayConfig) GetPublicUrl() string {
 // PushConfig controls callback delivery and authentication in the controller.
 type PushConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Optional unencrypted PKCS#8 Ed25519 PEM key, reloaded every 15s. Empty disables signing.
+	// Optional unencrypted PKCS#8 Ed25519 PEM key, polled for changes. Empty disables signing.
 	SigningPrivateKeyFile string  `protobuf:"bytes,1,opt,name=signing_private_key_file,json=signingPrivateKeyFile,proto3" json:"signing_private_key_file,omitempty"`
 	Issuer                *string `protobuf:"bytes,2,opt,name=issuer,proto3,oneof" json:"issuer,omitempty"`
 	AllowHttp             bool    `protobuf:"varint,3,opt,name=allow_http,json=allowHttp,proto3" json:"allow_http,omitempty"`
