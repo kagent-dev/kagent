@@ -36,7 +36,7 @@ func TestMaterializeMountedPackageRejectsNamedPipe(t *testing.T) {
 			paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
 			_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{
 				Name: "review", Source: agentplugin.Source{Directory: root, Path: tt.skillPath},
-			}}}, paths)
+			}}}, paths, PreferAgentPlugins)
 			require.ErrorContains(t, err, "unsupported file")
 			require.NoDirExists(t, filepath.Join(paths.Skills, "review"))
 		})
@@ -51,7 +51,7 @@ func TestMaterializeMountedPackageIgnoresUnselectedNamedPipe(t *testing.T) {
 	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
 	_, err := Materialize(t.Context(), agentplugin.Resources{Skills: []agentplugin.Skill{{
 		Name: "selected", Source: agentplugin.Source{Directory: root, Path: "selected"},
-	}}}, paths)
+	}}}, paths, PreferAgentPlugins)
 	require.NoError(t, err)
 	content, err := os.ReadFile(filepath.Join(paths.Skills, "selected/SKILL.md"))
 	require.NoError(t, err)

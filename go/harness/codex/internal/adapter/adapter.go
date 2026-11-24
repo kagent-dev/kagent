@@ -57,7 +57,7 @@ func New(ctx context.Context, input Input) (*driver.ProcessDriver, error) {
 		materialized, err := agentplugins.Materialize(ctx, *cfg.SkillResources, agentplugins.Paths{
 			Packages: filepath.Join(codexHome, "packages"),
 			Skills:   skillsRoot,
-		})
+		}, agentplugins.PreferAgentPlugins)
 		if err != nil {
 			return nil, fmt.Errorf("materialize Codex skills: %w", err)
 		}
