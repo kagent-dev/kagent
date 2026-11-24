@@ -19,6 +19,7 @@ import (
 	guestpb "github.com/agent-substrate/env/proto/ateenv/v1alpha"
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
@@ -57,7 +58,7 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 	guest := &handoffGuest{Service: process.NewService(tracker), observed: make(chan struct{}, 1),
 		suspended: make(chan struct{}, 1), expiring: make(chan struct{}, 1), templates: make(chan *apiv1.ResourceReference, 2)}
 	kagent := testKagent(t, guest)
-	upstream := &handoffProvider{posted: make(chan string, 1), events: make(chan string, 1)}
+	upstream := &handoffProvider{posted: make(chan string, 1), events: make(chan string, 1), heartbeatRecovered: make(chan struct{})}
 	server := httptest.NewServer(http.HandlerFunc(upstream.serve))
 	t.Cleanup(server.Close)
 	provider := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(server.URL),
@@ -92,6 +93,8 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 	template := receive(t, guest.templates)
 	assert.Equal(t, env.Template.GetName(), template.GetName(), "the environment selects the sandbox template")
 	assert.Equal(t, env.Template.GetNamespace(), template.GetNamespace())
+	receive(t, upstream.heartbeatRecovered)
+	assert.EqualValues(t, 1, upstream.streams.Load(), "a transient heartbeat error must not reopen SSE")
 
 	stop()
 	receive(t, firstStopped)
@@ -105,13 +108,17 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 	assert.EqualValues(t, 2, upstream.streams.Load(), "each worker opens its own SSE stream")
 	assert.EqualValues(t, 1, guest.starts.Load(), "the replacement must collect, not restart")
 
-	receive(t, guest.suspended)
-	upstream.events <- `{"type":"agent.tool_use","id":"tool_after_idle","name":"bash","input":{"command":"test -f release && printf 'still here'"}}`
-	body = receive(t, upstream.posted)
-	assert.JSONEq(t, `{"events":[{"type":"user.tool_result","tool_use_id":"tool_after_idle","is_error":false,"content":[{"type":"text","text":"still here"}]}]}`, body)
-	assert.EqualValues(t, 1, guest.creates.Load(), "an idle sandbox must be resumed, not recreated")
-	assert.EqualValues(t, 1, guest.resumes.Load())
-	assert.EqualValues(t, 2, upstream.streams.Load(), "suspending compute must not close the relay stream")
+	if !t.Run("Given an idle suspended sandbox, when SSE delivers a tool call, assert that it completes before the recovery scan", func(t *testing.T) {
+		receive(t, guest.suspended)
+		upstream.events <- `{"type":"agent.tool_use","id":"tool_after_idle","name":"bash","input":{"command":"test -f release && printf 'still here'"}}`
+		body := receive(t, upstream.posted)
+		assert.JSONEq(t, `{"events":[{"type":"user.tool_result","tool_use_id":"tool_after_idle","is_error":false,"content":[{"type":"text","text":"still here"}]}]}`, body)
+		assert.EqualValues(t, 1, guest.creates.Load(), "an idle sandbox must be resumed, not recreated")
+		assert.EqualValues(t, 1, guest.resumes.Load())
+		assert.EqualValues(t, 2, upstream.streams.Load(), "suspending compute must not close the relay stream")
+	}) {
+		t.FailNow()
+	}
 
 	upstream.events <- `{"type":"agent.tool_use","id":"tool_expiring","name":"bash","input":{"command":"while [ ! -f expired ]; do sleep 0.05; done","timeout_ms":15000}}`
 	receive(t, guest.expiring)
@@ -140,6 +147,154 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 		_, err := p.Down(t.Context())
 		return err
 	}))
+}
+
+func TestRejectedHeartbeatWaitsForRedispatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	db := dbtest.PoolConfig(dbtest.StartT(t.Context(), t))
+	const schema = "heartbeat_test"
+	require.NoError(t, migrations.RunUp(t.Context(), db, []migrations.Source{MigrationSource(schema)}))
+	db.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(t.Context(), db)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	for _, status := range []int{http.StatusUnauthorized, http.StatusPreconditionFailed} {
+		t.Run(fmt.Sprintf("Given a saved assignment, when heartbeat returns %d, assert that only a fresh matching offer resumes it", status), func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				assert.True(t, strings.HasSuffix(req.URL.Path, "/heartbeat"))
+				assert.Equal(t, "Bearer old-token", req.Header.Get("Authorization"))
+				assert.Equal(t, "previous", req.URL.Query().Get("expected_last_heartbeat"))
+				calls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+			}))
+			t.Cleanup(server.Close)
+			env := Environment{ID: fmt.Sprintf("env%d", status), Key: "environment-key", Template: &apiv1.ResourceReference{
+				Namespace: "default", Name: "bash",
+			}}
+			provider := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(server.URL),
+				option.WithHTTPClient(server.Client()), option.WithMaxRetries(0))
+			r, err := New(pool, provider, nil, []Environment{env}, make([]byte, 32), time.Second, 1)
+			require.NoError(t, err)
+			ctx := t.Context()
+			offer := assignment{id: env.ID, environment: env.ID, sessionID: "session"}
+			environments := []string{env.ID}
+			require.NoError(t, r.acceptOffer(ctx, offer, "old-token"))
+			w, err := r.store.claim(ctx, environments)
+			require.NoError(t, err)
+			require.NoError(t, r.store.ack(ctx, w))
+			require.NoError(t, r.store.heartbeat(ctx, w, "previous"))
+			require.NoError(t, r.store.saveSandbox(ctx, &w, "existing-sandbox"))
+			require.NoError(t, r.store.addCommand(ctx, w, command{id: "tool", name: "bash", input: []byte(`{}`)}))
+			require.NoError(t, r.store.transition(ctx, w, command{id: "tool", phase: "queued"}, "running", new("process"), nil, false))
+			require.NoError(t, r.store.release(ctx, w, 0))
+
+			runCtx, cancel := context.WithCancel(ctx)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				r.work(runCtx, environments)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				receive(t, done)
+			})
+			require.Eventually(t, func() bool {
+				_, err := r.store.parkedCredential(ctx, offer)
+				return err == nil
+			}, 5*time.Second, 50*time.Millisecond)
+			cancel()
+			receive(t, done)
+			require.EqualValues(t, 1, calls.Load())
+
+			require.NoError(t, r.acceptOffer(ctx, offer, "old-token"))
+			wrongSession := offer
+			wrongSession.sessionID = "another-session"
+			require.NoError(t, r.acceptOffer(ctx, wrongSession, "new-token"))
+			_, err = r.store.claim(ctx, environments)
+			require.ErrorIs(t, err, pgx.ErrNoRows)
+
+			require.NoError(t, r.acceptOffer(ctx, offer, "new-token"))
+			resumed, err := r.store.claim(ctx, environments)
+			require.NoError(t, err)
+			credential, err := r.cipher.Open(nil, nil, resumed.credential, []byte(offer.id))
+			require.NoError(t, err)
+			assert.Equal(t, "new-token", string(credential))
+			assert.False(t, resumed.acknowledged)
+			assert.Empty(t, resumed.heartbeat)
+			assert.Equal(t, "existing-sandbox", resumed.sandboxID)
+			pending, err := r.store.nextCommand(ctx, resumed)
+			require.NoError(t, err)
+			assert.Equal(t, "process", pending.processID)
+		})
+	}
+}
+
+func TestHeartbeatExpiryFailsUnfinishedCommands(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	db := dbtest.PoolConfig(dbtest.StartT(t.Context(), t))
+	const schema = "heartbeat_expiry"
+	require.NoError(t, migrations.RunUp(t.Context(), db, []migrations.Source{MigrationSource(schema)}))
+	db.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(t.Context(), db)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	cfg := process.DefaultConfig(t.TempDir())
+	cfg.Workspace = t.TempDir()
+	tracker, err := process.NewTracker(cfg)
+	require.NoError(t, err)
+	t.Cleanup(tracker.Close)
+	guest := &handoffGuest{Service: process.NewService(tracker), observed: make(chan struct{}, 1)}
+	upstream := &handoffProvider{
+		posted: make(chan string, 2),
+		events: make(chan string, 1),
+		heartbeat: func(w http.ResponseWriter, attempt int32) {
+			if attempt == 1 {
+				_, _ = io.WriteString(w, `{"last_heartbeat":"continuation","ttl_seconds":2,"lease_extended":true,"state":"active"}`)
+				return
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+		},
+	}
+	server := httptest.NewServer(http.HandlerFunc(upstream.serve))
+	t.Cleanup(server.Close)
+	provider := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(server.URL),
+		option.WithHTTPClient(server.Client()), option.WithMaxRetries(0))
+	env := Environment{ID: "env_test", Key: "environment-key",
+		Template: &apiv1.ResourceReference{Namespace: "default", Name: "bash"}}
+	r, err := New(pool, provider, testKagent(t, guest), []Environment{env}, make([]byte, 32), time.Minute, 1)
+	require.NoError(t, err)
+	require.NoError(t, r.acceptOffer(t.Context(), assignment{
+		id: "work_test", environment: env.ID, sessionID: "session_test",
+	}, "session-token"))
+	w, err := r.store.claim(t.Context(), []string{env.ID})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	done := make(chan error, 1)
+	t.Cleanup(func() {
+		cancel()
+		for range done {
+		}
+	})
+	go func() {
+		defer close(done)
+		done <- r.serve(ctx, w, env)
+	}()
+	receive(t, guest.observed)
+	upstream.events <- `{"type":"agent.tool_use","id":"tool_queued","name":"bash","input":{"command":"printf queued"}}`
+	for _, id := range []string{"tool_pending", "tool_queued"} {
+		assert.JSONEq(t, fmt.Sprintf(`{"events":[{"type":"user.tool_result","tool_use_id":%q,"is_error":true,"content":[{"type":"text","text":"Command did not finish before the sandbox worker's heartbeat lease expired."}]}]}`, id), receive(t, upstream.posted))
+	}
+	assert.EqualValues(t, 1, guest.starts.Load(), "the queued command must not start")
+	assert.ErrorIs(t, receive(t, done), errHeartbeatExpired)
+	_, err = r.store.nextCommand(t.Context(), w)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "delivered results cannot remain pending")
 }
 
 func TestSessionJournalHonorsToolConfirmation(t *testing.T) {
@@ -172,6 +327,8 @@ type handoffProvider struct {
 	acks, streams, heartbeats, unexpected atomic.Int32
 	posted                                chan string
 	events                                chan string
+	heartbeatRecovered                    chan struct{}
+	heartbeat                             func(http.ResponseWriter, int32)
 }
 
 func (p *handoffProvider) serve(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +346,8 @@ func (p *handoffProvider) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"id":"work_test","state":"starting"}`)
 	case "/v1/environments/env_test/work/work_test/heartbeat":
 		expected := "NO_HEARTBEAT"
-		if p.heartbeats.Add(1) > 1 {
+		attempt := p.heartbeats.Add(1)
+		if attempt > 1 {
 			expected = "continuation"
 		}
 		if r.Header.Get("Authorization") != "Bearer session-token" || r.URL.Query().Get("expected_last_heartbeat") != expected {
@@ -197,7 +355,18 @@ func (p *handoffProvider) serve(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
 		}
-		_, _ = io.WriteString(w, `{"last_heartbeat":"continuation","ttl_seconds":60,"lease_extended":true,"state":"active"}`)
+		if p.heartbeat != nil {
+			p.heartbeat(w, attempt)
+			return
+		}
+		if attempt == 2 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if attempt == 3 {
+			close(p.heartbeatRecovered)
+		}
+		_, _ = io.WriteString(w, `{"last_heartbeat":"continuation","ttl_seconds":6,"lease_extended":true,"state":"active"}`)
 	case "/v1/sessions/session_test/events":
 		if r.Method == http.MethodPost {
 			body, err := io.ReadAll(r.Body)

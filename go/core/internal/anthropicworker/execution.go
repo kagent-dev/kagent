@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -232,7 +231,7 @@ func (r *Runner) suspend(ctx context.Context, w assignment) bool {
 	call, cancel := context.WithTimeout(ctx, lifecycleTimeout/2)
 	defer cancel()
 	response, err := r.sandboxes.SuspendSandbox(call, &apiv1.SuspendSandboxRequest{SandboxId: w.sandboxID})
-	if err != nil && ctx.Err() == nil && !errors.Is(err, errLeaseLost) && status.Code(err) != codes.NotFound &&
+	if err != nil && ctx.Err() == nil && status.Code(err) != codes.NotFound &&
 		status.Code(err) != codes.FailedPrecondition {
 		r.warn(ctx, "suspend idle sandbox", fmt.Errorf("sandbox API status %s", status.Code(err)))
 	}

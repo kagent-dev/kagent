@@ -27,7 +27,11 @@ const (
 	retryDelay   = 3 * time.Second
 	dbTimeout    = 3 * time.Second
 	apiTimeout   = 10 * time.Second
+
+	commandRecoveryInterval = 30 * time.Second
 )
+
+var errHeartbeatExpired = errors.New("sandbox worker heartbeat lease expired")
 
 type Environment struct {
 	ID, Key  string
@@ -106,7 +110,12 @@ func (r *Runner) work(ctx context.Context, environments []string) {
 			delay = retryDelay
 		}
 		call, cancel = context.WithTimeout(context.WithoutCancel(ctx), dbTimeout)
-		if err := r.store.release(call, w, delay); err != nil && !errors.Is(err, errLeaseLost) {
+		if errors.Is(err, errHeartbeatRejected) {
+			err = r.store.park(call, w)
+		} else {
+			err = r.store.release(call, w, delay)
+		}
+		if err != nil && !errors.Is(err, errLeaseLost) {
 			r.warn(call, "release assignment", err)
 		}
 		cancel()
@@ -155,22 +164,31 @@ func (r *Runner) serve(ctx context.Context, w assignment, env Environment) error
 		}
 	}
 	group, live := errgroup.WithContext(ctx)
+	commands, stopCommands := context.WithCancel(live)
+	defer stopCommands()
 	heartbeatReady, eventsReady := make(chan struct{}), make(chan struct{})
+	commandWake := make(chan struct{}, 1)
 	var activity atomic.Int64
 	markActivity(&activity)
 	group.Go(func() error { return r.renew(live, w) })
-	group.Go(func() error { return r.heartbeat(live, w, auth, heartbeatReady) })
+	group.Go(func() error { return r.heartbeat(live, w, auth, heartbeatReady, stopCommands) })
 	group.Go(func() error {
 		if err := await(live, heartbeatReady); err != nil {
 			return err
 		}
-		return r.events(live, w, auth, eventsReady, &activity)
+		return r.events(live, w, auth, eventsReady, commandWake, &activity)
 	})
 	group.Go(func() error {
 		if err := await(live, eventsReady); err != nil {
 			return err
 		}
-		return r.runCommands(live, w, env, auth, &activity)
+		err := r.runCommands(live, commands, w, env, auth, commandWake, &activity)
+		if commands.Err() != nil && live.Err() == nil {
+			// Only command execution was canceled. Keep ownership and SSE until
+			// the timeout results have been journaled and offered to Anthropic.
+			return r.failExpiredCommands(live, w, auth)
+		}
+		return err
 	})
 	return group.Wait()
 }
@@ -213,18 +231,30 @@ func wait(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
-func (r *Runner) runCommands(ctx context.Context, w assignment, env Environment, auth []option.RequestOption, activity *atomic.Int64) error {
+func (r *Runner) runCommands(live, ctx context.Context, w assignment, env Environment, auth []option.RequestOption, wake <-chan struct{}, activity *atomic.Int64) error {
 	var suspended bool
 	for ctx.Err() == nil {
 		call, cancel := context.WithTimeout(ctx, dbTimeout)
 		c, err := r.store.nextCommand(call, w)
 		cancel()
 		if errors.Is(err, pgx.ErrNoRows) {
-			if !suspended && w.sandboxID != "" && time.Since(time.Unix(0, activity.Load())) >= r.idle {
-				suspended = r.suspend(ctx, w)
-				markActivity(activity)
+			delay := commandRecoveryInterval
+			if !suspended && w.sandboxID != "" {
+				untilIdle := time.Until(time.Unix(0, activity.Load()).Add(r.idle))
+				if untilIdle <= 0 {
+					suspended = r.suspend(ctx, w)
+					markActivity(activity)
+					untilIdle = r.idle
+				}
+				if !suspended {
+					delay = min(delay, untilIdle)
+				}
 			}
-			wait(ctx, tickInterval)
+			select {
+			case <-wake:
+			case <-time.After(delay):
+			case <-ctx.Done():
+			}
 			continue
 		}
 		if err != nil {
@@ -241,11 +271,38 @@ func (r *Runner) runCommands(ctx context.Context, w assignment, env Environment,
 			err = r.collectCommand(ctx, w, c)
 			wait(ctx, tickInterval)
 		case "result":
-			err = r.sendResult(ctx, w, c, auth)
+			err = r.sendResult(live, w, c, auth)
 		}
 		if err != nil {
 			return err
 		}
 	}
 	return ctx.Err()
+}
+
+func (r *Runner) failExpiredCommands(ctx context.Context, w assignment, auth []option.RequestOption) error {
+	ctx, cancel := context.WithTimeout(ctx, 2*apiTimeout)
+	defer cancel()
+	for {
+		call, done := context.WithTimeout(ctx, dbTimeout)
+		c, err := r.store.nextCommand(call, w)
+		done()
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errHeartbeatExpired
+		}
+		if err != nil {
+			return err
+		}
+		if c.phase != "result" {
+			if err := r.result(ctx, w, c, "Command did not finish before the sandbox worker's heartbeat lease expired.", true); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := r.sendResult(ctx, w, c, auth); errors.Is(err, errResultRetryable) && wait(ctx, retryDelay) {
+			continue
+		} else if err != nil {
+			return err
+		}
+	}
 }

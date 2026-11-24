@@ -7,14 +7,20 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/jackc/pgx/v5"
+
+	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 var errSessionEnded = errors.New("provider session ended")
+var errHeartbeatRejected = errors.New("provider heartbeat rejected; waiting for redispatch")
+var errResultRetryable = errors.New("temporary tool result delivery failure")
 
 func bearer(token string) []option.RequestOption {
 	return []option.RequestOption{option.WithHeaderDel("X-Api-Key"), option.WithAuthToken(token)}
@@ -51,6 +57,7 @@ func providerStatus(err error, status int) bool {
 }
 
 func (r *Runner) poll(ctx context.Context, env Environment) {
+	logger := logging.FromContext(ctx).With("environment_id", env.ID)
 	for ctx.Err() == nil {
 		call, cancel := context.WithTimeout(ctx, apiTimeout)
 		var raw *http.Response
@@ -62,6 +69,7 @@ func (r *Runner) poll(ctx context.Context, env Environment) {
 			return
 		}
 		if raw != nil && raw.StatusCode == http.StatusNoContent {
+			logger.DebugContext(ctx, "anthropic poll returned no work", "http_status", raw.StatusCode)
 			wait(ctx, tickInterval)
 			continue
 		}
@@ -71,13 +79,19 @@ func (r *Runner) poll(ctx context.Context, env Environment) {
 			continue
 		}
 		if work == nil || work.ID == "" || work.Data.ID == "" {
+			status := 0
+			if raw != nil {
+				status = raw.StatusCode
+			}
+			logger.DebugContext(ctx, "anthropic poll returned no usable work", "http_status", status,
+				"has_work_id", work != nil && work.ID != "", "has_session_id", work != nil && work.Data.ID != "")
 			wait(ctx, tickInterval)
 			continue
 		}
 		token := sessionsToken(work.Secret)
-		encrypted := r.cipher.Seal(nil, nil, []byte(token), []byte(work.ID))
+		logger.InfoContext(ctx, "anthropic poll offered work", "work_id", work.ID, "has_session_credential", token != "")
 		call, cancel = context.WithTimeout(ctx, dbTimeout)
-		err = r.store.enqueue(call, assignment{id: work.ID, environment: env.ID, sessionID: work.Data.ID, credential: encrypted})
+		err = r.acceptOffer(call, assignment{id: work.ID, environment: env.ID, sessionID: work.Data.ID}, token)
 		cancel()
 		if err != nil {
 			r.warn(ctx, "persist assignment", err)
@@ -85,6 +99,28 @@ func (r *Runner) poll(ctx context.Context, env Environment) {
 		// Poll can return an unacknowledged assignment again immediately.
 		wait(ctx, tickInterval)
 	}
+}
+
+func (r *Runner) acceptOffer(ctx context.Context, w assignment, token string) error {
+	w.credential = r.cipher.Seal(nil, nil, []byte(token), []byte(w.id))
+	if err := r.store.enqueue(ctx, w); err != nil || token == "" {
+		return err
+	}
+	previous, err := r.store.parkedCredential(ctx, w)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	decoded, err := r.cipher.Open(nil, nil, previous, []byte(w.id))
+	if err != nil {
+		return errors.New("decrypt parked assignment credential")
+	}
+	if string(decoded) == token {
+		return nil
+	}
+	return r.store.refreshCredential(ctx, w, previous)
 }
 
 func (r *Runner) acknowledge(ctx context.Context, w assignment, env Environment) error {
@@ -108,31 +144,51 @@ func (r *Runner) acknowledge(ctx context.Context, w assignment, env Environment)
 	return r.store.ack(call, w)
 }
 
-func (r *Runner) heartbeat(ctx context.Context, w assignment, auth []option.RequestOption, ready chan<- struct{}) error {
+func (r *Runner) heartbeat(ctx context.Context, w assignment, auth []option.RequestOption, ready chan<- struct{}, stopCommands context.CancelFunc) error {
 	expected := w.heartbeat
 	if expected == "" {
 		expected = "NO_HEARTBEAT"
 	}
-	for first := true; ctx.Err() == nil; first = false {
+	first := true
+	var leaseDeadline time.Time
+	backoff := tickInterval
+	for ctx.Err() == nil {
+		started := time.Now()
+		deadline := leaseDeadline
+		if apiDeadline := started.Add(apiTimeout); deadline.IsZero() || apiDeadline.Before(deadline) {
+			deadline = apiDeadline
+		}
+		if !started.Before(deadline) {
+			stopCommands()
+			return nil
+		}
 		// Complete an in-flight heartbeat and save its continuation token on shutdown.
-		call, cancel := context.WithTimeout(context.WithoutCancel(ctx), apiTimeout)
+		call, cancel := context.WithDeadline(context.WithoutCancel(ctx), deadline)
 		response, err := r.provider.Beta.Environments.Work.Heartbeat(call, w.id, anthropic.BetaEnvironmentWorkHeartbeatParams{
 			EnvironmentID: w.environment, ExpectedLastHeartbeat: anthropic.String(expected),
 		}, auth...)
 		cancel()
 		if providerStatus(err, 404) || providerStatus(err, 410) ||
 			(response != nil && response.State == anthropic.BetaSelfHostedWorkHeartbeatResponseStateStopped) {
-			// A stopped Work item does not close the session SSE or invalidate
-			// results. Leave that connection and its commands alone.
+			// A stopped Work item doesn't close the session.
 			if first {
 				close(ready)
 			}
 			return nil
 		}
 		if err != nil {
+			if providerStatus(err, http.StatusUnauthorized) || providerStatus(err, http.StatusPreconditionFailed) {
+				// A changed continuation token can belong to another provider worker.
+				return fmt.Errorf("%w: %v", errHeartbeatRejected, providerError("heartbeat", err))
+			}
+			if transientProviderError(err) && !leaseDeadline.IsZero() {
+				wait(ctx, min(backoff, time.Until(leaseDeadline)))
+				backoff = min(backoff*2, retryDelay)
+				continue
+			}
 			return providerError("heartbeat", err)
 		}
-		if response == nil || !response.LeaseExtended || response.LastHeartbeat == "" {
+		if response == nil || !response.LeaseExtended || response.LastHeartbeat == "" || response.TTLSeconds <= 0 {
 			return errors.New("provider did not extend the assignment")
 		}
 		// Persist the continuation token even when shutdown arrived during HTTP.
@@ -145,10 +201,24 @@ func (r *Runner) heartbeat(ctx context.Context, w assignment, auth []option.Requ
 		expected = response.LastHeartbeat
 		if first {
 			close(ready)
+			first = false
 		}
-		wait(ctx, time.Duration(max(1, min(15, response.TTLSeconds/3)))*time.Second)
+		ttl := time.Duration(response.TTLSeconds) * time.Second
+		leaseDeadline = started.Add(ttl)
+		backoff = tickInterval
+		wait(ctx, min(time.Duration(max(1, min(15, response.TTLSeconds/3)))*time.Second, time.Until(leaseDeadline)))
 	}
 	return ctx.Err()
+}
+
+func transientProviderError(err error) bool {
+	var upstream *anthropic.Error
+	if errors.As(err, &upstream) {
+		return upstream.StatusCode == http.StatusRequestTimeout || upstream.StatusCode == http.StatusTooManyRequests ||
+			upstream.StatusCode >= http.StatusInternalServerError
+	}
+	var transport *url.Error
+	return errors.As(err, &transport) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func (r *Runner) sendResult(ctx context.Context, w assignment, c command, auth []option.RequestOption) error {
@@ -165,6 +235,9 @@ func (r *Runner) sendResult(ctx context.Context, w assignment, c command, auth [
 		Events: []anthropic.BetaManagedAgentsEventParamsUnion{{OfUserToolResult: &event}},
 	}, auth...)
 	if err != nil {
+		if transientProviderError(err) {
+			return fmt.Errorf("%w: %w", errResultRetryable, providerError("post tool result", err))
+		}
 		return providerError("post tool result", err)
 	}
 	return r.store.settle(call, w, []string{c.id})

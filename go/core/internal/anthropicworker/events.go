@@ -93,7 +93,7 @@ func (r *Runner) journalEvent(ctx context.Context, w assignment, pending []pendi
 	return nil
 }
 
-func (r *Runner) events(ctx context.Context, w assignment, auth []option.RequestOption, ready chan<- struct{}, activity *atomic.Int64) error {
+func (r *Runner) events(ctx context.Context, w assignment, auth []option.RequestOption, ready, wake chan<- struct{}, activity *atomic.Int64) error {
 	api := r.provider.Beta.Sessions.Events
 	// Open SSE first so events generated during history replay are buffered.
 	stream := api.StreamEvents(ctx, w.sessionID, anthropic.BetaSessionEventStreamParams{}, auth...)
@@ -151,6 +151,11 @@ func (r *Runner) events(ctx context.Context, w assignment, auth []option.Request
 		if len(changed)+len(done)+len(dropped) > 0 {
 			if err := r.journalEvent(ctx, w, changed, done, dropped); err != nil {
 				return err
+			}
+			// A buffered hint covers the race between an empty scan and waiting.
+			select {
+			case wake <- struct{}{}:
+			default:
 			}
 		}
 	}

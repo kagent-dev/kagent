@@ -66,6 +66,23 @@ func (s store) enqueue(ctx context.Context, w assignment) error {
 	return err
 }
 
+// A parked assignment retains its journal but is unclaimable until a fresh offer.
+func (s store) parkedCredential(ctx context.Context, w assignment) ([]byte, error) {
+	var credential []byte
+	err := s.db.QueryRow(ctx, `
+		SELECT credential FROM sandbox_work WHERE id = $1 AND environment = $2 AND session_id = $3
+			AND available_at = 'infinity' AND finished_at IS NULL`, w.id, w.environment, w.sessionID).Scan(&credential)
+	return credential, err
+}
+
+func (s store) refreshCredential(ctx context.Context, w assignment, previous []byte) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE sandbox_work SET credential = $2, acknowledged = false, heartbeat = '', available_at = clock_timestamp()
+		WHERE id = $1 AND credential = $3 AND available_at = 'infinity' AND finished_at IS NULL`,
+		w.id, w.credential, previous)
+	return err
+}
+
 func (s store) claim(ctx context.Context, environments []string) (assignment, error) {
 	w := assignment{lease: uuid.NewString()}
 	err := s.db.QueryRow(ctx, `
@@ -103,6 +120,12 @@ func (s store) release(ctx context.Context, w assignment, delay time.Duration) e
 		UPDATE sandbox_work SET lease_token = NULL, lease_until = NULL,
 			available_at = clock_timestamp() + $3 * interval '1 millisecond' WHERE `+owned,
 		w.id, w.lease, delay.Milliseconds()))
+}
+
+func (s store) park(ctx context.Context, w assignment) error {
+	return requireUpdate(s.db.Exec(ctx, `
+		UPDATE sandbox_work SET lease_token = NULL, lease_until = NULL, available_at = 'infinity' WHERE `+owned,
+		w.id, w.lease))
 }
 
 func (s store) ack(ctx context.Context, w assignment) error {
@@ -170,7 +193,7 @@ func (s store) transition(ctx context.Context, w assignment, c command, phase st
 		UPDATE sandbox_command SET phase = CASE WHEN discard AND $5 = 'result' THEN 'done' ELSE $5 END,
 			process_id = $6, result = CASE WHEN discard THEN NULL ELSE $7 END, is_error = $8,
 			started_at = CASE WHEN $5 = 'starting' THEN clock_timestamp() ELSE started_at END,
-			input = CASE WHEN $5 = 'done' OR (discard AND $5 = 'result') THEN NULL ELSE input END
+			input = CASE WHEN discard AND $5 = 'result' THEN NULL ELSE input END
 		WHERE work_id IN (SELECT id FROM owner) AND id = $3 AND phase = $4`,
 		w.id, w.lease, c.id, c.phase, phase, processID, result, isError))
 }
