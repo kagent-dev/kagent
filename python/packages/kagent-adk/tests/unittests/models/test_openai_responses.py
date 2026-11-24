@@ -163,6 +163,29 @@ def test_convert_content_to_responses_input_stringifies_non_string_result():
     assert input_items[1]["output"] == "3"
 
 
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"status": "success", "report": "Sunny in Paris"}, '{"status": "success", "report": "Sunny in Paris"}'),
+        ({"error": "Missing city"}, '{"error": "Missing city"}'),
+    ],
+)
+def test_convert_content_to_responses_input_plain_dict(response, expected):
+    fc_part = Part.from_function_call(name="get_weather", args={"city": "Paris"})
+    fc_part.function_call.id = "call_1"
+    fr_part = Part.from_function_response(name="get_weather", response=response)
+    fr_part.function_response.id = "call_1"
+
+    input_items = _convert_content_to_responses_input(
+        [
+            Content(role="model", parts=[fc_part]),
+            Content(role="user", parts=[fr_part]),
+        ]
+    )
+
+    assert input_items[1]["output"] == expected
+
+
 def test_convert_content_to_responses_input_includes_embedded_text_resource():
     fc_part = Part.from_function_call(name="get_file_contents", args={"path": "README.md"})
     fc_part.function_call.id = "call_1"

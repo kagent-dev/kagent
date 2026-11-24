@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
@@ -100,6 +101,7 @@ def _extract_response_content(response: object) -> str:
             return "\n".join(item["text"] for item in response["content"] if "text" in item)
         if "result" in response:
             return str(response["result"])
+        return json.dumps(response, default=str)
     return ""
 
 
