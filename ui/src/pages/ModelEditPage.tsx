@@ -1,10 +1,10 @@
 import { Alert, Skeleton, Space } from "antd";
-import toast from "react-hot-toast";
 import { useParams } from "react-router-dom";
-import { BackButton } from "@/components/common/BackButton";
 import { resourceIcons } from "@/components/common/resourceIcons";
 import { useGoBack } from "@/router/backLink";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { ReturnBackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { ModelForm } from "@/components/model-form/ModelForm";
 import { modelDraftFrom } from "@/components/model-form/modelDraft";
 import { paths } from "@/router/routes";
@@ -28,7 +28,7 @@ import {
  * indistinguishable from an unset one.
  */
 export function ModelEditPage() {
-  const back = useGoBack({ to: paths.models, label: "Back to models" });
+  const back = useGoBack({ to: paths.models, label: "Models" });
   const { namespace, name } = useParams();
 
   const model = useModel(namespace, name);
@@ -44,16 +44,16 @@ export function ModelEditPage() {
     // `refresh` rethrows, and the write has already succeeded.
     await models.refresh().catch(() => {});
     await model.refresh().catch(() => {});
-    toast.success(`Model configuration ${name} updated`);
-    back.goBack();
+    toastSaved("saved", "model configuration", name);
   }
 
   return (
+    <>
+    <ReturnBackLink back={back} />
     <PageFrame
       title={name ? `Edit ${name}` : "Edit model"}
       icon={resourceIcons.model}
       description="Replaces the configuration's provider, model and credential reference."
-      actions={<BackButton back={back} testId="model-back" />}
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {model.error ? (
@@ -72,15 +72,17 @@ export function ModelEditPage() {
           <ModelForm
             initial={modelDraftFrom(model.data)}
             outcome="saved"
-            submitLabel="Save changes"
+            submitLabel="Save"
             // The ref is how the controller addresses the resource, so an edit
             // cannot move a configuration.
             identityLocked
             onSubmit={saveModel}
             onCancel={back.goBack}
+            onSaved={back.goBack}
           />
         ) : null}
       </Space>
     </PageFrame>
+    </>
   );
 }

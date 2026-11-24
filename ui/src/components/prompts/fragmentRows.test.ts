@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  fragmentIssues,
   fragmentsToData,
   newFragmentRow,
   rowsFromData,
+  fragmentIssues,
 } from "./fragmentRows";
+
+const messages = (...args: Parameters<typeof fragmentIssues>) =>
+  fragmentIssues(...args).map((issue) => issue.message);
 
 /** Rows as the editor holds them, without the ids each test would have to invent. */
 const rows = (...pairs: [string, string][]) =>
@@ -41,26 +44,26 @@ describe("rowsFromData", () => {
 
 describe("fragmentIssues", () => {
   it("passes a library with at least one distinct key", () => {
-    expect(fragmentIssues(rows(["tone", "Be concise."]))).toEqual([]);
+    expect(messages(rows(["tone", "Be concise."]))).toEqual([]);
   });
 
   it("rejects rows that would submit an empty map", () => {
     // What the controller rejects too — "at least one template key is required" —
     // so catching it here is the same rule stated before the request.
-    expect(fragmentIssues(rows())).toEqual(["Add at least one fragment key."]);
-    expect(fragmentIssues(rows(["", "orphaned text"]))).toEqual([
+    expect(messages(rows())).toEqual(["Add at least one fragment key."]);
+    expect(messages(rows(["", "orphaned text"]))).toEqual([
       "Add at least one fragment key.",
     ]);
   });
 
   it("names a duplicated key, which the payload would silently swallow", () => {
-    expect(fragmentIssues(rows(["tone", "first"], ["tone", "second"]))).toEqual([
+    expect(messages(rows(["tone", "first"], ["tone", "second"]))).toEqual([
       'Two fragments share the key "tone".',
     ]);
   });
 
   it("ignores whitespace-only differences between keys, as the payload does", () => {
-    expect(fragmentIssues(rows(["tone", "first"], [" tone ", "second"]))).toEqual([
+    expect(messages(rows(["tone", "first"], [" tone ", "second"]))).toEqual([
       'Two fragments share the key "tone".',
     ]);
   });

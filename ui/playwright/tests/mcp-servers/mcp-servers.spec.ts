@@ -13,6 +13,8 @@ import {
   confirmDelete,
   dialog,
   expectRequired,
+  pressUntil,
+  selectOption,
 } from "../../helpers/resource";
 import { operationCalls, rpc } from "../../helpers/mockCalls";
 
@@ -123,7 +125,7 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await expect(page).toHaveURL(/\/mcp-servers\/platform\/grafana-mcp\?kind=RemoteMCPServer\.api\.kagent\.dev#tool-grafana_query$/);
     await expect(page.getByTestId("mcp-server-tools").locator("[data-current]")).toContainText("grafana_query");
 
-    await expect(page.getByTestId("mcp-server-back")).toHaveText("Back to MCP servers");
+    await expect(page.getByTestId("mcp-server-back")).toHaveText("MCP servers");
     await page.getByTestId("mcp-server-back").click();
     await expect(page).toHaveURL(/\/mcp-servers\?(.*&)?q=grafana(&|$)/);
     await expect(page.getByTestId("mcp-servers-filters-search")).toHaveValue("grafana");
@@ -167,18 +169,39 @@ test("mcp servers: a server is registered, read and deregistered", async ({
     await page.waitForURL(/\/mcp-servers\/new(\?|$)/);
     await expectSettled(page);
 
-    // Unlike every other form in this app: `validateMcpServerForm` accepts a blank
-    // namespace and the controller defaults it, so a mark there would be a lie.
+    // The namespace is a dropdown that always holds a value, and is required.
     await expectRequired(page, {
-      marked: ["Name", "Server URL"],
-      unmarked: ["Namespace", "TLS", "Headers"],
+      marked: ["Name", "Namespace", "Server URL"],
+      unmarked: ["TLS", "Headers sent to the server", "Connection timeout"],
     });
+    await expect(page.getByTestId("mcp-namespace")).toHaveClass(/ant-select/);
+    await expect(page.getByTestId("form-back-link")).toContainText("MCP servers");
+
+    // Create is held back; an empty required field is flagged once it is left.
+    await expect(page.getByTestId("mcp-submit")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("mcp-name").focus();
+    await page.getByTestId("mcp-url").focus();
+    await page.getByTestId("mcp-url").blur();
+    await expect(page.getByText("A server name is required.")).toBeVisible();
+    await expect(page.getByText("A server URL is required.")).toBeVisible();
+
+    // A host with spaces is rejected as typed, and no name is guessed from it.
+    await page.getByTestId("mcp-url").fill("not a url");
+    await expect(page.getByText("Enter a valid host and path, for example api.example.com/mcp.")).toBeVisible();
+    await expect(page.getByTestId("mcp-name")).toHaveValue("");
   });
 
   await test.step("8. a registered server appears on the list, counted as zero tools", async () => {
     await page.getByTestId("mcp-name").fill(CREATED);
-    await page.getByTestId("mcp-namespace").fill("kagent");
+    await selectOption(page, "mcp-namespace", "kagent");
     await page.getByTestId("mcp-url").fill("mcp.example.com/sse");
+
+    // A dirty form asks before it is left.
+    await page.getByTestId("mcp-cancel").click();
+    await expect(page.getByTestId("mcp-discard-body")).toBeVisible();
+    await pressUntil(page.getByRole("button", { name: "Keep editing" }), async () => {
+      await expect(page.getByTestId("mcp-discard-body")).toBeHidden();
+    });
 
     await page.getByTestId("mcp-submit").click();
     await page.waitForURL(/\/mcp-servers(\?|$)/, { timeout: 30_000 });

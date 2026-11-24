@@ -26,7 +26,7 @@ export function HarnessDetailsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const back = useGoBack({ to: harnessesTab, label: "Back to harnesses" });
+  const back = useGoBack({ to: harnessesTab, label: "Harnesses" });
   const harnesses = useHarnesses(namespace);
   const harness = harnesses.data?.find((row) => row.namespace === namespace && row.name === name);
   const missing = Boolean(harnesses.data) && !harness;
@@ -36,7 +36,7 @@ export function HarnessDetailsPage() {
   // The read is opaque by design; these are the fields the CRD defines today.
   const spec = harness?.resource.spec as Partial<HarnessSpec> | undefined;
   const mono = { fontFamily: theme.font.mono, fontSize: 12 };
-  const here = backLinkState(location, "Back to harness");
+  const here = backLinkState(location, "Harness");
   const modelLink = (ref: { name: string; namespace?: string } | undefined, testId: string): ReactNode =>
     ref ? (
       <ResourceLink

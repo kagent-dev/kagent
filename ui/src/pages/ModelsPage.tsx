@@ -125,7 +125,7 @@ export function ModelsPage() {
         render: (_, row) => (
           <ResourceLink
             to={buildPath(paths.modelEdit, parseRef(row.ref))}
-            state={backLinkState(location, "Back to models")}
+            state={backLinkState(location, "Models")}
             data-testid={`model-link-${parseRef(row.ref).name}`}
           >
             {parseRef(row.ref).name}
@@ -168,7 +168,7 @@ export function ModelsPage() {
           const { namespace, name } = parseRef(row.ref);
           return (
             <Space size={0}>
-              <Link to={buildPath(paths.modelEdit, { namespace, name })} state={backLinkState(location, "Back to models")}>
+              <Link to={buildPath(paths.modelEdit, { namespace, name })} state={backLinkState(location, "Models")}>
                 <Button
                   type="text"
                   size="small"

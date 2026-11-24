@@ -144,7 +144,7 @@ export function AgentTemplatesTab() {
             <ResourceLink
               mono
               to={buildPath(paths.modelEdit, { namespace: model.namespace || row.namespace, name: model.name })}
-              state={backLinkState(location, "Back to templates")}
+              state={backLinkState(location, "Templates")}
               icon={resourceIcons.model}
               data-testid={`template-model-${row.name}`}
               css={{ fontSize: 12 }}
@@ -196,7 +196,7 @@ export function AgentTemplatesTab() {
                   key={`${server.groupKind}|${server.namespace}/${server.name}`}
                   mono
                   to={mcpServerTo(server)}
-                  state={backLinkState(location, "Back to templates")}
+                  state={backLinkState(location, "Templates")}
                   icon={resourceIcons.mcpServer}
                   data-testid={`template-tool-server-${row.name}-${server.name}`}
                   css={{ fontSize: 12 }}

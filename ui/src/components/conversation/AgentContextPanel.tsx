@@ -81,7 +81,7 @@ export function AgentContextPanel({
   // Every server starts collapsed; the card's "Expand all" opens them together.
   const [openServers, setOpenServers] = useState<ReadonlySet<string>>(() => new Set());
   const allServersOpen = serverGroups.length > 0 && serverGroups.every((group) => openServers.has(serverGroupKey(group)));
-  const back = backLinkState(location, instance ? "Back to conversation" : "Back to agent");
+  const back = backLinkState(location, instance ? "Conversation" : "Agent");
   const linkCss = { justifySelf: "start", fontSize: 12 } as const;
   const agentTo = agentPageUrl({ namespace, name });
   const refPath = (path: string, ref: ObjectReference) =>

@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { backLinkState, useBackLink } from "./backLink";
 
-const FALLBACK = { to: "/agents?tab=templates", label: "Back to templates" };
+const FALLBACK = { to: "/agents?tab=templates", label: "Templates" };
 
 function Probe() {
   const back = useBackLink(FALLBACK);
@@ -22,15 +22,15 @@ function renderAt(state: unknown) {
 describe("useBackLink", () => {
   it("leads back to the page that opened this one, search included", () => {
     const link = renderAt(
-      backLinkState({ pathname: "/agents/abc/conversation", search: "?mock=ok" }, "Back to conversation"),
+      backLinkState({ pathname: "/agents/abc/conversation", search: "?mock=ok" }, "Conversation"),
     );
-    expect(link.textContent).toBe("Back to conversation");
+    expect(link.textContent).toBe("Conversation");
     expect(link.getAttribute("href")).toBe("/agents/abc/conversation?mock=ok");
   });
 
   it("falls back to the list on a direct visit", () => {
     const link = renderAt(undefined);
-    expect(link.textContent).toBe("Back to templates");
+    expect(link.textContent).toBe("Templates");
     expect(link.getAttribute("href")).toBe(FALLBACK.to);
   });
 
@@ -41,6 +41,6 @@ describe("useBackLink", () => {
     { from: 42, fromLabel: "Back" },
     "not an object",
   ])("ignores state that is not an in-app origin: %j", (state) => {
-    expect(renderAt(state).textContent).toBe("Back to templates");
+    expect(renderAt(state).textContent).toBe("Templates");
   });
 });

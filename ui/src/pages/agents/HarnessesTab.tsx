@@ -82,7 +82,7 @@ export function HarnessesTab() {
           <ResourceLink
             mono
             to={buildPath(paths.harness, { namespace: row.namespace, name: row.name })}
-            state={backLinkState(location, "Back to harnesses")}
+            state={backLinkState(location, "Harnesses")}
             data-testid={`harness-link-${row.name}`}
           >
             {row.name}

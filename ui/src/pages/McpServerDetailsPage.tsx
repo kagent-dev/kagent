@@ -34,7 +34,7 @@ export function McpServerDetailsPage() {
   const location = useLocation();
   const { hash } = location;
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const back = useGoBack({ to: paths.mcpServers, label: "Back to MCP servers" });
+  const back = useGoBack({ to: paths.mcpServers, label: "MCP servers" });
   const [searchParams] = useSearchParams();
   const servers = useMcpServers();
   const kind = searchParams.get(MCP_SERVER_KIND_PARAM);
@@ -130,7 +130,7 @@ export function McpServerDetailsPage() {
                         mono
                         css={{ fontSize: 12 }}
                         to={buildPath(paths.agentTemplateDetail, { namespace: template.namespace, name: template.name })}
-                        state={backLinkState(location, "Back to MCP server")}
+                        state={backLinkState(location, "MCP server")}
                         icon={resourceIcons.template}
                         data-testid={`mcp-server-user-${template.name}`}
                       >

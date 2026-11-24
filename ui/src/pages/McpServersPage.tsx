@@ -166,7 +166,7 @@ export function McpServersPage() {
           <ResourceLink
             mono
             to={mcpServerTo({ ...parseRef(row.server.ref), groupKind: row.server.groupKind })}
-            state={backLinkState(location, "Back to MCP servers")}
+            state={backLinkState(location, "MCP servers")}
             data-testid={`mcp-server-link-${parseRef(row.server.ref).name}`}
           >
             <Highlighted text={parseRef(row.server.ref).name} term={view.query} />
@@ -224,7 +224,7 @@ export function McpServersPage() {
           const { namespace, name } = parseRef(row.server.ref);
           return (
             <DeleteResourceButton
-              kind="tool server"
+              kind="MCP server"
               name={name}
               onDelete={() => apiClient.mcpServers.remove(namespace, name)}
               onDeleted={invalidateServers}
@@ -244,7 +244,7 @@ export function McpServersPage() {
   return (
     <PageFrame
       title="MCP servers"
-      description="Tool servers agents can call. Expand a server to see the tools it exposes."
+      description="MCP servers agents can call. Expand a server to see its tools."
       actions={
         <Space size={8}>
           <Link to={paths.mcpServerNew}>
@@ -258,7 +258,7 @@ export function McpServersPage() {
           </Link>
           <RefreshButton
             onRefresh={refresh}
-            what="Tool servers"
+            what="MCP servers"
             loading={isLoading}
             iconOnly
           />
@@ -336,7 +336,7 @@ export function McpServersPage() {
                 tools={row.tools}
                 highlight={view.query}
                 server={{ ...parseRef(row.server.ref), groupKind: row.server.groupKind }}
-                linkState={backLinkState(location, "Back to MCP servers")}
+                linkState={backLinkState(location, "MCP servers")}
               />
             ),
             // Controlled rather than `expandRowByClick`, so `clickableRow` can keep a

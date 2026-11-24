@@ -39,7 +39,7 @@ async function pick(page: Page, testId: string, title: string) {
 async function chooseTemplateSource(page: Page, source: Source) {
   await page
     .getByTestId("agent-form-template-source")
-    .getByText(source === "inline" ? "Inline" : "Reference", { exact: true })
+    .getByText(source === "inline" ? "Define here" : "Use existing", { exact: true })
     .click();
 }
 

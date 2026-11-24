@@ -32,7 +32,7 @@ export function indexToolServers(servers: readonly ToolServerResponse[]): Map<st
 
 /**
  * Counts what a template exposes: the distinct tools it takes from each server (every
- * discovered tool when a binding names none) plus one per sub-agent.
+ * discovered tool when a binding names none) plus one per agent template used as a tool.
  */
 export function countTemplateTools(
   bindings: readonly ToolBinding[],

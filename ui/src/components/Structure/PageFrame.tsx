@@ -57,9 +57,10 @@ export function PageFrame({
         >
           <div>
             {title ? (
+              // `&&` outranks antd's typography margins, which would add space under the header.
               <Title
                 level={2}
-                css={{ margin: 0, ...(Icon ? { display: "flex", alignItems: "center", gap: theme.space(2) } : {}) }}
+                css={{ "&&": { margin: 0 }, ...(Icon ? { display: "flex", alignItems: "center", gap: theme.space(2) } : {}) }}
                 data-testid="page-title"
               >
                 {Icon ? <Icon size={24} aria-hidden css={{ flexShrink: 0, color: theme.color.textMuted }} /> : null}
@@ -68,7 +69,7 @@ export function PageFrame({
             ) : null}
             {description ? (
               <Paragraph
-                css={{ margin: `${theme.space(2)} 0 0`, color: theme.color.textMuted }}
+                css={{ "&&": { margin: `${theme.space(2)} 0 0` }, color: theme.color.textMuted }}
               >
                 {description}
               </Paragraph>

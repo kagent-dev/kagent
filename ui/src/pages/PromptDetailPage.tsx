@@ -25,7 +25,7 @@ export function PromptDetailPage() {
   const theme = useTheme();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
   const { data, isLoading, error, refresh } = usePrompt(namespace, name);
-  const back = useGoBack({ to: paths.prompts, label: "Back to libraries" });
+  const back = useGoBack({ to: paths.prompts, label: "Libraries" });
 
   // A 404 is a different answer from a failed request: the cluster told us this
   // library does not exist. Retrying would be pointless, so that branch offers a

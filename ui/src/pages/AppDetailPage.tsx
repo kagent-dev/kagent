@@ -1,4 +1,5 @@
-import { Alert, Button, Card, Descriptions, Space, Tag, Typography } from "antd";
+import { Alert, Button, Card, Descriptions, Space, Typography } from "antd";
+import { DataPill } from "@/components/form/DataPill";
 import { useTheme } from "@emotion/react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -69,7 +70,7 @@ export function AppDetailPage() {
   const serverName = searchParams.get("server") ?? "";
 
   const servers = useMcpServers();
-  const back = useGoBack({ to: paths.mcpServers, label: "Back to MCP servers" });
+  const back = useGoBack({ to: paths.mcpServers, label: "MCP servers" });
   const matches = servers.error
     ? []
     : findApp(servers.data ?? [], appName, namespace, serverName);
@@ -190,7 +191,7 @@ export function AppDetailPage() {
                   {
                     key: "kind",
                     label: "Server kind",
-                    children: <Tag>{match.server.groupKind.split(".")[0]}</Tag>,
+                    children: <DataPill>{match.server.groupKind.split(".")[0]}</DataPill>,
                   },
                 ]}
               />

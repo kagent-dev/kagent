@@ -105,7 +105,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   await test.step("4. refreshing re-reads the list, and says that it did", async () => {
     // Navigates in-app, since a full load costs seconds under parallel load.
     // Step 1 left the scenario on `ok`, so the refresh is not slowed per call.
-    await page.getByRole("button", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     await expectPageTitle(page, "Prompts");
     await expect(rowNamed(page, "shared-fragments")).toHaveCount(1, {
       timeout: 30_000,
@@ -154,18 +154,19 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await page.getByTestId("prompts-new").click();
     await expect(page.getByTestId("prompt-submit")).toBeVisible();
 
-    await expectRequired(page, { marked: ["Namespace", "Name"], unmarked: [] });
+    await expectRequired(page, { marked: ["Namespace", "Name", "Fragments"], unmarked: [] });
     // Editable here, because the library does not exist yet. On an edit the same two
     // fields are read-only — step 7 is where that is asserted.
-    for (const field of ["prompt-name", "prompt-namespace"]) {
-      await expect(page.getByTestId(field)).toBeEnabled();
-      await expect(page.getByTestId(field)).not.toHaveAttribute("readonly", "");
-    }
+    await expect(page.getByTestId("prompt-name")).not.toHaveAttribute("readonly", "");
+    // The namespace is a dropdown, not a text box.
+    await expect(page.getByTestId("prompt-namespace")).toHaveClass(/ant-select/);
+    await expect(page.getByTestId("prompt-namespace")).not.toHaveClass(/ant-select-disabled/);
 
-    await page.getByTestId("prompt-submit").click();
-    await expect(page.getByTestId("prompt-form-errors")).toContainText(
-      "A library name is required",
-    );
+    // Create is held back; an empty required field is flagged once it is left.
+    await expect(page.getByTestId("prompt-submit")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("prompt-name").focus();
+    await page.getByTestId("prompt-name").blur();
+    await expect(page.getByText("A library name is required.")).toBeVisible();
 
     // Half-typed counts as work to lose too: the baseline is the empty draft rather
     // than a loaded resource, so a library being written for the first time is guarded
@@ -226,10 +227,10 @@ test("prompts: a library is created, read, changed and deleted", async ({
      * is dimmed. Both attributes are asserted so a change back to `disabled` fails here
      * rather than only being noticed as a colour.
      */
-    for (const field of ["prompt-name", "prompt-namespace"]) {
-      await expect(page.getByTestId(field)).toHaveAttribute("readonly", "");
-      await expect(page.getByTestId(field)).toBeEnabled();
-    }
+    await expect(page.getByTestId("prompt-name")).toHaveAttribute("readonly", "");
+    await expect(page.getByTestId("prompt-name")).toBeEnabled();
+    // The namespace is a dropdown, locked once the library exists.
+    await expect(page.getByTestId("prompt-namespace")).toHaveClass(/ant-select-disabled/);
 
     // And the form says a save replaces the library, because it does.
     await expect(page.getByTestId("prompt-fragments-note")).toContainText("is deleted");
@@ -239,10 +240,8 @@ test("prompts: a library is created, read, changed and deleted", async ({
     // The controller rejects an empty map — "at least one template key is required" —
     // so this is its own rule stated before the request rather than a second opinion.
     for (const index of [0, 1, 2]) await fragmentKey(page, index).fill("");
-    await page.getByTestId("prompt-submit").click();
-    await expect(page.getByTestId("prompt-form-errors")).toContainText(
-      "Add at least one fragment key",
-    );
+    await expect(page.getByText("Add at least one fragment key.")).toBeVisible();
+    await expect(page.getByTestId("prompt-submit")).toHaveAttribute("aria-disabled", "true");
     // Still on the form, with the text intact: a refused save must not read as a save,
     // and must not navigate as one either.
     await expect(page).toHaveURL(/\/edit$/);
@@ -252,10 +251,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
     // vanish without a word.
     await fragmentKey(page, 0).fill("tone");
     await fragmentKey(page, 1).fill("tone");
-    await page.getByTestId("prompt-submit").click();
-    await expect(page.getByTestId("prompt-form-errors")).toContainText(
-      'Two fragments share the key "tone"',
-    );
+    await expect(page.getByText('Two fragments share the key "tone".')).toBeVisible();
 
     // Put back, so the save in step 9 is a save of the library rather than of a wreck.
     await fragmentKey(page, 0).fill(SEEDED_KEYS[0]);
@@ -274,7 +270,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
      */
     for (const leave of [
       page.getByTestId("prompt-cancel"),
-      page.getByRole("link", { name: "Back to library" }),
+      page.getByTestId("form-back-link"),
       page.getByRole("link", { name: "Models" }),
     ]) {
       await leave.click();
@@ -295,7 +291,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   });
 
   await test.step("10. a fragment is added, saved, and read back off the library", async () => {
-    await page.getByTestId("fragment-add").click();
+    await page.getByTestId("fragment-list-add").click();
     await fragmentKey(page, 3).fill("handoff");
     await fragmentValue(page, 3).fill("Name the next owner explicitly.");
     // The include tag is what the fragment is for, and it is offered before the save
@@ -321,7 +317,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
   });
 
   await test.step("11. the list behind it was re-read, and nothing else moved", async () => {
-    await page.getByRole("button", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     const row = rowNamed(page, "shared-fragments");
     await expect(row).toContainText("4 keys", { timeout: 30_000 });
     // The keys column too, which is what the search on this page also covers.
@@ -351,7 +347,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
     await expect(page).toHaveURL(/\/prompts\/kagent\/shared-fragments$/);
     await expect(page.getByTestId("prompt-discard-body")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     await expect(rowNamed(page, CREATED)).toHaveCount(1, { timeout: 30_000 });
   });
 
@@ -414,7 +410,7 @@ test("prompts: a library is created, read, changed and deleted", async ({
 
   await test.step("17. retrying asks the backend again, and it recovers", async () => {
     // Still on `error` from step 16, which the scenario keeps across in-app navigation.
-    await page.getByRole("button", { name: "Back to libraries" }).click();
+    await page.getByRole("button", { name: "Libraries" }).click();
     await expect(page.getByTestId("prompts-error")).toBeVisible();
 
     /*

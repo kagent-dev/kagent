@@ -169,17 +169,17 @@ test("conversation: the template opened from a conversation leads back to it", a
 
   await test.step("2. the template page offers the way back, across its tabs", async () => {
     await link.click();
-    const back = page.getByTestId("template-back");
+    const back = page.getByTestId("form-back-link");
     await expect(back).toBeVisible({ timeout: 30_000 });
     historyLength = await page.evaluate(() => window.history.length);
-    await expect(back).toHaveText("Back to conversation", { timeout: 30_000 });
+    await expect(back).toHaveText("Conversation", { timeout: 30_000 });
 
     await page.getByRole("tab", { name: /Agents/ }).click();
-    await expect(back).toHaveText("Back to conversation");
+    await expect(back).toHaveText("Conversation");
   });
 
   await test.step("3. and it returns to the same conversation", async () => {
-    await page.getByTestId("template-back").click();
+    await page.getByTestId("form-back-link").click();
     await expect(page).toHaveURL(conversationUrl);
     await expect(page.getByTestId("conversation-agent-context")).toBeVisible({ timeout: 30_000 });
   });
@@ -214,7 +214,7 @@ test("conversation: the harness, an MCP server and the model open from a convers
 
   await test.step("2. and its back button returns to the conversation", async () => {
     const back = page.getByTestId("harness-back");
-    await expect(back).toHaveText("Back to conversation");
+    await expect(back).toHaveText("Conversation");
     await back.click();
     await expect(page).toHaveURL(conversationUrl);
     await expect(page.getByTestId("conversation-agent-context")).toBeVisible({ timeout: 30_000 });
@@ -251,7 +251,7 @@ test("conversation: the harness, an MCP server and the model open from a convers
 
   await test.step("4. and its back button returns to the conversation", async () => {
     const back = page.getByTestId("mcp-server-back");
-    await expect(back).toHaveText("Back to conversation");
+    await expect(back).toHaveText("Conversation");
     await back.click();
     await expect(page).toHaveURL(conversationUrl);
     await expect(page.getByTestId("conversation-agent-context")).toBeVisible({ timeout: 30_000 });

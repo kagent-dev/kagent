@@ -502,7 +502,7 @@ export function AgentPage() {
                       navigate(paths.agents);
                       void invalidateAgents().catch(() => {});
                     }}
-                    description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
+                    description="Stops new conversations. Existing conversations keep their prepared revisions. Agent templates and harnesses are preserved."
                   />
                 </Space>
             ) : null}
@@ -745,7 +745,7 @@ function AgentIdentityCard({ agent, actions }: { agent?: Agent; actions?: ReactN
 
 function AgentIdentityFields({ agent }: { agent: Agent }) {
   const theme = useTheme();
-  const back = backLinkState(useLocation(), "Back to agent");
+  const back = backLinkState(useLocation(), "Agent");
   const { spec, status } = agent.resource;
   const mono = { fontFamily: theme.font.mono, fontSize: 12 };
 

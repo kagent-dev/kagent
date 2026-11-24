@@ -1,6 +1,7 @@
 import { useTheme } from "@emotion/react";
 import { useMemo, useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
+import { DataPill } from "@/components/form/DataPill";
 import { ArrowLeft, CalendarClock, ChevronsDownUp, ChevronsUpDown, ExternalLink, Globe, Pause, Pencil, Play, Plus } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
@@ -180,8 +181,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
             how often, and in whose clock. The rest is in the list below. */}
         {schedule && config && <Space size={8} wrap data-testid="schedule-meta" css={{ marginTop: theme.space(2) }}>
           {scheduleStatusTag(schedule)}
-          <Tag icon={<CalendarClock size={12} />}>{scheduleDescription(config.schedule)}</Tag>
-          <Tag icon={<Globe size={12} />}>{config.timeZone || "UTC"}</Tag>
+          <DataPill>
+            <CalendarClock size={12} aria-hidden /> {scheduleDescription(config.schedule)}
+          </DataPill>
+          <DataPill>
+            <Globe size={12} aria-hidden /> {config.timeZone || "UTC"}
+          </DataPill>
         </Space>}
       </div>
       {controls}

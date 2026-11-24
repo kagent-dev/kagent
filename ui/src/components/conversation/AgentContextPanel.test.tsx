@@ -154,7 +154,7 @@ describe("AgentContextPanel", () => {
     await userEvent.click(screen.getByTestId("conversation-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toEqual({
       from: "/agents/abc/conversation?mock=ok",
-      fromLabel: "Back to conversation",
+      fromLabel: "Conversation",
     });
   });
 
@@ -162,7 +162,7 @@ describe("AgentContextPanel", () => {
     renderPanel([]);
     await userEvent.click(screen.getByTestId("conversation-agent-context-template"));
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
-      fromLabel: "Back to agent",
+      fromLabel: "Agent",
     });
   });
 
@@ -179,7 +179,7 @@ describe("AgentContextPanel", () => {
     await userEvent.click(screen.getByTestId(testId));
     expect(screen.getByTestId("location-path").textContent).toBe(path);
     expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({
-      fromLabel: "Back to conversation",
+      fromLabel: "Conversation",
     });
   });
 
@@ -263,7 +263,7 @@ describe("AgentContextPanel", () => {
     expect(await screen.findByText("An AgentTemplate this agent can call as a tool")).toBeTruthy();
     await userEvent.click(link);
     expect(screen.getByTestId("location-path").textContent).toBe("/agent-templates/kagent/platform-helm");
-    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({ fromLabel: "Back to conversation" });
+    expect(JSON.parse(screen.getByTestId("location-state").textContent ?? "null")).toMatchObject({ fromLabel: "Conversation" });
   });
 
   it("offers no expand-all for a single server", () => {

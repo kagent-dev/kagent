@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Checkbox, Modal } from "antd";
 import toast from "react-hot-toast";
+import { toastDeleted } from "@/components/common/deleteToast";
 
 /** What a delete confirmation needs to know; shared by the button and by row menus. */
 export interface DeleteConfirmProps {
@@ -37,7 +38,7 @@ export function useDeleteConfirm({ kind, name, description, forceLabel, onDelete
       // the delete as failed, in a toast that never goes away.
       await Promise.resolve(onDeleted()).catch(() => {});
       afterDelete?.();
-      toast.success(`Deleted ${kind} ${name}`);
+      toastDeleted(kind, name);
     } catch (cause: unknown) {
       // Deliberately not a toast that disappears: a delete that failed leaves the
       // resource in place, and a reader who missed the message would believe it
