@@ -131,4 +131,25 @@ func TestTLSConfigCELValidation(t *testing.T) {
 		}
 		require.ErrorContains(t, cl.Create(ctx, server), "spec.tls must be unset when spec.url has http:// scheme")
 	})
+	// URL schemes are case-insensitive (RFC 3986 §3.1). The lowercase case above
+	// must not be the only spelling the plaintext+TLS rule rejects.
+	for _, tc := range []struct{ name, scheme, url string }{
+		{"http-upper-with-tls", "HTTP", "HTTP://upstream.example.com/mcp"},
+		{"http-mixed-with-tls", "Http", "Http://upstream.example.com/mcp"},
+	} {
+		t.Run("Given a "+tc.scheme+" scheme URL, when spec.tls is set, assert that admission rejects it", func(t *testing.T) {
+			server := &RemoteMCPServer{
+				ObjectMeta: metav1.ObjectMeta{Name: tc.name, Namespace: ns},
+				Spec:       RemoteMCPServerSpec{Description: "test", URL: tc.url, TLS: &TLSConfig{DisableVerify: true}},
+			}
+			require.ErrorContains(t, cl.Create(ctx, server), "spec.tls must be unset when spec.url has http:// scheme")
+		})
+	}
+	t.Run("Given an uppercase HTTP scheme URL, when spec.tls is unset, assert that admission accepts it", func(t *testing.T) {
+		server := &RemoteMCPServer{
+			ObjectMeta: metav1.ObjectMeta{Name: "http-upper-plain", Namespace: ns},
+			Spec:       RemoteMCPServerSpec{Description: "test", URL: "HTTP://upstream.example.com/mcp"},
+		}
+		require.NoError(t, cl.Create(ctx, server))
+	})
 }

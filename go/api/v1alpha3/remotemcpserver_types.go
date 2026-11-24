@@ -31,7 +31,7 @@ const (
 
 // RemoteMCPServerSpec defines the desired state of RemoteMCPServer.
 //
-// +kubebuilder:validation:XValidation:message="spec.tls must be unset when spec.url has http:// scheme: a TLS opinion contradicts a plaintext URL. Either drop spec.tls, or use https:// / a scheme-less URL.",rule="!self.url.startsWith('http://') || !has(self.tls)"
+// +kubebuilder:validation:XValidation:message="spec.tls must be unset when spec.url has http:// scheme: a TLS opinion contradicts a plaintext URL. Either drop spec.tls, or use https:// / a scheme-less URL.",rule="!self.url.lowerAscii().startsWith('http://') || !has(self.tls)"
 // +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when tokenPassthrough is enabled",rule="!(has(self.tokenPassthrough) && self.tokenPassthrough) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
 // +kubebuilder:validation:AtMostOneOf=actorJwt;tokenPassthrough
 // +kubebuilder:validation:XValidation:message="headersFrom cannot set Authorization when actorJwt is enabled",rule="!has(self.actorJwt) || !has(self.headersFrom) || !self.headersFrom.exists(h, h.name.lowerAscii() == 'authorization')"
