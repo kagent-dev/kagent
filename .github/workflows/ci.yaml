@@ -106,6 +106,22 @@ jobs:
       - name: Create Kind cluster
         run: make create-kind-cluster
 
+      # The live UI lane runs on gvisor only. Its toolchain installs while Install Kagent builds.
+      - name: Setup UI toolchain
+        if: matrix.sandbox_class == 'gvisor'
+        uses: ./.github/actions/setup-ui
+
+      - name: Start live UI toolchain install
+        if: matrix.sandbox_class == 'gvisor'
+        working-directory: ./ui
+        run: |
+          # Runs in the background while Install Kagent builds; the e2e step waits on the status file.
+          rm -f "$RUNNER_TEMP/live-ui-setup.status"
+          {
+            yarn install --immutable && yarn playwright install --with-deps chromium
+            echo $? > "$RUNNER_TEMP/live-ui-setup.status"
+          } > "$RUNNER_TEMP/live-ui-setup.log" 2>&1 &
+
       - name: Install Kagent
         id: install-kagent
         env:
@@ -118,7 +134,7 @@ jobs:
           export BUILDX_BUILDER_NAME
           make buildx-create
           mkdir -p "$RUNNER_TEMP/runtime-images"
-          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest | xargs -P4 -n1 bash -c '
+          printf '%s\n' controller golang-adk claude-harness codex-harness byo-a2a sandbox-guest ${{ matrix.sandbox_class == 'gvisor' && 'ui' || '' }} | xargs -P4 -n1 bash -c '
             image="$1"
             RUNTIME_IMAGE_METADATA_DIR="$RUNNER_TEMP/runtime-images" \
             DOCKER_BUILD_ARGS="--platform=linux/amd64 --push" \
@@ -182,8 +198,8 @@ jobs:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
                 metrics:
                   endpoint: http://e2e-otlp.kagent.svc.cluster.local:14317
-          ui:
-            replicas: 0
+          # Only the gvisor leg runs the live UI lane.
+          ui: ${{ matrix.sandbox_class == 'gvisor' && '{replicas: 1, service: {type: LoadBalancer}}' || '{replicas: 0}' }}
           kagent-tools:
             enabled: false
           # The example Agent needs kagent-tools, and the e2e suites do not use it.
@@ -278,6 +294,12 @@ jobs:
             sleep 5
           done
           test "$READY" = True
+          # Runs before the Go suite, which restarts the controller; a failure is held so one run reports both.
+          live_ui_rc=0
+          if [ "${{ matrix.sandbox_class }}" = gvisor ]; then
+            bash ../scripts/ci/live-ui-tests.sh || live_ui_rc=$?
+            if [ "$live_ui_rc" != 0 ]; then echo "::error::Live UI tests failed"; fi
+          fi
           export KAGENT_E2E_API_URL="http://$(kubectl get svc -n kagent kagent-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):8083"
           echo "KAGENT_E2E_API_URL: $KAGENT_E2E_API_URL"
           make core/bin/kagent-local
@@ -290,6 +312,7 @@ jobs:
           ../telemetry/live-check.sh start
           export KAGENT_E2E_LIVE_CHECK_ENDPOINT=127.0.0.1:4319
           go test -v github.com/kagent-dev/kagent/go/core/test/e2e -shuffle=on -parallel "$E2E_PARALLEL" -count=1 -timeout=30m 2>&1 | tee "$RUNNER_TEMP/e2e-logs/tests.log"
+          exit "$live_ui_rc"
 
       - name: Check E2E telemetry with Weaver live-check
         if: always()
@@ -324,6 +347,7 @@ jobs:
           kubectl get harnesses,agenttemplates -n kagent
           echo "::error::Kubectl logs -n kagent deployment/kagent-controller"
           kubectl logs -n kagent deployment/kagent-controller || true
+          kubectl logs -n kagent deployment/kagent-ui --tail=200 || true
           kubectl get pods,workerpools -A
           echo "::error::Substrate logs"
           kubectl describe pods -n ate-system || true
@@ -579,23 +603,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: ui/.nvmrc
-
-      # Before any cache step that shells out to yarn: the pinned version in
-      # ui/package.json "packageManager" is Yarn 4, and without corepack the shim
-      # on the runner is a different one that cannot read this lock file.
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Cache Yarn downloads
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ui/.yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('ui/yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
+      - name: Setup UI toolchain
+        uses: ./.github/actions/setup-ui
 
       - name: Install dependencies
         working-directory: ./ui
