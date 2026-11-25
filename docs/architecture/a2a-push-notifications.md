@@ -130,7 +130,10 @@ For example, the webhook receives this JSON body when a task completes:
 
 Register only the callback URL. Kagent rejects nonempty `token` or
 `authentication.credentials` fields. Push notifications work without a signing
-key and are sent without an `Authorization` header by default.
+key and are sent without an `Authorization` header by default. Without a
+signing key, Kagent also rejects any `authentication` field, so a client that
+asks for authenticated delivery is never accepted and then sent unauthenticated
+callbacks.
 
 To enable JWT authentication, generate an Ed25519 key once and store its
 unencrypted PKCS#8 PEM in an operator-managed Kubernetes Secret:
