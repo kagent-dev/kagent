@@ -59,6 +59,8 @@ func TestSessionRequestValidation(t *testing.T) {
 		{"leading whitespace", &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: " title"}, false},
 		{"control character", &apiv1.CreateSessionRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "assistant"}, RequestId: "request-1", Name: "first\nsecond"}, false},
 		{"invalid template filter", &apiv1.ListSessionsRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "NOT A NAME"}}, false},
+		{"list in namespace", &apiv1.ListSessionsRequest{Namespace: "team-a"}, true},
+		{"invalid namespace filter", &apiv1.ListSessionsRequest{Namespace: "Team A"}, false},
 		{"valid rename", &apiv1.UpdateSessionNameRequest{SessionId: "11111111-1111-4111-8111-111111111111", Name: "New title"}, true},
 		{"invalid rename id", &apiv1.UpdateSessionNameRequest{SessionId: "not-a-uuid", Name: "New title"}, false},
 		{"valid checkpoint rename", &apiv1.UpdateCheckpointNameRequest{CheckpointId: "11111111-1111-4111-8111-111111111111", Name: "Before the detour"}, true},

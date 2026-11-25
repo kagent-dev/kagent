@@ -635,6 +635,8 @@ func TestServiceSharedListCannotBroadenAccess(t *testing.T) {
 		{name: "all creators", request: ListRequest{AllCreators: true}, count: 1},
 		{name: "matching Agent", request: ListRequest{Agent: agent}, count: 1},
 		{name: "other Agent", request: ListRequest{Agent: &apiv1.ResourceReference{Namespace: "team-a", Name: "other"}}},
+		{name: "matching namespace", request: ListRequest{Namespace: "team-a"}, count: 1},
+		{name: "other namespace", request: ListRequest{Namespace: "team-b"}},
 		{name: "past shared conversation", request: ListRequest{PageToken: encodePageToken(id)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
