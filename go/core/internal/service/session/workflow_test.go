@@ -348,9 +348,9 @@ func lifecycleForkFixture(t *testing.T, store *lifecycleTestStore, actors *lifec
 	require.NoError(t, err)
 	require.NoError(t, store.FinishSessionQuiescence(t.Context(), boundary,
 		&database.SessionTaskSnapshot{Atespace: "team-a", URI: "s3://snapshots/source", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	checkpoint, _, err := store.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(task.ID)}, source.Creator, uuid.NewString())
+	checkpoint, _, err := reserveCheckpoint(t.Context(), store, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(task.ID)}, source.Creator, uuid.NewString())
 	require.NoError(t, err)
-	_, err = store.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-uid", "s3://snapshots/snapshot-1", "")
+	_, err = finalizeCheckpoint(t.Context(), store, checkpoint.Id, "tag-uid", "s3://snapshots/snapshot-1", "")
 	require.NoError(t, err)
 	requestID := uuid.NewString()
 	fork, _, err := store.ForkSession(t.Context(), checkpoint.Id, source.Creator, requestID, uuid.NewString())

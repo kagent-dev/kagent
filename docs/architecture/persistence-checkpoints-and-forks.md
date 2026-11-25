@@ -59,10 +59,39 @@ Input-required and auth-required tasks are durably suspended with VOLUMES snapsh
 but are not checkpointable or forkable; callers must resolve the interaction first.
 Creating a checkpoint does not suspend the Actor again:
 
-1. Reserve the checkpoint in PostgreSQL.
+1. Reserve the checkpoint and a bounded execution claim in PostgreSQL.
 2. Verify that the suspended Actor still holds the external snapshot URI and fidelity recorded on the boundary.
 3. Create a Substrate `Tag`, which copies the Actor's current snapshot into independent storage, and verify the source did not change during the copy.
-4. Atomically persist the Tag UID and copied snapshot URI and mark the checkpoint ready.
+4. Conditionally persist the Tag UID and copied snapshot URI and mark the checkpoint ready, only while this executor's claim is live.
+
+Create and Delete execute inline; they do not wait for a background worker.
+The reservation owns the first attempt's claim. Retries acquire an expired claim
+and read the current phase before making backend calls. Claims last at most two
+minutes, and finalization clears the claim atomically. Uncertain outcomes retain
+durable work for retry. A leader-elected sweep resumes expired creation/deletion
+and collects failed tags, waiting 30 seconds after each completed sweep.
+
+Only READY checkpoints are public and forkable. Failed verification records an
+internal FAILED result and releases source admission. The sweep deletes any
+retained tag by UID, then conditionally clears that UID and its execution claim.
+Cleanup errors preserve the handle for retry. The FAILED row retains request
+identity, history and revision references, so replay returns the same terminal
+failure without copying again. A fresh invalid source fails before starting a
+copy; recovery still synchronizes with a possible earlier copy through Substrate.
+
+Ordinary rolling upgrades are supported. The claim migration adds nullable columns;
+legacy NULL-claim creation/deletion waits two minutes by UUIDv7 age before takeover.
+Overlapping tag attempts serialize through Substrate's Actor and Tag leases.
+During the mixed-version window, old controllers still have their existing
+unconditional failure-cleanup race; UID-conditional cleanup applies once the
+rollout completes. Rollback leaves the additive schema in place.
+
+Substrate v1.0.0 acquires both leases before returning AlreadyExists, and deletion
+uses the Tag lease. Object-store writes can outlive lease loss, but each copied
+snapshot uses a tag-UID-specific destination prefix that is never reused. Late
+writes can leak storage or finish a FAILED tag; they cannot make it forkable.
+READY still requires COMPLETED storage and matching source/tag identity. Stronger
+object-store fencing belongs in Substrate and does not block this recovery path.
 
 Kagent requests synchronous Substrate suspension before recording a checkpoint.
 If an earlier attempt already suspended the Actor but left a pending durable
@@ -76,8 +105,8 @@ and requires a COMPLETED durable copy. The Tag's template UID must
 match that lineage, and the Actor UID must remain unchanged across the copy.
 
 The `CREATING` reservation blocks task writes and idle or explicit lifecycle changes until the
-copy completes or cleanup finishes. A lost response can reuse a completed Tag;
-an incomplete copy is deleted before the failed reservation is released. A
+copy is verified or marked FAILED. A lost response can reuse a completed Tag;
+an incomplete copy becomes internal FAILED work for background collection. A
 failed database finalization leaves the reservation and completed Tag for retry.
 Idle lifecycle work records snapshots without retaining every turn: only explicit
 checkpoints survive subsequent suspends or source deletion.
@@ -93,13 +122,10 @@ deleted while its context and checkpoint remain.
 Deletion first hides the checkpoint, then deletes its snapshot tag, then removes
 the row. A checkpoint referenced by a fork cannot be deleted. Substrate deletes the Tag's copied snapshot with the Tag.
 
-Failed checkpoints can also be deleted by their owner. Creation marks a checkpoint
-failed only after snapshot-tag cleanup succeeds or confirms that no tag exists.
-Deletion verifies that absence before removing the row; it never deletes an
-unexpected tag without a retained UID. Backend errors leave the checkpoint in
-`DELETING` for a later delete request to retry. Its history and runtime revision
-references remain retained until deletion completes. Checkpoints still in
-`CREATING` cannot be deleted through this path.
+Deletion never removes an unexpected tag without its retained UID. Backend errors
+leave the checkpoint in `DELETING` for a request or the sweep to retry. History and
+runtime revision references remain retained until deletion completes. Checkpoints
+still in `CREATING` cannot be deleted through this path.
 
 Checkpoint deletion passes the retained tag UID as a Substrate delete precondition,
 so a tag replaced after lookup cannot have its snapshot deleted. A rejected delete

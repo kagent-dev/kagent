@@ -229,15 +229,15 @@ func TestRuntimeForkRetainsOnlyTheCheckpointBoundary(t *testing.T) {
 	hash := sha256.Sum256([]byte("checkpoint boundary"))
 	version, err := client.UpdateSessionTask(t.Context(), source.Id, initialVersion, hash[:], completed, completed, "")
 	require.NoError(t, err)
-	_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
+	_, _, err = reserveCheckpoint(t.Context(), client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
 	require.NoError(t, client.SettleSessionTask(t.Context(), source.Id, string(completed.ID), version))
 	boundary, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(t.Context(), boundary, &SessionTaskSnapshot{Atespace: "team-a", URI: "turn-N", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	checkpoint, _, err := client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
+	checkpoint, _, err := reserveCheckpoint(t.Context(), client, &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: source.Id, HeadTaskId: string(completed.ID)}, "alice", uuid.NewString())
 	require.NoError(t, err)
-	_, err = client.FinalizeSessionCheckpoint(t.Context(), checkpoint.Id, "tag-N", "retained-N", "")
+	_, err = finalizeCheckpoint(t.Context(), client, checkpoint.Id, "tag-N", "retained-N", "")
 	require.NoError(t, err)
 	newInput := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("source after checkpoint"))
 	newInput.ContextID = source.ContextId
@@ -469,26 +469,26 @@ func TestCheckpointPinsExpectedTaskWhileSnapshotIsPending(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.SettleSessionTask(ctx, session.Id, string(task.ID), version))
 	request := &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}
-	_, _, err = client.ReserveSessionCheckpoint(ctx, request, "alice", "checkpoint")
+	_, _, err = reserveCheckpoint(ctx, client, request, "alice", "checkpoint")
 	require.ErrorIs(t, err, ErrSnapshotPending)
 	work, err := client.ClaimSessionQuiescence(ctx)
 	require.NoError(t, err)
 	require.NoError(t, client.FinishSessionQuiescence(ctx, work, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	saved, _, err := client.ReserveSessionCheckpoint(ctx, request, "alice", "saved")
+	saved, _, err := reserveCheckpoint(ctx, client, request, "alice", "saved")
 	require.NoError(t, err)
-	_, err = client.FinalizeSessionCheckpoint(ctx, saved.Id, "tag", "retained-snapshot", "")
+	_, err = finalizeCheckpoint(ctx, client, saved.Id, "tag", "retained-snapshot", "")
 	require.NoError(t, err)
 	next := newSessionTask(uuid.NewString(), "next-message")
 	next.ContextID = session.ContextId
 	_, err = client.CreateRuntimeTask(ctx, session.Id, taskMutationHash("next"), next, "")
 	require.NoError(t, err)
-	_, _, err = client.ReserveSessionCheckpoint(ctx, request, "alice", "checkpoint")
+	_, _, err = reserveCheckpoint(ctx, client, request, "alice", "checkpoint")
 	require.ErrorIs(t, err, ErrCheckpointAdvanced)
-	replayed, _, err := client.ReserveSessionCheckpoint(ctx, request, "alice", "saved")
+	replayed, _, err := reserveCheckpoint(ctx, client, request, "alice", "saved")
 	require.NoError(t, err)
 	require.Equal(t, saved.Id, replayed.Id)
 	request.HeadTaskId = string(next.ID)
-	_, _, err = client.ReserveSessionCheckpoint(ctx, request, "alice", "saved")
+	_, _, err = reserveCheckpoint(ctx, client, request, "alice", "saved")
 	require.ErrorIs(t, err, ErrIdempotencyConflict)
 }
 
@@ -534,7 +534,7 @@ func TestCheckpointRejectsOlderPendingTask(t *testing.T) {
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, nil))
 	task.Status.State = a2a.TaskStateCompleted
 	require.NoError(t, saveRuntimeTask(t, client, session.Id, task, task, &SessionTaskSnapshot{Atespace: "team-a", URI: "snapshot", Fidelity: "SNAPSHOT_FIDELITY_VOLUMES"}))
-	_, _, err := client.ReserveSessionCheckpoint(ctx, &apiv1.Checkpoint{
+	_, _, err := reserveCheckpoint(ctx, client, &apiv1.Checkpoint{
 		Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID),
 	}, "alice", uuid.NewString())
 	require.ErrorIs(t, err, ErrFailedPrecondition)
