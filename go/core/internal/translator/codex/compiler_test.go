@@ -194,11 +194,11 @@ func TestCompileMCPAndSharedAgent(t *testing.T) {
 	if err := json.Unmarshal(revision.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Agents["reviewer"].Model != "gpt-child" || !cfg.MCPServers["tools"].RequireApproval || !reflect.DeepEqual(cfg.MCPServers["tools"].EnabledTools, []string{"read"}) {
+	if cfg.Agents["reviewer"].Model != "gpt-child" || !cfg.MCPServers["tools-approval"].RequireApproval || !reflect.DeepEqual(cfg.MCPServers["tools-approval"].EnabledTools, []string{"read"}) {
 		t.Fatalf("config = %#v", cfg)
 	}
-	if !strings.HasPrefix(cfg.MCPServers["tools"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
-		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools"].Headers)
+	if !strings.HasPrefix(cfg.MCPServers["tools-approval"].Headers["Authorization"], "${"+mcpCredentialPrefix) {
+		t.Fatalf("MCP headers = %#v", cfg.MCPServers["tools-approval"].Headers)
 	}
 	if !reflect.DeepEqual(revision.EgressDestinations, []string{"http://kagent-controller.kagent:8083", "https://api.openai.com:443", "https://mcp.example.com:443"}) {
 		t.Fatalf("egress = %v", revision.EgressDestinations)
@@ -242,7 +242,7 @@ func TestCompileMCPCompatibilityWarnings(t *testing.T) {
 	if err := json.Unmarshal(compilation.ConfigJSON, &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if configured, exists := cfg.MCPServers[server.Name]; !exists || !configured.RequireApproval || len(configured.EnabledTools) != 0 {
+	if configured, exists := cfg.MCPServers[server.Name+"-approval"]; !exists || !configured.RequireApproval || len(configured.EnabledTools) != 0 {
 		t.Fatalf("config omits MCP server after compatibility warning: %#v", cfg.MCPServers)
 	}
 

@@ -18,7 +18,7 @@ import (
 var agentNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
-	Version = 5
+	Version = 6
 	// PinnedClaudeVersion is the Claude Code release the image installs. A bump
 	// must recheck the telemetry gate in the driver.
 	PinnedClaudeVersion                 = "2.1.285"
@@ -77,6 +77,7 @@ type Config struct {
 	Agents                map[string]Agent       `json:"agents,omitempty"`
 	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
+	DisallowedTools       []string               `json:"disallowed_tools,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy. It is absent for standalone runs, which fall back to the
 	// environment for service identity and leave capture disabled.
@@ -94,6 +95,7 @@ type MCPServer struct {
 	URL             string            `json:"url"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	RequireApproval bool              `json:"require_approval,omitempty"`
+	Tools           []string          `json:"tools,omitempty"`
 }
 
 // Agent is one compiler-owned local Claude subagent passed through --agents.
@@ -179,6 +181,11 @@ func (c Config) Validate() error {
 		}
 		if strings.TrimSpace(server.URL) == "" {
 			return fmt.Errorf("claude MCP server %q URL is required", name)
+		}
+		for _, tool := range server.Tools {
+			if !ValidToolName(tool) {
+				return fmt.Errorf("claude MCP server %q has invalid selected tool %q", name, tool)
+			}
 		}
 		for header, value := range server.Headers {
 			if strings.TrimSpace(header) == "" || strings.TrimSpace(value) == "" {
