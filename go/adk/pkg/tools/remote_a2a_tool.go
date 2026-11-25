@@ -349,7 +349,7 @@ func (s *remoteA2AState) handleFirstCall(ctx adkagent.Context, requestText strin
 	if !s.isolateSessions {
 		s.sharedContextID = contextID
 	}
-	return s.processResult(ctx, contextID, result)
+	return s.processResult(ctx, contextID, result, false)
 }
 
 // handleResume is Phase 2: forward the user's decision to the remote agent's pending task.
@@ -407,7 +407,7 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 	// construction-time id: for an isolated tool, sharedContextID was never
 	// actually used in any A2A call, so falling back to it would report a
 	// session id that doesn't correspond to any real subagent activity.
-	return s.processResult(ctx, contextID, result)
+	return s.processResult(ctx, contextID, result, true)
 }
 
 // processResult converts a SendMessageResult into a tool return value.
@@ -418,7 +418,9 @@ func (s *remoteA2AState) handleResume(ctx adkagent.Context) (remoteA2AResponse, 
 // the session that actually ran the call. This is the single source of
 // truth the UI reads from; there is no separate constructor-time id to fall
 // back on (see NewKAgentRemoteA2ATool).
-func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, result a2atype.SendMessageResult) (remoteA2AResponse, error) {
+// resumed says whether this result came back from forwarding a human decision,
+// which decides what a second input_required from the same sub-agent run can do.
+func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, result a2atype.SendMessageResult, resumed bool) (remoteA2AResponse, error) {
 	switch r := result.(type) {
 	case *a2atype.Message:
 		text, err := extractTextFromMessage(r)
@@ -432,7 +434,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 	case *a2atype.Task:
 		switch r.Status.State {
 		case a2atype.TaskStateInputRequired:
-			return s.handleInputRequired(ctx, r, contextID), nil
+			return s.handleInputRequired(ctx, r, contextID, resumed), nil
 		case a2atype.TaskStateFailed:
 			text, err := extractTextFromTask(r)
 			if err != nil {
@@ -474,7 +476,7 @@ func (s *remoteA2AState) processResult(ctx adkagent.Context, contextID string, r
 // contextID is reported back as SubagentSessionID so the UI can link the
 // pending Activity panel to the paused subagent session before the human
 // decision is forwarded and a final result comes back.
-func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype.Task, contextID string) remoteA2AResponse {
+func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype.Task, contextID string, resumed bool) remoteA2AResponse {
 	if task == nil {
 		logging.FromContext(ctx).ErrorContext(ctx, "subagent returned input_required without task", "tool", s.name)
 		return remoteA2AResponse{
@@ -488,6 +490,25 @@ func (s *remoteA2AState) handleInputRequired(ctx adkagent.Context, task *a2atype
 		logging.FromContext(ctx).ErrorContext(ctx, "subagent returned input_required without a valid HITL extension", "tool", s.name)
 		return remoteA2AResponse{
 			Error:             fmt.Sprintf("Remote agent '%s' requested input without a valid HITL extension.", s.name),
+			Status:            "failed",
+			SubagentSessionID: contextID,
+		}
+	}
+
+	if resumed {
+		// A second pause inside one sub-agent run cannot be surfaced from here.
+		// This call is already confirmed, so another RequestConfirmation raises
+		// no new confirmation request, and the model would read a pending
+		// result as an invitation to call the sub-agent again: that starts a
+		// second run and leaves this task waiting for an approval nobody is
+		// ever asked for. Reporting it is the honest outcome until the pause
+		// can be reopened.
+		logging.FromContext(ctx).ErrorContext(ctx, "subagent needs another approval after its decision was forwarded, which cannot be surfaced on a confirmed call",
+			"tool", s.name, "task_id", task.ID, "subagent_session_id", contextID)
+		return remoteA2AResponse{
+			Error: fmt.Sprintf("Remote agent '%s' asked for another approval while continuing task %s, which cannot be requested during this call. "+
+				"Do not call '%s' again for this work: that would start a separate run and leave this task waiting. Report that the task needs an approval that could not be surfaced.",
+				s.name, task.ID, s.name),
 			Status:            "failed",
 			SubagentSessionID: contextID,
 		}

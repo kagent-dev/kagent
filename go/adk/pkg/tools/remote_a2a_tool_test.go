@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
@@ -165,7 +166,7 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 
 	t.Run("direct Message result", func(t *testing.T) {
 		msg := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("hi"))
-		resp, err := s.processResult(nil, contextID, msg)
+		resp, err := s.processResult(nil, contextID, msg, false)
 		_ = ctx
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -177,7 +178,7 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 
 	t.Run("failed Task result", func(t *testing.T) {
 		task := &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateFailed}}
-		resp, err := s.processResult(nil, contextID, task)
+		resp, err := s.processResult(nil, contextID, task, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -195,7 +196,7 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 			Status:    a2atype.TaskStatus{State: a2atype.TaskStateCompleted},
 			Artifacts: []*a2atype.Artifact{{Parts: a2atype.ContentParts{part}}},
 		}
-		resp, err := s.processResult(nil, contextID, task)
+		resp, err := s.processResult(nil, contextID, task, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -205,7 +206,7 @@ func TestProcessResult_SetsSubagentSessionIDOnEveryBranch(t *testing.T) {
 	})
 
 	t.Run("unrecognised result type", func(t *testing.T) {
-		resp, err := s.processResult(nil, contextID, nil)
+		resp, err := s.processResult(nil, contextID, nil, false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -255,11 +256,56 @@ func TestHandleInputRequiredWithoutHITLExtensionFails(t *testing.T) {
 	}
 
 	ctx := adkagent.NewStrictContextMock(t.Context())
-	response := s.handleInputRequired(&ctx, task, "child-context")
+	response := s.handleInputRequired(&ctx, task, "child-context", false)
 	if response.Status != "failed" || response.Error != "Remote agent 'worker' requested input without a valid HITL extension." {
 		t.Fatalf("response = %#v", response)
 	}
 	if response.SubagentSessionID != "child-context" {
 		t.Fatalf("SubagentSessionID = %q, want %q", response.SubagentSessionID, "child-context")
+	}
+}
+
+// A sub-agent that pauses again after its decision was forwarded cannot be
+// surfaced to the human: this call is already confirmed. Returning a pending
+// result there told the model to call the sub-agent again, which started a
+// second run and left the paused task waiting for an approval nobody was asked
+// for. See kagent-dev/kagent#3244.
+func TestSecondPauseInOneSubagentRunIsReportedNotRepeated(t *testing.T) {
+	s := &remoteA2AState{name: "grafana"}
+	task := &a2atype.Task{
+		ID:        "child-task",
+		ContextID: "child-context",
+		Status: a2atype.TaskStatus{
+			State: a2atype.TaskStateInputRequired,
+			Message: a2a.AttachHitlExtension(
+				a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart("Approval required")),
+				&apia2a.ToolApprovalRequest{
+					Type: a2a.HITLTypeToolApprovalRequest,
+					Tools: []apia2a.HITLTool{{
+						ID: "child-confirm-2", CallID: "child-call-2", Name: "search_dashboards", Args: map[string]any{},
+					}},
+				},
+			),
+		},
+	}
+
+	// A strict context fails the test if the tool asks for confirmation, which
+	// is what this call must not do: the request would be dropped.
+	ctx := adkagent.NewStrictContextMock(t.Context())
+	response, err := s.processResult(&ctx, "child-context", task, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if response.Status != "failed" || response.Error == "" {
+		t.Fatalf("a second pause must be reported as a failure, got %#v", response)
+	}
+	if response.WaitingFor != "" {
+		t.Fatalf("a second pause must not read as pending work: %#v", response)
+	}
+	if !strings.Contains(response.Error, "child-task") || !strings.Contains(response.Error, "grafana") {
+		t.Fatalf("the error must name the sub-agent and its waiting task: %q", response.Error)
+	}
+	if response.SubagentSessionID != "child-context" {
+		t.Fatalf("SubagentSessionID = %q, want the paused session", response.SubagentSessionID)
 	}
 }
