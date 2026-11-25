@@ -259,6 +259,7 @@ func tracerOf(spanCtx context.Context) trace.Tracer {
 func (s *executionSink) ModelCall(event runtime.ModelCall) {
 	event.Provider = cmp.Or(event.Provider, s.compiled.Provider)
 	event.RequestModel = cmp.Or(event.RequestModel, s.compiled.Model)
+	s.usage.add(event)
 	if event.UsageOnly {
 		s.owner.metrics.addTokens(context.Background(), event, inferenceAttributes(event))
 		return
