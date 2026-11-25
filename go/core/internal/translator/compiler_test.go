@@ -876,6 +876,52 @@ func TestCompileAgentRejectsInvalidSharedTrees(t *testing.T) {
 		_, err := compiler(t, child, grandchild, harness).CompileAgent(context.Background(), inlineAgent(harness, root))
 		require.ErrorContains(t, err, "consecutive Shared")
 	})
+	t.Run("toolchain named with two images", func(t *testing.T) {
+		child := template("child")
+		child.Spec.Toolchains = []v1alpha3.Toolchain{{Name: "go", OCI: "example.com/go@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}
+		root := template("root", binding("child", child.Name))
+		root.Spec.Toolchains = []v1alpha3.Toolchain{{Name: "go", OCI: "example.com/go@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}}
+		_, err := compiler(t, child, harness).CompileAgent(t.Context(), inlineAgent(harness, root))
+		require.ErrorContains(t, err, `toolchain "go" names two images`)
+		var validationError *translator.ValidationError
+		require.ErrorAs(t, err, &validationError)
+	})
+}
+
+func TestCompileAgentMergesSharedToolchains(t *testing.T) {
+	const goImage = "example.com/go@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const ghImage = "example.com/gh@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	harness := &v1alpha3.Harness{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "kagent"},
+		Spec: v1alpha3.HarnessSpec{
+			Kagent:   &v1alpha3.KagentHarness{},
+			Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+			Substrate: v1alpha3.RuntimeSubstratePolicy{
+				WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+			},
+		},
+	}
+	child := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "reviewer"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}, SystemPrompt: "review",
+			Toolchains: []v1alpha3.Toolchain{{Name: "go", OCI: goImage}, {Name: "gh", OCI: ghImage}},
+		},
+	}
+	root := &v1alpha3.AgentTemplate{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "coordinator"},
+		Spec: v1alpha3.AgentTemplateSpec{
+			ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}, SystemPrompt: "coordinate",
+			Toolchains: []v1alpha3.Toolchain{{Name: "go", OCI: goImage}},
+			Tools: []v1alpha3.ToolBinding{{SubAgent: &v1alpha3.SubAgentToolBinding{
+				Name: "reviewer", Description: "review changes", TemplateRef: &corev1.LocalObjectReference{Name: child.Name},
+			}}},
+		},
+	}
+	result, err := compiler(t, modelConfig(), harness, child, &atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"}}).
+		CompileAgent(t.Context(), inlineAgent(harness, root))
+	require.NoError(t, err)
+	require.Equal(t, []translator.ToolImage{{Name: "go", Reference: goImage}, {Name: "gh", Reference: ghImage}}, result.ToolImages)
 }
 
 func TestCompileAgentRejectsInvalidSubagentReferences(t *testing.T) {
@@ -1214,4 +1260,73 @@ func TestRevisionDigestIncludesTokenPassthroughTargets(t *testing.T) {
 	revision.TokenPassthroughTargets[0].Header = "x-api-key"
 	require.NotEqual(t, without, bearer)
 	require.NotEqual(t, bearer, digest(), "the header is part of revision identity")
+}
+
+func TestCompileAgentCarriesToolchains(t *testing.T) {
+	const kubectlImage = "example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const helmImage = "example.com/helm@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	for _, harnessType := range []translator.HarnessType{
+		translator.HarnessTypeKagent, translator.HarnessTypeCodex, translator.HarnessTypeClaude, translator.HarnessTypeBYO,
+	} {
+		t.Run(string(harnessType), func(t *testing.T) {
+			harness := &v1alpha3.Harness{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: string(harnessType)},
+				Spec: v1alpha3.HarnessSpec{
+					Workload: v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+					Substrate: v1alpha3.RuntimeSubstratePolicy{
+						WorkerPoolRef: corev1.LocalObjectReference{Name: "selected"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+					},
+				},
+			}
+			template := &v1alpha3.AgentTemplate{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"},
+				Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}, SystemPrompt: "help"},
+			}
+			model := modelConfig()
+			model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+			switch harnessType {
+			case translator.HarnessTypeKagent:
+				harness.Spec.Kagent = &v1alpha3.KagentHarness{}
+			case translator.HarnessTypeCodex:
+				harness.Spec.Codex = &v1alpha3.CodexHarness{}
+				responses := v1alpha3.OpenAIAPIFormatResponses
+				model.Spec.OpenAI = &v1alpha3.OpenAIConfig{APIFormat: &responses}
+			case translator.HarnessTypeClaude:
+				harness.Spec.Claude = &v1alpha3.ClaudeHarness{}
+				model.Spec.Provider, model.Spec.Model = v1alpha3.ModelProviderAnthropic, "claude-sonnet-4-5"
+			case translator.HarnessTypeBYO:
+				harness.Spec.BYO = &v1alpha3.BYOHarness{}
+				harness.Spec.Workload.Command = []string{"/agent"}
+				template.Spec.ModelConfig = nil
+			}
+			objects := []any{
+				model, harness,
+				&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}},
+				&atev1.WorkerPool{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "selected"}},
+			}
+			plain, err := compiler(t, objects...).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Nil(t, plain.ToolImages, "a template without toolchains compiles to a nil list")
+			plainDigest, err := plain.Digest()
+			require.NoError(t, err)
+
+			template.Spec.Toolchains = []v1alpha3.Toolchain{{Name: "kubectl", OCI: kubectlImage}, {Name: "helm", OCI: helmImage}}
+			originalTemplate := template.DeepCopy()
+			result, err := compiler(t, objects...).CompileAgent(t.Context(), inlineAgent(harness, template))
+			require.NoError(t, err)
+			require.Equal(t, originalTemplate, template)
+			require.Equal(t, []translator.ToolImage{{Name: "kubectl", Reference: kubectlImage}, {Name: "helm", Reference: helmImage}}, result.ToolImages)
+			digest, err := result.Digest()
+			require.NoError(t, err)
+			require.NotEqual(t, plainDigest, digest, "toolchains are part of revision identity")
+
+			bundle, err := result.BootstrapBundle(digest)
+			require.NoError(t, err)
+			actor, err := substrate.ActorTemplateForRevision(&result.Revision, digest, bundle)
+			require.NoError(t, err)
+			container := actor.GetContainers()[0]
+			require.Equal(t, "/opt/kagent/tools/kubectl", container.GetVolumeMounts()[3].GetMountPath())
+			require.Equal(t, "/opt/kagent/tools/helm", container.GetVolumeMounts()[4].GetMountPath())
+		})
+	}
 }

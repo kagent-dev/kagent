@@ -4,8 +4,8 @@
  * ## The property that matters most here
  *
  * **An edit must not delete what the form does not show.** This form authors the
- * common interactive fields and `skills`; `plugins` and `promptTemplate` are not on
- * it yet.
+ * common interactive fields and `skills`; `plugins`, `promptTemplate` and
+ * `toolchains` are not on it yet.
  *
  * Building an update out of the fields a form displays silently drops the rest. That
  * has already happened in this repository once. `specFromDraft` therefore merges

@@ -128,6 +128,15 @@ export interface AgentTemplateSpec {
   tools?: ToolBinding[];
   skills?: AgentTemplateSkill[];
   plugins?: PluginBundle[];
+  /** Digest-pinned images mounted read-only at /opt/kagent/tools/<name>, with their bin/ on PATH. */
+  toolchains?: Toolchain[];
+}
+
+/** One read-only image volume added to the runtime container. */
+export interface Toolchain {
+  name: string;
+  /** An image reference pinned by sha256 digest. */
+  oci: string;
 }
 
 export interface AgentTemplateResource {

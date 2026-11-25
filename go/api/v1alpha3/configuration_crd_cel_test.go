@@ -421,6 +421,31 @@ func TestConfigurationCRDValidation(t *testing.T) {
 			object: &AgentTemplate{ObjectMeta: metav1.ObjectMeta{Name: "model-free-template", Namespace: namespace}},
 		},
 		{
+			name:       "AgentTemplate rejects tag-only toolchain",
+			object:     agentTemplateWithToolchains(namespace, "template-tagged-toolchain", Toolchain{Name: "kubectl", OCI: "registry.example.com/kubectl:latest"}),
+			wantReject: "spec.toolchains[0].oci",
+		},
+		{
+			name:       "AgentTemplate rejects toolchain name that is not a DNS label",
+			object:     agentTemplateWithToolchains(namespace, "template-toolchain-name", Toolchain{Name: "Kube_ctl", OCI: toolchainImageB}),
+			wantReject: "spec.toolchains[0].name",
+		},
+		{
+			name: "AgentTemplate rejects duplicate toolchain names",
+			object: agentTemplateWithToolchains(namespace, "template-duplicate-toolchain",
+				Toolchain{Name: "kubectl", OCI: toolchainImageB},
+				Toolchain{Name: "kubectl", OCI: toolchainImageC},
+			),
+			wantReject: "Duplicate value",
+		},
+		{
+			name: "AgentTemplate accepts digest-pinned toolchains",
+			object: agentTemplateWithToolchains(namespace, "template-toolchains",
+				Toolchain{Name: "kubectl", OCI: toolchainImageB},
+				Toolchain{Name: "helm", OCI: toolchainImageC},
+			),
+		},
+		{
 			name: "AgentTemplate rejects empty ModelConfig reference",
 			object: &AgentTemplate{
 				ObjectMeta: metav1.ObjectMeta{Name: "empty-model-reference", Namespace: namespace},
@@ -718,6 +743,17 @@ func validAgentTemplate(namespace, name string, tools []ToolBinding) *AgentTempl
 			Tools:       tools,
 		},
 	}
+}
+
+const (
+	toolchainImageB = "registry.example.com/kubectl@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	toolchainImageC = "registry.example.com/helm@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+)
+
+func agentTemplateWithToolchains(namespace, name string, toolchains ...Toolchain) *AgentTemplate {
+	template := validAgentTemplate(namespace, name, nil)
+	template.Spec.Toolchains = toolchains
+	return template
 }
 
 func unstructuredStrictTemplate(namespace, name string, strict bool, schema *apiextensionsv1.JSON, schemaFrom *ConfigMapKeyReference) ctrlclient.Object {

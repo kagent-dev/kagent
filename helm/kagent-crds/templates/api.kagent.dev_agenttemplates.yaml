@@ -330,6 +330,43 @@ spec:
                 - key
                 - name
                 type: object
+              toolchains:
+                description: |-
+                  Toolchains are digest-pinned OCI images mounted read-only at
+                  /opt/kagent/tools/<name> in the runtime of every Agent that uses this
+                  template, including as a Shared subagent. KAGENT_TOOL_PATHS carries the
+                  colon-joined /opt/kagent/tools/<name>/bin directories; each runtime
+                  appends them to PATH after the image's own binaries. A Shared subagent's
+                  toolchains join its parent's: an entry with the same name and image is
+                  mounted once, and the same name with a different image is rejected.
+                items:
+                  description: Toolchain is one read-only image volume added to the
+                    runtime container.
+                  properties:
+                    name:
+                      description: |-
+                        Name selects the mount directory /opt/kagent/tools/<name>. It must be a
+                        DNS label of at most 58 characters: the controller prefixes it with
+                        "tool-" to form the volume name, which is itself limited to 63.
+                      maxLength: 58
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    oci:
+                      description: OCI is the image reference pinned by sha256 digest.
+                        Tags are not resolved.
+                      maxLength: 512
+                      pattern: ^[^[:space:]@]+@sha256:[a-f0-9]{64}$
+                      type: string
+                  required:
+                  - name
+                  - oci
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               tools:
                 items:
                   description: ToolBinding selects exactly one MCP or subagent tool
