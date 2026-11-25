@@ -2423,6 +2423,17 @@ refinements:
     requirement_level: recommended
     stability: development
     unit: s
+  - brief: Number of occupied Anthropic self-hosted sandbox worker assignment slots.
+    id: kagent.experimental.anthropic.self_hosted_sandbox.assignments.active
+    instrument: updowncounter
+    name: kagent.experimental.anthropic.self_hosted_sandbox.assignments.active
+    note: |
+      Counts assignments per worker replica from successful claim through completion, parking, or release, including while their sandbox compute is suspended. Does not count queued assignments or individual tool calls.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{assignment}\u0027
   - annotations:
       code_generation:
         metric_value_type: double
@@ -5866,6 +5877,16 @@ registry:
   entities: []
   events: []
   metrics:
+  - brief: Number of occupied Anthropic self-hosted sandbox worker assignment slots.
+    instrument: updowncounter
+    name: kagent.experimental.anthropic.self_hosted_sandbox.assignments.active
+    note: |
+      Counts assignments per worker replica from successful claim through completion, parking, or release, including while their sandbox compute is suspended. Does not count queued assignments or individual tool calls.
+    provenance:
+      path: telemetry/registry/signals.yaml
+    requirement_level: recommended
+    stability: development
+    unit: \u0027{assignment}\u0027
   - attributes:
     - brief: What prompted a work claim, either initial discovery or continued backlog processing.
       key: kagent.worker.trigger

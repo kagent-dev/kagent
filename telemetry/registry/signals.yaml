@@ -1,5 +1,17 @@
 file_format: definition/2
 metrics:
+  - name: kagent.experimental.anthropic.self_hosted_sandbox.assignments.active
+    requirement_level: recommended
+    instrument: updowncounter
+    unit: "{assignment}"
+    brief: Number of occupied Anthropic self-hosted sandbox worker assignment slots.
+    note: >
+      Counts assignments per worker replica from successful claim through
+      completion, parking, or release, including while their sandbox compute is
+      suspended. Does not count queued assignments or individual tool calls.
+    stability: development
+    attributes: []
+
   - name: kagent.session.quiescence.claimed
     requirement_level: recommended
     instrument: counter

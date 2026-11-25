@@ -1,4 +1,4 @@
-package anthropicworker
+package anthropicselfhostedsandboxworker
 
 import (
 	"context"
@@ -95,6 +95,11 @@ func (r *Runner) poll(ctx context.Context, env Environment) {
 		cancel()
 		if err != nil {
 			r.warn(ctx, "persist assignment", err)
+		} else {
+			select {
+			case r.claimWake <- struct{}{}:
+			default:
+			}
 		}
 		// Poll can return an unacknowledged assignment again immediately.
 		wait(ctx, tickInterval)

@@ -41,6 +41,9 @@ tests:
           path: metadata.namespace
           value: workloads
       - equal:
+          path: spec.template.spec.containers[0].args
+          value: ["--sandbox-idle=5s"]
+      - equal:
           path: spec.template.spec.initContainers[0].env[1].value
           value: tenant_owner
       - equal:
@@ -73,6 +76,22 @@ tests:
                 items:
                   - {key: environment-id, path: 1/environment-id}
                   - {key: environment-key, path: 1/environment-key}
+
+  - it: uses the configured OTLP metrics destination
+    template: anthropic-sandboxes-deployment.yaml
+    set:
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+      config.telemetry.metrics:
+        endpoint: http://collector:4318/v1/metrics
+        protocol: http/protobuf
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT, value: 'http://collector:4318/v1/metrics'}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: OTEL_EXPORTER_OTLP_METRICS_PROTOCOL, value: http/protobuf}
 
   - it: mounts the bundled database certificates separately using the registered service account
     template: anthropic-sandboxes-deployment.yaml

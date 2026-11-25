@@ -1,4 +1,4 @@
-package anthropicworker
+package anthropicselfhostedsandboxworker
 
 import (
 	"context"
@@ -24,6 +24,9 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -66,8 +69,26 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 	env := Environment{ID: "env_test", Key: "environment-key", Template: &apiv1.ResourceReference{
 		Namespace: "default", Name: "bash",
 	}}
+	reader := sdkmetric.NewManualReader()
+	metrics := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { assert.NoError(t, metrics.Shutdown(context.Background())) })
+	assertActiveAssignments := func(want int64) {
+		t.Helper()
+		var data metricdata.ResourceMetrics
+		require.NoError(t, reader.Collect(t.Context(), &data))
+		require.Len(t, data.ScopeMetrics, 1)
+		require.Len(t, data.ScopeMetrics[0].Metrics, 1)
+		active := data.ScopeMetrics[0].Metrics[0]
+		assert.Equal(t, "kagent.experimental.anthropic.self_hosted_sandbox.assignments.active", active.Name)
+		sum, ok := active.Data.(metricdata.Sum[int64])
+		require.True(t, ok)
+		assert.False(t, sum.IsMonotonic)
+		require.Len(t, sum.DataPoints, 1)
+		assert.Zero(t, sum.DataPoints[0].Attributes.Len())
+		assert.Equal(t, want, sum.DataPoints[0].Value)
+	}
 	newReplica := func() *Runner {
-		r, err := New(pool, provider, kagent, []Environment{env}, make([]byte, 32), time.Second, 1)
+		r, err := New(pool, provider, kagent, []Environment{env}, make([]byte, 32), time.Second, metrics.Meter("worker-test"))
 		require.NoError(t, err)
 		return r
 	}
@@ -90,6 +111,7 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 	}
 	stop, firstStopped := run(newReplica())
 	receive(t, guest.observed)
+	assertActiveAssignments(1)
 	template := receive(t, guest.templates)
 	assert.Equal(t, env.Template.GetName(), template.GetName(), "the environment selects the sandbox template")
 	assert.Equal(t, env.Template.GetNamespace(), template.GetNamespace())
@@ -98,6 +120,7 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 
 	stop()
 	receive(t, firstStopped)
+	assertActiveAssignments(0)
 
 	assert.Zero(t, guest.signals.Load(), "shutting down the first worker cannot signal the sandbox process")
 	require.NoError(t, os.WriteFile(filepath.Join(workspace, "release"), nil, 0o600))
@@ -110,6 +133,7 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 
 	if !t.Run("Given an idle suspended sandbox, when SSE delivers a tool call, assert that it completes before the recovery scan", func(t *testing.T) {
 		receive(t, guest.suspended)
+		assertActiveAssignments(1)
 		upstream.events <- `{"type":"agent.tool_use","id":"tool_after_idle","name":"bash","input":{"command":"test -f release && printf 'still here'"}}`
 		body := receive(t, upstream.posted)
 		assert.JSONEq(t, `{"events":[{"type":"user.tool_result","tool_use_id":"tool_after_idle","is_error":false,"content":[{"type":"text","text":"still here"}]}]}`, body)
@@ -149,6 +173,111 @@ func TestWorkerShutdownHandsOffRunningCommand(t *testing.T) {
 	}))
 }
 
+func TestPollWakesClaimLoopAfterSavingOffer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	db := dbtest.PoolConfig(dbtest.StartT(t.Context(), t))
+	const schema = "claim_wake"
+	require.NoError(t, migrations.RunUp(t.Context(), db, []migrations.Source{MigrationSource(schema)}))
+	db.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(t.Context(), db)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	upstream := &handoffProvider{}
+	server := httptest.NewServer(http.HandlerFunc(upstream.serve))
+	t.Cleanup(server.Close)
+	provider := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(server.URL),
+		option.WithHTTPClient(server.Client()), option.WithMaxRetries(0))
+	env := Environment{ID: "env_test", Key: "environment-key",
+		Template: &apiv1.ResourceReference{Namespace: "default", Name: "bash"}}
+	r, err := New(pool, provider, nil, []Environment{env}, make([]byte, 32), time.Second, noop.Meter{})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.poll(ctx, env)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		receive(t, done)
+	})
+
+	receive(t, r.claimWake)
+	w, err := r.store.claim(t.Context(), []string{env.ID})
+	require.NoError(t, err)
+	assert.Equal(t, "work_test", w.id)
+}
+
+func TestWorkerClaimsAssignmentsWhileOthersAreActive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	db := dbtest.PoolConfig(dbtest.StartT(t.Context(), t))
+	const schema = "concurrent_claims"
+	require.NoError(t, migrations.RunUp(t.Context(), db, []migrations.Source{MigrationSource(schema)}))
+	db.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(t.Context(), db)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+
+	acks := make(chan string, 2)
+	unblock := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		switch {
+		case strings.HasSuffix(req.URL.Path, "/poll"):
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasSuffix(req.URL.Path, "/ack"):
+			acks <- req.URL.Path
+			select {
+			case <-unblock:
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{}`)
+			case <-req.Context().Done():
+			}
+		default:
+			t.Errorf("unexpected request: %s", req.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	provider := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(server.URL),
+		option.WithHTTPClient(server.Client()), option.WithMaxRetries(0))
+	env := Environment{ID: "env_test", Key: "environment-key",
+		Template: &apiv1.ResourceReference{Namespace: "default", Name: "bash"}}
+	r, err := New(pool, provider, nil, []Environment{env}, make([]byte, 32), time.Second, noop.Meter{})
+	require.NoError(t, err)
+	for _, id := range []string{"work_a", "work_b"} {
+		require.NoError(t, r.acceptOffer(t.Context(), assignment{id: id, environment: env.ID, sessionID: id}, "session-token"))
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		close(unblock)
+		receive(t, done)
+	})
+	first := receive(t, acks)
+	var second string
+	select {
+	case second = <-acks:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second assignment was not claimed while the first acknowledgment was blocked")
+	}
+	assert.ElementsMatch(t, []string{
+		"/v1/environments/env_test/work/work_a/ack",
+		"/v1/environments/env_test/work/work_b/ack",
+	}, []string{first, second})
+}
+
 func TestRejectedHeartbeatWaitsForRedispatch(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires PostgreSQL")
@@ -178,7 +307,7 @@ func TestRejectedHeartbeatWaitsForRedispatch(t *testing.T) {
 			}}
 			provider := anthropic.NewClient(option.WithoutEnvironmentDefaults(), option.WithBaseURL(server.URL),
 				option.WithHTTPClient(server.Client()), option.WithMaxRetries(0))
-			r, err := New(pool, provider, nil, []Environment{env}, make([]byte, 32), time.Second, 1)
+			r, err := New(pool, provider, nil, []Environment{env}, make([]byte, 32), time.Second, noop.Meter{})
 			require.NoError(t, err)
 			ctx := t.Context()
 			offer := assignment{id: env.ID, environment: env.ID, sessionID: "session"}
@@ -270,7 +399,7 @@ func TestHeartbeatExpiryFailsUnfinishedCommands(t *testing.T) {
 		option.WithHTTPClient(server.Client()), option.WithMaxRetries(0))
 	env := Environment{ID: "env_test", Key: "environment-key",
 		Template: &apiv1.ResourceReference{Namespace: "default", Name: "bash"}}
-	r, err := New(pool, provider, testKagent(t, guest), []Environment{env}, make([]byte, 32), time.Minute, 1)
+	r, err := New(pool, provider, testKagent(t, guest), []Environment{env}, make([]byte, 32), time.Minute, noop.Meter{})
 	require.NoError(t, err)
 	require.NoError(t, r.acceptOffer(t.Context(), assignment{
 		id: "work_test", environment: env.ID, sessionID: "session_test",

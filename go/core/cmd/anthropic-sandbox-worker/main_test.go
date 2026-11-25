@@ -9,8 +9,9 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 
-	"github.com/kagent-dev/kagent/go/core/internal/anthropicworker"
+	"github.com/kagent-dev/kagent/go/core/internal/anthropicselfhostedsandboxworker"
 )
 
 func TestLoadEnvironmentSandboxTemplates(t *testing.T) {
@@ -67,7 +68,7 @@ func TestWorkerRejectsDuplicateEnvironmentIDs(t *testing.T) {
 	environments, err := loadEnvironments(config, root, "release-namespace")
 	require.NoError(t, err)
 
-	_, err = anthropicworker.New(nil, anthropic.Client{}, nil, environments, make([]byte, 32), time.Second, 1)
+	_, err = anthropicselfhostedsandboxworker.New(nil, anthropic.Client{}, nil, environments, make([]byte, 32), time.Second, noop.Meter{})
 
 	require.EqualError(t, err, `duplicate Anthropic environment ID "env_test"`)
 }

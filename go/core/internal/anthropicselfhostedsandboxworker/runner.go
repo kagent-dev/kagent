@@ -1,4 +1,4 @@
-package anthropicworker
+package anthropicselfhostedsandboxworker
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,6 +21,7 @@ import (
 	"github.com/kagent-dev/kagent/go/api/client"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
+	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
 const (
@@ -45,21 +47,22 @@ type Runner struct {
 	environments map[string]Environment
 	cipher       cipher.AEAD
 	idle         time.Duration
-	concurrency  int
+	active       metric.Int64UpDownCounter
+	claimWake    chan struct{}
 }
 
 func New(db *pgxpool.Pool, provider anthropic.Client, sandboxes *client.SandboxClient, environments []Environment,
-	key []byte, idle time.Duration, concurrency int,
+	key []byte, idle time.Duration, meter metric.Meter,
 ) (*Runner, error) {
 	aead, err := credentialCipher(key)
 	if err != nil {
 		return nil, err
 	}
-	if idle <= 0 || concurrency <= 0 || len(environments) == 0 {
-		return nil, errors.New("positive idle timeout, worker concurrency and at least one environment are required")
+	if idle <= 0 || len(environments) == 0 {
+		return nil, errors.New("positive idle timeout and at least one environment are required")
 	}
 	r := &Runner{store: store{db}, provider: provider, sandboxes: sandboxes, cipher: aead,
-		idle: idle, concurrency: concurrency, environments: make(map[string]Environment)}
+		idle: idle, environments: make(map[string]Environment), claimWake: make(chan struct{}, 1)}
 	for _, env := range environments {
 		if env.ID == "" || env.Key == "" || env.Template.GetName() == "" || env.Template.GetNamespace() == "" {
 			return nil, errors.New("environment ID, key and sandbox template name and namespace are required")
@@ -69,23 +72,30 @@ func New(db *pgxpool.Pool, provider anthropic.Client, sandboxes *client.SandboxC
 		}
 		r.environments[env.ID] = env
 	}
+	r.active, err = meter.Int64UpDownCounter(conv.KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActive,
+		metric.WithUnit(conv.KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActiveUnit),
+		metric.WithDescription(conv.KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActiveDescription))
+	if err != nil {
+		return nil, fmt.Errorf("create active assignment metric: %w", err)
+	}
 	return r, nil
 }
 
 func (r *Runner) Run(ctx context.Context) {
+	r.active.Add(ctx, 0)
 	var workers sync.WaitGroup
 	environments := make([]string, 0, len(r.environments))
 	for id, env := range r.environments {
 		environments = append(environments, id)
 		workers.Go(func() { r.poll(ctx, env) })
 	}
-	for range r.concurrency {
-		workers.Go(func() { r.work(ctx, environments) })
-	}
+	r.work(ctx, environments)
 	workers.Wait()
 }
 
 func (r *Runner) work(ctx context.Context, environments []string) {
+	var assignments sync.WaitGroup
+	defer assignments.Wait()
 	for ctx.Err() == nil {
 		call, cancel := context.WithTimeout(ctx, dbTimeout)
 		w, err := r.store.claim(call, environments)
@@ -94,31 +104,42 @@ func (r *Runner) work(ctx context.Context, environments []string) {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				r.warn(ctx, "claim assignment", err)
 			}
-			wait(ctx, tickInterval)
+			select {
+			case <-r.claimWake:
+			case <-time.After(tickInterval):
+			case <-ctx.Done():
+			}
 			continue
 		}
-		err = r.serve(ctx, w, r.environments[w.environment])
-		if errors.Is(err, errSessionEnded) {
-			r.complete(context.WithoutCancel(ctx), w)
-			continue
-		}
-		if err != nil && !errors.Is(err, context.Canceled) {
-			r.warn(ctx, "relay assignment", err)
-		}
-		delay := time.Duration(0)
-		if ctx.Err() == nil {
-			delay = retryDelay
-		}
-		call, cancel = context.WithTimeout(context.WithoutCancel(ctx), dbTimeout)
-		if errors.Is(err, errHeartbeatRejected) {
-			err = r.store.park(call, w)
-		} else {
-			err = r.store.release(call, w, delay)
-		}
-		if err != nil && !errors.Is(err, errLeaseLost) {
-			r.warn(call, "release assignment", err)
-		}
-		cancel()
+		assignments.Go(func() { r.handleClaim(ctx, w) })
+	}
+}
+
+func (r *Runner) handleClaim(ctx context.Context, w assignment) {
+	cleanup := context.WithoutCancel(ctx)
+	r.active.Add(ctx, 1)
+	defer r.active.Add(cleanup, -1)
+	err := r.serve(ctx, w, r.environments[w.environment])
+	if errors.Is(err, errSessionEnded) {
+		r.complete(cleanup, w)
+		return
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		r.warn(ctx, "relay assignment", err)
+	}
+	delay := time.Duration(0)
+	if ctx.Err() == nil {
+		delay = retryDelay
+	}
+	call, cancel := context.WithTimeout(cleanup, dbTimeout)
+	defer cancel()
+	if errors.Is(err, errHeartbeatRejected) {
+		err = r.store.park(call, w)
+	} else {
+		err = r.store.release(call, w, delay)
+	}
+	if err != nil && !errors.Is(err, errLeaseLost) {
+		r.warn(call, "release assignment", err)
 	}
 }
 

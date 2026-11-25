@@ -1,4 +1,4 @@
-package anthropicworker
+package anthropicselfhostedsandboxworker
 
 import (
 	"context"

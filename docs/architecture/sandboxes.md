@@ -45,6 +45,17 @@ and heartbeat stay up. A new tool call resumes the sandbox or creates another
 if it has expired. If an interruption makes the result unavailable, the
 adapter returns a tool error instead of rerunning the command.
 
+If Anthropic's advertised heartbeat TTL elapses without renewal, the adapter
+closes the event stream and stops dispatching new commands. It has up to 20
+seconds to send saved results and report lease-expiry errors for unfinished
+calls, in queue order, before releasing its PostgreSQL claim. It records each
+error before attempting delivery. If delivery of an earlier result fails,
+later calls may be left untouched for the next worker. Before reporting a
+lease-expiry error for a running Bash process, the adapter makes a best-effort
+attempt to kill it.
+If signaling fails, the adapter still sends the error; the process may keep
+running until its own command timeout.
+
 ### Enabling the Anthropic adapter
 
 A non-empty `environments` list deploys the adapter; an empty list leaves it

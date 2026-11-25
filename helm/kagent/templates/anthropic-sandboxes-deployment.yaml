@@ -71,7 +71,6 @@ spec:
           image: {{ $image | quote }}
           imagePullPolicy: {{ $pullPolicy }}
           args:
-            - {{ printf "--concurrency=%v" $adapter.concurrency | quote }}
             - {{ printf "--sandbox-idle=%s" $adapter.sandboxIdle | quote }}
           securityContext:
             {{- toYaml $security | nindent 12 }}
@@ -96,6 +95,12 @@ spec:
                 secretKeyRef:
                   name: {{ $adapter.credentialEncryptionSecretRef | default (include "kagent.anthropicSandboxManagedEncryptionSecret" .) | quote }}
                   key: key
+            {{- with .Values.config.telemetry.metrics }}
+            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+              value: {{ .endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_METRICS_PROTOCOL
+              value: {{ .protocol | default "grpc" | quote }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /config

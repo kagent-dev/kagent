@@ -147,10 +147,10 @@ rbac:
 # ANTHROPIC MANAGED AGENTS SANDBOX ADAPTER
 # ==============================================================================
 # Anthropic setup: https://platform.claude.com/docs/en/managed-agents/self-hosted-sandboxes
+# The worker uses the OTLP endpoint and protocol from config.telemetry.metrics.
 
 experimentalAnthropicSandboxes:
   replicas: 1
-  concurrency: 16
   sandboxIdle: 5s
   image:
     registry: ""

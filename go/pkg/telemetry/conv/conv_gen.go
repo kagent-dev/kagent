@@ -362,6 +362,13 @@ const (
 	GenAIInvokeAgentToolCallsDescription = "The tool calls of one execution segment of a harness agent."
 )
 
+// KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActive: Number of occupied Anthropic self-hosted sandbox worker assignment slots.
+const (
+	KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActive            = "kagent.experimental.anthropic.self_hosted_sandbox.assignments.active"
+	KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActiveUnit        = "{assignment}"
+	KagentExperimentalAnthropicSelfHostedSandboxAssignmentsActiveDescription = "Number of occupied Anthropic self-hosted sandbox worker assignment slots."
+)
+
 // KagentPushDeliveryClaimed: Number of push delivery attempts claimed.
 const (
 	KagentPushDeliveryClaimed            = "kagent.push.delivery.claimed"
