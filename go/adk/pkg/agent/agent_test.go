@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"testing"
 	"time"
 
@@ -589,16 +588,19 @@ func TestCreateGoogleADKAgentSendsStrictOutputSchema(t *testing.T) {
 		name        string
 		model       func(url string, strict bool) *configv1.ADKModelConfig
 		omitsStrict bool
+		// onTool marks providers that receive the schema as the final answer tool's
+		// parameters, so strict is sent on that tool and not on a response format.
+		onTool bool
 	}{
-		{name: "openai", model: func(url string, strict bool) *configv1.ADKModelConfig {
+		{name: "openai", onTool: true, model: func(url string, strict bool) *configv1.ADKModelConfig {
 			return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{
 				BaseUrl: url, StrictOutputSchema: strict}}}
 		}},
-		{name: "azure openai", model: func(url string, strict bool) *configv1.ADKModelConfig {
+		{name: "azure openai", onTool: true, model: func(url string, strict bool) *configv1.ADKModelConfig {
 			return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{
 				Endpoint: url, Deployment: "gpt-4o", ApiVersion: "2024-10-21", StrictOutputSchema: strict}}}
 		}},
-		{name: "foundry", model: func(url string, strict bool) *configv1.ADKModelConfig {
+		{name: "foundry", onTool: true, model: func(url string, strict bool) *configv1.ADKModelConfig {
 			return &configv1.ADKModelConfig{Model: "gpt-4o", Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{
 				Endpoint: url, Deployment: "gpt-4o", ApiVersion: "2024-10-21", StrictOutputSchema: strict}}}
 		}},
@@ -636,7 +638,13 @@ func TestCreateGoogleADKAgentSendsStrictOutputSchema(t *testing.T) {
 				}
 
 				require.NotEmpty(t, bodies, "the model endpoint received no request")
-				format := (<-bodies)["response_format"].(map[string]any)["json_schema"].(map[string]any)
+				body := <-bodies
+				if provider.onTool {
+					require.NotContains(t, body, "response_format")
+					require.Equal(t, want, finalAnswerTool(t, body)["strict"])
+					return
+				}
+				format := body["response_format"].(map[string]any)["json_schema"].(map[string]any)
 				if provider.omitsStrict {
 					require.NotContains(t, format, "strict")
 					return
@@ -647,7 +655,24 @@ func TestCreateGoogleADKAgentSendsStrictOutputSchema(t *testing.T) {
 	}
 }
 
-func TestCreateGoogleADKAgentOffersSetModelResponseWhenOutputSchemaSaysSo(t *testing.T) {
+// finalAnswerTool returns the function definition of the final answer tool in a
+// Chat Completions request body.
+func finalAnswerTool(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+	tools, _ := body["tools"].([]any)
+	for _, tool := range tools {
+		function, _ := tool.(map[string]any)["function"].(map[string]any)
+		if function["name"] == adkoutputschema.FinalAnswerToolName {
+			return function
+		}
+	}
+	t.Fatalf("the request offered no %s tool", adkoutputschema.FinalAnswerToolName)
+	return nil
+}
+
+// Whichever side adds it, ADK for a Gemini model name or kagent for any other
+// OpenAI-format model, the model is offered a final answer tool.
+func TestCreateGoogleADKAgentOffersFinalAnswerToolForOpenAIFormatModels(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	for _, name := range []string{"gemini-2.5-flash", "models/Gemini-3.5-pro", "gpt-4o"} {
 		t.Run(name, func(t *testing.T) {
@@ -688,7 +713,7 @@ func TestCreateGoogleADKAgentOffersSetModelResponseWhenOutputSchemaSaysSo(t *tes
 
 			select {
 			case names := <-tools:
-				require.Equal(t, adkoutputschema.UsesSetModelResponse(model), slices.Contains(names, "set_model_response"))
+				require.Contains(t, names, adkoutputschema.FinalAnswerToolName)
 			default:
 				t.Fatal("the model endpoint received no request")
 			}
@@ -702,12 +727,12 @@ func TestUsesRawOutputSchema(t *testing.T) {
 		model *configv1.ADKModelConfig
 		want  bool
 	}{
-		{name: "OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}}, want: true},
-		{name: "Azure OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{}}}, want: true},
+		{name: "OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Openai{Openai: &configv1.ADKOpenAI{}}}, want: false},
+		{name: "Azure OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_AzureOpenai{AzureOpenai: &configv1.ADKAzureOpenAI{}}}, want: false},
 		{name: "Anthropic", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Anthropic{Anthropic: &configv1.ADKAnthropic{}}}, want: true},
 		{name: "Anthropic on Vertex", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_GeminiAnthropic{GeminiAnthropic: &configv1.ADKGeminiAnthropic{}}}, want: true},
 		{name: "Bedrock Converse", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Bedrock{Bedrock: &configv1.ADKBedrock{}}}, want: true},
-		{name: "Foundry OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{}}}, want: true},
+		{name: "Foundry OpenAI", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{}}}, want: false},
 		{name: "Foundry Anthropic", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Foundry{Foundry: &configv1.ADKFoundry{ApiFormat: runtimeconfig.FoundryAPIFormatAnthropic}}}, want: true},
 		{name: "Gemini", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Gemini{Gemini: &configv1.ADKGemini{}}}, want: false},
 		{name: "Ollama", model: &configv1.ADKModelConfig{Provider: &configv1.ADKModelConfig_Ollama{Ollama: &configv1.ADKOllama{}}}, want: false},

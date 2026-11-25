@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
 	"google.golang.org/genai"
+
+	"github.com/kagent-dev/kagent/go/adk/pkg/outputschema"
 )
 
 // structuredOutputName identifies kagent's response format to providers. It is
@@ -61,6 +66,27 @@ func normalizeSchemaTypes(value any) {
 	case []any:
 		for _, child := range value {
 			normalizeSchemaTypes(child)
+		}
+	}
+}
+
+// markChatFinalAnswerStrict sends the output schema's strict setting on the
+// final answer tool. OpenAI-format providers receive the schema as that tool's
+// parameters rather than as a response format, so strict belongs on the tool.
+func markChatFinalAnswerStrict(tools []openai.ChatCompletionToolUnionParam, strict bool) {
+	for i := range tools {
+		if fn := tools[i].OfFunction; fn != nil && fn.Function.Name == outputschema.FinalAnswerToolName {
+			fn.Function.Strict = param.NewOpt(strict)
+		}
+	}
+}
+
+// markResponsesFinalAnswerStrict is markChatFinalAnswerStrict for the
+// Responses API.
+func markResponsesFinalAnswerStrict(tools []responses.ToolUnionParam, strict bool) {
+	for i := range tools {
+		if fn := tools[i].OfFunction; fn != nil && fn.Name == outputschema.FinalAnswerToolName {
+			fn.Strict = param.NewOpt(strict)
 		}
 	}
 }

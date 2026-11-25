@@ -93,9 +93,14 @@ at runtime; in that case the Task fails.
 
 The schema is enforced in two places. The provider may constrain generation,
 and the runtime validates every final answer. Each provider receives the schema
-in the form it accepts. OpenAI, Azure OpenAI, Foundry, Claude, and Bedrock get
-it unchanged. Gemini and Mistral get a copy converted to Google's schema
-format. It keeps `pattern` and the supported formats but drops keywords that
+in the form it accepts. Claude and Bedrock get it unchanged as a response
+format. OpenAI, Azure OpenAI, and Foundry with its OpenAI format get it
+unchanged as the parameters of a `set_model_response` tool that the model calls
+to finish; Go ADK ends the run on that call and publishes its arguments as the
+final response. A response format applies to every request, tool turns
+included, and an OpenAI-compatible backend that enforces it can then only
+return the final JSON and never a tool call. Gemini and Mistral get a copy
+converted to Google's schema format. It keeps `pattern` and the supported formats but drops keywords that
 format lacks, such as `const`. Ollama and SAP AI Core get no schema. The final
 validator checks the canonical schema, so a provider that ignores a keyword
 still cannot complete a Task with a nonconforming answer. The one exception is
@@ -115,10 +120,10 @@ Runtime validation and A2A conversion are owned by the Go kagent ADK executor.
 ## Strict mode
 
 `outputSchemaStrict` asks OpenAI, Azure OpenAI, and Foundry to constrain
-generation to the schema. kagent sends `strict` on every request to those
-providers, `false` unless the field is `true`, because the Responses API is
-strict when `strict` is omitted. Other providers never receive it, and the final
-validator applies in both modes.
+generation to the schema. kagent sends `strict` on the `set_model_response`
+tool of every request to those providers, `false` unless the field is `true`,
+because the Responses API is strict when `strict` is omitted. Other providers
+never receive it, and the final validator applies in both modes.
 
 Strict mode accepts fewer schemas. Compilation applies its rules for every
 provider, so a schema stays valid when its ModelConfig changes provider.
