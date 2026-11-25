@@ -164,6 +164,7 @@ func runInstall(cmd *cobra.Command, options connection.Options, cfg *InstallCfg)
 func printInstallNextSteps(out io.Writer, namespace string) error {
 	_, err := fmt.Fprintf(out, `
 Next steps:
+  Check the pods:    kagent status
   Open the UI:       kagent dashboard
   Create an agent:   in the UI, or with kagent apply -f agent.yaml
   The kagent-default, codex-default and claude-default Harnesses are ready
