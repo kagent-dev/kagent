@@ -51,7 +51,7 @@ type InteractionService struct {
 	store             interactionStore
 	agents            agentService
 	sessions          *Service
-	allowPushHTTP     bool
+	push              PushPolicy
 	automaticRecovery bool
 	// recoveryWait bounds how long a send waits on the recovery it starts.
 	recoveryWait time.Duration
@@ -64,8 +64,8 @@ type InteractionService struct {
 // client's retry continues it.
 const sendRecoveryWait = 10 * time.Second
 
-func NewInteractionService(store interactionStore, agents agentService, sessions *Service, allowPushHTTP, automaticRecovery bool) *InteractionService {
-	return &InteractionService{store: store, agents: agents, sessions: sessions, allowPushHTTP: allowPushHTTP, automaticRecovery: automaticRecovery,
+func NewInteractionService(store interactionStore, agents agentService, sessions *Service, push PushPolicy, automaticRecovery bool) *InteractionService {
+	return &InteractionService{store: store, agents: agents, sessions: sessions, push: push, automaticRecovery: automaticRecovery,
 		recoveryWait: sendRecoveryWait, dispatchWait: 10 * time.Second}
 }
 
@@ -161,7 +161,7 @@ func (s *InteractionService) ListTasks(ctx context.Context, agent types.Namespac
 // conversation, returns its saved task without granting another send.
 func (s *InteractionService) PrepareSend(ctx context.Context, agent types.NamespacedName, req *a2atype.SendMessageRequest) (*PreparedSend, error) {
 	initialID := openingMessageID(req)
-	pushConfig, err := initialPushConfig(agent, req, s.allowPushHTTP)
+	pushConfig, err := initialPushConfig(agent, req, s.push)
 	if err != nil {
 		return nil, err
 	}

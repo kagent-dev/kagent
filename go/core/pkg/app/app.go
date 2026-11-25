@@ -386,7 +386,10 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 		return err
 	}
 	agents := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.Agent{}, &kagentv1alpha3.AgentList{}, "Agent")
-	interactions := sessionsvc.NewInteractionService(store, agents, sessions, cfg.GetPush().GetAllowHttp(), cfg.GetSessions().GetAutomaticRecovery())
+	interactions := sessionsvc.NewInteractionService(store, agents, sessions,
+		// Delivery signs only with pushSigner, so validation must agree with it.
+		sessionsvc.PushPolicy{AllowHTTP: cfg.GetPush().GetAllowHttp(), Signed: pushSigner != nil},
+		cfg.GetSessions().GetAutomaticRecovery())
 	pushSender := sessionsvc.NewHTTPPushSender(cfg.GetPush().GetSendTimeout().AsDuration(),
 		cfg.GetPush().GetAllowHttp(), cfg.GetPush().GetAllowPrivateNetworks())
 	if pushSigner != nil {

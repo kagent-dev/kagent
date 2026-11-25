@@ -486,6 +486,81 @@ func startCoreTestServer(t *testing.T, gateway a2asrv.RequestHandler, shares ses
 	return listener.Addr().String()
 }
 
+// Without a signing key, deliveries carry no Authorization header, so a push
+// config that asks for authentication must be refused rather than accepted
+// and then delivered unauthenticated.
+func TestPushAuthenticationRequiresSigningKey(t *testing.T) {
+	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
+		for _, streaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("Given no push signing key, when a %s client sends a message (stream=%t) whose push config asks for Bearer authentication, assert that it is rejected before registration or dispatch", protocol, streaming), func(t *testing.T) {
+				store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
+				runtime := &gatewayTestRuntime{}
+				gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "")
+				transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+				params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
+				tenant := ""
+				if protocol == a2atype.TransportProtocolGRPC {
+					tenant = gatewayTestAgent
+				}
+				request := &a2atype.SendMessageRequest{Tenant: tenant, Message: &a2atype.Message{ID: "initial", Role: a2atype.MessageRoleUser, Parts: a2atype.ContentParts{a2atype.NewTextPart("hello")}},
+					Config: &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{URL: "https://receiver", Tenant: gatewayTestAgent, Auth: &a2atype.PushAuthInfo{Scheme: "Bearer"}}}}
+
+				var err error
+				if streaming {
+					for _, streamErr := range transport.SendStreamingMessage(t.Context(), params, request) {
+						if streamErr != nil {
+							err = streamErr
+							break
+						}
+					}
+				} else {
+					_, err = transport.SendMessage(t.Context(), params, request)
+				}
+
+				require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+				require.Nil(t, store.pushConfig)
+				require.Zero(t, store.reserveCalls)
+				require.Nil(t, runtime.sentConfig)
+			})
+		}
+
+		t.Run(fmt.Sprintf("Given no push signing key, when a %s client registers a task push config that asks for Bearer authentication, assert that it is rejected as invalid", protocol), func(t *testing.T) {
+			store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, nil, "")
+			transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+			params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
+			tenant := ""
+			if protocol == a2atype.TransportProtocolGRPC {
+				tenant = gatewayTestAgent
+			}
+
+			_, err := transport.CreateTaskPushConfig(t.Context(), params, &a2atype.PushConfig{Tenant: tenant, TaskID: "task", URL: "https://receiver", Auth: &a2atype.PushAuthInfo{Scheme: "Bearer"}})
+
+			require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+		})
+
+		t.Run(fmt.Sprintf("Given a push signing key, when a %s client sends a message whose push config asks for Bearer authentication, assert that it is registered and dispatched", protocol), func(t *testing.T) {
+			store := &gatewayTestStore{created: map[string]*apiv1.Session{}}
+			runtime := &gatewayTestRuntime{}
+			gateway := newTestGatewayWithPush(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, "", sessionsvc.PushPolicy{Signed: true})
+			transport := newGatewayTestTransport(t, startCoreTestServer(t, gateway, nil), protocol)
+			params := a2aclient.ServiceParams{a2atype.SvcParamVersion: {string(a2atype.Version)}, "authorization": {"Bearer valid"}}
+			tenant := ""
+			if protocol == a2atype.TransportProtocolGRPC {
+				tenant = gatewayTestAgent
+			}
+
+			_, err := transport.SendMessage(t.Context(), params, &a2atype.SendMessageRequest{Tenant: tenant, Message: &a2atype.Message{ID: "initial", Role: a2atype.MessageRoleUser, Parts: a2atype.ContentParts{a2atype.NewTextPart("hello")}},
+				Config: &a2atype.SendMessageConfig{ReturnImmediately: true, PushConfig: &a2atype.PushConfig{URL: "https://receiver", Tenant: gatewayTestAgent, Auth: &a2atype.PushAuthInfo{Scheme: "Bearer"}}}})
+
+			require.NoError(t, err)
+			require.NotNil(t, store.pushConfig)
+			require.Equal(t, "https://receiver", store.pushConfig.URL)
+			require.NotNil(t, runtime.sentConfig)
+		})
+	}
+}
+
 func TestEmbeddedPushAcrossTransports(t *testing.T) {
 	for _, protocol := range []a2atype.TransportProtocol{a2atype.TransportProtocolJSONRPC, a2atype.TransportProtocolGRPC} {
 		for _, streaming := range []bool{false, true} {

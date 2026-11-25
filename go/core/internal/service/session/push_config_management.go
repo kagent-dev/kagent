@@ -18,7 +18,7 @@ import (
 // CreateTaskPushConfig registers or replaces a callback for an existing task.
 // Task authorization precedes storage access so no configuration leaks across users.
 func (s *InteractionService) CreateTaskPushConfig(ctx context.Context, agent types.NamespacedName, req *a2a.PushConfig) (*a2a.PushConfig, error) {
-	config, err := validatePushConfig(agent, req, s.allowPushHTTP)
+	config, err := validatePushConfig(agent, req, s.push)
 	if err != nil {
 		return nil, err
 	}

@@ -23,8 +23,17 @@ import (
 	"github.com/kagent-dev/kagent/go/pkg/telemetry/conv"
 )
 
+// PushPolicy is what this server can honor for a client's push destination.
+type PushPolicy struct {
+	// AllowHTTP admits plain-HTTP callback URLs.
+	AllowHTTP bool
+	// Signed reports that deliveries carry a server-signed JWT. Without it a
+	// client cannot be granted authenticated delivery.
+	Signed bool
+}
+
 // validatePushConfig checks the fields supported by the OSS callback sender.
-func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig, allowHTTP bool) (*a2a.PushConfig, error) {
+func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig, policy PushPolicy) (*a2a.PushConfig, error) {
 	if input == nil {
 		return nil, a2a.ErrInvalidParams
 	}
@@ -35,10 +44,13 @@ func validatePushConfig(agent types.NamespacedName, input *a2a.PushConfig, allow
 	if config.Auth != nil && (!strings.EqualFold(config.Auth.Scheme, "Bearer") || config.Auth.Credentials != "") {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "push authentication supports Bearer with server-signed JWTs; do not supply credentials")
 	}
+	if config.Auth != nil && !policy.Signed {
+		return nil, a2a.NewError(a2a.ErrInvalidParams, "push authentication requires a configured signing key; register without authentication")
+	}
 	if config.Tenant != "" && config.Tenant != agent.Namespace+"/"+agent.Name {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "push tenant does not match Agent route")
 	}
-	if _, err := validatePushURL(config.URL, allowHTTP); err != nil {
+	if _, err := validatePushURL(config.URL, policy.AllowHTTP); err != nil {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, err.Error())
 	}
 	return &config, nil
@@ -52,7 +64,7 @@ func validatePushURL(raw string, allowHTTP bool) (*url.URL, error) {
 	return endpoint, nil
 }
 
-func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest, allowHTTP bool) (*a2a.PushConfig, error) {
+func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest, policy PushPolicy) (*a2a.PushConfig, error) {
 	if req == nil || req.Config == nil || req.Config.PushConfig == nil {
 		return nil, nil
 	}
@@ -64,7 +76,7 @@ func initialPushConfig(agent types.NamespacedName, req *a2a.SendMessageRequest, 
 	if req.Config.PushConfig.TaskID != "" {
 		return nil, a2a.NewError(a2a.ErrInvalidParams, "embedded push taskId is unsupported")
 	}
-	return validatePushConfig(agent, req.Config.PushConfig, allowHTTP)
+	return validatePushConfig(agent, req.Config.PushConfig, policy)
 }
 
 type pushStore interface {
