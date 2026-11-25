@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 
 import grpc
@@ -19,10 +19,6 @@ from kagent.core.telemetry import current
 
 from ._config import get_a2a_max_content_length
 from ._requests import KAgentGrpcServerCallContextBuilder
-
-
-def grpc_address(runtime: RuntimeConfig) -> str:
-    return f"{runtime.host or '[::]'}:{runtime.port or 80}"
 
 
 async def _readiness_probe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
@@ -43,14 +39,11 @@ class A2AServer:
         self,
         handler: DefaultRequestHandlerV2,
         runtime: RuntimeConfig,
-        *resources: AbstractAsyncContextManager | None,
-        lifespan: Callable[[A2AServer], AbstractAsyncContextManager] | None = None,
-        address: str | None = None,
+        controller: AbstractAsyncContextManager,
     ):
         self._handler = handler
-        self._address = address or grpc_address(runtime)
-        self._resources = resources
-        self._lifespan = lifespan
+        self._address = f"{runtime.host or '[::]'}:{runtime.port or 80}"
+        self._controller = controller
         self._max_content_length = get_a2a_max_content_length(optional_field(runtime, "max_content_length"))
 
     def run(self) -> None:
@@ -72,11 +65,7 @@ class A2AServer:
         async with AsyncExitStack() as stack:
             if providers := current():
                 stack.callback(providers.shutdown)
-            if self._lifespan is not None:
-                await stack.enter_async_context(self._lifespan(self))
-            for resource in self._resources:
-                if resource is not None:
-                    await stack.enter_async_context(resource)
+            await stack.enter_async_context(self._controller)
             stack.push_async_callback(self._handler.aclose)
             server = grpc.aio.server(
                 interceptors=[aio_server_interceptor(filter_=filters.negate(filters.health_check()))],

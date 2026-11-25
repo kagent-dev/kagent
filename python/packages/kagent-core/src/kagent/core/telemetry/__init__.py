@@ -11,6 +11,8 @@ from ._boot import (
     bootstrap,
     current,
     force_flush,
+    instrument_app,
+    shutdown_lifespan,
     signal_enabled,
 )
 from ._profiles import PROFILES, Profile
@@ -26,5 +28,7 @@ __all__ = [
     "conv",
     "current",
     "force_flush",
+    "instrument_app",
+    "shutdown_lifespan",
     "signal_enabled",
 ]

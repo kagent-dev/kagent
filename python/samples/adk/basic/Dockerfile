@@ -5,6 +5,12 @@ FROM $DOCKER_REGISTRY/kagent-dev/kagent/kagent-adk:$VERSION
 
 WORKDIR /app
 
-COPY basic/ basic/
+COPY  basic/ basic/
+COPY  pyproject.toml pyproject.toml
+COPY  README.md README.md
+COPY  .python-version .python-version
+COPY  uv.lock uv.lock
+
+RUN uv sync --locked --refresh
 
 CMD ["basic"]

@@ -40,10 +40,7 @@ def _expand_config_env(value):
 
 def materialize_from_bootstrap(config_dir: str) -> None:
     """Load the immutable bundle and write the working config and Agent Card."""
-    descriptor = os.environ.get("KAGENT_BOOTSTRAP_JSON")
-    if not descriptor:
-        raise RuntimeError("KAGENT_BOOTSTRAP_JSON is not set; the controller provides it only to Substrate actors")
-    bundle = load_bundle(descriptor)
+    bundle = load_bundle(os.environ["KAGENT_BOOTSTRAP_JSON"])
     config = _expand_config_env(json.loads(bundle.config_json))
     os.makedirs(config_dir, exist_ok=True)
     for filename, raw in (

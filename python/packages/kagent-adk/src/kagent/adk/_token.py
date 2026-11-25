@@ -1,7 +1,7 @@
 import logging  # noqa: I001
 import asyncio
-from contextlib import suppress
-from typing import Self
+from contextlib import asynccontextmanager
+from typing import Any, Optional
 
 import httpx
 from kagent.core.a2a import get_request_user_id
@@ -18,26 +18,34 @@ class KAgentTokenService:
     def __init__(self, app_name: str):
         self.token = None
         self.update_lock = asyncio.Lock()
-        self._refresh_task: asyncio.Task[None] | None = None
+        self.update_task = None
         self.app_name = app_name
 
-    async def __aenter__(self) -> Self:
-        self.token = await self._read_kagent_token()
-        self._refresh_task = asyncio.create_task(self._refresh_token())
-        return self
+    def lifespan(self):
+        """Returns an async context manager to start the token update loop"""
 
-    async def __aexit__(self, *_: object) -> None:
-        if self._refresh_task is not None:
-            self._refresh_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._refresh_task
-            self._refresh_task = None
+        @asynccontextmanager
+        async def _lifespan(app: Any):
+            await self._update_token_loop()
+            yield
+            self._drain()
+
+        return _lifespan
 
     def event_hooks(self):
         """Returns a dictionary of event hooks for the application
         to use when creating the httpx.AsyncClient.
         """
         return {"request": [self._add_headers]}
+
+    async def _update_token_loop(self) -> None:
+        self.token = await self._read_kagent_token()
+        # keep it updated - launch a background task to refresh it periodically
+        self.update_task = asyncio.create_task(self._refresh_token())
+
+    def _drain(self):
+        if self.update_task:
+            self.update_task.cancel()
 
     async def get_token(self) -> str | None:
         async with self.update_lock:

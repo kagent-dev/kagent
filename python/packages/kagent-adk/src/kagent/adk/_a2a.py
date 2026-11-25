@@ -1,11 +1,18 @@
 #! /usr/bin/env python3
+import asyncio
 import faulthandler
 import logging
-from contextlib import AbstractAsyncContextManager
-from typing import Callable, List, Optional
+from contextlib import asynccontextmanager
+from typing import Any, Callable, List, Optional
 
+import grpc
+from a2a.server.request_handlers import DefaultRequestHandlerV2
+from a2a.server.request_handlers.grpc_handler import GrpcHandler
+from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard
+from a2a.types import AgentCard, a2a_pb2, a2a_pb2_grpc
+from fastapi import FastAPI, Request
+from fastapi.responses import PlainTextResponse
 from google.adk.agents import BaseAgent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.apps.app import EventsCompactionConfig
@@ -14,24 +21,43 @@ from google.adk.plugins import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from kagent.core import AsyncControllerClient
 from kagent.core._runtime_config import optional_field
 from kagent.core.a2a import (
-    A2AServer,
+    A2ARequestSizeLimitMiddleware,
+    KAgentGrpcServerCallContextBuilder,
     KAgentRequestContextBuilder,
     TelemetryRequestHandler,
     attach_hitl_agent_extension,
     attach_usage_agent_extension,
+    get_a2a_max_content_length,
 )
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
+from kagent.core.telemetry import shutdown_lifespan
+from opentelemetry.instrumentation.grpc import aio_server_interceptor, filters
 
 from ._agent_executor import A2aAgentExecutor, A2aAgentExecutorConfig
+from ._lifespan import LifespanManager
 from ._local_session_service import LocalSessionService
 from ._memory_service import KagentMemoryService
 from ._token import KAgentTokenService
 from .types import Config
 
 logger = logging.getLogger(__name__)
+
+
+def health_check(request: Request) -> PlainTextResponse:
+    return PlainTextResponse("OK")
+
+
+def thread_dump(request: Request) -> PlainTextResponse:
+    import tempfile
+
+    with tempfile.TemporaryFile(mode="w+") as tmp:
+        faulthandler.dump_traceback(file=tmp, all_threads=True)
+        tmp.seek(0)
+        return PlainTextResponse(tmp.read())
 
 
 class KAgentApp:
@@ -41,7 +67,7 @@ class KAgentApp:
         agent_card: AgentCard,
         kagent_api_url: str,
         app_name: str,
-        lifespan: Optional[Callable[[A2AServer], AbstractAsyncContextManager]] = None,
+        lifespan: Optional[Callable[[Any], Any]] = None,
         plugins: Optional[List[BasePlugin]] = None,
         stream: bool = False,
         config: Optional[Config] = None,
@@ -54,7 +80,7 @@ class KAgentApp:
             agent_card: Agent card configuration for A2A protocol
             kagent_api_url: URL of the KAgent control-plane API
             app_name: Application name for identification
-            lifespan: Optional agent hook receiving the server before listeners start
+            lifespan: Optional lifespan function
             plugins: Optional list of plugins
             stream: Whether to stream the response
             config: Optional runtime and agent configuration
@@ -63,14 +89,15 @@ class KAgentApp:
         self.root_agent_factory = root_agent_factory
         self.kagent_api_url = kagent_api_url
         self.config = config if config is not None else Config()
-        self.a2a_grpc_address = a2a_grpc_address
+        runtime = self.config.runtime
+        self.a2a_grpc_address = a2a_grpc_address or f"{runtime.host or '[::]'}:{runtime.port or 80}"
         self.app_name = app_name
         self.agent_card = agent_card
         self._lifespan = lifespan
         self.plugins = plugins if plugins is not None else []
         self.stream = stream
 
-    def build(self, local=False) -> A2AServer:
+    def build(self, local=False) -> FastAPI:
         attach_hitl_agent_extension(self.agent_card)
         attach_usage_agent_extension(self.agent_card)
         session_service = InMemorySessionService()
@@ -142,14 +169,84 @@ class KAgentApp:
 
         faulthandler.enable()
 
-        return A2AServer(
-            request_handler,
-            self.config.runtime,
-            token_service,
-            controller_client,
-            lifespan=self._lifespan,
-            address=self.a2a_grpc_address,
+        lifespan_manager = LifespanManager()
+        lifespan_manager.add(shutdown_lifespan())
+        lifespan_manager.add(self._lifespan)
+        lifespan_manager.add(self._grpc_lifespan(request_handler))
+        lifespan_manager.add(self._readiness_lifespan())
+        if not local:
+            lifespan_manager.add(token_service.lifespan())
+            lifespan_manager.add(controller_client.lifespan())
+
+        app = FastAPI(lifespan=lifespan_manager)
+        app.add_middleware(
+            A2ARequestSizeLimitMiddleware,
+            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
         )
+
+        # Health check/readiness probe
+        app.add_route("/health", methods=["GET"], route=health_check)
+        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
+        add_a2a_routes_to_fastapi(
+            app,
+            agent_card_routes=create_agent_card_routes(self.agent_card),
+            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
+        )
+
+        return app
+
+    def _readiness_lifespan(self):
+        async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+            request = await reader.readline()
+            status = b"200 OK" if request.startswith(b"GET /readyz ") else b"404 Not Found"
+            writer.write(b"HTTP/1.1 " + status + b"\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")
+            await writer.drain()
+            writer.close()
+            await writer.wait_closed()
+
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            # Every interface on every family, not just IPv6. `host="::"` bound an
+            # IPv6-only socket, so a probe of the actor's IPv4 address was refused —
+            # Substrate dials one, and the harness sat in ResumeGoldenActor until the
+            # golden actor timed out, reporting only "connection refused".
+            server = await asyncio.start_server(handle, host=None, port=8081)
+            try:
+                yield
+            finally:
+                server.close()
+                await server.wait_closed()
+
+        return lifespan
+
+    def _grpc_lifespan(self, request_handler: DefaultRequestHandlerV2):
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            server = grpc.aio.server(
+                interceptors=[aio_server_interceptor(filter_=filters.negate(filters.health_check()))]
+            )
+            context_builder = KAgentGrpcServerCallContextBuilder()
+            a2a_pb2_grpc.add_A2AServiceServicer_to_server(
+                GrpcHandler(request_handler, context_builder=context_builder), server
+            )
+
+            health_service = health.aio.HealthServicer()
+            service_name = a2a_pb2.DESCRIPTOR.services_by_name["A2AService"].full_name
+            await health_service.set(service_name, health_pb2.HealthCheckResponse.SERVING)
+            health_pb2_grpc.add_HealthServicer_to_server(health_service, server)
+
+            port = server.add_insecure_port(self.a2a_grpc_address)
+            if port == 0:
+                raise RuntimeError(f"failed to bind A2A gRPC server to {self.a2a_grpc_address}")
+            app.state.a2a_grpc_port = port
+            await server.start()
+            try:
+                yield
+            finally:
+                await health_service.enter_graceful_shutdown()
+                await server.stop(grace=5)
+
+        return lifespan
 
     async def test(self, task: str):
         session_service = InMemorySessionService()

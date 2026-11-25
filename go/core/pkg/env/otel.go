@@ -68,6 +68,7 @@ func init() {
 	}
 	for name, description := range map[string]string{
 		"OTEL_SEMCONV_STABILITY_OPT_IN":         "Python semantic convention opt-in; defaults to gen_ai_latest_experimental,http.",
+		"OTEL_PYTHON_FASTAPI_EXCLUDED_URLS":     "Python inbound HTTP paths left untraced; defaults exclude health and agent-card endpoints.",
 		"OTEL_PYTHON_DISABLED_INSTRUMENTATIONS": "Python instrumentation entry point names to skip, such as httpx or openai.",
 	} {
 		RegisterStringVar(name, "", description, ComponentAgentRuntime)
