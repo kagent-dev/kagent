@@ -69,9 +69,9 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 	if err != nil {
 		return nil, fmt.Errorf("encode bootstrap descriptor: %w", err)
 	}
-	goldenPolicy, err := bootstrapEgressPolicy(spec.Namespace, spec.ControlPlaneURL)
+	goldenPolicy, err := goldenEgressPolicy(spec.Namespace, spec.ControlPlaneURL, spec.EgressDestinations)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compile golden actor egress: %w", err)
 	}
 
 	environment := withServiceVersion(append([]corev1.EnvVar(nil), spec.Environment...), revisionID.Short())
