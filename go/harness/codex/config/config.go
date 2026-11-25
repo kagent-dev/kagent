@@ -39,7 +39,11 @@ type Config struct {
 	Agents               map[string]Agent       `json:"agents,omitempty"`
 	SkillResources       *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers           map[string]MCPServer   `json:"mcp_servers,omitempty"`
-	Telemetry            *Telemetry             `json:"telemetry,omitempty"`
+	// PropagateToken forwards the caller's credential of each A2A turn on
+	// every MCP call, the runtime defaults' token propagation switch the Go
+	// ADK also follows.
+	PropagateToken bool       `json:"propagate_token,omitempty"`
+	Telemetry      *Telemetry `json:"telemetry,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy for the Go wrapper. Telemetry above configures the native
 	// Codex exporters, which are a separate producer.
@@ -65,6 +69,9 @@ type OTLPExporter struct {
 type Provider struct {
 	Name    string `json:"name"`
 	BaseURL string `json:"base_url,omitempty"`
+	// TokenPassthrough sends the caller's bearer token of each A2A turn as
+	// the API key, the ModelConfig tokenPassthrough the Go ADK also follows.
+	TokenPassthrough bool `json:"token_passthrough,omitempty"`
 }
 
 type Agent struct {
@@ -78,6 +85,9 @@ type MCPServer struct {
 	Headers         map[string]string `json:"headers,omitempty"`
 	EnabledTools    []string          `json:"enabled_tools,omitempty"`
 	RequireApproval bool              `json:"require_approval,omitempty"`
+	// TokenPassthrough sends the caller's credential of the turn, and nothing
+	// else, as the server's Authorization; a turn without one cannot call it.
+	TokenPassthrough bool `json:"token_passthrough,omitempty"`
 }
 
 // Bounds the memory one JSON-RPC frame can take. Frames carry a tool
@@ -148,6 +158,9 @@ func (c Config) Validate() error {
 		if err := validateExporter("log", c.Telemetry.Logs); err != nil {
 			return err
 		}
+	}
+	if c.Provider.TokenPassthrough && c.Provider.Name != "openai" {
+		return fmt.Errorf("token passthrough is supported only for the OpenAI provider")
 	}
 	if c.Provider.BaseURL != "" {
 		if c.Provider.Name != "openai" {

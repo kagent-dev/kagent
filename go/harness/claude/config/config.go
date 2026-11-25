@@ -77,6 +77,14 @@ type Config struct {
 	Agents                map[string]Agent       `json:"agents,omitempty"`
 	SkillResources        *agentplugin.Resources `json:"skill_resources,omitempty"`
 	MCPServers            map[string]MCPServer   `json:"mcp_servers,omitempty"`
+	// PropagateToken forwards the caller's credential of each A2A turn on
+	// every MCP call, the runtime defaults' token propagation switch the Go
+	// ADK also follows.
+	PropagateToken bool `json:"propagate_token,omitempty"`
+	// ModelTokenPassthrough sends the caller's bearer token of each A2A turn
+	// as the Anthropic API key, the ModelConfig tokenPassthrough the Go ADK
+	// also follows.
+	ModelTokenPassthrough bool `json:"model_token_passthrough,omitempty"`
 	// RuntimeTelemetry carries the compiler-owned span identity and content
 	// capture policy. It is absent for standalone runs, which fall back to the
 	// environment for service identity and leave capture disabled.
@@ -94,6 +102,9 @@ type MCPServer struct {
 	URL             string            `json:"url"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	RequireApproval bool              `json:"require_approval,omitempty"`
+	// TokenPassthrough sends the caller's credential of the turn, and nothing
+	// else, as the server's Authorization; a turn without one cannot call it.
+	TokenPassthrough bool `json:"token_passthrough,omitempty"`
 }
 
 // Agent is one compiler-owned local Claude subagent passed through --agents.
@@ -176,6 +187,12 @@ func (c Config) Validate() error {
 		}
 		if server.Type != "http" && server.Type != "sse" {
 			return fmt.Errorf("claude MCP server %q has unsupported transport %q", name, server.Type)
+		}
+		// The harness forwards the caller's credential through a loopback
+		// endpoint, and an SSE server announces its message endpoint from the
+		// upstream host, which that endpoint does not rewrite.
+		if server.Type == "sse" && (c.PropagateToken || server.TokenPassthrough) {
+			return fmt.Errorf("claude MCP server %q uses SSE, which cannot carry the caller's credential; use streamable HTTP, or turn off token propagation and tokenPassthrough", name)
 		}
 		if strings.TrimSpace(server.URL) == "" {
 			return fmt.Errorf("claude MCP server %q URL is required", name)
