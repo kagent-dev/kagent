@@ -136,6 +136,9 @@ type scheduledControllerRuntime struct {
 }
 
 func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessageRequest, stream grpc.ServerStreamingServer[a2apb.StreamResponse]) error {
+	if r.state == a2atype.TaskStateRejected {
+		return status.Error(codes.Unavailable, "no worker has room for the actor")
+	}
 	ctx := stream.Context()
 	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
 	r.mu.Lock()
@@ -316,6 +319,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 		stream      bool
 		clockOffset time.Duration
 	}{
+		{"Given refused input, when dispatch returns, assert that execution fails", a2atype.TaskStateRejected, time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, false, 0},
 		{"stream outlives reconciliation", a2atype.TaskStateCompleted, time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, true, 0},
 		{"lost dispatch response", a2atype.TaskStateCompleted, time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, false, 0},
 		{"timeout retries cleanup", a2atype.TaskStateWorking, 2 * time.Second, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, false, 0},
@@ -414,6 +418,14 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 			replayed, err := client.TriggerScheduledRun(owner, trigger)
 			require.NoError(t, err)
 			require.Equal(t, execution.Id, replayed.Execution.Id)
+			if tc.state == a2atype.TaskStateRejected {
+				require.Empty(t, execution.TaskId)
+				require.Equal(t, sessionsvc.ErrSendNotAccepted.Error(), execution.FailureReason)
+				runtime.mu.Lock()
+				defer runtime.mu.Unlock()
+				require.Zero(t, runtime.sends, "refused input must not create runtime work")
+				return
+			}
 			require.NotEmpty(t, execution.TaskId)
 			require.NotEqual(t, execution.Id, execution.TaskId)
 			require.NotEmpty(t, execution.SessionId)
