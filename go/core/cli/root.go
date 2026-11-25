@@ -110,6 +110,7 @@ func Root(opts ...Option) *cobra.Command {
 		commands.NewBugReportCmd(),
 		commands.NewVersionCmd(),
 		commands.NewDashboardCmd(),
+		commands.NewSkillCmd(),
 		sandboxcli.NewCmd(),
 		dbcli.NewDBCmd(o.extraMigrations),
 	)
