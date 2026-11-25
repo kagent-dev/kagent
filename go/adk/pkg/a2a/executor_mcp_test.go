@@ -83,14 +83,23 @@ func TestKAgentExecutorScopesMCPDiscoveryFailures(t *testing.T) {
 	for _, err := range executor.Execute(t.Context(), request) {
 		require.NoError(t, err)
 	}
-	require.Equal(t, [][]string{{"healthy_tool"}, {"healthy_tool"}}, visible, "recovery during an execution must not retry its omitted server")
+	require.Len(t, visible, 2)
+	require.Len(t, visible[0], 1)
+	healthyOnly := visible[0]
+	require.Contains(t, healthyOnly[0], "_healthy_tool_")
+	require.Equal(t, healthyOnly, visible[1], "recovery during an execution must not retry its omitted server")
 	require.EqualValues(t, 1, listings.Load())
 
 	visible = nil
 	for _, err := range executor.Execute(t.Context(), request) {
 		require.NoError(t, err)
 	}
-	require.Equal(t, [][]string{{"available_tool", "healthy_tool"}, {"available_tool", "healthy_tool"}}, visible, "a later execution with the same IDs must retry discovery")
+	require.Len(t, visible, 2)
+	require.Len(t, visible[0], 2)
+	bothTools := visible[0]
+	require.Contains(t, bothTools[0], "_available_tool_")
+	require.Equal(t, healthyOnly[0], bothTools[1], "the healthy tool's name must stay stable after recovery")
+	require.Equal(t, bothTools, visible[1], "a later execution with the same IDs must retry discovery")
 	require.Greater(t, listings.Load(), int32(1))
 
 	// Given prior successful discovery, when the server goes down again, assert
@@ -101,13 +110,13 @@ func TestKAgentExecutorScopesMCPDiscoveryFailures(t *testing.T) {
 	for _, err := range executor.Execute(t.Context(), request) {
 		require.NoError(t, err)
 	}
-	require.Equal(t, [][]string{{"healthy_tool"}, {"healthy_tool"}}, visible)
+	require.Equal(t, [][]string{healthyOnly, healthyOnly}, visible)
 	require.Equal(t, before+1, listings.Load(), "the failed catalog must stay omitted across model steps")
 	visible = nil
 	for _, err := range executor.Execute(t.Context(), request) {
 		require.NoError(t, err)
 	}
-	require.Equal(t, [][]string{{"available_tool", "healthy_tool"}, {"available_tool", "healthy_tool"}}, visible)
+	require.Equal(t, [][]string{bothTools, bothTools}, visible)
 }
 
 type executionDiscoveryContext struct {

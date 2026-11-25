@@ -87,6 +87,11 @@ reach the model. The MCP SDK caches filtered responses and owns TTL expiry and
 catalog-notification invalidation. Cached tools remain filtered. Credentials,
 approvals, and tool-call authorization continue to apply.
 
+When an agent has multiple MCP bindings, the Go ADK uses function names that
+include the binding's position in the compiled configuration. These names stay
+stable when a server is unavailable, so two servers may provide the same tool
+name. Allowlists and calls to the servers use the original MCP tool names.
+
 If discovery fails, that server's toolset stays hidden for the current A2A
 execution, including subsequent model steps and subagent calls. Healthy toolsets
 remain available. The next execution retries, including an approval continuation.
