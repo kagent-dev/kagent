@@ -11,9 +11,13 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/cli/internal/connection"
 	clioutput "github.com/kagent-dev/kagent/go/core/cli/internal/output"
 )
@@ -48,6 +52,36 @@ func TestReadInvokeTask(t *testing.T) {
 	}
 }
 
+func TestInvokeSessionOrAgentFlagGroup(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "neither", args: []string{"--task", "hello"}, wantErr: "at least one of the flags in the group [session agent] is required"},
+		{name: "both", args: []string{"--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--agent", "k8s-101", "--task", "hello"}, wantErr: "none of the others can be"},
+		{name: "agent only", args: []string{"--agent", "k8s-101", "--task", "hello"}},
+		{name: "session only", args: []string{"--session", "8bd650a8-9775-488f-8bc1-0d52bf7bdcab", "--task", "hello"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewInvokeCmd()
+			require.NoError(t, cmd.ParseFlags(tt.args))
+			err := cmd.ValidateFlagGroups()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestOpenInvokeSessionRequiresSessionOrAgent(t *testing.T) {
+	_, _, err := openInvokeSession(t.Context(), connection.DefaultOptions(), &InvokeCfg{}, &bytes.Buffer{})
+	require.ErrorContains(t, err, "one of --session or --agent is required")
+}
+
 func TestInvokePushFlagsRejectInvalidCombinationsBeforeConnecting(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -63,7 +97,7 @@ func TestInvokePushFlagsRejectInvalidCombinationsBeforeConnecting(t *testing.T) 
 			cfg.Task = "hello"
 			cfg.Session = "8bd650a8-9775-488f-8bc1-0d52bf7bdcab"
 			cfg.OutputFormat = "table"
-			err := runInvoke(t.Context(), connection.DefaultOptions(), &cfg, strings.NewReader(""), &bytes.Buffer{})
+			err := runInvoke(t.Context(), connection.DefaultOptions(), &cfg, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 			require.ErrorContains(t, err, test.want)
 		})
 	}
@@ -335,6 +369,54 @@ func TestFinishInvokeStreamPreservesStreamAndWriteErrors(t *testing.T) {
 
 	require.ErrorIs(t, err, streamErr)
 	require.ErrorIs(t, err, writeErr)
+}
+
+func TestCreateInvokeSession(t *testing.T) {
+	t.Run("Given a Session service, when creating an invoke Session, assert that the new Session ID is reported for reuse", func(t *testing.T) {
+		client := &lifecycleSessionClient{createSession: testSession()}
+		var stderr bytes.Buffer
+
+		sessionID, err := createInvokeSession(t.Context(), client, "team-a", "k8s-101", &stderr)
+
+		require.NoError(t, err)
+		assert.Equal(t, testSessionID, sessionID)
+		assert.Equal(t, "Session: "+testSessionID+"\nTo continue: --session "+testSessionID+"\n", stderr.String())
+		assert.Equal(t, &apiv1.ResourceReference{Namespace: "team-a", Name: "k8s-101"}, client.createRequest.GetAgent())
+		require.NoError(t, uuid.Validate(client.createRequest.GetRequestId()), "request ID must be a generated UUID")
+	})
+
+	t.Run("Given the Session service fails, when creating an invoke Session, assert that no Session ID is reported", func(t *testing.T) {
+		client := &lifecycleSessionClient{createErr: status.Error(codes.Internal, "boom")}
+		var stderr bytes.Buffer
+
+		sessionID, err := createInvokeSession(t.Context(), client, "team-a", "k8s-101", &stderr)
+
+		require.ErrorContains(t, err, "create Session")
+		assert.Empty(t, sessionID)
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("Given the Session service returns no Session, when creating an invoke Session, assert that no Session ID is reported", func(t *testing.T) {
+		client := &lifecycleSessionClient{}
+		var stderr bytes.Buffer
+
+		sessionID, err := createInvokeSession(t.Context(), client, "team-a", "k8s-101", &stderr)
+
+		require.ErrorContains(t, err, "returned no Session")
+		assert.Empty(t, sessionID)
+		assert.Empty(t, stderr.String())
+	})
+
+	t.Run("Given the Session ID cannot be written, when creating an invoke Session, assert that the write failure is returned", func(t *testing.T) {
+		writeErr := errors.New("broken pipe")
+		client := &lifecycleSessionClient{createSession: testSession()}
+
+		sessionID, err := createInvokeSession(t.Context(), client, "team-a", "k8s-101", failingWriter{err: writeErr})
+
+		require.ErrorIs(t, err, writeErr)
+		require.ErrorContains(t, err, "write Session ID")
+		assert.Empty(t, sessionID)
+	})
 }
 
 type streamItem struct {
