@@ -104,41 +104,53 @@ func compileEgressPolicy(namespace string, policy *v1alpha3.EgressPolicy, getSec
 			return egress.Access{}, err
 		}
 		destinations = append(destinations, origin.String())
-		auth := destination.Authentication
-		if auth == nil {
+		auths := destinationAuthenticationSlice(destination.Authentication, destination.Authentications)
+		if len(auths) == 0 { // Neither authentication nor authentications specified for this destination
 			continue
 		}
 		if strings.Contains(origin.Host, "*") {
 			return egress.Access{}, NewValidationError("authentication requires an exact HTTP(S) origin")
 		}
-		if (auth.SecretKeyRef == nil) == (auth.ActorJWT == nil) {
-			return egress.Access{}, NewValidationError("authentication requires exactly one secretKeyRef or actorJwt")
-		}
-		binding := egress.Credential{Origin: origin.String(), Header: auth.Header}
-		if auth.Prefix != nil {
-			binding.Prefix = *auth.Prefix
-		}
-		if auth.ActorJWT != nil {
-			binding.ActorJWT = actorJWTSource(auth.ActorJWT)
+		for _, auth := range auths {
+			if (auth.SecretKeyRef == nil) == (auth.ActorJWT == nil) {
+				return egress.Access{}, NewValidationError("authentication requires exactly one secretKeyRef or actorJwt")
+			}
+			binding := egress.Credential{Origin: origin.String(), Header: auth.Header}
+			if auth.Prefix != nil {
+				binding.Prefix = *auth.Prefix
+			}
+			if auth.ActorJWT != nil {
+				binding.ActorJWT = actorJWTSource(auth.ActorJWT)
+				credentials = append(credentials, binding)
+				continue
+			}
+			secret := auth.SecretKeyRef
+			if secret.Name == "" || secret.Key == "" || (secret.Optional != nil && *secret.Optional) {
+				return egress.Access{}, NewValidationError("requires a non-optional Secret name and key")
+			}
+			binding.URI = "ate-secret://k8s.io/default/" + namespace + "/" + secret.Name + "/" + secret.Key
+			if _, err := egress.CanonicalCredentials([]egress.Credential{binding}); err != nil {
+				return egress.Access{}, err
+			}
+			found, err := getSecret(secret.Name)
+			if err != nil {
+				return egress.Access{}, fmt.Errorf("resolve Secret %q: %w", secret.Name, err)
+			}
+			if _, ok := found.Data[secret.Key]; !ok {
+				return egress.Access{}, NewValidationError("Secret %q is missing key %q", secret.Name, secret.Key)
+			}
 			credentials = append(credentials, binding)
-			continue
 		}
-		secret := auth.SecretKeyRef
-		if secret.Name == "" || secret.Key == "" || (secret.Optional != nil && *secret.Optional) {
-			return egress.Access{}, NewValidationError("requires a non-optional Secret name and key")
-		}
-		binding.URI = "ate-secret://k8s.io/default/" + namespace + "/" + secret.Name + "/" + secret.Key
-		if _, err := egress.CanonicalCredentials([]egress.Credential{binding}); err != nil {
-			return egress.Access{}, err
-		}
-		found, err := getSecret(secret.Name)
-		if err != nil {
-			return egress.Access{}, fmt.Errorf("resolve Secret %q: %w", secret.Name, err)
-		}
-		if _, ok := found.Data[secret.Key]; !ok {
-			return egress.Access{}, NewValidationError("Secret %q is missing key %q", secret.Name, secret.Key)
-		}
-		credentials = append(credentials, binding)
 	}
 	return egress.CanonicalAccess(destinations, credentials, nil)
+}
+
+func destinationAuthenticationSlice(authone *v1alpha3.EgressAuthentication, authmulti []v1alpha3.EgressAuthentication) []v1alpha3.EgressAuthentication {
+	if len(authmulti) > 0 {
+		return authmulti
+	}
+	if authone != nil {
+		return []v1alpha3.EgressAuthentication{*authone}
+	}
+	return nil
 }
