@@ -411,9 +411,10 @@ controller:
   #   readOnly: true
 
   # -- Custom startup probe for the controller container.
-  # The controller can wait up to two minutes for each PostgreSQL connection
-  # check before serving /health. Allow time for migrations and startup as well.
-  # Include a handler (httpGet / exec / tcpSocket / grpc) when setting a probe.
+  # The default allows about ten minutes for PostgreSQL connection checks,
+  # migrations, and the rest of startup. Include a handler (httpGet / exec /
+  # tcpSocket / grpc) when replacing the default probe.
+  # @default -- httpGet /health on port http, periodSeconds=5, timeoutSeconds=1, failureThreshold=120
   startupProbe: {}
 
   # -- Custom readiness probe for the controller container.

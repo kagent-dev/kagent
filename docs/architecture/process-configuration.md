@@ -131,8 +131,9 @@ Before applying or verifying migrations, the controller waits up to two minutes
 for PostgreSQL to accept the corresponding login. It retries transient
 connection failures and returns authentication, schema, and migration errors
 immediately. The controller remains unready until database setup completes.
-The Helm chart enables a readiness probe by default. If you configure a startup
-probe, give it time for the connection checks, migrations, and controller startup.
+The Helm chart's startup probe allows about ten minutes for the connection
+checks, migrations, and controller startup. The readiness probe controls when
+the pod receives Service traffic.
 
 Push settings live under `push` (`config.push` in Helm). Set
 `push.signingPrivateKeyFile` to an unencrypted PKCS#8 Ed25519 PEM key to enable

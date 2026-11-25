@@ -346,11 +346,18 @@ tests:
                         podcert.ate.dev/canarying: live
                     path: trust-bundle.pem
 
-  - it: should omit the startup probe by default so the controller can wait for PostgreSQL
+  - it: should allow about ten minutes for controller startup
     template: controller-deployment.yaml
     asserts:
-      - notExists:
+      - equal:
           path: spec.template.spec.containers[0].startupProbe
+          value:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 120
 
   - it: should use default httpGet readiness probe
     template: controller-deployment.yaml
