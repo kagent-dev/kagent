@@ -46,6 +46,7 @@ type AgentTemplateManifestCfg struct {
 type lifecycleClient interface {
 	CreateAgentTemplate(context.Context, *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error)
 	UpdateAgentTemplate(context.Context, *apiv1.UpdateAgentTemplateRequest) (*apiv1.UpdateAgentTemplateResponse, error)
+	DeleteAgentTemplate(context.Context, *apiv1.DeleteAgentTemplateRequest) (*apiv1.DeleteAgentTemplateResponse, error)
 }
 
 type agentTemplateManifestOperation func(context.Context, lifecycleClient, *apiv1.ResourceReference, *apiv1.StructuredObject, clioutput.Format, io.Writer) error
@@ -120,6 +121,30 @@ func applyAgentTemplate(
 		return fmt.Errorf("apply AgentTemplate: %w", err)
 	}
 	return writeAgentTemplateResult(out, format, updated, updated.GetAgentTemplate())
+}
+
+func deleteAgentTemplate(ctx context.Context, client lifecycleClient, ref *apiv1.ResourceReference, format clioutput.Format, out io.Writer) error {
+	if _, err := client.DeleteAgentTemplate(ctx, &apiv1.DeleteAgentTemplateRequest{Ref: ref}); err != nil {
+		return fmt.Errorf("delete AgentTemplate %q: %w", ref.GetName(), err)
+	}
+	return writeDeleted(out, format, agentTemplateKind, ref)
+}
+
+func newAgentTemplateDeleteCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete NAME",
+		Short: "Delete an AgentTemplate",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			session, format, err := openAPI(cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { err = errors.Join(err, session.Close()) }()
+			ref := &apiv1.ResourceReference{Namespace: session.Namespace, Name: args[0]}
+			return deleteAgentTemplate(cmd.Context(), session.API.AgentTemplate, ref, format, cmd.OutOrStdout())
+		},
+	}
 }
 
 func writeAgentTemplateResult(w io.Writer, format clioutput.Format, response proto.Message, result *apiv1.AgentTemplate) error {

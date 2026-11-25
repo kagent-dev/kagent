@@ -203,6 +203,20 @@ func TestAgentTemplateLifecycleCommands(t *testing.T) {
 		assert.NotNil(t, client.createRequest)
 		assert.True(t, proto.Equal(&apiv1.UpdateAgentTemplateRequest{Ref: ref, Resource: resource}, client.updateRequest))
 	})
+
+	t.Run("Given an AgentTemplate, when it is deleted, assert that the request names it and the output confirms", func(t *testing.T) {
+		client := &recordingAgentTemplateClient{}
+		var output bytes.Buffer
+		require.NoError(t, deleteAgentTemplate(t.Context(), client, ref, clioutput.FormatTable, &output))
+		assert.True(t, proto.Equal(&apiv1.DeleteAgentTemplateRequest{Ref: ref}, client.deleteRequest))
+		assert.Equal(t, "Deleted AgentTemplate team-a/researcher.\n", output.String())
+	})
+
+	t.Run("Given a missing AgentTemplate, when it is deleted, assert that the API error is returned", func(t *testing.T) {
+		client := &recordingAgentTemplateClient{deleteErr: status.Error(codes.NotFound, "not found")}
+		err := deleteAgentTemplate(t.Context(), client, ref, clioutput.FormatTable, &bytes.Buffer{})
+		assert.Equal(t, codes.NotFound, status.Code(err))
+	})
 }
 
 func testAgentTemplateMessage(t *testing.T) *apiv1.AgentTemplate {
@@ -225,6 +239,16 @@ type recordingAgentTemplateClient struct {
 	createErr     error
 	createRequest *apiv1.CreateAgentTemplateRequest
 	updateRequest *apiv1.UpdateAgentTemplateRequest
+	deleteErr     error
+	deleteRequest *apiv1.DeleteAgentTemplateRequest
+}
+
+func (c *recordingAgentTemplateClient) DeleteAgentTemplate(_ context.Context, request *apiv1.DeleteAgentTemplateRequest) (*apiv1.DeleteAgentTemplateResponse, error) {
+	c.deleteRequest = request
+	if c.deleteErr != nil {
+		return nil, c.deleteErr
+	}
+	return &apiv1.DeleteAgentTemplateResponse{}, nil
 }
 
 func (c *recordingAgentTemplateClient) CreateAgentTemplate(_ context.Context, request *apiv1.CreateAgentTemplateRequest) (*apiv1.CreateAgentTemplateResponse, error) {

@@ -52,6 +52,15 @@ func (c *AgentClient) UpdateAgent(ctx context.Context, request *apiv1.UpdateAgen
 	return client.UpdateAgent(callContext, request)
 }
 
+func (c *AgentClient) DeleteAgent(ctx context.Context, request *apiv1.DeleteAgentRequest) (*apiv1.DeleteAgentResponse, error) {
+	client, callContext, cancel, err := c.client.agentCall(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return client.DeleteAgent(callContext, request)
+}
+
 func (c *baseClient) agentCall(ctx context.Context) (apiv1.AgentServiceClient, context.Context, context.CancelFunc, error) {
 	connection, err := c.grpcConnection()
 	if err != nil {

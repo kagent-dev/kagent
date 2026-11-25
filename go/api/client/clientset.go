@@ -16,6 +16,9 @@ type APIClientSet struct {
 	Session       *SessionClient
 	AgentTemplate *AgentTemplateClient
 	Agent         *AgentClient
+	Harness       *HarnessClient
+	Model         *ModelClient
+	Tool          *ToolClient
 	Sandbox       *SandboxClient
 }
 
@@ -31,6 +34,9 @@ func NewAPI(apiURL string, options ...ClientOption) (*APIClientSet, error) {
 		Session:       newSessionClient(client),
 		AgentTemplate: newAgentTemplateClient(client),
 		Agent:         newAgentClient(client),
+		Harness:       newHarnessClient(client),
+		Model:         newModelClient(client),
+		Tool:          newToolClient(client),
 		Sandbox:       &SandboxClient{client: client},
 	}, nil
 }
