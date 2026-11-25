@@ -181,6 +181,12 @@ GEN_AI_INVOKE_AGENT_TOOL_CALLS: Final = "gen_ai.invoke_agent.tool_calls"
 GEN_AI_INVOKE_AGENT_TOOL_CALLS_UNIT: Final = "{tool_call}"
 GEN_AI_INVOKE_AGENT_TOOL_CALLS_DESCRIPTION: Final = "The tool calls of one execution segment of a harness agent."
 
+KAGENT_EXPERIMENTAL_ANTHROPIC_SELF_HOSTED_SANDBOX_ASSIGNMENTS_ACTIVE: Final = "kagent.experimental.anthropic.self_hosted_sandbox.assignments.active"
+KAGENT_EXPERIMENTAL_ANTHROPIC_SELF_HOSTED_SANDBOX_ASSIGNMENTS_ACTIVE_UNIT: Final = "{assignment}"
+KAGENT_EXPERIMENTAL_ANTHROPIC_SELF_HOSTED_SANDBOX_ASSIGNMENTS_ACTIVE_DESCRIPTION: Final = (
+    "Number of occupied Anthropic self-hosted sandbox worker assignment slots."
+)
+
 KAGENT_PUSH_DELIVERY_CLAIMED: Final = "kagent.push.delivery.claimed"
 KAGENT_PUSH_DELIVERY_CLAIMED_UNIT: Final = "{attempt}"
 KAGENT_PUSH_DELIVERY_CLAIMED_DESCRIPTION: Final = "Number of push delivery attempts claimed."

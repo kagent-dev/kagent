@@ -37,7 +37,6 @@ spec:
         {{- $podLabels := mergeOverwrite (dict) (.Values.podLabels | default dict) (.Values.controller.podLabels | default dict) (include "kagent.controller.selectorLabels" . | fromYaml) }}
         {{- toYaml $podLabels | nindent 8 }}
     spec:
-      terminationGracePeriodSeconds: {{ .Values.controller.terminationGracePeriodSeconds }}
       {{- with include "kagent.imagePullSecrets" (dict "root" . "local" .Values.controller.imagePullSecrets) }}{{- . | nindent 6 }}{{- end }}
       {{- with (.Values.controller.podSecurityContext | default .Values.podSecurityContext) }}
       securityContext:
@@ -82,26 +81,7 @@ spec:
       - name: postgres-client-certificate
         projected:
           sources:
-          {{- if not $skipMigrations }}
-          - podCertificate:
-              signerName: postgres.podcert.ate.dev/identity
-              keyType: ECDSAP256
-              credentialBundlePath: kagent_owner_user.pem
-              userAnnotations:
-                postgres.podcert.ate.dev/username: kagent_owner_user
-          {{- end }}
-          - podCertificate:
-              signerName: postgres.podcert.ate.dev/identity
-              keyType: ECDSAP256
-              credentialBundlePath: kagent_readwrite_user.pem
-              userAnnotations:
-                postgres.podcert.ate.dev/username: kagent_readwrite_user
-          - clusterTrustBundle:
-              signerName: servicedns.podcert.ate.dev/identity
-              labelSelector:
-                matchLabels:
-                  podcert.ate.dev/canarying: live
-              path: trust-bundle.pem
+            {{- include "kagent.postgresCertificateSources" (ternary (list "readwrite") (list "owner" "readwrite") (not (empty $skipMigrations))) | nindent 10 }}
       {{- end }}
       {{- if .Values.controller.substrateClientCertificate.enabled }}
       - name: substrate-servicedns
@@ -146,6 +126,14 @@ spec:
           imagePullPolicy: {{ include "kagent.imagePullPolicy" (dict "root" . "local" .Values.controller.image.pullPolicy) }}
           args: ["--config=/etc/kagent/controller.yaml"]
           env:
+            {{- with include "kagent.anthropicSandboxManagedEncryptionSecret" . }}
+            - name: KAGENT_ANTHROPIC_SANDBOX_MANAGED_ENCRYPTION_SECRET
+              value: {{ . | quote }}
+            - name: K8S_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- end }}
             # Private pod identity defaults; explicit OTEL resource attributes win.
             - name: K8S_POD_NAME
               valueFrom:

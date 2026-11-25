@@ -149,6 +149,13 @@ Refines `gen_ai.execute_tool.duration` as `kagent.execute_tool.duration`. Instru
 | `gen_ai.tool.name` | required | The plain MCP tool name, as on the execute_tool span. |
 | `gen_ai.tool.type` | recommended: If available. | Extension: A tool executed on the agent-side to directly call external APIs, bridging the gap between the agent and real-world systems. Agent-side operations involve actions that are performed by the agent on the server or within the agent's controlled environment. Function: A tool executed on the client-side, where the agent generates parameters for a predefined function, and the client executes the logic. Client-side operations are actions taken on the user's end or within the client application. Datastore: A tool used by the agent to access and query structured or unstructured external data for retrieval-augmented tasks or knowledge updates. |
 
+### `kagent.experimental.anthropic.self_hosted_sandbox.assignments.active`
+
+Instrument: updowncounter. Unit: `{assignment}`. Number of occupied Anthropic self-hosted sandbox worker assignment slots. Counts assignments per worker replica from successful claim through completion, parking, or release, including while their sandbox compute is suspended. Does not count queued assignments or individual tool calls.
+
+| Attribute | Requirement | Note |
+| --- | --- | --- |
+
 ### `gen_ai.invoke_agent.duration`
 
 Refines `gen_ai.invoke_agent.duration` as `kagent.invoke_agent.duration`. Instrument: histogram. Unit: `s`. The duration of one execution segment of a kagent agent. Recorded with the invoke_agent span kagent opens, and equal to its duration. A runtime that emits its own invoke_agent span reports its own metric, if any.

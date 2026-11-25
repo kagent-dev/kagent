@@ -366,6 +366,23 @@ Usage: {{ include "kagent.imagePullPolicy" (dict "root" $ "local" .Values.contro
 {{- .local | default .root.Values.imagePullPolicy | default ((.root.Values.global).imagePullPolicy) | default "IfNotPresent" -}}
 {{- end -}}
 
+{{- define "kagent.postgresCertificateSources" -}}
+{{- range . }}
+- podCertificate:
+    signerName: postgres.podcert.ate.dev/identity
+    keyType: ECDSAP256
+    credentialBundlePath: kagent_{{ . }}_user.pem
+    userAnnotations:
+      postgres.podcert.ate.dev/username: kagent_{{ . }}_user
+{{- end }}
+- clusterTrustBundle:
+    signerName: servicedns.podcert.ate.dev/identity
+    labelSelector:
+      matchLabels:
+        podcert.ate.dev/canarying: live
+    path: trust-bundle.pem
+{{- end -}}
+
 {{- define "kagent.imagePullSecrets" -}}
 {{- $local := .local | default .root.Values.imagePullSecrets | default list -}}
 {{- $merged := concat $local (((.root.Values.global).imagePullSecrets) | default list) | uniq -}}
@@ -422,6 +439,13 @@ this helper so the tolerance is uniform across the chart.
 */}}
 {{- define "kagent.globalImageRegistry" -}}
 {{- ((.Values.global).imageRegistry) | default "" | trimSuffix "/" -}}
+{{- end -}}
+
+{{- define "kagent.anthropicSandboxManagedEncryptionSecret" -}}
+{{- $adapter := .Values.experimentalAnthropicSandboxes -}}
+{{- if and (kindIs "slice" $adapter.environments) $adapter.environments (not $adapter.credentialEncryptionSecretRef) -}}
+{{- printf "%s-anthropic-sandbox-encryption" (include "kagent.fullname" .) -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

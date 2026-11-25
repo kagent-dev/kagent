@@ -144,6 +144,37 @@ rbac:
   {}
 
 # ==============================================================================
+# ANTHROPIC MANAGED AGENTS SANDBOX ADAPTER
+# ==============================================================================
+# Anthropic setup: https://platform.claude.com/docs/en/managed-agents/self-hosted-sandboxes
+# The worker uses the OTLP endpoint and protocol from config.telemetry.metrics.
+
+experimentalAnthropicSandboxes:
+  replicas: 1
+  sandboxIdle: 5s
+  image:
+    registry: ""
+    repository: kagent-dev/kagent/anthropic-sandbox-worker
+    tag: ""
+    pullPolicy: ""
+  # Optional existing Secret in the release namespace. If unset, the controller
+  # creates the key once. An existing Secret must contain "key", the base64
+  # encoding of 32 random bytes; keep it stable across upgrades.
+  credentialEncryptionSecretRef: ""
+  # A non-empty list deploys the adapter.
+  # Each environmentSecretRef names a Secret in the release namespace with:
+  #   environment-id: Anthropic self-hosted environment ID.
+  #   environment-key: Anthropic environment credential, not an API key.
+  # Each environment requires one SandboxTemplate. Its namespace defaults to
+  # the release namespace.
+  environments: []
+  # Example
+  # environments:
+  #   - environmentSecretRef: anthropic-environment
+  #     sandboxTemplateName: anthropic-bash
+  #     sandboxTemplateNamespace: workloads
+
+# ==============================================================================
 # APPLICATION CONFIGURATION
 # ==============================================================================
 
@@ -242,9 +273,6 @@ config:
 # ==============================================================================
 
 controller:
-  # Allow the 150-second Anthropic self-hosted sandboxes controller drain plus process cleanup.
-  # Established CLI workers continue independently in their sandboxes.
-  terminationGracePeriodSeconds: 180
   # Standard OTEL overrides and external SDK credentials for this process only.
   env: []
   envFrom: []

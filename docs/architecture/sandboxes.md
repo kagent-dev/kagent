@@ -29,6 +29,73 @@ Shared persistence and Substrate lifecycle components implement common
 mechanics. Resource-specific services retain authorization, lifecycle policy, and
 recovery decisions; there is no public generic runtime-instance API.
 
+## Anthropic Managed Agents
+
+The [optional Anthropic adapter](#enabling-the-anthropic-adapter) polls for
+assignments and relays tool calls through the public Kagent gRPC API.
+It uses a dedicated schema in the shared PostgreSQL database for assignment
+leases, encrypted provider credentials, command handles, and pending results.
+The adapter, not the sandbox, connects to Anthropic.
+
+The provider assignment, adapter pod, and sandbox have independent lifetimes.
+On pod shutdown, the adapter stops dispatching but does not signal the sandbox
+process. The next lease holder reconnects to the same assignment and reads the
+result by process ID. Idle suspension affects only sandbox compute; the stream
+and heartbeat stay up. A new tool call resumes the sandbox or creates another
+if it has expired. If an interruption makes the result unavailable, the
+adapter returns a tool error instead of rerunning the command.
+
+If Anthropic's advertised heartbeat TTL elapses without renewal, the adapter
+closes the event stream and stops dispatching new commands. It has up to 20
+seconds to send saved results and report lease-expiry errors for unfinished
+calls, in queue order, before releasing its PostgreSQL claim. It records each
+error before attempting delivery. If delivery of an earlier result fails,
+later calls may be left untouched for the next worker. Before reporting a
+lease-expiry error for a running Bash process, the adapter makes a best-effort
+attempt to kill it.
+If signaling fails, the adapter still sends the error; the process may keep
+running until its own command timeout.
+
+### Enabling the Anthropic adapter
+
+A non-empty `environments` list deploys the adapter; an empty list leaves it
+disabled. Add these values to a normal Kagent Helm values file. With `kagent
+install`, list the file under `install.kagent.valuesFiles` in your CLI config:
+
+```yaml
+experimentalAnthropicSandboxes:
+  environments:
+    - environmentSecretRef: anthropic-environment
+      sandboxTemplateName: anthropic-bash
+```
+
+Create each environment Secret in the Helm release namespace with
+`environment-id` (the Anthropic self-hosted environment ID) and
+`environment-key` (its environment credential, not an Anthropic API key).
+Each list entry must reference a distinct Anthropic environment ID.
+
+On startup, the controller creates a release-named encryption Secret if it
+doesn't already exist. The Secret is not deleted by Helm uninstall. To use
+an existing key instead, set `credentialEncryptionSecretRef` to a Secret in
+the release namespace containing `key`, the base64 encoding of 32 random
+bytes. Keep the same key as long as PostgreSQL holds assignments encrypted
+with it. If you already use an explicit Secret reference, keep it to preserve
+access to those assignments.
+
+Each environment selects one SandboxTemplate, and thus one workload image,
+for all its agents. The template namespace defaults to the release namespace;
+set `sandboxTemplateNamespace` to use a template in another namespace.
+
+The adapter connects to the release's in-cluster gRPC endpoint and reuses the
+existing Kagent PostgreSQL Secret references and roles. `kagent install`
+prepares the `kagent_anthropic` schema in its bundled database. On an existing
+bundled install that predates the adapter, rerun the updated installer before
+enabling it. For external PostgreSQL, provision that schema with the same
+owner and read/write grants and default privileges as Kagent's main schema.
+If `config.database.skipMigrations` is enabled, run `anthropic-sandbox-worker
+--migrate` with the owner URL and role and `ANTHROPIC_SANDBOX_DATABASE_SCHEMA=kagent_anthropic`
+before the upgrade; the deployment will use only the read/write credentials.
+
 ## Configuration and preparation
 
 `SandboxTemplate` is a namespaced `api.kagent.dev/v1alpha3` Kubernetes resource.

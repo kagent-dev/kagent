@@ -7,7 +7,7 @@ ARG TARGETARCH
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
-# Which package to build (e.g. ./core/cmd/controller, ./adk/cmd)
+# Which package to build (e.g. ./core/cmd/controller, adk/cmd/main.go)
 ARG BUILD_PACKAGE=./core/cmd/controller
 
 WORKDIR /workspace

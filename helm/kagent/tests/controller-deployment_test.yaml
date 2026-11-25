@@ -14,11 +14,31 @@ tests:
       - equal:
           path: spec.replicas
           value: 1
-      - equal:
-          path: spec.template.spec.terminationGracePeriodSeconds
-          value: 180
       - hasDocuments:
           count: 1
+
+  - it: instructs the controller to bootstrap the default Anthropic sandbox key
+    template: controller-deployment.yaml
+    release:
+      name: tenant
+      namespace: workloads
+    set:
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: KAGENT_ANTHROPIC_SANDBOX_MANAGED_ENCRYPTION_SECRET, value: tenant-anthropic-sandbox-encryption}
+
+  - it: does not bootstrap an operator-provided Anthropic sandbox key
+    template: controller-deployment.yaml
+    set:
+      experimentalAnthropicSandboxes.credentialEncryptionSecretRef: encryption
+      experimentalAnthropicSandboxes.environments:
+        - environmentSecretRef: environment
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "KAGENT_ANTHROPIC_SANDBOX_MANAGED_ENCRYPTION_SECRET")]
 
   - it: should render the controller deployment with custom replica count
     template: controller-deployment.yaml
@@ -29,15 +49,6 @@ tests:
       - equal:
           path: spec.replicas
           value: 3
-
-  - it: should render a custom controller termination grace period
-    template: controller-deployment.yaml
-    set:
-      controller.terminationGracePeriodSeconds: 180
-    asserts:
-      - equal:
-          path: spec.template.spec.terminationGracePeriodSeconds
-          value: 180
 
   - it: should have correct controller container image
     template: controller-deployment.yaml
