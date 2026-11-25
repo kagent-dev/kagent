@@ -1,56 +1,31 @@
 """KAgent LangGraph A2A Server Integration.
 
-This module provides the main KAgentApp class that builds a FastAPI application
+This module provides the main KAgentApp class that builds a gRPC server
 with A2A protocol support for LangGraph workflows.
 """
 
 import faulthandler
-import logging
 
-from a2a.server.routes import add_a2a_routes_to_fastapi, create_agent_card_routes, create_jsonrpc_routes
 from a2a.types import AgentCard
-from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse
 from google.protobuf.json_format import ParseDict
-from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap, instrument_app
-from kagent.core._runtime_config import optional_field
+from kagent.core import AsyncControllerClient, KAgentConfig, bootstrap
 from kagent.core.a2a import (
-    A2ARequestSizeLimitMiddleware,
+    A2AServer,
     KAgentRequestContextBuilder,
     attach_hitl_agent_extension,
-    get_a2a_max_content_length,
 )
-
-# --- Configure Logging ---
 from kagent.core.a2a._task_store import KAgentRequestHandler, KAgentTaskStore
-from kagent.core.telemetry import conv, shutdown_lifespan
+from kagent.core.telemetry import conv
 
 from langgraph.graph.state import CompiledStateGraph
 
 from ._executor import LangGraphAgentExecutor, LangGraphAgentExecutorConfig
 
-logger = logging.getLogger(__name__)
-
-
-def health_check(request: Request) -> PlainTextResponse:
-    """Health check endpoint."""
-    return PlainTextResponse("OK")
-
-
-def thread_dump(request: Request) -> PlainTextResponse:
-    """Thread dump endpoint for debugging."""
-    import tempfile
-
-    with tempfile.TemporaryFile(mode="w+") as tmp:
-        faulthandler.dump_traceback(file=tmp, all_threads=True)
-        tmp.seek(0)
-        return PlainTextResponse(tmp.read())
-
 
 class KAgentApp:
     """Main application class for LangGraph + KAgent integration.
 
-    This class builds a FastAPI application with A2A protocol support,
+    This class builds a gRPC server with A2A protocol support,
     using LangGraph for agent execution and KAgent for state persistence.
     """
 
@@ -80,13 +55,8 @@ class KAgentApp:
         self.executor_config = executor_config or LangGraphAgentExecutorConfig()
         self._enable_tracing = tracing
 
-    def build(self) -> FastAPI:
+    def build(self) -> A2AServer:
         attach_hitl_agent_extension(self.agent_card)
-        """Build the FastAPI application with A2A integration.
-
-        Returns:
-            Configured FastAPI application ready for deployment
-        """
         # Create agent executor
         agent_executor = LangGraphAgentExecutor(
             graph=self._graph,
@@ -112,33 +82,9 @@ class KAgentApp:
         # Enable fault handler for debugging
         faulthandler.enable()
 
-        # Create FastAPI application
-        app = FastAPI(
-            lifespan=shutdown_lifespan(controller.lifespan()),
-            title=f"KAgent LangGraph: {self.config.app_name}",
-            description=f"LangGraph agent with KAgent integration: {self.agent_card.description}",
-            version=self.agent_card.version,
-        )
-        app.add_middleware(
-            A2ARequestSizeLimitMiddleware,
-            max_content_length=get_a2a_max_content_length(optional_field(self.config.runtime, "max_content_length")),
-        )
-
         if self._enable_tracing:
             bootstrap(
                 conv.KagentRuntimeValues.LANGGRAPH, fallback_name=self.agent_card.name, config=self.config.runtime
             )
-            instrument_app(app)
 
-        # Add health check and debugging routes
-        app.add_route("/health", methods=["GET"], route=health_check)
-        app.add_route("/thread_dump", methods=["GET"], route=thread_dump)
-
-        # Add A2A routes
-        add_a2a_routes_to_fastapi(
-            app,
-            agent_card_routes=create_agent_card_routes(self.agent_card),
-            jsonrpc_routes=create_jsonrpc_routes(request_handler, rpc_url="/"),
-        )
-
-        return app
+        return A2AServer(request_handler, self.config.runtime, controller)

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -455,14 +455,12 @@ source = { editable = "samples/openai/basic_agent" }
 dependencies = [
     { name = "kagent-openai" },
     { name = "openai-agents" },
-    { name = "uvicorn" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "kagent-openai", editable = "packages/kagent-openai" },
     { name = "openai-agents", specifier = ">=0.24.0" },
-    { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 
 [[package]]
@@ -1934,6 +1932,8 @@ version = "0.2.0"
 source = { editable = "packages/kagent-core" }
 dependencies = [
     { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "grpcio" },
+    { name = "grpcio-health-checking" },
     { name = "kagent-proto" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-distro" },
@@ -1963,6 +1963,8 @@ openai-agents = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", extras = ["http-server"], specifier = ">=1.1.5,<2" },
+    { name = "grpcio", specifier = ">=1.83.0" },
+    { name = "grpcio-health-checking", specifier = ">=1.74.0,<1.75.0" },
     { name = "kagent-proto", editable = "packages/kagent-proto" },
     { name = "opentelemetry-api", specifier = ">=1.45.2,<2" },
     { name = "opentelemetry-distro", specifier = ">=0.63b0,<1" },
@@ -1987,14 +1989,12 @@ name = "kagent-crewai"
 version = "0.1.0"
 source = { editable = "packages/kagent-crewai" }
 dependencies = [
-    { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "a2a-sdk" },
     { name = "crewai", extra = ["tools"] },
-    { name = "fastapi" },
     { name = "google-genai" },
     { name = "kagent-core", extra = ["crewai"] },
     { name = "pydantic" },
     { name = "typing-extensions" },
-    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -2007,10 +2007,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=1.1.5" },
+    { name = "a2a-sdk", specifier = ">=1.1.5" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "crewai", extras = ["tools"], specifier = ">=1.2.0" },
-    { name = "fastapi", specifier = ">=0.100.0" },
     { name = "google-genai", specifier = ">=2.34.0,<3" },
     { name = "kagent-core", extras = ["crewai"], editable = "packages/kagent-core" },
     { name = "pydantic", specifier = ">=2.0.0" },
@@ -2018,7 +2017,6 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
-    { name = "uvicorn", specifier = ">=0.20.0" },
 ]
 provides-extras = ["dev"]
 
@@ -2028,14 +2026,12 @@ version = "0.1.0"
 source = { editable = "packages/kagent-langgraph" }
 dependencies = [
     { name = "a2a-sdk" },
-    { name = "fastapi" },
     { name = "kagent-core", extra = ["langgraph"] },
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "langsmith", extra = ["otel"] },
     { name = "pydantic" },
     { name = "typing-extensions" },
-    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -2050,7 +2046,6 @@ dev = [
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=1.1.5" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "fastapi", specifier = ">=0.100.0" },
     { name = "kagent-core", extras = ["langgraph"], editable = "packages/kagent-core" },
     { name = "langchain-core", specifier = ">=0.3.0" },
     { name = "langgraph", specifier = ">=0.6.5" },
@@ -2060,7 +2055,6 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
-    { name = "uvicorn", specifier = ">=0.20.0" },
 ]
 provides-extras = ["dev"]
 
@@ -2070,7 +2064,6 @@ version = "0.1.0"
 source = { editable = "packages/kagent-openai" }
 dependencies = [
     { name = "a2a-sdk" },
-    { name = "fastapi" },
     { name = "httpx" },
     { name = "kagent-core", extra = ["openai-agents"] },
     { name = "kagent-proto" },
@@ -2079,7 +2072,6 @@ dependencies = [
     { name = "openai-agents" },
     { name = "pydantic" },
     { name = "typing-extensions" },
-    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -2094,7 +2086,6 @@ dev = [
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=1.1.5" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
-    { name = "fastapi", specifier = ">=0.100.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "kagent-core", extras = ["openai-agents"], editable = "packages/kagent-core" },
     { name = "kagent-proto", editable = "packages/kagent-proto" },
@@ -2106,7 +2097,6 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.17.2" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
-    { name = "uvicorn", specifier = ">=0.20.0" },
 ]
 provides-extras = ["dev"]
 

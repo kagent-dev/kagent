@@ -2,24 +2,19 @@
 
 import json
 import logging
-import os
+from pathlib import Path
 
-import uvicorn
 from agent import graph
 from kagent.core import KAgentConfig, materialize_from_bootstrap
 from kagent.langgraph import KAgentApp
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-logger = logging.getLogger(__name__)
-
 
 def main():
     """Main entry point for the CLI."""
-    with open(os.path.join(os.path.dirname(__file__), "agent-card.json"), "r") as f:
-        agent_card = json.load(f)
-
     materialize_from_bootstrap("/config")
+    agent_card = json.loads(Path("/config/agent-card.json").read_text())
     config = KAgentConfig.from_file()
     app = KAgentApp(
         graph=graph,
@@ -28,16 +23,7 @@ def main():
         tracing=True,
     )
 
-    port = int(os.getenv("PORT", "8080"))
-    host = os.getenv("HOST", "0.0.0.0")
-    logger.info(f"Starting server on {host}:{port}")
-
-    uvicorn.run(
-        app.build(),
-        host=host,
-        port=port,
-        log_level="info",
-    )
+    app.build().run()
 
 
 if __name__ == "__main__":

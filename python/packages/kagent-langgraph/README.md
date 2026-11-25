@@ -6,12 +6,14 @@ This package provides LangGraph integration for KAgent with A2A (Agent-to-Agent)
 
 - **A2A Server Integration**: Compatible with KAgent's Agent-to-Agent protocol
 - **Event Streaming**: Real-time streaming of graph execution events
-- **FastAPI Integration**: Ready-to-deploy web server for agent execution
 
 ## Quick Start
 
 ```python
-from kagent.core import AsyncControllerClient, AsyncFileTokenProvider, KAgentConfig
+import json
+from pathlib import Path
+
+from kagent.core import KAgentConfig, materialize_from_bootstrap
 from kagent.langgraph import KAgentApp
 import os
 import sqlite3
@@ -25,12 +27,8 @@ class State(TypedDict):
     messages: Annotated[Sequence[BaseMessage], "The conversation history"]
 
 
+materialize_from_bootstrap("/config")
 config = KAgentConfig.from_file()
-controller_client = AsyncControllerClient(
-    config.grpc_url,
-    agent_name=config.app_name,
-    token_provider=AsyncFileTokenProvider(),
-)
 
 # Define and compile your graph
 builder = StateGraph(State)
@@ -46,20 +44,11 @@ graph = builder.compile(checkpointer=checkpointer)
 # Create KAgent app
 app = KAgentApp(
     graph=graph,
-    agent_card={
-        "name": "my-langgraph-agent",
-        "description": "A LangGraph agent with KAgent integration",
-        "version": "0.1.0",
-        "capabilities": {"streaming": True},
-        "defaultInputModes": ["text"],
-        "defaultOutputModes": ["text"],
-    },
+    agent_card=json.loads(Path("/config/agent-card.json").read_text()),
     config=config,
-    controller_client=controller_client,
 )
 
-# Build FastAPI application
-fastapi_app = app.build()
+app.build().run()
 ```
 
 ## Architecture
@@ -67,30 +56,17 @@ fastapi_app = app.build()
 The package mirrors the structure of `kagent-adk` but uses LangGraph instead of Google's ADK:
 
 - **LangGraphAgentExecutor**: Executes LangGraph workflows within A2A protocol
-- **KAgentApp**: FastAPI application builder with A2A integration
+- **KAgentApp**: gRPC server builder with A2A integration
 - **Task Management**: Automatic A2A task persistence through one shared authenticated gRPC channel
-
-## Configuration
-
-Set `runtime.control_plane_url` and `runtime.gateway_url` in `/config/config.json` when running locally.
-
-```bash
-# Load process settings from /config/config.json (see Configuration).
-```
 
 ## Deployment
 
+`app.build().run()` starts A2A gRPC on `runtime.port` (default `80`), then serves `GET /readyz` on port `8081` for Substrate.
+
 Use the same deployment pattern as kagent-adk samples with Docker and Kubernetes.
 
-### Runtime configuration file
+### Substrate startup
 
-Managed entry points call `materialize_from_bootstrap("/config")` from `kagent.core`
-to fetch and materialize the controller bundle before `KAgentConfig.from_file()`.
-The file loader does not bootstrap. For a standalone process, create the file and
-load it directly:
-
-```json
-{"runtime":{"control_plane_url":"http://localhost:8083","gateway_url":"http://localhost:8083","name":"my-agent","namespace":"default","log_level":"info"}}
-```
-
-Provider credentials and standard `OTEL_*` overrides remain environment inputs.
+The image materializes the controller's revision into `/config` before building
+the app. Clients discover and invoke the Agent through the
+[controller gateway](../../../docs/architecture/a2a-transports.md).

@@ -37,6 +37,7 @@ from ._hitl import (
 )
 from ._request_size import A2ARequestSizeLimitMiddleware
 from ._requests import KAgentGrpcServerCallContextBuilder, KAgentRequestContextBuilder
+from ._runtime import A2AServer
 from ._telemetry import TelemetryRequestHandler, request_attributes
 from ._time import now_timestamp
 from ._usage import USAGE_EXTENSION_URI, attach_usage_agent_extension
@@ -44,6 +45,7 @@ from ._usage import USAGE_EXTENSION_URI, attach_usage_agent_extension
 __all__ = [
     "get_a2a_max_content_length",
     "A2ARequestSizeLimitMiddleware",
+    "A2AServer",
     "get_request_user_id",
     "set_request_user_id",
     "KAgentRequestContextBuilder",

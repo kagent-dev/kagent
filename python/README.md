@@ -67,3 +67,13 @@ In this example, the HTTP listener uses port `8080`. Substrate readiness uses a
 separate listener on port `8081`. A2A gRPC binds to `[::]` on `runtime.port`,
 which the controller sets to `80`. The same variable selects the Go ADK's
 shared HTTP/gRPC port.
+
+### BYO agents using OpenAI, CrewAI, or LangGraph
+
+Configure a BYO Harness with the image and reference it from an Agent. The
+workload reads its configuration and agent card from the revision bundle. Start
+it with `app.build().run()`. It serves A2A gRPC on `runtime.port` (default
+`80`) and `GET /readyz` on port `8081`.
+
+Clients discover and invoke the agent through the controller gateway. See
+[public A2A transports](../docs/architecture/a2a-transports.md).
