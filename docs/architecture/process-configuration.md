@@ -127,6 +127,13 @@ after connecting. Set `database.skipMigrations: true` when migrations are applie
 out-of-band; the owner login is then not needed, and startup still verifies,
 through the read/write login, that all required migrations are applied.
 
+Before applying or verifying migrations, the controller waits up to two minutes
+for PostgreSQL to accept the corresponding login. It retries transient
+connection failures and returns authentication, schema, and migration errors
+immediately. The controller remains unready until database setup completes.
+The Helm chart enables a readiness probe by default. If you configure a startup
+probe, give it time for the connection checks, migrations, and controller startup.
+
 Push settings live under `push` (`config.push` in Helm). Set
 `push.signingPrivateKeyFile` to an unencrypted PKCS#8 Ed25519 PEM key to enable
 JWT signing. Helm mounts the Secret named by `controller.push.signing.secretName`.

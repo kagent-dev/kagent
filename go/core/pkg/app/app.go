@@ -225,11 +225,19 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 
 	sources := migrationSources(cfg.GetDatabase(), opts.ExtraMigrations)
 	if cfg.GetDatabase().GetSkipMigrations() {
+		if err := database.WaitForPostgres(ctx, readWriteConfig); err != nil {
+			return fmt.Errorf("wait for PostgreSQL using database.readWrite: %w", err)
+		}
 		if err := migrations.VerifyMigrated(ctx, readWriteConfig, sources); err != nil {
 			return fmt.Errorf("verify database migrations: %w", err)
 		}
-	} else if err := migrations.RunUp(ctx, ownerConfig, sources); err != nil {
-		return fmt.Errorf("run database migrations: %w", err)
+	} else {
+		if err := database.WaitForPostgres(ctx, ownerConfig); err != nil {
+			return fmt.Errorf("wait for PostgreSQL using database.owner: %w", err)
+		}
+		if err := migrations.RunUp(ctx, ownerConfig, sources); err != nil {
+			return fmt.Errorf("run database migrations: %w", err)
+		}
 	}
 	db, err := database.Connect(ctx, postgresConfig(cfg.GetDatabase(), readWriteConfig))
 	if err != nil {

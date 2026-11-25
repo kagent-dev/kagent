@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 
@@ -37,11 +40,26 @@ const (
 	defaultMaxDelay     = 5 * time.Second
 )
 
-// Connect returns a PostgreSQL pool after a successful ping, retrying until the
-// context is canceled or two minutes elapse. Invalid configuration fails immediately.
+// Connect returns a PostgreSQL pool after a successful ping. Transient startup
+// failures retry until the context is canceled or two minutes elapse.
 // VectorEnabled registers pgvector types on each connection. The caller closes the pool.
 func Connect(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
-	return retryDBConnection(ctx, cfg)
+	config, err := poolConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return connectPool(ctx, config)
+}
+
+// WaitForPostgres checks connectivity with the caller's login and role before
+// migration or verification. It does not require the runtime schema or types.
+func WaitForPostgres(ctx context.Context, config *pgxpool.Config) error {
+	pool, err := connectPool(ctx, config)
+	if err != nil {
+		return err
+	}
+	pool.Close()
+	return nil
 }
 
 // applyPoolConfig copies non-nil pool settings from cfg onto config and
@@ -123,40 +141,60 @@ func poolConfig(cfg *PostgresConfig) (*pgxpool.Config, error) {
 	return config, nil
 }
 
-// retryDBConnection opens and verifies a pool, registering vector types when enabled.
-// Failed pings retry with exponential backoff until cancellation or the two-minute
-// timeout; an unsuccessful pool is closed before returning the error.
-func retryDBConnection(ctx context.Context, cfg *PostgresConfig) (*pgxpool.Pool, error) {
-	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
-	defer cancel()
-
-	config, err := poolConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-
+// connectPool closes the pool if startup fails and transfers ownership on success.
+func connectPool(ctx context.Context, config *pgxpool.Config) (*pgxpool.Pool, error) {
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database pool: %w", err)
 	}
+	if err := waitForPing(ctx, pool.Ping); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
+}
 
+// waitForPing bounds startup even when the peer accepts TCP but stalls during login.
+func waitForPing(ctx context.Context, ping func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, defaultMaxTimeout)
+	defer cancel()
 	start := time.Now()
 	delay := defaultInitialDelay
-	for attempt := 1; ; attempt++ {
-		if err := pool.Ping(ctx); err == nil {
-			return pool, nil
-		} else {
-			logging.FromContext(ctx).WarnContext(ctx, "database not ready", "error", err, "attempt", attempt, "elapsed_ms", time.Since(start).Milliseconds())
+	var lastErr error
+	for attempt := 1; ctx.Err() == nil; attempt++ {
+		err := ping(ctx)
+		if err == nil {
+			return nil
 		}
+		if ctx.Err() != nil {
+			if lastErr == nil || !errors.Is(err, ctx.Err()) {
+				lastErr = err
+			}
+			break
+		}
+		if !isTransientStartupError(err) {
+			return err
+		}
+		lastErr = err
+		logging.FromContext(ctx).WarnContext(ctx, "waiting for PostgreSQL", "error", err, "attempt", attempt, "elapsed_ms", time.Since(start).Milliseconds())
 		select {
 		case <-ctx.Done():
-			pool.Close()
-			return nil, fmt.Errorf("database not ready after %s: %w", time.Since(start).Round(time.Second), ctx.Err())
 		case <-time.After(delay):
-		}
-		delay *= 2
-		if delay > defaultMaxDelay {
-			delay = defaultMaxDelay
+			delay = min(2*delay, defaultMaxDelay)
 		}
 	}
+	return fmt.Errorf("PostgreSQL unavailable after %s: %w", time.Since(start).Round(time.Millisecond), errors.Join(lastErr, ctx.Err()))
+}
+
+func isTransientStartupError(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "57P03" // cannot_connect_now
+	}
+	var dnsErr *net.DNSError
+	var netErr net.Error
+	return errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.As(err, &dnsErr) ||
+		pgconn.Timeout(err) ||
+		(errors.As(err, &netErr) && netErr.Timeout())
 }

@@ -2,10 +2,16 @@ package database
 
 import (
 	"context"
+	"errors"
+	"net"
+	"os"
+	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -14,14 +20,70 @@ import (
 	"github.com/kagent-dev/kagent/go/core/pkg/postgres"
 )
 
-func TestRetryDBConnection_DeadlineExceeded(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+func TestConnectReportsRefusedConnectionAtDeadline(t *testing.T) {
+	// Given a PostgreSQL address that refuses connections, when startup runs
+	// out of time, the error includes both the deadline and the failed dial.
+	config, err := pgxpool.ParseConfig("postgres://user@" + dbtest.RefuseConnections(t) + "/nodb?sslmode=disable")
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
 	defer cancel()
 
-	_, err := retryDBConnection(ctx, &PostgresConfig{
-		Pool: testPoolConfig(t, "postgres://user:pass@localhost:1/nodb?connect_timeout=1"),
-	})
+	_, err = Connect(ctx, &PostgresConfig{Pool: config})
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.ErrorIs(t, err, syscall.ECONNREFUSED)
+}
+
+func TestPostgresStartupRetry(t *testing.T) {
+	scenarios := []struct {
+		name string
+		err  error
+	}{
+		{"Given PostgreSQL is initializing, when a ping returns 57P03 then succeeds, assert that startup continues", &pgconn.PgError{Code: "57P03"}},
+		{"Given DNS is unavailable, when a ping fails then resolves, assert that startup continues", &net.DNSError{IsNotFound: true}},
+		{"Given a slow network, when a ping times out then succeeds, assert that startup continues", os.ErrDeadlineExceeded},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				attempts := 0
+				err := waitForPing(t.Context(), func(context.Context) error {
+					attempts++
+					if attempts == 1 {
+						return scenario.err
+					}
+					return nil
+				})
+				require.NoError(t, err)
+				assert.Equal(t, 2, attempts)
+			})
+		})
+	}
+
+	t.Run("Given a stalled login, when startup expires, assert that the previous connection error is retained", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			start := time.Now()
+			err := waitForPing(t.Context(), func(ctx context.Context) error {
+				if time.Now().Equal(start) {
+					return syscall.ECONNREFUSED
+				}
+				<-ctx.Done()
+				return ctx.Err()
+			})
+			assert.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.ErrorIs(t, err, syscall.ECONNREFUSED)
+			assert.Equal(t, 2*time.Minute, time.Since(start))
+		})
+	})
+
+	t.Run("Given a missing schema, when the runtime pool checks it, assert that startup returns the error immediately", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			schemaErr := errors.New("PostgreSQL schema is not accessible")
+			start := time.Now()
+			err := waitForPing(t.Context(), func(context.Context) error { return schemaErr })
+			assert.ErrorIs(t, err, schemaErr)
+			assert.Equal(t, start, time.Now())
+		})
+	})
 }
 
 func TestApplyPoolConfig(t *testing.T) {

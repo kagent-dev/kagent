@@ -184,13 +184,6 @@ spec:
           {{- if .Values.controller.startupProbe }}
           startupProbe:
             {{- toYaml .Values.controller.startupProbe | nindent 12 }}
-          {{- else }}
-          startupProbe:
-            httpGet:
-              path: /health
-              port: http
-            periodSeconds: 15
-            initialDelaySeconds: 15
           {{- end }}
           {{- if .Values.controller.readinessProbe }}
           readinessProbe:
