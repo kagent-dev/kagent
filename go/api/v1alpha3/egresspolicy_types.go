@@ -10,6 +10,11 @@ import (
 )
 
 const EgressPolicyKind = "EgressPolicy"
+const (
+	EgressPolicyConditionTypeResolvedRefs = "ResolvedRefs"
+	EgressPolicyReasonSecretNotFound      = "SecretKeyRefSecretNotFound"
+	EgressPolicyReasonSecretKeyNotFound   = "SecretKeyRefSecretKeyNotFound"
+)
 
 // EgressPolicySpec grants additional HTTP(S) access to workloads in its namespace.
 type EgressPolicySpec struct {
@@ -63,7 +68,18 @@ type EgressAuthentication struct {
 	ActorJWT *ActorJWT `json:"actorJwt,omitempty"`
 }
 
+// EgressPolicyStatus reports whether credential references resolve.
+type EgressPolicyStatus struct {
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
 // +genclient
+// +kubebuilder:subresource:status
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:path=egresspolicies,singular=egresspolicy,scope=Namespaced,categories=kagent
 
@@ -75,6 +91,8 @@ type EgressPolicy struct {
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 	// +required
 	Spec EgressPolicySpec `json:"spec"`
+	// +optional
+	Status EgressPolicyStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
