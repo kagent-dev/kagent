@@ -269,17 +269,12 @@ func (e *settledExecutor) Cleanup(ctx context.Context, input *a2asrv.ExecutorCon
 	// Settlement retries within the store's retry budget instead of a shared
 	// cleanup deadline, so it can outlast a controller restart.
 	finish := context.WithoutCancel(ctx)
-	// Export the final save before settlement permits suspension. The settlement
-	// RPC's own span is flushed afterwards, but suspension can race that flush.
+	// Export buffered telemetry, including the final save, before sending
+	// SettleTask. The controller can start suspension before the RPC returns.
 	if e.flush != nil {
 		if err := e.flushWithin(finish); err != nil {
 			logging.FromContext(finish).ErrorContext(finish, "flush telemetry before task settlement", "task_id", input.TaskID, "error", err)
 		}
-		defer func() {
-			if err := e.flushWithin(finish); err != nil {
-				logging.FromContext(finish).ErrorContext(finish, "flush telemetry after task settlement", "task_id", input.TaskID, "error", err)
-			}
-		}()
 	}
 	id, settleErr := e.store.sessionID()
 	if settleErr == nil {

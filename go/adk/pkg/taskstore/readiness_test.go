@@ -223,20 +223,16 @@ func TestSettlementSurvivesFlushDeadline(t *testing.T) {
 		deadline, _ := ctx.Deadline()
 		settlementDeadline <- deadline
 	}}, nil, nil)
-	var firstDeadline, secondDeadline time.Time
+	var flushDeadline time.Time
 	flushes := 0
 	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", func(ctx context.Context) error {
 		flushes++
-		require.NoError(t, ctx.Err(), "each flush gets a fresh context after observer cancellation")
+		require.NoError(t, ctx.Err(), "the flush survives observer cancellation")
 		deadline, ok := ctx.Deadline()
 		require.True(t, ok, "flush must remain bounded")
-		if flushes == 1 {
-			firstDeadline = deadline
-			<-ctx.Done()
-			return ctx.Err()
-		}
-		secondDeadline = deadline
-		return nil
+		flushDeadline = deadline
+		<-ctx.Done()
+		return ctx.Err()
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	state := &execution{ready: make(chan struct{})}
@@ -245,9 +241,8 @@ func TestSettlementSurvivesFlushDeadline(t *testing.T) {
 	wrapper.track(ctx, "task")
 	cancel()
 	wrapper.Cleanup(ctx, &a2asrv.ExecutorContext{TaskID: "task"}, nil, nil)
-	require.Equal(t, 2, flushes)
-	require.True(t, receive(t, settlementDeadline).After(firstDeadline), "an expired flush must not consume settlement's deadline")
-	require.True(t, secondDeadline.After(firstDeadline), "the second flush must have its own deadline")
+	require.Equal(t, 1, flushes)
+	require.True(t, receive(t, settlementDeadline).After(flushDeadline), "an expired flush must not consume settlement's deadline")
 }
 
 func completedUpdate() *sdktaskstore.UpdateRequest {

@@ -182,15 +182,15 @@ func (s *settlementServer) SettleTask(context.Context, *runtimev1.TaskStoreServi
 	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 
-func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
+func TestSettlementFlushesBeforeCheckpointEligibility(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		failFlush  bool
 		failSettle bool
 	}{
-		{name: "success"},
-		{name: "flush error does not prevent settlement", failFlush: true},
-		{name: "failed settlement is still flushed", failSettle: true},
+		{name: "Given a saved boundary, when cleanup settles it, assert that telemetry is flushed before settlement"},
+		{name: "Given an export error, when cleanup settles a task, assert that settlement proceeds", failFlush: true},
+		{name: "Given a saved boundary, when the API rejects settlement, assert that the final save was flushed", failSettle: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			exporter := tracetest.NewInMemoryExporter()
@@ -220,8 +220,12 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			}
 			store := New(client, filepath.Join(dir, "name"))
 			flushes := 0
+			flushedAfterSettlement := false
 			wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", func(ctx context.Context) error {
 				flushes++
+				if api.settled.Load() {
+					flushedAfterSettlement = true
+				}
 				require.NoError(t, ctx.Err(), "cleanup must survive observer cancellation")
 				require.NoError(t, provider.ForceFlush(ctx))
 				if test.failFlush {
@@ -243,10 +247,11 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			cancel()
 			wrapper.Cleanup(ctx, input, task, nil)
 			require.True(t, api.settled.Load())
-			require.Equal(t, 2, flushes)
+			require.False(t, flushedAfterSettlement, "telemetry flush ran after SettleTask reached the controller")
+			require.Equal(t, 1, flushes)
 			spans := exporter.GetSpans()
-			require.Len(t, spans, 2)
-			require.Equal(t, "kagent.runtime.v1.TaskStoreService/SettleTask", spans[1].Name)
+			require.Len(t, spans, 1)
+			require.Equal(t, "kagent.runtime.v1.TaskStoreService/UpdateTask", spans[0].Name)
 		})
 	}
 }
