@@ -30,6 +30,12 @@ operation.
 
 ## Request forms
 
+The canonical payload definitions live in
+[`interactions.proto`](../../proto/kagent/api/v1/interactions.proto), with
+generated Go, Python, and TypeScript bindings in `kagent.api.v1`. Protobuf JSON
+uses the extension's existing snake_case names, including `call_id` and
+`rejection_reason`. An explicit `approved: false` represents rejection.
+
 Version 1 supports two request kinds:
 
 - **tool approval** identifies one or more pending tool calls. Each decision
