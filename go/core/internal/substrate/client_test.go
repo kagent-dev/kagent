@@ -451,6 +451,41 @@ func TestSuspendActorWaitsForLatestDurableSnapshot(t *testing.T) {
 		cancel()
 		require.ErrorIs(t, err, context.Canceled)
 	})
+	// A snapshot takes as long as the Actor's data takes to upload, so suspend
+	// is bounded by its own deadline. Sharing the metadata deadline cancelled
+	// the upload mid-flight and left the session claimed with nothing to show.
+	t.Run("the upload outlives the metadata deadline", func(t *testing.T) {
+		slow := func(ctx context.Context) (*ateapipb.Actor, error) {
+			select {
+			case <-time.After(60 * time.Millisecond):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			done := proto.CloneOf(actor)
+			done.Status.Snapshots[0].DurableSnapshot = &ateapipb.SnapshotStorage{State: ateapipb.SnapshotStorageState_SNAPSHOT_STORAGE_STATE_COMPLETED, Object: &ateapipb.ObjectSnapshot{SnapshotUri: "s3://snapshots/new"}}
+			return done, nil
+		}
+		client := &Client{ControlClient: &suspendActorFake{actor: actor, get: slow}, cfg: Config{CallTimeout: 20 * time.Millisecond, SnapshotTimeout: 5 * time.Second}}
+		got, err := client.SuspendActor(t.Context(), "team", "actor")
+		require.NoError(t, err)
+		require.Equal(t, "s3://snapshots/new", SnapshotURI(LatestActorSnapshot(got)))
+
+		// Without one of its own it keeps the metadata deadline, which is what
+		// every caller had before this was configurable.
+		client = &Client{ControlClient: &suspendActorFake{actor: actor, get: slow}, cfg: Config{CallTimeout: 20 * time.Millisecond}}
+		_, err = client.SuspendActor(t.Context(), "team", "actor")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+	t.Run("metadata calls keep the short deadline", func(t *testing.T) {
+		client := &Client{ControlClient: &suspendActorFake{get: func(ctx context.Context) (*ateapipb.Actor, error) {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}}, cfg: Config{CallTimeout: 20 * time.Millisecond, SnapshotTimeout: time.Hour}}
+		started := time.Now()
+		_, err := client.GetActor(t.Context(), "team", "actor")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Less(t, time.Since(started), time.Second)
+	})
 	t.Run("already durable", func(t *testing.T) {
 		durable := proto.CloneOf(actor)
 		durable.Status.Snapshots = []*ateapipb.Snapshot{completed}

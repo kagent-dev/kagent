@@ -16,6 +16,18 @@ tests:
           path: data["controller.yaml"]
           pattern: 'caFile: /run/substrate-servicedns/trust-bundle.pem'
 
+  - it: carries the suspend deadline for Actors with large workspaces
+    template: controller-configmap.yaml
+    set:
+      config.substrate.snapshotTimeout: 600s
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'snapshotTimeout: 600s'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'callTimeout: 30s'
+
   - it: forwards the built-in bash setting to runtime defaults
     template: controller-configmap.yaml
     set:
