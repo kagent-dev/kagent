@@ -22,4 +22,7 @@ type Config struct {
 	ClientCertFile string
 	DialTimeout    time.Duration
 	CallTimeout    time.Duration
+	// SuspendTimeout overrides CallTimeout for snapshot creation and upload.
+	// Non-positive values retain CallTimeout, including its no-timeout behaviour.
+	SuspendTimeout time.Duration
 }
