@@ -346,18 +346,18 @@ tests:
                         podcert.ate.dev/canarying: live
                     path: trust-bundle.pem
 
-  - it: should use default httpGet startup probe
+  - it: should allow about ten minutes for controller startup
     template: controller-deployment.yaml
     asserts:
       - equal:
-          path: spec.template.spec.containers[0].startupProbe.httpGet.path
-          value: /health
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.periodSeconds
-          value: 15
-      - equal:
-          path: spec.template.spec.containers[0].startupProbe.initialDelaySeconds
-          value: 15
+          path: spec.template.spec.containers[0].startupProbe
+          value:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 120
 
   - it: should use default httpGet readiness probe
     template: controller-deployment.yaml

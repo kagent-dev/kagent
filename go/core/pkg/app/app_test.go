@@ -10,12 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	apiauthorization "github.com/kagent-dev/kagent/go/api/authorization"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/dbtest"
 	"github.com/kagent-dev/kagent/go/core/internal/grpcserver"
 	authimpl "github.com/kagent-dev/kagent/go/core/internal/httpserver/auth"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -208,17 +210,23 @@ func TestRunRejectsInvalidRuntimeTelemetryBeforeIO(t *testing.T) {
 	}
 }
 
-// With migrations skipped the owner login is never read, so Run gets past its
-// configuration and fails only when the read/write login cannot connect.
+// Given skipMigrations and no owner login, when PostgreSQL rejects the read/write
+// login, startup returns that login error immediately.
 func TestRunSkippingMigrationsNeedsNoOwner(t *testing.T) {
 	urlFile := filepath.Join(t.TempDir(), "readwrite-url")
-	require.NoError(t, os.WriteFile(urlFile, []byte("postgres://user@127.0.0.1:1/app?sslmode=disable&connect_timeout=1"), 0o600))
+	address := dbtest.RejectLogins(t, "28P01")
+	require.NoError(t, os.WriteFile(urlFile, []byte("postgres://user@"+address+"/app?sslmode=disable"), 0o600))
 	cfg := &configv1.ControllerConfig{Database: &configv1.DatabaseConfig{
 		SkipMigrations: true,
 		ReadWrite:      &configv1.DatabaseLoginConfig{UrlFile: urlFile, Role: "kagent_readwrite"},
 	}}
 	config.DefaultController(cfg)
-	require.ErrorContains(t, Run(t.Context(), cfg, Options{}), "verify database migrations:")
+	err := Run(t.Context(), cfg, Options{})
+	require.ErrorContains(t, err, "wait for PostgreSQL using database.readWrite")
+	var loginErr *pgconn.PgError
+	require.ErrorAs(t, err, &loginErr)
+	require.Equal(t, "28P01", loginErr.Code)
+	require.NotErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestRunRejectsNonpositivePushInterval(t *testing.T) {

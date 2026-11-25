@@ -189,8 +189,9 @@ spec:
             httpGet:
               path: /health
               port: http
-            periodSeconds: 15
-            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 1
+            failureThreshold: 120
           {{- end }}
           {{- if .Values.controller.readinessProbe }}
           readinessProbe:
