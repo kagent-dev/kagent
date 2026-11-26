@@ -40,9 +40,11 @@ Values belong in `params.metadata[<A2A extension URI>]`:
 }
 ```
 
-The object maps qualified metadata keys to opaque JSON values. Keys follow
-MCP's `_meta` naming grammar, with a mandatory vendor prefix and a nonempty
-name. Namespaces reserved by MCP are not allowed. These are metadata keys,
+The object maps qualified metadata keys to opaque JSON values. This contract
+requires each key to follow MCP's `_meta` naming grammar with a mandatory vendor
+prefix and a nonempty name, so keys from different applications do not
+collide; MCP itself does not constrain keys nested inside an extension's
+object. Namespaces reserved by MCP are not allowed. These are metadata keys,
 not declarations of support for extensions with matching identifiers.
 
 A missing payload, JSON null or an empty object contributes no values. An
@@ -94,6 +96,10 @@ client declaration does not depend on the current request's metadata keys.
 
 ## MCP delivery and trust
 
+Only `tools/call` requests carry the values. Initialization, `server/discover`,
+list requests and every other MCP request never do, so a cached list result
+never holds one request's values.
+
 For every `tools/call`, the runtime intersects the caller's keys with the
 destination server's accepted keys and sends the resulting object under the
 MCP extension identifier:
@@ -119,7 +125,13 @@ Capability declarations express protocol support and accepted keys, not
 authorization to receive confidential data. Every configured server accepting
 the same key can receive its value. Servers must treat values as untrusted
 application data and independently authenticate and authorize their requests.
-OAuth credentials remain part of the transport's authorization mechanism.
+
+Values are not credentials. A caller must not put access tokens, refresh
+tokens, API keys or other secrets in them, and a server must not accept one
+from them. Authorization stays in the transport's `Authorization` header, as
+the MCP authorization specification requires: a server only accepts tokens
+issued for itself, and passing a caller's token on to another service is
+forbidden (MCP security best practices, token passthrough).
 
 Breaking changes to the A2A contract require a new URI; breaking changes to
 the MCP extension require a new extension identifier. Unknown settings fields
