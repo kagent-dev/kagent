@@ -282,3 +282,26 @@ tests:
           content:
             secretRef:
               name: telemetry-credentials
+
+  - it: uses ui.externalUrl as the push issuer when the UI is enabled
+    template: controller-configmap.yaml
+    set:
+      ui.enabled: true
+      ui.externalUrl: https://kagent.example.com
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'issuer: https://kagent.example.com'
+
+  - it: ignores ui.externalUrl as the push issuer when the UI is disabled
+    template: controller-configmap.yaml
+    set:
+      ui.enabled: false
+      ui.externalUrl: https://kagent.example.com
+    asserts:
+      - notMatchRegex:
+          path: data["controller.yaml"]
+          pattern: 'issuer: https://kagent.example.com'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'issuer: http://RELEASE-NAME-controller.NAMESPACE.svc.cluster.local:'

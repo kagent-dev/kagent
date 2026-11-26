@@ -483,6 +483,9 @@ harnesses:
 # ==============================================================================
 
 ui:
+  # -- Deploy the UI. When false, no UI resources are rendered, regardless of the other `ui.*` settings.
+  enabled: true
+
   # -- ServiceAccount settings for the UI pod
   serviceAccount:
     # -- Annotations to add to the UI ServiceAccount.

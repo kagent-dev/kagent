@@ -21,3 +21,13 @@ tests:
       - matchRegex:
           path: data["sign_in.html"]
           pattern: 'url=/login\?rd='
+
+  - it: fails when oauth2-proxy is enabled and the UI is disabled
+    set:
+      oauth2-proxy:
+        enabled: true
+      ui:
+        enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: "oauth2-proxy.enabled requires ui.enabled=true: oauth2-proxy fronts the UI Service, which is not deployed when the UI is disabled"

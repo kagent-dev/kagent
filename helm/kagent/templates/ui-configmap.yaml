@@ -1,3 +1,4 @@
+{{- if .Values.ui.enabled -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,3 +23,4 @@ data:
   {{- with include "kagent.builtinSkillsCatalog" . }}
   KAGENT_UI_BUILTIN_SKILLS: {{ . | quote }}
   {{- end }}
+{{- end }}
