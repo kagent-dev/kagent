@@ -150,6 +150,7 @@ func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallIntercepto
 			a2a.HITLActivationInterceptor(),
 			a2a.UsageActivationInterceptor(),
 			a2a.UserIDCallInterceptor(),
+			a2a.HITLResponseInterceptor(tasks),
 			runtime,
 		),
 	}

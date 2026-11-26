@@ -125,3 +125,168 @@ func TestValidateAskUserResponseSelections(t *testing.T) {
 		})
 	}
 }
+
+func TestParseAndValidateURLElicitation(t *testing.T) {
+	requestMessage := &a2atype.Message{}
+	if err := AttachHITL(requestMessage, URLElicitationRequest{
+		Type: HITLTypeURLElicitationRequest, ID: "sign-in", Server: "github",
+		Message: "Sign in to github", URL: "https://gateway.example/oauth/proxy/start?s=1", ElicitationID: "e1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	request, err := ParseURLElicitationRequest(requestMessage)
+	if err != nil || request == nil {
+		t.Fatalf("ParseURLElicitationRequest() = %v, %v", request, err)
+	}
+	if request.Server != "github" || request.ElicitationID != "e1" {
+		t.Fatalf("request = %+v", request)
+	}
+	if other, err := ParseToolApprovalRequest(requestMessage); other != nil || err != nil {
+		t.Fatalf("ParseToolApprovalRequest() = %v, %v, want no request", other, err)
+	}
+
+	for _, action := range []string{URLElicitationAccept, URLElicitationDecline, URLElicitationCancel} {
+		responseMessage := &a2atype.Message{}
+		if err := AttachHITL(responseMessage, URLElicitationResponse{
+			Type: HITLTypeURLElicitationResponse, ID: "sign-in", Action: action,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		response, err := ParseURLElicitationResponse(responseMessage)
+		if err != nil {
+			t.Fatalf("ParseURLElicitationResponse(%s): %v", action, err)
+		}
+		if err := ValidateURLElicitationResponse(request, response); err != nil {
+			t.Fatalf("ValidateURLElicitationResponse(%s): %v", action, err)
+		}
+	}
+}
+
+func TestURLElicitationRejectsMalformedPayloads(t *testing.T) {
+	requestMessage := &a2atype.Message{}
+	if err := AttachHITL(requestMessage, URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "sign-in"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseURLElicitationRequest(requestMessage); err == nil {
+		t.Fatal("ParseURLElicitationRequest() accepted a request without a URL")
+	}
+
+	responseMessage := &a2atype.Message{}
+	if err := AttachHITL(responseMessage, URLElicitationResponse{
+		Type: HITLTypeURLElicitationResponse, ID: "sign-in", Action: "approve",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseURLElicitationResponse(responseMessage); err == nil {
+		t.Fatal("ParseURLElicitationResponse() accepted an unknown action")
+	}
+
+	request := &URLElicitationRequest{ID: "sign-in"}
+	if err := ValidateURLElicitationResponse(request, &URLElicitationResponse{ID: "other", Action: URLElicitationAccept}); err == nil {
+		t.Fatal("ValidateURLElicitationResponse() accepted a mismatched ID")
+	}
+}
+
+func TestValidateElicitationURL(t *testing.T) {
+	for _, test := range []struct {
+		url   string
+		valid bool
+	}{
+		{"https://gateway.example/oauth/proxy/start?s=1", true},
+		{"http://localhost:8080/callback", true},
+		{"http://127.0.0.1/callback", true},
+		{"http://[::1]/callback", true},
+		{"http://gateway.example/s", false},
+		{"javascript:alert(1)", false},
+		{"data:text/html,hi", false},
+		{"https://github.com@evil.example/s", false},
+		{"https:///no-host", false},
+		{"", false},
+	} {
+		err := ValidateElicitationURL(test.url)
+		if (err == nil) != test.valid {
+			t.Errorf("ValidateElicitationURL(%q) = %v, want valid %v", test.url, err, test.valid)
+		}
+	}
+}
+
+func TestParseToolApprovalRequestValidatesToolURLElicitations(t *testing.T) {
+	safe := &URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "one", Server: "github", URL: "https://example.com/sign-in"}
+	unsafe := &URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "one", Server: "github", URL: "http://example.com/sign-in"}
+	cases := map[string]struct {
+		request ToolApprovalRequest
+		valid   bool
+	}{
+		"safe URL on a tool": {
+			request: ToolApprovalRequest{Tools: []HITLTool{{ID: "one", URLElicitation: safe}}},
+			valid:   true,
+		},
+		"unsafe URL on a tool": {
+			request: ToolApprovalRequest{Tools: []HITLTool{{ID: "one", URLElicitation: unsafe}}},
+		},
+		"unsafe URL on a nested tool": {
+			request: ToolApprovalRequest{
+				Tools:  []HITLTool{{ID: "parent"}},
+				Nested: &NestedHITLRequest{Tools: []HITLTool{{ID: "one", URLElicitation: unsafe}}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tc.request.Type = HITLTypeToolApprovalRequest
+			message := &a2atype.Message{}
+			require.NoError(t, AttachHITL(message, tc.request))
+
+			request, err := ParseToolApprovalRequest(message)
+
+			if tc.valid {
+				require.NoError(t, err)
+				require.NotNil(t, request)
+				return
+			}
+			require.Error(t, err)
+			require.Nil(t, request)
+		})
+	}
+}
+
+func TestValidateHITLDecision(t *testing.T) {
+	message := func(payload any) *a2atype.Message {
+		message := &a2atype.Message{}
+		require.NoError(t, AttachHITL(message, payload))
+		return message
+	}
+	paused := func(request any) *a2atype.Task {
+		return &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: message(request)}}
+	}
+	urlPause := paused(URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "sign-in", Server: "github", URL: "https://example.com/s"})
+	approvalPause := paused(ToolApprovalRequest{Type: HITLTypeToolApprovalRequest, Tools: []HITLTool{{ID: "one"}}})
+	askPause := paused(AskUserRequest{Type: HITLTypeAskUserRequest, ID: "ask", Questions: []HITLQuestion{{Question: "Which?"}}})
+	accept := message(URLElicitationResponse{Type: HITLTypeURLElicitationResponse, ID: "sign-in", Action: URLElicitationAccept})
+
+	for name, scenario := range map[string]struct {
+		task     *a2atype.Task
+		decision *a2atype.Message
+		valid    bool
+	}{
+		"URL elicitation accepted":         {task: urlPause, decision: accept, valid: true},
+		"URL elicitation without action":   {task: urlPause, decision: message(map[string]any{"type": HITLTypeURLElicitationResponse, "id": "sign-in"})},
+		"URL elicitation for another ID":   {task: urlPause, decision: message(URLElicitationResponse{Type: HITLTypeURLElicitationResponse, ID: "other", Action: URLElicitationAccept})},
+		"URL elicitation answered as tool": {task: urlPause, decision: message(ToolApprovalResponse{Type: HITLTypeToolApprovalResponse, Approvals: []ToolApproval{{ID: "sign-in", Approved: true}}})},
+		"tool approval decided":            {task: approvalPause, decision: message(ToolApprovalResponse{Type: HITLTypeToolApprovalResponse, Approvals: []ToolApproval{{ID: "one", Approved: true}}}), valid: true},
+		"tool approval answered as URL":    {task: approvalPause, decision: accept},
+		"ask_user answered":                {task: askPause, decision: message(AskUserResponse{Type: HITLTypeAskUserResponse, ID: "ask", Answers: []AskUserAnswer{{Answer: []string{"a"}}}}), valid: true},
+		"ask_user answered for another ID": {task: askPause, decision: message(AskUserResponse{Type: HITLTypeAskUserResponse, ID: "other", Answers: []AskUserAnswer{{Answer: []string{"a"}}}})},
+		"task not paused":                  {task: &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}, decision: accept},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.True(t, DeclaresHITLResponse(scenario.decision))
+			err := ValidateHITLDecision(scenario.task, scenario.decision)
+			if scenario.valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}

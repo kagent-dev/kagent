@@ -28,7 +28,7 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		}
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.SseTools = append(config.SseTools, &configv1.ADKSSEMCPServerConfig{
-			Params: params, Tools: tools, RequireApproval: requireApproval,
+			Name: server.Name, Params: params, Tools: tools, RequireApproval: requireApproval,
 			TokenPassthrough: ptr.Deref(server.Spec.TokenPassthrough, false),
 		})
 	default:
@@ -44,7 +44,7 @@ func (c *Builder) addRemoteMCPServer(config *configv1.ADKAgentConfig, server *v1
 		}
 		params.TlsInsecureSkipVerify = tlsInsecureSkipVerify(server.Spec.TLS)
 		config.HttpTools = append(config.HttpTools, &configv1.ADKHTTPMCPServerConfig{
-			Params: params, Tools: tools, RequireApproval: requireApproval,
+			Name: server.Name, Params: params, Tools: tools, RequireApproval: requireApproval,
 			TokenPassthrough: ptr.Deref(server.Spec.TokenPassthrough, false),
 		})
 	}
