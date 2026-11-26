@@ -52,6 +52,86 @@ func TestMaterializeReusesReorderedSources(t *testing.T) {
 	require.Len(t, entries, 1, "sources from one commit share a cache entry")
 }
 
+func TestMaterializeReusesCacheDuringSourceOutage(t *testing.T) {
+	store := newPackageStore(map[string]revision{"pinned": {files: map[string]string{
+		"review/SKILL.md":                   "# Review",
+		"triage/SKILL.md":                   "# Triage",
+		"deploy/SKILL.md":                   "# Deploy",
+		"plugin/.claude-plugin/plugin.json": `{"name":"cached-plugin"}`,
+	}}})
+	resources := agentplugin.Resources{
+		Skills: []agentplugin.Skill{
+			{Name: "review", Source: gitSource("pinned", "review")},
+			{Name: "triage", Source: gitSource("pinned", "triage")},
+			{Name: "deploy", Source: gitSource("pinned", "deploy")},
+		},
+		Plugins: []agentplugin.Bundle{{Source: gitSource("pinned", "plugin")}},
+	}
+	paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
+	initial, err := store.materialize(t, resources, paths)
+	require.NoError(t, err)
+	require.Equal(t, []string{"pinned"}, store.fetched)
+	store.revisions["pinned"] = revision{err: errors.New("source unavailable")}
+	store.fetched = nil
+	require.NoError(t, os.RemoveAll(paths.Skills))
+
+	restarted, err := store.materialize(t, resources, paths)
+
+	require.NoError(t, err)
+	require.Empty(t, store.fetched, "cached artifacts need no fetch during an outage")
+	require.Equal(t, initial.ClaudeFormatPluginRoots(), restarted.ClaudeFormatPluginRoots())
+	for name, want := range map[string]string{"review": "# Review", "triage": "# Triage", "deploy": "# Deploy"} {
+		content, err := os.ReadFile(filepath.Join(paths.Skills, name, "SKILL.md"))
+		require.NoError(t, err)
+		require.Equal(t, want, string(content))
+	}
+	content, err := os.ReadFile(filepath.Join(restarted.ClaudeFormatPluginRoots()[0], ".claude-plugin", "plugin.json"))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"name":"cached-plugin"}`, string(content))
+}
+
+func TestMaterializeStopsAfterFetchFailure(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		resources agentplugin.Resources
+	}{
+		{
+			name: "Given uncached skills from one artifact, when its fetch fails, assert that startup stops after one fetch",
+			resources: agentplugin.Resources{Skills: []agentplugin.Skill{
+				{Name: "review", Source: gitSource("pinned", "review")},
+				{Name: "triage", Source: gitSource("pinned", "triage")},
+				{Name: "deploy", Source: gitSource("pinned", "deploy")},
+			}},
+		},
+		{
+			name: "Given uncached plugins from one artifact, when its fetch fails, assert that startup stops after one fetch",
+			resources: agentplugin.Resources{Plugins: []agentplugin.Bundle{
+				{Source: gitSource("pinned", "plugin-a")},
+				{Source: gitSource("pinned", "plugin-b")},
+			}},
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			fetchErr := errors.New("source unavailable")
+			store := newPackageStore(map[string]revision{"pinned": {
+				files: map[string]string{"review/SKILL.md": "# Partial"}, err: fetchErr,
+			}})
+			paths := Paths{Packages: t.TempDir(), Skills: t.TempDir()}
+
+			_, err := store.materialize(t, scenario.resources, paths)
+
+			require.ErrorIs(t, err, fetchErr)
+			require.Equal(t, []string{"pinned"}, store.fetched)
+			entries, err := os.ReadDir(paths.Packages)
+			require.NoError(t, err)
+			require.Empty(t, entries, "failed fetches must leave no staged or published package")
+			entries, err = os.ReadDir(paths.Skills)
+			require.NoError(t, err)
+			require.Empty(t, entries, "partial downloads must not become installed skills")
+		})
+	}
+}
+
 func TestMaterializeDoesNotPublishFailedFetch(t *testing.T) {
 	for _, scenario := range []struct {
 		name     string
