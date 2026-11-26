@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
-	"github.com/stretchr/testify/require"
 	"istio.io/istio/pkg/kube/krt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -79,34 +78,12 @@ func TestAgentCardDeclaresUsage(t *testing.T) {
 		})
 	}
 
-	if !declares(agentCard(testAgentName, template, v1alpha3.HarnessWorkload{})) {
+	if !declares(agentCard(testAgentName, template)) {
 		t.Fatal("kagent card does not declare the optional usage extension")
 	}
 	if declares(translator.ManagedAgentCard(testAgentName, template)) {
 		t.Fatal("the shared managed card declares usage, which the Codex and Claude harnesses do not emit")
 	}
-}
-
-func TestCompiledCardDeclaresRequestMetadataOnlyForDefaultGoRuntime(t *testing.T) {
-	for _, scenario := range []struct {
-		name     string
-		workload v1alpha3.HarnessWorkload
-		want     bool
-	}{
-		{name: "default Go runtime", want: true},
-		{name: "image override", workload: v1alpha3.HarnessWorkload{Image: new("example.com/python@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")}},
-		{name: "command override", workload: v1alpha3.HarnessWorkload{Command: []string{"kagent-adk"}}},
-		{name: "argument override", workload: v1alpha3.HarnessWorkload{Args: []string{"static"}}},
-	} {
-		t.Run("Given "+scenario.name+", when a card is compiled, assert that metadata support matches the runtime contract", func(t *testing.T) {
-			card := agentCard("assistant", &translator.TemplateConfiguration{}, scenario.workload)
-			declared := slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
-				return extension.URI == apia2a.MCPRequestMetadataExtensionURI && !extension.Required
-			})
-			require.Equal(t, scenario.want, declared)
-		})
-	}
-	require.NotContains(t, translator.ManagedAgentCard("assistant", &translator.TemplateConfiguration{}).Capabilities.Extensions, apia2a.MCPRequestMetadataExtension())
 }
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {

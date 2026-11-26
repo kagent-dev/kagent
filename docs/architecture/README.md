@@ -116,7 +116,7 @@ cleanup. Session lifecycle workers independently pause/suspend idle Actors.
 - [A2A agent tools](a2a-subagents.md)
 - [Human in the loop](human-in-the-loop.md)
 - [Token usage](usage-extension.md)
-- [MCP MCP request metadata](mcp-request-metadata-extension.md)
+- [MCP request metadata](mcp-request-metadata.md)
 - [Prompt resolution](prompt-templates.md)
 - [Telemetry](telemetry.md)
 - [Structured output](structured-output.md)

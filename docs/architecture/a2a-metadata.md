@@ -54,11 +54,8 @@ The gateway remains responsible for applying the resulting durable order.
 
 ## Other metadata
 
-Versioned A2A extensions, such as the [human-in-the-loop](human-in-the-loop.md),
-[token usage](usage-extension.md) and [MCP MCP request metadata](mcp-request-metadata-extension.md)
-extensions, keep their URI as the metadata key.
-
-Unknown application metadata is currently preserved. A future gateway
-allowlist can narrow what crosses the public boundary without changing the
-ownership rule: adapters translate runtime internals, while the gateway
-enforces the public contract.
+Versioned A2A extensions keep their negotiated URI as the metadata key.
+Private gateway-to-runtime continuation state is consumed before messages enter
+public history. Ordinary request-level application metadata is forwarded to
+[MCP tool calls](mcp-request-metadata.md) without an extension wrapper or activation.
+Message and part metadata are not copied into MCP request metadata.

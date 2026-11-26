@@ -110,24 +110,23 @@ func TestA2ARequestMetadataReachesMCPPerRequest(t *testing.T) {
 	require.Len(t, toolsets, 1)
 	builtin := &metadataIntegrationExecutor{toolset: toolsets[0], hitl: make(chan bool, 1)}
 	executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
-	handler := a2asrv.NewHandler(executor, a2asrv.WithCallInterceptors(HITLActivationInterceptor(), MCPRequestMetadataActivationInterceptor()))
+	handler := a2asrv.NewHandler(executor, a2asrv.WithCallInterceptors(HITLActivationInterceptor(), MCPRequestMetadataInterceptor()))
 	a2aHTTP := httptest.NewServer(a2asrv.NewJSONRPCHandler(handler))
 	a2aHTTP.Client().Timeout = 10 * time.Second
 	t.Cleanup(a2aHTTP.Close)
 
 	for _, test := range []struct {
-		name      string
-		activated bool
-		metadata  any
-		want      map[string]any
+		name     string
+		metadata map[string]any
+		want     map[string]any
 	}{
-		{name: "first turn", activated: true, metadata: map[string]any{requestMetadataSessionKey: "first", "format": "csv"}, want: map[string]any{requestMetadataSessionKey: "first", "format": "csv"}},
-		{name: "no activation", metadata: map[string]any{requestMetadataSessionKey: "ignored"}},
-		{name: "empty turn", activated: true},
-		{name: "next turn", activated: true, metadata: map[string]any{requestMetadataSessionKey: "next"}, want: map[string]any{requestMetadataSessionKey: "next"}},
+		{name: "first turn", metadata: map[string]any{requestMetadataSessionKey: "first", "format": "csv"}, want: map[string]any{requestMetadataSessionKey: "first", "format": "csv"}},
+		{name: "metadata without activation", metadata: map[string]any{requestMetadataSessionKey: "ordinary"}, want: map[string]any{requestMetadataSessionKey: "ordinary"}},
+		{name: "empty turn"},
+		{name: "next turn", metadata: map[string]any{requestMetadataSessionKey: "next"}, want: map[string]any{requestMetadataSessionKey: "next"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			response := sendMetadataIntegrationRequest(t, a2aHTTP, test.activated, test.metadata, nil)
+			response := sendMetadataIntegrationRequest(t, a2aHTTP, test.metadata, nil)
 			require.Nil(t, response.Error, "A2A response: %s", response.Result)
 			require.Len(t, builtin.hitl, 1)
 			require.True(t, <-builtin.hitl)
@@ -143,13 +142,13 @@ func TestA2ARequestMetadataReachesMCPPerRequest(t *testing.T) {
 			}
 		})
 	}
-	response := sendMetadataIntegrationRequest(t, a2aHTTP, true, "not an object", nil)
+	response := sendMetadataIntegrationRequest(t, a2aHTTP, map[string]any{"invalid metadata/key": "private-value"}, nil)
 	require.NotNil(t, response.Error)
 	require.Equal(t, -32602, response.Error.Code)
 	require.Empty(t, builtin.hitl)
 	require.Empty(t, observedMetadata)
 	for _, key := range []string{mcpsdk.MetaKeyProtocolVersion, mcpsdk.MetaKeyClientInfo, mcpsdk.MetaKeyClientCapabilities, "progressToken", "not a valid/key"} {
-		response = sendMetadataIntegrationRequest(t, a2aHTTP, true, map[string]any{key: "untrusted"}, nil)
+		response = sendMetadataIntegrationRequest(t, a2aHTTP, map[string]any{key: "untrusted"}, nil)
 		require.NotNil(t, response.Error, key)
 		require.Equal(t, -32602, response.Error.Code, key)
 		require.Empty(t, builtin.hitl, key)
@@ -157,7 +156,7 @@ func TestA2ARequestMetadataReachesMCPPerRequest(t *testing.T) {
 	}
 
 	builtin.pause.Store(true)
-	response = sendMetadataIntegrationRequest(t, a2aHTTP, true, map[string]any{requestMetadataSessionKey: "before-approval"}, nil)
+	response = sendMetadataIntegrationRequest(t, a2aHTTP, map[string]any{requestMetadataSessionKey: "before-approval"}, nil)
 	require.Nil(t, response.Error)
 	require.Len(t, builtin.hitl, 1)
 	require.True(t, <-builtin.hitl)
@@ -171,7 +170,7 @@ func TestA2ARequestMetadataReachesMCPPerRequest(t *testing.T) {
 		Type: HITLTypeToolApprovalResponse, Approvals: []apia2a.ToolApproval{{ID: "metadata-confirmation", Approved: true}},
 	})
 	decision.TaskID, decision.ContextID = task.ID, task.ContextID
-	response = sendMetadataIntegrationRequest(t, a2aHTTP, true, map[string]any{requestMetadataSessionKey: "after-approval"}, decision)
+	response = sendMetadataIntegrationRequest(t, a2aHTTP, map[string]any{requestMetadataSessionKey: "after-approval"}, decision)
 	require.Nil(t, response.Error)
 	require.Len(t, builtin.hitl, 1)
 	require.True(t, <-builtin.hitl)
@@ -186,7 +185,7 @@ type metadataIntegrationResponse struct {
 	} `json:"error"`
 }
 
-func sendMetadataIntegrationRequest(t *testing.T, server *httptest.Server, activated bool, metadata any, message *a2atype.Message) metadataIntegrationResponse {
+func sendMetadataIntegrationRequest(t *testing.T, server *httptest.Server, metadata map[string]any, message *a2atype.Message) metadataIntegrationResponse {
 	t.Helper()
 	if message == nil {
 		message = a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("call echo"))
@@ -194,7 +193,7 @@ func sendMetadataIntegrationRequest(t *testing.T, server *httptest.Server, activ
 	message.ContextID = "metadata-conversation"
 	request := &a2atype.SendMessageRequest{Message: message}
 	if metadata != nil {
-		request.Metadata = map[string]any{apia2a.MCPRequestMetadataExtensionURI: metadata}
+		request.Metadata = metadata
 	}
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": message.ID, "method": "SendMessage", "params": request})
 	require.NoError(t, err)
@@ -203,9 +202,6 @@ func sendMetadataIntegrationRequest(t *testing.T, server *httptest.Server, activ
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set(a2atype.SvcParamVersion, string(a2atype.Version))
 	extensions := HITLExtensionURI
-	if activated {
-		extensions += ", " + apia2a.MCPRequestMetadataExtensionURI
-	}
 	httpRequest.Header.Set(a2atype.SvcParamExtensions, extensions)
 	response, err := server.Client().Do(httpRequest)
 	require.NoError(t, err)

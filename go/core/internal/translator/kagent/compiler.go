@@ -14,7 +14,6 @@ import (
 	runtimeconfig "github.com/kagent-dev/kagent/go/adk/pkg/config"
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
-	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 	"github.com/kagent-dev/kagent/go/core/internal/translator/adkconfig"
 )
@@ -52,7 +51,7 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 		}
 		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
-	card, err := pbconv.ToProtoAgentCard(agentCard(input.AgentName, template, harness.Spec.Workload))
+	card, err := pbconv.ToProtoAgentCard(agentCard(input.AgentName, template))
 	if err != nil {
 		return nil, fmt.Errorf("convert agent card: %w", err)
 	}
@@ -85,11 +84,8 @@ func (c *Compiler) Compile(ctx context.Context, input *translator.HarnessInput) 
 
 // agentCard is the managed card plus the capabilities only the kagent ADK
 // runtimes implement.
-func agentCard(agentName string, template *translator.TemplateConfiguration, workload v1alpha3.HarnessWorkload) *a2atype.AgentCard {
+func agentCard(agentName string, template *translator.TemplateConfiguration) *a2atype.AgentCard {
 	card := translator.ManagedAgentCard(agentName, template)
 	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.UsageExtension())
-	if workload.Image == nil && len(workload.Command) == 0 && len(workload.Args) == 0 {
-		card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.MCPRequestMetadataExtension())
-	}
 	return card
 }

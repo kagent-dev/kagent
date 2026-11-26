@@ -10,83 +10,24 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"github.com/stretchr/testify/require"
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/session"
-
-	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
-func TestHandlerOptionsActivateMCPRequestMetadata(t *testing.T) {
-	for _, scenario := range []struct {
-		name      string
-		requested bool
-	}{
-		{name: "Given application handler options, when a client requests MCP request metadata, assert that the executor sees the activated extension", requested: true},
-		{name: "Given application handler options, when a client omits activation, assert that the executor sees the extension inactive"},
-	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			executor := &mcpMetadataWiringExecutor{activations: make(chan bool, 1)}
-			handler := metadataWiringHandler(executor)
-			ctx := metadataWiringContext(t, scenario.requested)
-
-			_, err := handler.SendMessage(ctx, metadataWiringRequest(map[string]any{"com.example/session": "session-1"}))
-
-			require.NoError(t, err)
-			require.Len(t, executor.activations, 1)
-			require.Equal(t, scenario.requested, <-executor.activations)
-		})
-	}
-}
-
-func TestHandlerOptionsRejectMalformedMCPRequestMetadata(t *testing.T) {
-	for _, scenario := range []struct {
-		name   string
-		values any
-	}{
-		{name: "Given an activated metadata extension, when a client sends a string payload, assert that dispatch is rejected", values: "not an object"},
-		{name: "Given an activated metadata extension, when a client sends an array payload, assert that dispatch is rejected", values: []any{"session-1"}},
-	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			executor := &mcpMetadataWiringExecutor{activations: make(chan bool, 1)}
-			handler := metadataWiringHandler(executor)
-			ctx := metadataWiringContext(t, true)
-
-			_, err := handler.SendMessage(ctx, metadataWiringRequest(scenario.values))
-
-			require.ErrorIs(t, err, a2atype.ErrInvalidParams)
-			require.Empty(t, executor.activations)
-		})
-	}
-}
-
-func TestBuildAgentCardDeclaresOptionalMCPRequestMetadata(t *testing.T) {
-	agent, err := adkagent.New(adkagent.Config{
-		Name: "metadata_agent",
-		Run: func(adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
-			return func(func(*session.Event, error) bool) {}
-		},
-	})
+func TestHandlerPassesRequestMetadataWithoutActivation(t *testing.T) {
+	executor := &mcpMetadataWiringExecutor{metadata: make(chan map[string]any, 1)}
+	handler := metadataWiringHandler(executor)
+	values := map[string]any{"com.example/session": "session-1", "org.example/options": map[string]any{"any field": true}}
+	_, err := handler.SendMessage(metadataWiringContext(t), metadataWiringRequest(values))
 	require.NoError(t, err)
+	require.Equal(t, values, <-executor.metadata)
+}
 
-	for _, scenario := range []struct {
-		name  string
-		agent adkagent.Agent
-	}{
-		{name: "Given an application without skill derivation, when its card is built, assert that MCP request metadata is optional"},
-		{name: "Given an ADK agent, when its card is built, assert that MCP request metadata is optional and declared once", agent: agent},
-	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			card := buildAgentCard(AppConfig{AgentCard: a2atype.AgentCard{Name: "metadata-agent"}, Agent: scenario.agent})
-
-			var declarations []a2atype.AgentExtension
-			for _, extension := range card.Capabilities.Extensions {
-				if extension.URI == apia2a.MCPRequestMetadataExtensionURI {
-					declarations = append(declarations, extension)
-				}
-			}
-			require.Len(t, declarations, 1)
-			require.False(t, declarations[0].Required)
-		})
+func TestHandlerRejectsInvalidRequestMetadataBeforeDispatch(t *testing.T) {
+	for _, key := range []string{"invalid metadata/key", "progressToken", "io.modelcontextprotocol/clientCapabilities"} {
+		executor := &mcpMetadataWiringExecutor{metadata: make(chan map[string]any, 1)}
+		handler := metadataWiringHandler(executor)
+		_, err := handler.SendMessage(metadataWiringContext(t), metadataWiringRequest(map[string]any{key: "request-only"}))
+		require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+		require.Empty(t, executor.metadata)
 	}
 }
 
@@ -96,42 +37,29 @@ func metadataWiringHandler(executor a2asrv.AgentExecutor) a2asrv.RequestHandler 
 	return a2asrv.NewHandler(executor, options...)
 }
 
-func metadataWiringContext(t *testing.T, requested bool) context.Context {
+func metadataWiringContext(t *testing.T) context.Context {
 	t.Helper()
-	parameters := map[string][]string{}
-	if requested {
-		parameters[a2atype.SvcParamExtensions] = []string{apia2a.MCPRequestMetadataExtensionURI}
-	}
-	requestContext, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
-	ctx, _ := a2asrv.NewCallContext(requestContext, a2asrv.NewServiceParams(parameters))
+	ctx, _ = a2asrv.NewCallContext(ctx, a2asrv.NewServiceParams(nil))
 	return ctx
 }
 
-func metadataWiringRequest(values any) *a2atype.SendMessageRequest {
-	return &a2atype.SendMessageRequest{
-		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
-		Metadata: map[string]any{
-			apia2a.MCPRequestMetadataExtensionURI: values,
-		},
-	}
+func metadataWiringRequest(values map[string]any) *a2atype.SendMessageRequest {
+	return &a2atype.SendMessageRequest{Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")), Metadata: values}
 }
 
 type mcpMetadataWiringExecutor struct {
 	fakeExecutor
-	activations chan bool
+	metadata chan map[string]any
 }
 
-func (e *mcpMetadataWiringExecutor) Execute(ctx context.Context, request *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
+func (e *mcpMetadataWiringExecutor) Execute(_ context.Context, request *a2asrv.ExecutorContext) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
 		if request.StoredTask == nil && !yield(a2atype.NewSubmittedTask(request, request.Message), nil) {
 			return
 		}
-		extension := apia2a.MCPRequestMetadataExtension()
-		extensions, present := a2asrv.ExtensionsFrom(ctx)
-		e.activations <- present && extensions.Active(&extension)
+		e.metadata <- request.Metadata
 		yield(a2atype.NewStatusUpdateEvent(request, a2atype.TaskStateCompleted, nil), nil)
 	}
 }
-
-var _ a2asrv.AgentExecutor = (*mcpMetadataWiringExecutor)(nil)
