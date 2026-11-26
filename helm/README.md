@@ -394,6 +394,18 @@ installs the newest final release that publishes a binary for your platform;
 pass `--prerelease` to include release candidates or `--version vX.Y.Z` to pin
 one.
 
+On Windows, install the CLI from PowerShell instead. It needs no administrator
+rights: it installs `kagent.exe` into `%LOCALAPPDATA%\Programs\kagent` and adds
+that directory to your user `PATH`. Set `KAGENT_VERSION` to pin a release.
+
+```powershell
+irm https://raw.githubusercontent.com/kagent-dev/kagent/main/scripts/get-kagent.ps1 | iex
+$env:OPENAI_API_KEY = "your-openai-api-key"
+kagent install
+```
+
+`kagent install` requires `kubectl` and `helm` on your `PATH`.
+
 ## Application configuration
 
 `config` follows the [ControllerConfig schema](../proto/kagent/config/v1/config.proto).
