@@ -118,6 +118,9 @@ KAGENT_MCP_SERVER_NAME: Final = "kagent.mcp.server.name"
 KAGENT_RUNTIME: Final = "kagent.runtime"
 """The framework or harness that runs an agent."""
 
+KAGENT_TURN_SENDER: Final = "kagent.turn.sender"
+"""The kind of authenticated principal that sent a turn."""
+
 KAGENT_WORKER_TRIGGER: Final = "kagent.worker.trigger"
 """What prompted a work claim, either initial discovery or continued backlog processing."""
 
@@ -198,6 +201,22 @@ KAGENT_RUNTIME_REVISION_GC_PENDING_DESCRIPTION: Final = (
 KAGENT_SESSION_QUIESCENCE_CLAIMED: Final = "kagent.session.quiescence.claimed"
 KAGENT_SESSION_QUIESCENCE_CLAIMED_UNIT: Final = "{session}"
 KAGENT_SESSION_QUIESCENCE_CLAIMED_DESCRIPTION: Final = "Number of session quiescence claims acquired."
+
+KAGENT_TURN_USAGE_CACHE_READ_INPUT_TOKENS: Final = "kagent.turn.usage.cache_read.input_tokens"
+KAGENT_TURN_USAGE_CACHE_READ_INPUT_TOKENS_UNIT: Final = "{token}"
+KAGENT_TURN_USAGE_CACHE_READ_INPUT_TOKENS_DESCRIPTION: Final = "Input tokens served from a provider cache in a turn."
+
+KAGENT_TURN_USAGE_INPUT_TOKENS: Final = "kagent.turn.usage.input_tokens"
+KAGENT_TURN_USAGE_INPUT_TOKENS_UNIT: Final = "{token}"
+KAGENT_TURN_USAGE_INPUT_TOKENS_DESCRIPTION: Final = "Input tokens a turn added to its task, cached input included."
+
+KAGENT_TURN_USAGE_OUTPUT_TOKENS: Final = "kagent.turn.usage.output_tokens"
+KAGENT_TURN_USAGE_OUTPUT_TOKENS_UNIT: Final = "{token}"
+KAGENT_TURN_USAGE_OUTPUT_TOKENS_DESCRIPTION: Final = "Output tokens a turn added to its task, reasoning excluded."
+
+KAGENT_TURN_USAGE_REASONING_OUTPUT_TOKENS: Final = "kagent.turn.usage.reasoning.output_tokens"
+KAGENT_TURN_USAGE_REASONING_OUTPUT_TOKENS_UNIT: Final = "{token}"
+KAGENT_TURN_USAGE_REASONING_OUTPUT_TOKENS_DESCRIPTION: Final = "Reasoning tokens a turn added to its task."
 
 
 class A2aMethodValues(StrEnum):
@@ -370,6 +389,17 @@ class KagentRuntimeValues(StrEnum):
     """The OpenAI Agents SDK runtime."""
     BYO = "byo"
     """A bring-your-own image built on kagent-core."""
+
+
+class KagentTurnSenderValues(StrEnum):
+    """Values of KAGENT_TURN_SENDER."""
+
+    PRINCIPAL = "principal"
+    """An authenticated caller, a person or a machine."""
+    ACTOR = "actor"
+    """An agent's runtime, calling on behalf of the principal that created its Session."""
+    CONTROLLER = "controller"
+    """The controller, starting a scheduled run on behalf of the principal that created its Session."""
 
 
 class KagentWorkerTriggerValues(StrEnum):

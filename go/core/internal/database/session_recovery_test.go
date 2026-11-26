@@ -41,7 +41,8 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			version, err := client.CreateRuntimeTask(t.Context(), session.Id, taskMutationHash("create"), task, "")
 			require.NoError(t, err)
 			if test.published {
-				require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+				_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+				require.NoError(t, err)
 			}
 			snapshot := SessionTaskSnapshot{}
 			if test.captured {
@@ -79,7 +80,7 @@ func TestCrashedRecoverySettlesTasksAtomically(t *testing.T) {
 			} else {
 				require.ErrorIs(t, err, ErrConflict)
 			}
-			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
+			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next", nil), ErrConflict)
 			_, _, err = client.ReserveSessionCheckpoint(t.Context(), &apiv1.Checkpoint{Id: uuid.NewString(), SessionId: session.Id, HeadTaskId: string(task.ID)}, session.Creator, uuid.NewString())
 			require.ErrorIs(t, err, ErrConflict)
 		})
@@ -151,8 +152,8 @@ func TestDispatchReportsUnsettledSuspension(t *testing.T) {
 	_, version, err := client.GetVersionedSessionTask(t.Context(), session.Id, string(task.ID))
 	require.NoError(t, err)
 	dispatch := uuid.New()
-	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatch, ""))
-	busy := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "")
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, dispatch, "", nil))
+	busy := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "", nil)
 	require.ErrorIs(t, busy, ErrDispatchBusy)
 	require.NotErrorIs(t, busy, ErrDispatchSuspending, "an ordinary dispatch in flight is not a suspension")
 	revoked, err := client.RevokeSessionDispatch(t.Context(), session.Id, dispatch, "unused")
@@ -164,10 +165,11 @@ func TestDispatchReportsUnsettledSuspension(t *testing.T) {
 		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
 		require.NoError(t, err)
 	}
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	_, err = client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
-	suspending := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "")
+	suspending := client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "", nil)
 	require.ErrorIs(t, suspending, ErrDispatchSuspending)
 	require.ErrorIs(t, suspending, ErrDispatchBusy, "callers that only wait keep treating it as busy")
 
@@ -175,7 +177,7 @@ func TestDispatchReportsUnsettledSuspension(t *testing.T) {
 	operation, err := client.BeginCrashedSessionRecovery(t.Context(), observedGeneration(t, client, session.Id, uid), SessionTaskSnapshot{})
 	require.NoError(t, err)
 	finishCrashedRecovery(t, client, session.Id, operation, uid)
-	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), ""), "recovery retires the claim")
+	require.NoError(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "", nil), "recovery retires the claim")
 }
 
 func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
@@ -189,7 +191,8 @@ func TestCrashedRecoveryRetiresIssuedIdleSuspension(t *testing.T) {
 		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
 		require.NoError(t, err)
 	}
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	work, err := client.ClaimSessionQuiescence(t.Context())
 	require.NoError(t, err)
 	uid := "actor-" + session.Id
@@ -263,7 +266,8 @@ func TestCrashedRecoveryAdmissionRollsBackOnMalformedTask(t *testing.T) {
 		version, err = client.UpdateSessionTask(t.Context(), session.Id, version, taskMutationHash(string(state)), task, task, "")
 		require.NoError(t, err)
 	}
-	require.NoError(t, client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version))
+	_, err = client.SettleSessionTask(t.Context(), session.Id, string(task.ID), version)
+	require.NoError(t, err)
 	row, err := readSession(t.Context(), client.db, session.Id)
 	require.NoError(t, err)
 	before, err := readSessionTask(t.Context(), client.db, row.HistoryID, string(task.ID))
@@ -411,7 +415,7 @@ func TestRecordLostSessionRuntime(t *testing.T) {
 				_, err = client.FinishSessionOperation(t.Context(), session.Id, generation, executor, "", uid, "")
 				require.ErrorIs(t, err, ErrConflict, "the abandoned revert cannot finish")
 			}
-			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next"), ErrConflict)
+			require.ErrorIs(t, client.ReserveSessionDispatch(t.Context(), session.Id, uuid.New(), "next", nil), ErrConflict)
 			deletion, err := client.BeginSessionOperation(t.Context(), session.Id, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, false)
 			require.NoError(t, err, "a lost runtime can still be deleted")
 			require.Equal(t, apiv1.RuntimeOperation_RUNTIME_OPERATION_DELETE, deletion.Instance.Operation)
