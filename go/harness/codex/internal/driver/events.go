@@ -435,6 +435,22 @@ func (t *eventTranslator) approvalTool(thread, server, toolName string, argument
 	return matchedID, matched.name, nil
 }
 
+// elicitedTool returns the one active call on thread to server. Codex does not
+// name the call that a server's elicitation belongs to.
+func (t *eventTranslator) elicitedTool(thread, server string) (string, bool) {
+	matchedID := ""
+	for id, tool := range t.tools {
+		if tool.thread != thread || tool.server != server {
+			continue
+		}
+		if matchedID != "" {
+			return "", false
+		}
+		matchedID = id
+	}
+	return matchedID, matchedID != ""
+}
+
 // App Server multiplexes native Shared agents onto the parent's stream. Their text and
 // completion stay on their own threads; subagentItem translates their tools.
 func (t *eventTranslator) isOtherThreadNotification(message rpcMessage) (bool, error) {

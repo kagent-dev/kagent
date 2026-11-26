@@ -83,6 +83,23 @@ writing a tombstone.
 The native [defer documentation](https://code.claude.com/docs/en/hooks#defer-a-tool-call-for-later)
 describes the transcript-based continuation.
 
+### MCP URL elicitation
+
+An MCP server can ask the person to open a URL during a tool call, such as a
+sign-in link. Claude's input is closed after the prompt, so Claude cannot ask
+its host; a compiler-owned `Elicitation` hook answers instead. For a URL
+request the hook answers `cancel` and the broker keeps the request, and the
+`PreToolUse` and `PostToolUse` hooks stop the turn before another tool runs. The
+model can still reply to the canceled call's result. Once Claude exits, the
+driver saves the request and returns `input-required` with a
+`url_elicitation_request`.
+
+The person's answer resumes the session with `--resume <session-id>` and a
+prompt: after `accept` it asks the model to retry the call, after `decline` or
+`cancel` it says the call cannot complete. The URL goes to the person, never to
+the model. A form elicitation is declined: what the person typed into it would
+reach the model's context.
+
 ## Key limitations
 
 - **Tool parenting is not retained across DATA suspension.** Resumed invocations
@@ -95,6 +112,13 @@ describes the transcript-based continuation.
 - **Parallel approvals are not supported.** Protected calls that Claude cannot
   defer in a parallel batch are denied through the permission fallback. A
   remaining single call can still be deferred and approved.
+
+- **The model retries a call after a URL elicitation.** The call has ended by
+  the time the task waits for the person, so after `accept` the retry depends on
+  the model following the resume prompt. An elicitation raised by a local
+  subagent's call parks the root session.
+- **A parked URL elicitation does not survive a downgrade.** An older harness
+  rejects the pending record, so a task waiting on one fails after a rollback.
 
 ## Planned / not yet supported
 

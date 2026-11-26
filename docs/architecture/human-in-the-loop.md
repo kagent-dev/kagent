@@ -30,11 +30,13 @@ operation.
 
 ## Request forms
 
-Version 1 supports two request kinds:
+Version 1 supports three request kinds:
 
 - **tool approval** identifies one or more pending tool calls. Each decision
   explicitly approves or rejects a call and may include a rejection reason.
 - **ask user** identifies one or more questions and returns an answer for each.
+- **URL elicitation** asks the person to open a URL outside the conversation,
+  such as an MCP server's sign-in link (MCP URL mode elicitation).
 
 Requests and responses live in the A2A status message metadata under the
 extension URI key. The message also includes the extension URI in its `extensions`
@@ -69,14 +71,72 @@ the same `id`, and an `answers` array whose entries contain string arrays. A
 request may also carry `nested` child-agent correlation: `subagent_name`,
 `task_id`, `context_id`, and the child's pending tools.
 
+A URL elicitation request names the MCP `server` that asked, its `message`, the
+`url`, and the server's `elicitation_id` when it sent one. `server` is the name
+the server is configured under (the RemoteMCPServer's name or the `mcp.json`
+key, else its host), never the name it reports about itself, so a server cannot
+present its link under another's name:
+
+```json
+{
+  "type": "url_elicitation_request",
+  "id": "tool-1",
+  "server": "github",
+  "message": "Sign in to github",
+  "url": "https://gateway.example/oauth/start?s=1",
+  "elicitation_id": "e1"
+}
+```
+
+```json
+{"type": "url_elicitation_response", "id": "tool-1", "action": "accept"}
+```
+
+`action` is `accept`, `decline`, or `cancel`. Unlike MCP, where `accept` only
+means the person agreed to open the URL, `accept` here means the person completed
+the interaction there: the paused tool call runs again. `decline` and `cancel`
+reject the call. The URL is `https`, or `http` on a loopback host, with no user
+info; the runtime drops any other URL. The Go harness declares only URL mode
+elicitation to MCP servers, and declines a form mode elicitation a server sends
+anyway, because what the person typed would reach the model's context.
+
+A pause carries one URL. When a server asks for several at once, the runtime
+pauses on the first and leaves the others unanswered when the call runs
+again, so the server asks for them again. A call that already resumed from a
+confirmation cannot pause a second time: a further URL elicitation fails the
+call. This includes a tool whose MCP server binding sets `requireApproval`:
+the person approves the call first, so the server's first URL elicitation is
+the call's second pause and fails it with `tool "<name>" already resumed after
+approval and cannot pause for the URL requested by <server>`. Do not set
+`requireApproval` on a binding to an MCP server that asks for URL elicitations.
+
+When a URL elicitation shares its pause with other calls, the pause is a tool
+approval, and the waiting call's tool carries the request as `url_elicitation`.
+Approving that tool accepts it.
+
+Only a client that activated the extension can be asked to open a URL. For any
+other caller, such as an agent that calls this one over A2A, the tool call fails
+instead of pausing, and the error names the server without the URL.
+
 The server rejects responses that use the wrong task/context, omit required
 decisions, duplicate IDs, or answer an operation that is no longer pending.
+A message that declares a response `type` is always a decision, never ordinary
+input. The Go runtimes reject an invalid one with an invalid-params error
+before the task changes, so the pause stays answerable.
 
 The status message also carries a text part that describes the pause. Every
 runtime composes that text the same way, and a client receives it whether or not
 it activated the extension:
 
 - an `ask_user` pause renders its questions, joined with `; `;
+- a URL elicitation renders, for a client that activated the extension,
+  `<server> asks: <message> <url>`, or `<server> asks you to open a link to
+  continue. <url>` without a message, so a client that does not know
+  `url_elicitation_request` still shows the link and which configured server
+  asked; for any other client, which
+  may hand the text to a model, it renders `<server> asks you to open a link to
+  continue.`, without the URL or the server's message; in a tool approval, that
+  text is the waiting tool's hint;
 - any other pause renders the hints its tools supplied, followed by the tool
   names in parentheses: `Deleting this file requires approval (delete_file,
   restart_pod)`;
@@ -126,7 +186,22 @@ without human input.
 
 The kagent Go harness maps the contract to ADK confirmations. Remote A2A tools in
 the Go and Python ADKs can retain a child continuation when a subagent requests
-input.
+input; a subagent's URL elicitation is not forwarded yet and fails the parent's
+call.
+
+The Go harness pauses on a URL elicitation that an MCP server sends in one of
+two ways:
+
+- on protocol 2026-07-28, an `input_required` tool result. The harness keeps the
+  server's request state and input responses in runtime session state while the
+  task is paused, never in the public request, and sends them back when the
+  call runs again. This is the supported continuation path.
+- on protocol 2025-11-25, a `tools/call` error `-32042` (URL elicitation
+  required). The call runs again from the start once the person accepts.
+
+A 2025-11-25 server can also send a live `elicitation/create` request while the
+tool call runs. The call cannot pause while that request is open, so the server
+gets a JSON-RPC error back and the person is not asked.
 
 A rejected call is reported to the model as `Tool call was rejected by user.`,
 followed by `Reason: <reason>` when the decision carried a `rejection_reason`.

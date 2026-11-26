@@ -9,6 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 
@@ -63,12 +64,6 @@ func extensionRequested(callCtx *a2asrv.CallContext, uri string) bool {
 	return false
 }
 
-// HitlActivated reports whether HITL was negotiated for this server call.
-func HitlActivated(ctx context.Context) bool {
-	extensions, ok := a2asrv.ExtensionsFrom(ctx)
-	return ok && extensions.Active(&hitlAgentExtension)
-}
-
 // rawHitlMap reads the HITL extension metadata as a map[string]any.
 func rawHitlMap(message *a2atype.Message) map[string]any {
 	if message == nil || !slices.Contains(message.Extensions, HITLExtensionURI) || message.Metadata == nil {
@@ -95,8 +90,8 @@ func decodeJSON[T any](raw map[string]any, wantType string) *T {
 }
 
 func GetToolApprovalRequest(message *a2atype.Message) *apia2a.ToolApprovalRequest {
-	v := decodeJSON[apia2a.ToolApprovalRequest](rawHitlMap(message), HITLTypeToolApprovalRequest)
-	if v == nil || len(v.Tools) == 0 {
+	v, _ := apia2a.ParseToolApprovalRequest(message)
+	if v == nil {
 		return nil
 	}
 	normalizeTools(v.Tools)
@@ -121,9 +116,57 @@ func GetAskUserResponse(message *a2atype.Message) *apia2a.AskUserResponse {
 	return v
 }
 
+// GetURLElicitationRequest returns the URL elicitation request a Message carries, or nil.
+func GetURLElicitationRequest(message *a2atype.Message) *apia2a.URLElicitationRequest {
+	v, _ := apia2a.ParseURLElicitationRequest(message)
+	return v
+}
+
+// GetURLElicitationResponse returns the URL elicitation response a Message carries, or nil.
+func GetURLElicitationResponse(message *a2atype.Message) *apia2a.URLElicitationResponse {
+	v, _ := apia2a.ParseURLElicitationResponse(message)
+	return v
+}
+
 // IsHITLResponse reports whether a Message carries a valid HITL response.
 func IsHITLResponse(message *a2atype.Message) bool {
-	return GetToolApprovalResponse(message) != nil || GetAskUserResponse(message) != nil
+	return GetToolApprovalResponse(message) != nil || GetAskUserResponse(message) != nil || GetURLElicitationResponse(message) != nil
+}
+
+// TaskGetter reads a stored task.
+type TaskGetter interface {
+	Get(ctx context.Context, taskID a2atype.TaskID) (*sdktaskstore.StoredTask, error)
+}
+
+// HITLResponseInterceptor rejects a HITL decision that does not answer the
+// pause of its task, by apia2a.ValidateHITLDecision, before the task changes,
+// so the pause stays answerable. It applies to a client that activated the
+// HITL extension, and so runs after HITLActivationInterceptor.
+func HITLResponseInterceptor(tasks TaskGetter) a2asrv.CallInterceptor {
+	return &hitlResponseInterceptor{tasks: tasks}
+}
+
+type hitlResponseInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+	tasks TaskGetter
+}
+
+func (i *hitlResponseInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
+	send, ok := request.Payload.(*a2atype.SendMessageRequest)
+	if !ok || send.Message == nil || !apia2a.DeclaresHITLResponse(send.Message) || !callCtx.Extensions().Active(&hitlAgentExtension) {
+		return ctx, nil, nil
+	}
+	if send.Message.TaskID == "" {
+		return ctx, nil, a2atype.NewError(a2atype.ErrInvalidParams, "a HITL decision must name the task it answers")
+	}
+	stored, err := i.tasks.Get(ctx, send.Message.TaskID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if err := apia2a.ValidateHITLDecision(stored.Task, send.Message); err != nil {
+		return ctx, nil, a2atype.NewError(a2atype.ErrInvalidParams, err.Error())
+	}
+	return ctx, nil, nil
 }
 
 // AttachHitlExtension writes a typed payload (or map) into Message metadata + extensions.
@@ -479,9 +522,18 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 			continue
 		}
 		tool := parseConfirmationTool(data)
-		tools = append(tools, tool.asHitlTool())
-		if tool.hint != "" {
-			hints = append(hints, tool.hint)
+		hitlTool := tool.asHitlTool()
+		hint := tool.hint
+		if elicitation := parseURLElicitation(tool.payload); elicitation != nil {
+			elicitation.ID = hitlTool.ID
+			// When other calls share this pause, the URL elicitation is
+			// presented as an approval: the tool carries it typed.
+			hitlTool.URLElicitation = elicitation
+			hint = urlElicitationText(elicitation, activated)
+		}
+		tools = append(tools, hitlTool)
+		if hint != "" {
+			hints = append(hints, hint)
 		}
 		if candidate := ParseRemoteHitlState(tool.payload); candidate != nil {
 			remote = candidate
@@ -489,6 +541,9 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	}
 	if len(tools) == 0 {
 		return message
+	}
+	if len(tools) == 1 && tools[0].URLElicitation != nil {
+		return urlElicitationStatusMessage(message, tools[0].URLElicitation, activated)
 	}
 
 	// The text part carries the same information as the typed payload, so a client
@@ -529,6 +584,46 @@ func BuildHITLStatusMessage(message *a2atype.Message, activated bool) *a2atype.M
 	return AttachHitlExtension(public, &apia2a.ToolApprovalRequest{
 		Type: HITLTypeToolApprovalRequest, Hint: text, Tools: tools, Nested: nested,
 	})
+}
+
+// parseURLElicitation decodes the URL elicitation request a confirmation
+// payload carries, or returns nil.
+func parseURLElicitation(payload map[string]any) *apia2a.URLElicitationRequest {
+	request := decodeJSON[apia2a.URLElicitationRequest](payload, apia2a.HITLTypeURLElicitationRequest)
+	if request == nil || apia2a.ValidateElicitationURL(request.URL) != nil {
+		return nil
+	}
+	return request
+}
+
+// urlElicitationText is the status text of a URL elicitation, which always
+// names the configured server that asked. A client that activated the
+// extension gets the server's message and the URL, since it may predate
+// url_elicitation_request and render only the text. Any other client gets the
+// server's name alone: it may hand the text to a model, and the server's
+// message can quote the URL.
+func urlElicitationText(request *apia2a.URLElicitationRequest, activated bool) string {
+	fallback := fmt.Sprintf("%s asks you to open a link to continue.", request.Server)
+	switch {
+	case !activated:
+		return fallback
+	case request.Message == "":
+		return fmt.Sprintf("%s %s", fallback, request.URL)
+	default:
+		return fmt.Sprintf("%s asks: %s %s", request.Server, request.Message, request.URL)
+	}
+}
+
+// urlElicitationStatusMessage is the public message of a pause on an MCP
+// server's URL elicitation: a url_elicitation_request, carried by
+// input-required. The URL goes to the person and never reaches the model.
+func urlElicitationStatusMessage(message *a2atype.Message, request *apia2a.URLElicitationRequest, activated bool) *a2atype.Message {
+	public := a2atype.NewMessage(a2atype.MessageRoleAgent, a2atype.NewTextPart(urlElicitationText(request, activated)))
+	public.TaskID, public.ContextID = message.TaskID, message.ContextID
+	if !activated {
+		return public
+	}
+	return AttachHitlExtension(public, request)
 }
 
 func publicAskUserQuestions(value any) []apia2a.HITLQuestion {
@@ -572,11 +667,14 @@ func stringSlice(value any) []string {
 
 // BuildResumeHITLMessage: client HITL response + stored request → ADK FunctionResponse parts.
 func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message) (*a2atype.Message, error) {
-	if !IsHITLResponse(incoming) {
+	if !apia2a.DeclaresHITLResponse(incoming) {
 		return nil, fmt.Errorf("message does not contain a HITL response")
 	}
 	if storedTask == nil || storedTask.Status.State != a2atype.TaskStateInputRequired {
 		return nil, fmt.Errorf("HITL decision requires a stored input-required task")
+	}
+	if request := GetURLElicitationRequest(storedTask.Status.Message); request != nil {
+		return resumeURLElicitation(request, incoming)
 	}
 	approvalReq := GetToolApprovalRequest(storedTask.Status.Message)
 	askReq := GetAskUserRequest(storedTask.Status.Message)
@@ -603,6 +701,25 @@ func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message)
 		return nil, fmt.Errorf("stored HITL request contains no approvals")
 	}
 	return a2atype.NewMessage(a2atype.MessageRoleUser, parts...), nil
+}
+
+// resumeURLElicitation answers the URL elicitation confirmation of an
+// input-required task, given the request it is paused on: accept confirms the tool call, which then runs again;
+// decline and cancel reject it.
+func resumeURLElicitation(request *apia2a.URLElicitationRequest, incoming *a2atype.Message) (*a2atype.Message, error) {
+	response, err := apia2a.ParseURLElicitationResponse(incoming)
+	if err != nil {
+		return nil, err
+	}
+	if err := apia2a.ValidateURLElicitationResponse(request, response); err != nil {
+		return nil, err
+	}
+	if response.Action == apia2a.URLElicitationAccept {
+		return a2atype.NewMessage(a2atype.MessageRoleUser, buildConfirmationResponsePart(request.ID, true, nil)), nil
+	}
+	return a2atype.NewMessage(a2atype.MessageRoleUser, buildConfirmationResponsePart(request.ID, false, map[string]any{
+		apia2a.ToolConfirmationRejectionReasonKey: fmt.Sprintf("The person did not complete the request from %s.", request.Server),
+	})), nil
 }
 
 func processDirectAskUser(req *apia2a.AskUserRequest, message *a2atype.Message) ([]*a2atype.Part, error) {

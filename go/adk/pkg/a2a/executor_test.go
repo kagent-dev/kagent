@@ -12,6 +12,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
@@ -911,6 +912,41 @@ func TestRequestSpanAttributesCarryOnlyATrustedUser(t *testing.T) {
 			if !maps.Equal(got, tt.want) {
 				t.Fatalf("attributes = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestKAgentExecutor_RejectsAnInvalidHITLDecisionBeforeWorking(t *testing.T) {
+	for name, payload := range map[string]map[string]any{
+		"without an action": {"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-1"},
+		"to another pause":  {"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-2", "action": "accept"},
+	} {
+		t.Run("Given a URL elicitation response "+name+", when the executor runs it, assert that it fails without publishing working or reaching ADK", func(t *testing.T) {
+			decision := hitlDecisionMessage(payload)
+			reqCtx := &a2asrv.ExecutorContext{
+				TaskID: "task-1", ContextID: "ctx-1", Message: decision,
+				StoredTask: &a2atype.Task{ID: "task-1", ContextID: "ctx-1", Status: a2atype.TaskStatus{
+					State:   a2atype.TaskStateInputRequired,
+					Message: BuildHITLStatusMessage(urlElicitationConfirmationMessage(), true),
+				}},
+			}
+			builtin := &recordingExecutor{}
+			executor := &KAgentExecutor{builtin: builtin, logger: slog.New(slog.DiscardHandler)}
+			ctx, _ := hitlCall(t, true)
+
+			var events []a2atype.Event
+			var failure error
+			for event, err := range executor.Execute(ctx, reqCtx) {
+				if err != nil {
+					failure = err
+					break
+				}
+				events = append(events, event)
+			}
+
+			require.Error(t, failure)
+			require.Empty(t, events)
+			require.Nil(t, builtin.message)
 		})
 	}
 }
