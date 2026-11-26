@@ -149,18 +149,20 @@ func handlerOptions(tasks *runtimetaskstore.Store, runtime a2asrv.CallIntercepto
 		a2asrv.WithCallInterceptors(
 			a2a.HITLActivationInterceptor(),
 			a2a.UsageActivationInterceptor(),
+			a2a.MCPExtensionsActivationInterceptor(),
 			a2a.UserIDCallInterceptor(),
 			runtime,
 		),
 	}
 }
 
-// buildAgentCard returns the card the server serves. The HITL and usage extensions
-// are declared for every app, whether or not an ADK agent was supplied for skill derivation.
+// buildAgentCard returns the card the server serves. The A2A extensions the
+// runtime implements are declared for every app, whether or not an ADK agent was supplied for skill derivation.
 func buildAgentCard(cfg AppConfig) a2atype.AgentCard {
 	card := cfg.AgentCard
 	a2a.EnsureHITLExtension(&card)
 	a2a.EnsureUsageExtension(&card)
+	a2a.EnsureMCPExtensionsExtension(&card)
 	if cfg.Agent != nil {
 		a2a.EnrichAgentCard(&card, cfg.Agent)
 	}
