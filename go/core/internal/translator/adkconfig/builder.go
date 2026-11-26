@@ -311,9 +311,19 @@ func agentConfigDestinations(cfg *configv1.ADKAgentConfig, modelConfig *v1alpha3
 	}
 	switch modelConfig.Spec.Provider {
 	case v1alpha3.ModelProviderOpenAI:
-		destinations = append(destinations, "https://api.openai.com:443")
+		// The custom baseUrl (if configured) is already extracted from the
+		// serialized model by appendURLValues above. Only add the public default
+		// when no explicit baseUrl is configured.
+		if modelConfig.Spec.OpenAI == nil || modelConfig.Spec.OpenAI.BaseURL == "" {
+			destinations = append(destinations, "https://api.openai.com:443")
+		}
 	case v1alpha3.ModelProviderAnthropic:
-		destinations = append(destinations, "https://api.anthropic.com:443")
+		// The custom baseUrl (if configured) is already extracted from the
+		// serialized model by appendURLValues above. Only add the public default
+		// when no explicit baseUrl is configured.
+		if modelConfig.Spec.Anthropic == nil || modelConfig.Spec.Anthropic.BaseURL == "" {
+			destinations = append(destinations, "https://api.anthropic.com:443")
+		}
 	case v1alpha3.ModelProviderGemini:
 		if modelConfig.Spec.Gemini == nil || ptr.Deref(modelConfig.Spec.Gemini.BaseURL, "") == "" {
 			destinations = append(destinations, "https://generativelanguage.googleapis.com:443")

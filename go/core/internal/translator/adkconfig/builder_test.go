@@ -440,3 +440,77 @@ func TestBuildModelRequirements(t *testing.T) {
 		})
 	}
 }
+
+func TestOpenAIEgressDestination(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		openai *v1alpha3.OpenAIConfig
+		want   string
+	}{
+		{
+			name: "default endpoint",
+			want: "https://api.openai.com:443",
+		},
+		{
+			name:   "base URL override omits public endpoint",
+			openai: &v1alpha3.OpenAIConfig{BaseURL: "https://litellm.internal:8000/v1"},
+			want:   "https://litellm.internal:8000",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "openai", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderOpenAI, Model: "gpt-4", OpenAI: test.openai,
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&translator.HarnessInput{
+					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root: &translator.AgentInput{
+						Template:            &translator.TemplateConfiguration{Name: "agent", Namespace: "test"},
+						ResolvedModelConfig: resolvedModel(t, collections, "openai"),
+					}})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, result.Egress)
+		})
+	}
+}
+
+func TestAnthropicEgressDestination(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		anthropic *v1alpha3.AnthropicConfig
+		want      string
+	}{
+		{
+			name: "default endpoint",
+			want: "https://api.anthropic.com:443",
+		},
+		{
+			name:      "base URL override omits public endpoint",
+			anthropic: &v1alpha3.AnthropicConfig{BaseURL: "https://proxy.internal:8080"},
+			want:      "https://proxy.internal:8080",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &v1alpha3.ModelConfig{
+				ObjectMeta: metav1.ObjectMeta{Name: "anthropic", Namespace: "test"},
+				Spec: v1alpha3.ModelConfigSpec{
+					Provider: v1alpha3.ModelProviderAnthropic, Model: "claude-3-7-sonnet", Anthropic: test.anthropic,
+				},
+			}
+			collections := contextTestCollections(t, model)
+			result, err := NewBuilder(krt.TestingDummyContext{}, collections).Build(context.Background(),
+				&translator.HarnessInput{
+					Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
+					Root: &translator.AgentInput{
+						Template:            &translator.TemplateConfiguration{Name: "agent", Namespace: "test"},
+						ResolvedModelConfig: resolvedModel(t, collections, "anthropic"),
+					}})
+			require.NoError(t, err)
+			require.Equal(t, []string{test.want}, result.Egress)
+		})
+	}
+}
