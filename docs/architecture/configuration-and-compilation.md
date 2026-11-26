@@ -4,7 +4,8 @@
 
 `Harness` describes how to run a class of agents. It selects exactly one runtime
 variant—kagent, Codex, Claude, or BYO—and contains workload image/command/args,
-literal environment values, WorkerPool configuration, and snapshot location.
+literal environment values, Linux capabilities, WorkerPool configuration, and
+snapshot location.
 Harness has no status subresource; compilation and runtime readiness are reported
 on each Agent that selects it.
 
@@ -284,6 +285,28 @@ adapter validates their quantities and emits ActorTemplate limits in CPU
 millicores and memory bytes for every harness, rounding positive fractions up
 to the next unit. Standalone sandbox limits remain under `sandboxes` configuration.
 
+`Harness.spec.securityContext.capabilities` adds and drops Linux capabilities
+for the runtime container, with the fields of a Kubernetes container's
+`securityContext.capabilities`:
+
+```yaml
+spec:
+  securityContext:
+    capabilities:
+      add: [SETUID, SETGID]
+```
+
+The central compiler copies both lists into the revision, sorted and without
+repeats, so they participate in the digest and their order does not. A Harness
+without the field compiles to the revision it had before. Substrate applies
+`drop` first, then `add`, to the container's default set; `drop: [ALL]` with an
+`add` list gives exactly that list.
+
+The built-in runtimes run as a non-root user, so the capabilities are not held
+by the runtime's own process. They are its bounding set: what a setuid-root
+program it starts can gain. Adding `SETUID` and `SETGID` is what lets
+`newuidmap` and `newgidmap` work, which a rootless container engine needs.
+
 Harness and SandboxTemplate snapshot locations require Substrate's
 `PerTemplateSnapshotLocation` preview gate; configuration bootstrap requires
 `GoldenEgressPolicy`. The CLI installer enables both. Direct Substrate
@@ -332,7 +355,10 @@ against Substrate's 32,768-character limit. Configuration and Agent Card
 payloads use the separate [bootstrap bundle](#configuration-delivery) budget.
 The environment-value check counts Unicode code points after JSON encoding,
 including its escaping.
-Oversized values produce `Compatible=False` with reason
+ActorTemplate construction also checks each added capability against the names
+Substrate allows a container to add, and its error names the capability.
+Dropped capabilities are left to Substrate.
+Oversized values and refused capabilities produce `Compatible=False` with reason
 `ActorTemplateInvalid` before any Substrate call. A subsequent `InvalidArgument`
 from `CreateActorTemplate` is recorded as a terminal `ActorTemplateRejected`
 preparation failure. Its backend message is not copied into status because it

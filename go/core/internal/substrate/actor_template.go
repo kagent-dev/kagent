@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -155,6 +156,11 @@ func ActorTemplateForRevision(spec *translator.Revision, revisionID translator.R
 			Name: name, MountPath: image.MountPath(),
 		})
 	}
+	securityContext, err := actorSecurityContext(spec.AddCapabilities, spec.DropCapabilities)
+	if err != nil {
+		return nil, err
+	}
+	template.Containers[0].SecurityContext = securityContext
 	if len(template.Volumes) > 32 || len(template.Containers[0].VolumeMounts) > 32 {
 		return nil, fmt.Errorf("runtime revision has %d volumes and %d container mounts; Substrate supports at most 32 volumes and 32 mounts per container", len(template.Volumes), len(template.Containers[0].VolumeMounts))
 	}
@@ -261,6 +267,34 @@ func actorTemplateEnvFromPodEnv(environment []corev1.EnvVar) ([]*ateapipb.EnvVar
 		result = append(result, &ateapipb.EnvVar{Name: value.Name, Value: value.Value})
 	}
 	return result, nil
+}
+
+// addableCapabilities are the capabilities Substrate lets a container add. They
+// mirror AllowedAddCapabilities in Substrate's internal/resources package, which
+// cannot be imported; recheck them when Substrate is upgraded.
+var addableCapabilities = []string{
+	"AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL",
+	"NET_BIND_SERVICE", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT",
+}
+
+// actorSecurityContext refuses a capability Substrate would not add, so the
+// Agent's status can name it: Substrate's own rejection is not copied into
+// status. Dropped capabilities are left to Substrate to check.
+func actorSecurityContext(add, drop []string) (*ateapipb.SecurityContext, error) {
+	// Existing templates have no security context. An empty one would make
+	// them differ from what is compiled now.
+	if len(add) == 0 && len(drop) == 0 {
+		return nil, nil
+	}
+	for _, name := range add {
+		if !slices.Contains(addableCapabilities, name) {
+			return nil, fmt.Errorf("capability %q cannot be added; Substrate allows %s", name, strings.Join(addableCapabilities, ", "))
+		}
+	}
+	return &ateapipb.SecurityContext{Capabilities: &ateapipb.Capabilities{
+		Add:  append([]string(nil), add...),
+		Drop: append([]string(nil), drop...),
+	}}, nil
 }
 
 // actorResources enforces the required limits at the Substrate boundary.

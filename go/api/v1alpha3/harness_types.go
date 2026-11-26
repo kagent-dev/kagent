@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha3
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -131,6 +132,21 @@ type HarnessWorkload struct {
 	Args []string `json:"args,omitempty"`
 }
 
+// HarnessSecurityContext sets the security options of each actor that runs an
+// agent on a Harness.
+type HarnessSecurityContext struct {
+	// Capabilities adds and drops Linux capabilities relative to the actor's
+	// default set. Drop applies first, so dropping ALL and adding names gives
+	// exactly those names. Substrate accepts only a fixed list of names in add;
+	// an Agent whose Harness adds another is reported as not Compatible.
+	//
+	// The built-in runtimes do not run as root, so the capabilities are not
+	// held by the runtime's own process. They bound what a setuid-root program
+	// it starts can gain, such as newuidmap for a rootless container engine.
+	// +optional
+	Capabilities *corev1.Capabilities `json:"capabilities,omitempty"`
+}
+
 // HarnessSpec defines a reusable runtime and its infrastructure policy.
 //
 // Workload fields that only some adapters support are enforced here, one rule
@@ -163,6 +179,10 @@ type HarnessSpec struct {
 	// +listType=map
 	// +listMapKey=name
 	Env []RuntimeEnvVar `json:"env,omitempty"`
+
+	// SecurityContext sets the security options of actors started from this Harness.
+	// +optional
+	SecurityContext *HarnessSecurityContext `json:"securityContext,omitempty"`
 
 	// +required
 	Substrate RuntimeSubstratePolicy `json:"substrate"`

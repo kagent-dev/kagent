@@ -119,6 +119,43 @@ func TestRevisionDigestIncludesCommand(t *testing.T) {
 	}
 }
 
+func TestRevisionDigestIncludesCapabilities(t *testing.T) {
+	without, err := (&Revision{CPU: "1", Memory: "1Gi"}).Digest()
+	require.NoError(t, err)
+
+	for _, scenario := range []struct {
+		name     string
+		revision Revision
+	}{
+		{name: "adds a capability", revision: Revision{CPU: "1", Memory: "1Gi", AddCapabilities: []string{"SETUID"}}},
+		{name: "drops a capability", revision: Revision{CPU: "1", Memory: "1Gi", DropCapabilities: []string{"SETUID"}}},
+	} {
+		t.Run("Given a revision without capabilities, when it "+scenario.name+", assert that its digest changes", func(t *testing.T) {
+			digest, err := scenario.revision.Digest()
+
+			require.NoError(t, err)
+			require.NotEqual(t, without, digest)
+		})
+	}
+
+	t.Run("Given a revision that adds a capability, when another drops the same one, assert that their digests differ", func(t *testing.T) {
+		added, err := (&Revision{CPU: "1", Memory: "1Gi", AddCapabilities: []string{"SETUID"}}).Digest()
+		require.NoError(t, err)
+
+		dropped, err := (&Revision{CPU: "1", Memory: "1Gi", DropCapabilities: []string{"SETUID"}}).Digest()
+
+		require.NoError(t, err)
+		require.NotEqual(t, added, dropped)
+	})
+
+	t.Run("Given a revision without capabilities, when its capability lists are empty, assert that its digest is unchanged", func(t *testing.T) {
+		digest, err := (&Revision{CPU: "1", Memory: "1Gi", AddCapabilities: []string{}, DropCapabilities: []string{}}).Digest()
+
+		require.NoError(t, err)
+		require.Equal(t, without, digest, "revisions made before the field existed must keep their digest")
+	})
+}
+
 func TestRevisionDigestIncludesBinaryAgentCard(t *testing.T) {
 	card := &a2apb.AgentCard{Name: "assistant"}
 	revision := &Revision{AgentCard: card}

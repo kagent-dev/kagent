@@ -227,6 +227,37 @@ spec:
                     - modelConfigRef
                     type: object
                 type: object
+              securityContext:
+                description: SecurityContext sets the security options of actors started
+                  from this Harness.
+                properties:
+                  capabilities:
+                    description: |-
+                      Capabilities adds and drops Linux capabilities relative to the actor's
+                      default set. Drop applies first, so dropping ALL and adding names gives
+                      exactly those names. Substrate accepts only a fixed list of names in add;
+                      an Agent whose Harness adds another is reported as not Compatible.
+
+                      The built-in runtimes do not run as root, so the capabilities are not
+                      held by the runtime's own process. They bound what a setuid-root program
+                      it starts can gain, such as newuidmap for a rootless container engine.
+                    properties:
+                      add:
+                        description: Added capabilities
+                        items:
+                          description: Capability represent POSIX capabilities type
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                      drop:
+                        description: Removed capabilities
+                        items:
+                          description: Capability represent POSIX capabilities type
+                          type: string
+                        type: array
+                        x-kubernetes-list-type: atomic
+                    type: object
+                type: object
               substrate:
                 description: RuntimeSubstratePolicy contains the Substrate policy
                   shared by all runtime variants.
