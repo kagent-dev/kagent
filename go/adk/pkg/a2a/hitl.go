@@ -9,6 +9,7 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
 	"google.golang.org/adk/v2/server/adka2a/v2"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 
@@ -130,6 +131,42 @@ func GetURLElicitationResponse(message *a2atype.Message) *apia2a.URLElicitationR
 // IsHITLResponse reports whether a Message carries a valid HITL response.
 func IsHITLResponse(message *a2atype.Message) bool {
 	return GetToolApprovalResponse(message) != nil || GetAskUserResponse(message) != nil || GetURLElicitationResponse(message) != nil
+}
+
+// TaskGetter reads a stored task.
+type TaskGetter interface {
+	Get(ctx context.Context, taskID a2atype.TaskID) (*sdktaskstore.StoredTask, error)
+}
+
+// HITLResponseInterceptor rejects a HITL decision that does not answer the
+// pause of its task, by apia2a.ValidateHITLDecision, before the task changes,
+// so the pause stays answerable. It applies to a client that activated the
+// HITL extension, and so runs after HITLActivationInterceptor.
+func HITLResponseInterceptor(tasks TaskGetter) a2asrv.CallInterceptor {
+	return &hitlResponseInterceptor{tasks: tasks}
+}
+
+type hitlResponseInterceptor struct {
+	a2asrv.PassthroughCallInterceptor
+	tasks TaskGetter
+}
+
+func (i *hitlResponseInterceptor) Before(ctx context.Context, callCtx *a2asrv.CallContext, request *a2asrv.Request) (context.Context, any, error) {
+	send, ok := request.Payload.(*a2atype.SendMessageRequest)
+	if !ok || send.Message == nil || !apia2a.DeclaresHITLResponse(send.Message) || !callCtx.Extensions().Active(&hitlAgentExtension) {
+		return ctx, nil, nil
+	}
+	if send.Message.TaskID == "" {
+		return ctx, nil, a2atype.NewError(a2atype.ErrInvalidParams, "a HITL decision must name the task it answers")
+	}
+	stored, err := i.tasks.Get(ctx, send.Message.TaskID)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if err := apia2a.ValidateHITLDecision(stored.Task, send.Message); err != nil {
+		return ctx, nil, a2atype.NewError(a2atype.ErrInvalidParams, err.Error())
+	}
+	return ctx, nil, nil
 }
 
 // AttachHitlExtension writes a typed payload (or map) into Message metadata + extensions.
@@ -630,7 +667,7 @@ func stringSlice(value any) []string {
 
 // BuildResumeHITLMessage: client HITL response + stored request → ADK FunctionResponse parts.
 func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message) (*a2atype.Message, error) {
-	if !IsHITLResponse(incoming) {
+	if !apia2a.DeclaresHITLResponse(incoming) {
 		return nil, fmt.Errorf("message does not contain a HITL response")
 	}
 	if storedTask == nil || storedTask.Status.State != a2atype.TaskStateInputRequired {
@@ -670,7 +707,10 @@ func BuildResumeHITLMessage(storedTask *a2atype.Task, incoming *a2atype.Message)
 // input-required task, given the request it is paused on: accept confirms the tool call, which then runs again;
 // decline and cancel reject it.
 func resumeURLElicitation(request *apia2a.URLElicitationRequest, incoming *a2atype.Message) (*a2atype.Message, error) {
-	response := GetURLElicitationResponse(incoming)
+	response, err := apia2a.ParseURLElicitationResponse(incoming)
+	if err != nil {
+		return nil, err
+	}
 	if err := apia2a.ValidateURLElicitationResponse(request, response); err != nil {
 		return nil, err
 	}

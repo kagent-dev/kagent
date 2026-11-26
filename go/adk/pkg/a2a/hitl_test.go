@@ -9,6 +9,8 @@ import (
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
+	sdktaskstore "github.com/a2aproject/a2a-go/v2/a2asrv/taskstore"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
@@ -608,5 +610,102 @@ func TestBuildResumeHITLMessageURLElicitation(t *testing.T) {
 	other := hitlDecisionMessage(&apia2a.URLElicitationResponse{Type: apia2a.HITLTypeURLElicitationResponse, ID: "confirm-2", Action: apia2a.URLElicitationAccept})
 	if _, err := BuildResumeHITLMessage(stored, other); err == nil {
 		t.Fatal("BuildResumeHITLMessage() accepted a response to another URL elicitation")
+	}
+}
+
+type storedTasks map[a2atype.TaskID]*a2atype.Task
+
+func (s storedTasks) Get(_ context.Context, id a2atype.TaskID) (*sdktaskstore.StoredTask, error) {
+	task, ok := s[id]
+	if !ok {
+		return nil, a2atype.ErrTaskNotFound
+	}
+	return &sdktaskstore.StoredTask{Task: task}, nil
+}
+
+// hitlCall is the context and call of an A2A send whose client activated the
+// HITL extension, or did not.
+func hitlCall(t *testing.T, activated bool) (context.Context, *a2asrv.CallContext) {
+	t.Helper()
+	params := map[string][]string{}
+	if activated {
+		params[a2atype.SvcParamExtensions] = []string{HITLExtensionURI}
+	}
+	ctx, callCtx := a2asrv.NewCallContext(t.Context(), a2asrv.NewServiceParams(params))
+	_, _, err := HITLActivationInterceptor().Before(ctx, callCtx, &a2asrv.Request{})
+	require.NoError(t, err)
+	return ctx, callCtx
+}
+
+func TestHITLResponseInterceptor(t *testing.T) {
+	tasks := storedTasks{"task-1": {
+		ID: "task-1", ContextID: "ctx-1",
+		Status: a2atype.TaskStatus{
+			State:   a2atype.TaskStateInputRequired,
+			Message: BuildHITLStatusMessage(urlElicitationConfirmationMessage(), true),
+		},
+	}}
+	decision := func(payload map[string]any) *a2atype.Message {
+		message := hitlDecisionMessage(payload)
+		message.TaskID = "task-1"
+		return message
+	}
+	for name, scenario := range map[string]struct {
+		activated bool
+		message   *a2atype.Message
+		rejected  bool
+	}{
+		"a URL elicitation response without an action": {
+			activated: true,
+			message:   decision(map[string]any{"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-1"}),
+			rejected:  true,
+		},
+		"a URL elicitation response with an unknown action": {
+			activated: true,
+			message:   decision(map[string]any{"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-1", "action": "approve"}),
+			rejected:  true,
+		},
+		"a URL elicitation response to another pause": {
+			activated: true,
+			message:   decision(map[string]any{"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-2", "action": "accept"}),
+			rejected:  true,
+		},
+		"a tool approval response to a URL elicitation": {
+			activated: true,
+			message: decision(map[string]any{"type": HITLTypeToolApprovalResponse, "approvals": []any{
+				map[string]any{"id": "confirm-1", "approved": true},
+			}}),
+			rejected: true,
+		},
+		"a HITL decision without a task": {
+			activated: true,
+			message:   hitlDecisionMessage(map[string]any{"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-1", "action": "accept"}),
+			rejected:  true,
+		},
+		"a valid URL elicitation response": {
+			activated: true,
+			message:   decision(map[string]any{"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-1", "action": "accept"}),
+		},
+		"an invalid decision from a client without the HITL extension": {
+			message: decision(map[string]any{"type": apia2a.HITLTypeURLElicitationResponse, "id": "confirm-1"}),
+		},
+		"ordinary input": {
+			activated: true,
+			message:   a2atype.NewMessageForTask(a2atype.MessageRoleUser, a2atype.TaskInfo{TaskID: "task-1"}, a2atype.NewTextPart("hello")),
+		},
+	} {
+		t.Run("Given "+name+", when it is sent, assert that it is rejected before the task changes only when it cannot answer the pause", func(t *testing.T) {
+			ctx, callCtx := hitlCall(t, scenario.activated)
+
+			_, result, err := HITLResponseInterceptor(tasks).Before(ctx, callCtx, &a2asrv.Request{Payload: &a2atype.SendMessageRequest{Message: scenario.message}})
+
+			require.Nil(t, result)
+			if !scenario.rejected {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, a2atype.ErrInvalidParams)
+			require.Equal(t, a2atype.TaskStateInputRequired, tasks["task-1"].Status.State)
+		})
 	}
 }

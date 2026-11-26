@@ -120,6 +120,9 @@ instead of pausing, and the error names the server without the URL.
 
 The server rejects responses that use the wrong task/context, omit required
 decisions, duplicate IDs, or answer an operation that is no longer pending.
+A message that declares a response `type` is always a decision, never ordinary
+input. The Go runtimes reject an invalid one with an invalid-params error
+before the task changes, so the pause stays answerable.
 
 The status message also carries a text part that describes the pause. Every
 runtime composes that text the same way, and a client receives it whether or not

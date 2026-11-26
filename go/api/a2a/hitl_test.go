@@ -249,3 +249,44 @@ func TestParseToolApprovalRequestValidatesToolURLElicitations(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateHITLDecision(t *testing.T) {
+	message := func(payload any) *a2atype.Message {
+		message := &a2atype.Message{}
+		require.NoError(t, AttachHITL(message, payload))
+		return message
+	}
+	paused := func(request any) *a2atype.Task {
+		return &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateInputRequired, Message: message(request)}}
+	}
+	urlPause := paused(URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "sign-in", Server: "github", URL: "https://example.com/s"})
+	approvalPause := paused(ToolApprovalRequest{Type: HITLTypeToolApprovalRequest, Tools: []HITLTool{{ID: "one"}}})
+	askPause := paused(AskUserRequest{Type: HITLTypeAskUserRequest, ID: "ask", Questions: []HITLQuestion{{Question: "Which?"}}})
+	accept := message(URLElicitationResponse{Type: HITLTypeURLElicitationResponse, ID: "sign-in", Action: URLElicitationAccept})
+
+	for name, scenario := range map[string]struct {
+		task     *a2atype.Task
+		decision *a2atype.Message
+		valid    bool
+	}{
+		"URL elicitation accepted":         {task: urlPause, decision: accept, valid: true},
+		"URL elicitation without action":   {task: urlPause, decision: message(map[string]any{"type": HITLTypeURLElicitationResponse, "id": "sign-in"})},
+		"URL elicitation for another ID":   {task: urlPause, decision: message(URLElicitationResponse{Type: HITLTypeURLElicitationResponse, ID: "other", Action: URLElicitationAccept})},
+		"URL elicitation answered as tool": {task: urlPause, decision: message(ToolApprovalResponse{Type: HITLTypeToolApprovalResponse, Approvals: []ToolApproval{{ID: "sign-in", Approved: true}}})},
+		"tool approval decided":            {task: approvalPause, decision: message(ToolApprovalResponse{Type: HITLTypeToolApprovalResponse, Approvals: []ToolApproval{{ID: "one", Approved: true}}}), valid: true},
+		"tool approval answered as URL":    {task: approvalPause, decision: accept},
+		"ask_user answered":                {task: askPause, decision: message(AskUserResponse{Type: HITLTypeAskUserResponse, ID: "ask", Answers: []AskUserAnswer{{Answer: []string{"a"}}}}), valid: true},
+		"ask_user answered for another ID": {task: askPause, decision: message(AskUserResponse{Type: HITLTypeAskUserResponse, ID: "other", Answers: []AskUserAnswer{{Answer: []string{"a"}}}})},
+		"task not paused":                  {task: &a2atype.Task{Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}}, decision: accept},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.True(t, DeclaresHITLResponse(scenario.decision))
+			err := ValidateHITLDecision(scenario.task, scenario.decision)
+			if scenario.valid {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+		})
+	}
+}

@@ -308,18 +308,21 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		}
 
 		hitlActivated := apia2a.HITLActive(ctx)
-		if hitlActivated && IsHITLResponse(reqCtx.Message) {
+		if hitlActivated && apia2a.DeclaresHITLResponse(reqCtx.Message) {
+			// HITLResponseInterceptor rejects an invalid decision before the task
+			// changes; one that reaches the executor fails the task before it
+			// is published as working.
+			resumeMessage, err := BuildResumeHITLMessage(reqCtx.StoredTask, reqCtx.Message)
+			if err != nil {
+				yield(nil, err)
+				return
+			}
 			// a2a-go appends the inbound decision before invoking the executor. The
 			// original decision is re-emitted once for history/audit, while the
 			// transformed FunctionResponses are what ADK must consume.
 			dropPreAppendedDecisionFromHistory(reqCtx.StoredTask, reqCtx.Message)
 			decision := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateWorking, reqCtx.Message)
 			if !yield(decision, nil) {
-				return
-			}
-			resumeMessage, err := BuildResumeHITLMessage(reqCtx.StoredTask, reqCtx.Message)
-			if err != nil {
-				yield(nil, err)
 				return
 			}
 			reqCtx.Message = resumeMessage

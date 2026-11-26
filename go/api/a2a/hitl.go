@@ -338,6 +338,61 @@ func ValidateURLElicitationResponse(request *URLElicitationRequest, response *UR
 	return nil
 }
 
+// DeclaresHITLResponse reports whether a Message declares a HITL response
+// type, valid or not. Such a message is a decision, never ordinary input.
+func DeclaresHITLResponse(message *a2atype.Message) bool {
+	raw, ok := hitlPayload(message)
+	if !ok {
+		return false
+	}
+	switch raw["type"] {
+	case HITLTypeToolApprovalResponse, HITLTypeAskUserResponse, HITLTypeURLElicitationResponse:
+		return true
+	}
+	return false
+}
+
+// ValidateHITLDecision verifies that decision answers the pause of task: the
+// task waits for input, and decision parses as the response to the request
+// its status carries and correlates with it.
+func ValidateHITLDecision(task *a2atype.Task, decision *a2atype.Message) error {
+	if task == nil || (task.Status.State != a2atype.TaskStateInputRequired && task.Status.State != a2atype.TaskStateAuthRequired) {
+		return fmt.Errorf("HITL decision requires a task that waits for input")
+	}
+	pause := task.Status.Message
+	if request, err := ParseURLElicitationRequest(pause); err != nil || request != nil {
+		if err != nil {
+			return err
+		}
+		response, err := ParseURLElicitationResponse(decision)
+		if err != nil {
+			return err
+		}
+		return ValidateURLElicitationResponse(request, response)
+	}
+	if request, err := ParseToolApprovalRequest(pause); err != nil || request != nil {
+		if err != nil {
+			return err
+		}
+		response, err := ParseToolApprovalResponse(decision)
+		if err != nil {
+			return err
+		}
+		return ValidateToolApprovalResponse(request, response)
+	}
+	if request, err := ParseAskUserRequest(pause); err != nil || request != nil {
+		if err != nil {
+			return err
+		}
+		response, err := ParseAskUserResponse(decision)
+		if err != nil {
+			return err
+		}
+		return ValidateAskUserResponse(request, response)
+	}
+	return fmt.Errorf("task waits for input without a HITL request")
+}
+
 // ValidateToolApprovalResponse verifies that every request ID is decided exactly once.
 func ValidateToolApprovalResponse(request *ToolApprovalRequest, response *ToolApprovalResponse) error {
 	if request == nil || response == nil {
