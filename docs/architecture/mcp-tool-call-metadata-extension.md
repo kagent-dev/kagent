@@ -8,7 +8,7 @@ extensions or authenticate the values they carry.
 | Protocol | Identifier | Purpose |
 | --- | --- | --- |
 | A2A | `https://kagent.dev/extensions/mcp-tool-call-metadata/v1` | Caller supplies metadata for one request |
-| MCP | `dev.kagent/tool-call-metadata` | Client and server opt into filtered tool-call metadata |
+| MCP | `dev.kagent/tool-call-metadata` | Client and server opt into an opaque tool-call metadata payload |
 
 The Go ADK implements this contract. Python, Codex, Claude and BYO runtimes do
 not implement it unless their runtime explicitly provides the same behavior.
@@ -40,15 +40,13 @@ Values belong in `params.metadata[<A2A extension URI>]`:
 }
 ```
 
-The object maps qualified metadata keys to opaque JSON values. This contract
-requires each key to follow MCP's `_meta` naming grammar with a mandatory vendor
-prefix and a nonempty name, so keys from different applications do not
-collide; MCP itself does not constrain keys nested inside an extension's
-object. Namespaces reserved by MCP are not allowed. These are metadata keys,
-not declarations of support for extensions with matching identifiers.
+The payload is an opaque JSON object. Its field names and values belong to the
+application; the runtime does not validate individual names or filter fields.
+Namespaced field names can help applications avoid collisions. These fields
+are not declarations of support for extensions with matching identifiers.
 
 A missing payload, JSON null or an empty object contributes no values. An
-activated payload of another type, or a disallowed key, causes an invalid
+activated payload of another type causes an invalid
 params error before runtime dispatch. Unrecognized surrounding A2A metadata
 does not become tool-call metadata.
 
@@ -70,29 +68,32 @@ attached to the current request:
 }
 ```
 
-Each participating server declares the qualified keys it accepts in its
-settings object:
+Each participating server advertises the same capability with an empty settings
+object:
 
 ```json
 {
   "extensions": {
-    "dev.kagent/tool-call-metadata": {
-      "keys": ["com.example/session"]
-    }
+    "dev.kagent/tool-call-metadata": {}
   }
 }
 ```
 
-`keys` is a required array of allowed metadata key strings; an empty array
-accepts no values. Missing or malformed settings disable delivery to that
-server. A server advertising another extension with the same identifier as
-one of the payload keys does not opt into this contract.
+The extension defines no settings. An absent declaration or settings that are
+not an object disable delivery to that server. Unknown settings fields are
+ignored. A server advertising another extension with the same identifier as
+one of the payload fields does not opt into this contract.
 
 On MCP 2025-11-25 the client and server advertise these capabilities during
 `initialize`. On MCP 2026-07-28 the client advertises its capability through
 `_meta["io.modelcontextprotocol/clientCapabilities"]` on requests, and the
 runtime reads the server's declaration from `server/discover`. The fixed
-client declaration does not depend on the current request's metadata keys.
+client declaration does not depend on the current request's payload.
+
+A proxy can relay the extension declaration and payload without interpreting
+the payload's fields. Servers reached through such a proxy receive the complete
+payload when they declare support. No per-field capability aggregation or
+filtering is required.
 
 ## MCP delivery and trust
 
@@ -100,31 +101,31 @@ Only `tools/call` requests carry the values. Initialization, `server/discover`,
 list requests and every other MCP request never do, so a cached list result
 never holds one request's values.
 
-For every `tools/call`, the runtime intersects the caller's keys with the
-destination server's accepted keys and sends the resulting object under the
-MCP extension identifier:
+For every `tools/call` to a server declaring support, the runtime sends the
+current request's complete payload under the MCP extension identifier:
 
 ```json
 {
   "_meta": {
     "dev.kagent/tool-call-metadata": {
-      "com.example/session": "a1b2c3"
+      "com.example/session": "a1b2c3",
+      "com.example/export": { "format": "csv" }
     }
   }
 }
 ```
 
-No extension metadata is added when the intersection is empty. Existing
+No extension metadata is added when the payload is empty. Existing
 `_meta["dev.kagent/tool-call-metadata"]` takes precedence and is not merged or
 overwritten. Other call metadata, including SDK-managed protocol fields, is
 preserved. Metadata is attached after the model selects the tool, outside
 model arguments. A server can still return a value in a tool result, so this
 is not a guarantee that a value can never reach the model.
 
-Capability declarations express protocol support and accepted keys, not
-authorization to receive confidential data. Every configured server accepting
-the same key can receive its value. Servers must treat values as untrusted
-application data and independently authenticate and authorize their requests.
+Capability declarations express protocol support, not authorization to receive
+confidential data. Every participating server called during a request can
+receive its complete payload. Servers must treat values as untrusted application
+data and independently authenticate and authorize their requests.
 
 Values are not credentials. A caller must not put access tokens, refresh
 tokens, API keys or other secrets in them, and a server must not treat these

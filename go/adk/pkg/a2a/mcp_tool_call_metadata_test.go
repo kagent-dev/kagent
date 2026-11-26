@@ -46,9 +46,10 @@ func TestMCPToolCallMetadataNeedActivation(t *testing.T) {
 
 func TestMCPToolCallMetadataRefusesMalformedValuesBeforeRunning(t *testing.T) {
 	for name, values := range map[string]any{
-		"not an object":      "a1",
-		"key without prefix": map[string]any{"session": "a1"},
-		"reserved prefix":    map[string]any{"io.modelcontextprotocol/clientInfo": "x"},
+		"string": "a1",
+		"array":  []any{"a1"},
+		"number": 42,
+		"bool":   true,
 	} {
 		ctx, callCtx := mcpToolCallMetadataCall(t, true)
 		_, _, err := MCPToolCallMetadataActivationInterceptor().Before(ctx, callCtx, sendWith(map[string]any{apia2a.MCPToolCallMetadataExtensionURI: values}))

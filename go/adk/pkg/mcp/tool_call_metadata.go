@@ -11,8 +11,6 @@ import (
 
 type toolCallMetadataKey struct{}
 
-const toolCallMetadataKeysSetting = "keys"
-
 // WithToolCallMetadata replaces the request-scoped tool-call metadata carried
 // by ctx, including when values is nil.
 func WithToolCallMetadata(ctx context.Context, values map[string]any) context.Context {
@@ -24,8 +22,8 @@ func toolCallMetadataFrom(ctx context.Context) map[string]any {
 	return values
 }
 
-// sendToolCallMetadata sends only keys the server accepts through kagent's
-// tool-call metadata extension. Existing extension metadata takes precedence.
+// sendToolCallMetadata sends the request's payload to servers that declare
+// the extension. Existing extension metadata takes precedence.
 func sendToolCallMetadata(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 	return func(ctx context.Context, method string, request mcpsdk.Request) (mcpsdk.Result, error) {
 		values := toolCallMetadataFrom(ctx)
@@ -40,47 +38,22 @@ func sendToolCallMetadata(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		if _, set := params.Meta[apia2a.MCPToolCallMetadataExtensionID]; set {
 			return next(ctx, method, request)
 		}
-		accepted := acceptedToolCallMetadataKeys(session)
-		var forwarded map[string]any
-		for key, value := range values {
-			if !accepted[key] {
-				continue
-			}
-			if forwarded == nil {
-				forwarded = make(map[string]any)
-			}
-			forwarded[key] = value
+		if !supportsToolCallMetadata(session) {
+			return next(ctx, method, request)
 		}
-		if len(forwarded) > 0 {
-			if params.Meta == nil {
-				params.Meta = mcpsdk.Meta{}
-			}
-			params.Meta[apia2a.MCPToolCallMetadataExtensionID] = forwarded
+		if params.Meta == nil {
+			params.Meta = mcpsdk.Meta{}
 		}
+		params.Meta[apia2a.MCPToolCallMetadataExtensionID] = maps.Clone(values)
 		return next(ctx, method, request)
 	}
 }
 
-func acceptedToolCallMetadataKeys(session *mcpsdk.ClientSession) map[string]bool {
+func supportsToolCallMetadata(session *mcpsdk.ClientSession) bool {
 	result := session.InitializeResult()
 	if result == nil || result.Capabilities == nil {
-		return nil
+		return false
 	}
 	settings, ok := result.Capabilities.Extensions[apia2a.MCPToolCallMetadataExtensionID].(map[string]any)
-	if !ok {
-		return nil
-	}
-	keys, ok := settings[toolCallMetadataKeysSetting].([]any)
-	if !ok {
-		return nil
-	}
-	accepted := make(map[string]bool, len(keys))
-	for _, raw := range keys {
-		key, ok := raw.(string)
-		if !ok || !apia2a.IsMCPToolCallMetadataKey(key) {
-			return nil
-		}
-		accepted[key] = true
-	}
-	return accepted
+	return ok && settings != nil
 }

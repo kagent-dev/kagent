@@ -26,17 +26,17 @@ const (
 	metadataModernProtocolVersion = "2026-07-28"
 )
 
-func TestToolCallMetadataNegotiatesAndFiltersValues(t *testing.T) {
+func TestToolCallMetadataNegotiatesAndForwardsPayload(t *testing.T) {
 	for _, stateless := range []bool{false, true} {
-		t.Run(fmt.Sprintf("Given stateless=%t, when a tool is called, assert that only accepted keys are sent with negotiated support", stateless), func(t *testing.T) {
+		t.Run(fmt.Sprintf("Given stateless=%t, when a tool is called, assert that the complete payload is sent with negotiated support", stateless), func(t *testing.T) {
 			serverURL, received := metadataServer(t, stateless, map[string]any{
-				apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []string{toolCallMetadataSessionKey, toolCallMetadataConfigKey}},
+				apia2a.MCPToolCallMetadataExtensionID: map[string]any{},
 			})
 			call := metadataTool(t, serverURL)
 			values := map[string]any{
 				toolCallMetadataSessionKey: "a1",
 				toolCallMetadataConfigKey:  map[string]any{"format": "csv", "limit": 10.0},
-				"org.other/private":        "hidden",
+				"format":                   "csv",
 			}
 			require.NoError(t, call(t.Context(), values))
 			record := <-received
@@ -45,31 +45,24 @@ func TestToolCallMetadataNegotiatesAndFiltersValues(t *testing.T) {
 				wantVersion = metadataModernProtocolVersion
 			}
 			require.Equal(t, wantVersion, record.version)
-			require.Equal(t, map[string]any{
-				toolCallMetadataSessionKey: "a1", toolCallMetadataConfigKey: values[toolCallMetadataConfigKey],
-			}, record.meta[apia2a.MCPToolCallMetadataExtensionID])
+			require.Equal(t, values, record.meta[apia2a.MCPToolCallMetadataExtensionID])
 			require.NotNil(t, record.capabilities)
 			require.Equal(t, map[string]any{}, record.capabilities.Extensions[apia2a.MCPToolCallMetadataExtensionID])
 			require.Contains(t, record.capabilities.Extensions, mcpUIExtensionName)
 			require.NotContains(t, record.capabilities.Extensions, toolCallMetadataSessionKey)
 			require.NotContains(t, record.meta, toolCallMetadataSessionKey)
-			require.NotContains(t, record.meta, "org.other/private")
+			require.NotContains(t, record.meta, "format")
 			require.Len(t, values, 3)
 		})
 	}
 }
 
-func TestToolCallMetadataRequiresValidServerSettings(t *testing.T) {
+func TestToolCallMetadataRequiresServerSupport(t *testing.T) {
 	for name, extensions := range map[string]map[string]any{
 		"no extension":        nil,
 		"unrelated extension": {toolCallMetadataSessionKey: map[string]any{}},
 		"null settings":       {apia2a.MCPToolCallMetadataExtensionID: nil},
-		"missing keys":        {apia2a.MCPToolCallMetadataExtensionID: map[string]any{}},
-		"empty keys":          {apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []any{}}},
-		"keys not array":      {apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: toolCallMetadataSessionKey}},
-		"non-string key":      {apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []any{toolCallMetadataSessionKey, true}}},
-		"reserved key":        {apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []string{toolCallMetadataSessionKey, "io.modelcontextprotocol/clientInfo"}}},
-		"unqualified key":     {apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []string{toolCallMetadataSessionKey, "session"}}},
+		"invalid settings":    {apia2a.MCPToolCallMetadataExtensionID: "invalid"},
 	} {
 		t.Run("Given "+name+", when a tool is called, assert that no metadata is forwarded", func(t *testing.T) {
 			serverURL, received := metadataServer(t, true, extensions)
@@ -82,7 +75,7 @@ func TestToolCallMetadataRequiresValidServerSettings(t *testing.T) {
 
 func TestToolCallMetadataIsScopedToEachCall(t *testing.T) {
 	serverURL, received := metadataServer(t, true, map[string]any{
-		apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []string{toolCallMetadataSessionKey}},
+		apia2a.MCPToolCallMetadataExtensionID: map[string]any{},
 	})
 	call := metadataTool(t, serverURL)
 	for _, value := range []string{"first", "second", ""} {
@@ -102,7 +95,7 @@ func TestToolCallMetadataIsScopedToEachCall(t *testing.T) {
 
 func TestConcurrentToolCallsKeepTheirOwnMetadata(t *testing.T) {
 	serverURL, received := metadataServer(t, true, map[string]any{
-		apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []string{toolCallMetadataSessionKey}},
+		apia2a.MCPToolCallMetadataExtensionID: map[string]any{},
 	})
 	call := metadataTool(t, serverURL)
 	const calls = 12
@@ -131,7 +124,7 @@ func TestConcurrentToolCallsKeepTheirOwnMetadata(t *testing.T) {
 
 func TestToolCallMetadataPreservesExistingCallMetadata(t *testing.T) {
 	serverURL, received := metadataServer(t, true, map[string]any{
-		apia2a.MCPToolCallMetadataExtensionID: map[string]any{toolCallMetadataKeysSetting: []string{toolCallMetadataSessionKey}},
+		apia2a.MCPToolCallMetadataExtensionID: map[string]any{},
 	})
 	client := newMCPAppClient(nil, &mcpAppDiscovery{listedAppNames: map[string]bool{}, appToolNames: map[string]bool{}})
 	session, err := client.Connect(t.Context(), &mcpsdk.StreamableClientTransport{Endpoint: serverURL}, nil)

@@ -44,8 +44,7 @@ func TestHandlerOptionsRejectMalformedMCPToolCallMetadata(t *testing.T) {
 		values any
 	}{
 		{name: "Given an activated metadata extension, when a client sends a string payload, assert that dispatch is rejected", values: "not an object"},
-		{name: "Given an activated metadata extension, when a client sends an unqualified key, assert that dispatch is rejected", values: map[string]any{"session": "session-1"}},
-		{name: "Given an activated metadata extension, when a client sends a reserved key, assert that dispatch is rejected", values: map[string]any{"io.modelcontextprotocol/clientInfo": "caller"}},
+		{name: "Given an activated metadata extension, when a client sends an array payload, assert that dispatch is rejected", values: []any{"session-1"}},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			executor := &mcpMetadataWiringExecutor{activations: make(chan bool, 1)}

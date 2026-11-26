@@ -94,7 +94,7 @@ func (*metadataIntegrationExecutor) Cancel(_ context.Context, request *a2asrv.Ex
 
 func TestA2AToolCallMetadataReachesMCPPerRequest(t *testing.T) {
 	capabilities := &mcpsdk.ServerCapabilities{}
-	capabilities.AddExtension(apia2a.MCPToolCallMetadataExtensionID, map[string]any{"keys": []string{toolCallMetadataSessionKey}})
+	capabilities.AddExtension(apia2a.MCPToolCallMetadataExtensionID, nil)
 	mcpServer := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "metadata", Version: "1"}, &mcpsdk.ServerOptions{Capabilities: capabilities})
 	observedMetadata := make(chan map[string]any, 1)
 	mcpsdk.AddTool(mcpServer, &mcpsdk.Tool{Name: "echo"}, func(_ context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
@@ -123,7 +123,7 @@ func TestA2AToolCallMetadataReachesMCPPerRequest(t *testing.T) {
 		metadata  any
 		want      map[string]any
 	}{
-		{name: "first turn", activated: true, metadata: map[string]any{toolCallMetadataSessionKey: "first", "org.other/private": "hidden"}, want: map[string]any{toolCallMetadataSessionKey: "first"}},
+		{name: "first turn", activated: true, metadata: map[string]any{toolCallMetadataSessionKey: "first", "format": "csv"}, want: map[string]any{toolCallMetadataSessionKey: "first", "format": "csv"}},
 		{name: "no activation", metadata: map[string]any{toolCallMetadataSessionKey: "ignored"}},
 		{name: "empty turn", activated: true},
 		{name: "next turn", activated: true, metadata: map[string]any{toolCallMetadataSessionKey: "next"}, want: map[string]any{toolCallMetadataSessionKey: "next"}},
