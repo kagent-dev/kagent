@@ -263,7 +263,7 @@ func TestURLElicitationTool(t *testing.T) {
 
 		again := newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true})
 		_, err = whoami.Run(again, map[string]any{})
-		require.ErrorContains(t, err, "cannot pause again")
+		require.ErrorContains(t, err, "already resumed after approval and cannot pause for the URL requested by gateway")
 		require.NotErrorIs(t, err, tool.ErrConfirmationRequired)
 		require.Nil(t, again.payload, "no confirmation is requested")
 		require.Equal(t, int32(2), calls.Load())
@@ -284,7 +284,7 @@ func TestURLElicitationTool(t *testing.T) {
 		require.Equal(t, "github", paused.payload.(map[string]any)["elicitation_id"])
 
 		_, err = whoami.Run(newToolContext(t, state, &toolconfirmation.ToolConfirmation{Confirmed: true}), map[string]any{})
-		require.ErrorContains(t, err, "cannot pause again")
+		require.ErrorContains(t, err, "already resumed after approval and cannot pause for the URL requested by gateway")
 		require.Len(t, received, 2)
 		retry := received[1]
 		require.Len(t, retry, 1, "only the sign-in the person confirmed is answered")
@@ -358,27 +358,56 @@ func TestAnswerInputRequests(t *testing.T) {
 	})
 }
 
-func TestElicitationHandlerRelaysOnlyASafeURL(t *testing.T) {
-	handler := elicitationHandler("gateway")
+func TestElicitationHandlerDeclinesAllButASafeURL(t *testing.T) {
 	for name, params := range map[string]*mcpsdk.ElicitParams{
 		"form":       {Mode: "form", Message: "Your token?", RequestedSchema: map[string]any{"type": "object"}},
 		"javascript": {Mode: "url", Message: "Sign in", URL: "javascript:alert(1)", ElicitationID: "e1"},
 		"plain http": {Mode: "url", Message: "Sign in", URL: "http://gateway.example/s", ElicitationID: "e1"},
 	} {
-		result, err := handler(t.Context(), &mcpsdk.ElicitRequest{Params: params})
+		result, err := elicitationHandler(t.Context(), &mcpsdk.ElicitRequest{Params: params})
 		require.NoError(t, err, name)
 		require.Equal(t, "decline", result.Action, name)
 	}
+}
 
-	_, err := handler(t.Context(), &mcpsdk.ElicitRequest{Params: &mcpsdk.ElicitParams{
-		Mode: "url", Message: "Sign in", URL: "https://gateway.example/s", ElicitationID: "e1",
-	}})
-	var elicitation *urlElicitationError
-	require.ErrorAs(t, err, &elicitation)
-	require.Equal(t, apia2a.URLElicitationRequest{
-		Type: apia2a.HITLTypeURLElicitationRequest, Server: "gateway",
-		Message: "Sign in", URL: "https://gateway.example/s", ElicitationID: "e1",
-	}, elicitation.request)
+func TestURLElicitationCallback(t *testing.T) {
+	t.Run("Given a server on MCP 2025-11-25 that sends elicitation/create for a URL during a tool call, when the call runs, assert that the server gets an error that names the supported paths and saw URL elicitation declared alone", func(t *testing.T) {
+		server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "GitHub", Version: "0.0.1"}, nil)
+		mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(ctx context.Context, request *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
+			elicitation := request.Session.InitializeParams().Capabilities.Elicitation
+			_, err := request.Session.Elicit(ctx, &mcpsdk.ElicitParams{Mode: "url", Message: "Sign in", URL: signInURL, ElicitationID: "e1"})
+			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{
+				Text: fmt.Sprintf("form=%t url=%t err=%v", elicitation.Form != nil, elicitation.URL != nil, err),
+			}}}, nil, nil
+		})
+		ctx := newToolContext(t, mapState{}, nil)
+		whoami := whoamiTool(t, serve(t, server, false), ctx)
+
+		result, err := whoami.Run(ctx, map[string]any{})
+
+		require.NoError(t, err)
+		require.Contains(t, fmt.Sprint(result), "form=false url=true")
+		require.Contains(t, fmt.Sprint(result), "-32042 or return an input_required result")
+		require.Nil(t, ctx.payload, "the call does not pause")
+	})
+}
+
+func TestInputRequiredMiddlewareLoadShedding(t *testing.T) {
+	t.Run("Given a busy server that answers every call with an empty inputRequests map, when a tool call runs, assert that it stops after three calls", func(t *testing.T) {
+		var calls atomic.Int32
+		server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "GitHub", Version: "0.0.1"}, nil)
+		mcpsdk.AddTool(server, &mcpsdk.Tool{Name: "whoami", Description: "Names the person"}, func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
+			calls.Add(1)
+			return &mcpsdk.CallToolResult{InputRequests: mcpsdk.InputRequestMap{}}, nil, nil
+		})
+		ctx := newToolContext(t, mapState{}, nil)
+		whoami := whoamiTool(t, serve(t, server, true), ctx)
+
+		_, err := whoami.Run(ctx, map[string]any{})
+
+		require.ErrorContains(t, err, "server still busy after 3 retries")
+		require.Equal(t, int32(maxLoadSheddingRounds), calls.Load())
+	})
 }
 
 func TestServerDisplayName(t *testing.T) {

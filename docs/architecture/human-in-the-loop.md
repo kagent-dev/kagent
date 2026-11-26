@@ -96,14 +96,19 @@ present its link under another's name:
 means the person agreed to open the URL, `accept` here means the person completed
 the interaction there: the paused tool call runs again. `decline` and `cancel`
 reject the call. The URL is `https`, or `http` on a loopback host, with no user
-info; the runtime drops any other URL. Form mode elicitations are declined,
-because what the person typed would reach the model's context.
+info; the runtime drops any other URL. The Go harness declares only URL mode
+elicitation to MCP servers, and declines a form mode elicitation a server sends
+anyway, because what the person typed would reach the model's context.
 
 A pause carries one URL. When a server asks for several at once, the runtime
 pauses on the first and leaves the others unanswered when the call runs
 again, so the server asks for them again. A call that already resumed from a
 confirmation cannot pause a second time: a further URL elicitation fails the
-call.
+call. This includes a tool whose MCP server binding sets `requireApproval`:
+the person approves the call first, so the server's first URL elicitation is
+the call's second pause and fails it with `tool "<name>" already resumed after
+approval and cannot pause for the URL requested by <server>`. Do not set
+`requireApproval` on a binding to an MCP server that asks for URL elicitations.
 
 When a URL elicitation shares its pause with other calls, the pause is a tool
 approval, and the waiting call's tool carries the request as `url_elicitation`.
@@ -181,10 +186,19 @@ the Go and Python ADKs can retain a child continuation when a subagent requests
 input; a subagent's URL elicitation is not forwarded yet and fails the parent's
 call.
 
-For an MCP server on protocol 2026-07-28, which asks through an `input_required`
-tool result, the Go harness keeps the server's request state and input responses
-in runtime session state while the task is paused, never in the public request,
-and sends them back when the call runs again.
+The Go harness pauses on a URL elicitation that an MCP server sends in one of
+two ways:
+
+- on protocol 2026-07-28, an `input_required` tool result. The harness keeps the
+  server's request state and input responses in runtime session state while the
+  task is paused, never in the public request, and sends them back when the
+  call runs again. This is the supported continuation path.
+- on protocol 2025-11-25, a `tools/call` error `-32042` (URL elicitation
+  required). The call runs again from the start once the person accepts.
+
+A 2025-11-25 server can also send a live `elicitation/create` request while the
+tool call runs. The call cannot pause while that request is open, so the server
+gets a JSON-RPC error back and the person is not asked.
 
 A rejected call is reported to the model as `Tool call was rejected by user.`,
 followed by `Reason: <reason>` when the decision carried a `rejection_reason`.

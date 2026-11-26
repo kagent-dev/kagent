@@ -19,9 +19,10 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
-// urlElicitationError ends a tool call on a URL elicitation without
-// answering the server, so the URL stays valid while the person opens it.
-// continuation is set when the server asked through an input_required result.
+// urlElicitationError ends a tool call on the URL elicitation of an
+// input_required result without answering the server, so the URL stays valid
+// while the person opens it. continuation is what the confirmed call sends
+// back.
 type urlElicitationError struct {
 	request      apia2a.URLElicitationRequest
 	continuation *urlElicitationContinuation
@@ -32,16 +33,16 @@ func (e *urlElicitationError) Error() string {
 }
 
 // newElicitingClient returns the MCP client of the server configured as
-// server, which declares form and URL elicitation. A form is declined: what
-// the person typed into it would reach the model's context.
+// server, which declares URL elicitation only. A form a server sends anyway is
+// declined: what the person typed into it would reach the model's context.
 //
-// A URL elicitation ends the tool call with a urlElicitationError, and
-// urlElicitationTool asks the person instead. A server on MCP 2026-07-28 asks
-// through an input_required tool result, which inputRequiredMiddleware answers
-// in place of the SDK's multi round-trip middleware, so that the request state
+// A URL elicitation pauses the tool call: urlElicitationTool asks the person
+// and the confirmed call runs again. A server on MCP 2026-07-28 asks through
+// an input_required tool result, which inputRequiredMiddleware answers in
+// place of the SDK's multi round-trip middleware, so that the request state
 // survives the pause. A server on 2025-11-25 that fails the call with -32042
 // is read by urlElicitationRequired. An elicitation/create request that a
-// 2025-11-25 server sends while the call runs gets the error back: the call
+// 2025-11-25 server sends while the call runs gets an error back: the call
 // cannot pause while that request is open.
 func newElicitingClient(server string, options *mcpsdk.ClientOptions) *mcpsdk.Client {
 	if options == nil {
@@ -50,21 +51,23 @@ func newElicitingClient(server string, options *mcpsdk.ClientOptions) *mcpsdk.Cl
 	if options.Capabilities == nil {
 		options.Capabilities = &mcpsdk.ClientCapabilities{}
 	}
-	options.Capabilities.Elicitation = &mcpsdk.ElicitationCapabilities{Form: &mcpsdk.FormElicitationCapabilities{}, URL: &mcpsdk.URLElicitationCapabilities{}}
-	options.ElicitationHandler = elicitationHandler(server)
+	options.Capabilities.Elicitation = &mcpsdk.ElicitationCapabilities{URL: &mcpsdk.URLElicitationCapabilities{}}
+	options.ElicitationHandler = elicitationHandler
 	options.MultiRoundTrip = &mcpsdk.MultiRoundTripOptions{Disabled: true}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, options)
 	client.AddSendingMiddleware(inputRequiredMiddleware(server))
 	return client
 }
 
-func elicitationHandler(server string) func(context.Context, *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
-	return func(_ context.Context, request *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
-		if request.Params.Mode != "url" || apia2a.ValidateElicitationURL(request.Params.URL) != nil {
-			return &mcpsdk.ElicitResult{Action: "decline"}, nil
-		}
-		return nil, &urlElicitationError{request: urlElicitationRequest(server, request.Params)}
+// errURLElicitationCallback is the answer to an elicitation/create request
+// for a URL. It reaches the server as a JSON-RPC error.
+var errURLElicitationCallback = errors.New("kagent cannot pause a tool call on an elicitation/create request: fail the tools/call with -32042 or return an input_required result instead")
+
+func elicitationHandler(_ context.Context, request *mcpsdk.ElicitRequest) (*mcpsdk.ElicitResult, error) {
+	if request.Params.Mode != "url" || apia2a.ValidateElicitationURL(request.Params.URL) != nil {
+		return &mcpsdk.ElicitResult{Action: "decline"}, nil
 	}
+	return nil, errURLElicitationCallback
 }
 
 func urlElicitationRequest(server string, params *mcpsdk.ElicitParams) apia2a.URLElicitationRequest {
@@ -99,8 +102,13 @@ func urlElicitationRequired(err error, server string) *apia2a.URLElicitationRequ
 }
 
 // maxInputRequiredRounds bounds the input_required results one tool call
-// answers before it fails, as the SDK's multi round-trip middleware does.
-const maxInputRequiredRounds = 10
+// answers before it fails, and maxLoadSheddingRounds bounds those among them
+// with an empty inputRequests map, which a busy server sends to have the call
+// retried. Both match the SDK's multi round-trip middleware.
+const (
+	maxInputRequiredRounds = 10
+	maxLoadSheddingRounds  = 3
+)
 
 // urlElicitationContinuation is what a server on MCP 2026-07-28 needs back when
 // a paused tool call runs again: the request state of its input_required
@@ -142,6 +150,7 @@ func inputRequiredMiddleware(server string) mcpsdk.Middleware {
 			if continuation, ok := ctx.Value(continuationKey{}).(*urlElicitationContinuation); ok {
 				request = continuation.apply(call, params)
 			}
+			loadShedding := 0
 			for round := 1; ; round++ {
 				result, err := next(ctx, method, request)
 				if err != nil {
@@ -150,6 +159,12 @@ func inputRequiredMiddleware(server string) mcpsdk.Middleware {
 				toolResult, ok := result.(*mcpsdk.CallToolResult)
 				if !ok || toolResult.InputRequests == nil {
 					return result, nil
+				}
+				if len(toolResult.InputRequests) == 0 {
+					loadShedding++
+				}
+				if loadShedding == maxLoadSheddingRounds {
+					return nil, fmt.Errorf("MCP tool %q: server still busy after %d retries", params.Name, loadShedding)
 				}
 				if round == maxInputRequiredRounds {
 					return nil, fmt.Errorf("MCP tool %q still requires input after %d rounds", params.Name, round)
@@ -272,9 +287,10 @@ func (t *urlElicitationTool) Run(ctx adkagent.Context, args any) (map[string]any
 		return nil, fmt.Errorf("MCP server %q needs the person to open a link, and this conversation's client cannot show one: the person has to use a client that supports the HITL extension", request.Server)
 	}
 	// ADK does not pause a call that resumes from a confirmation again: a
-	// second RequestConfirmation is recorded and the model runs on.
+	// second RequestConfirmation is recorded and the model runs on. This
+	// includes the first URL elicitation of a tool that requires approval.
 	if confirmation != nil {
-		return nil, fmt.Errorf("MCP server %s asked for another URL elicitation after the person confirmed tool %q, and a confirmed call cannot pause again", request.Server, t.Name())
+		return nil, fmt.Errorf("tool %q already resumed after approval and cannot pause for the URL requested by %s", t.Name(), request.Server)
 	}
 	if continuation != nil {
 		if err := storeContinuation(ctx, continuation); err != nil {
