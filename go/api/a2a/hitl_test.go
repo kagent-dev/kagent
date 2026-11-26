@@ -209,3 +209,43 @@ func TestValidateElicitationURL(t *testing.T) {
 		}
 	}
 }
+
+func TestParseToolApprovalRequestValidatesToolURLElicitations(t *testing.T) {
+	safe := &URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "one", Server: "github", URL: "https://example.com/sign-in"}
+	unsafe := &URLElicitationRequest{Type: HITLTypeURLElicitationRequest, ID: "one", Server: "github", URL: "http://example.com/sign-in"}
+	cases := map[string]struct {
+		request ToolApprovalRequest
+		valid   bool
+	}{
+		"safe URL on a tool": {
+			request: ToolApprovalRequest{Tools: []HITLTool{{ID: "one", URLElicitation: safe}}},
+			valid:   true,
+		},
+		"unsafe URL on a tool": {
+			request: ToolApprovalRequest{Tools: []HITLTool{{ID: "one", URLElicitation: unsafe}}},
+		},
+		"unsafe URL on a nested tool": {
+			request: ToolApprovalRequest{
+				Tools:  []HITLTool{{ID: "parent"}},
+				Nested: &NestedHITLRequest{Tools: []HITLTool{{ID: "one", URLElicitation: unsafe}}},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tc.request.Type = HITLTypeToolApprovalRequest
+			message := &a2atype.Message{}
+			require.NoError(t, AttachHITL(message, tc.request))
+
+			request, err := ParseToolApprovalRequest(message)
+
+			if tc.valid {
+				require.NoError(t, err)
+				require.NotNil(t, request)
+				return
+			}
+			require.Error(t, err)
+			require.Nil(t, request)
+		})
+	}
+}

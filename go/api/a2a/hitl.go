@@ -231,7 +231,27 @@ func ParseToolApprovalRequest(message *a2atype.Message) (*ToolApprovalRequest, e
 	if len(request.Tools) == 0 {
 		return nil, fmt.Errorf("tool approval request has no tools")
 	}
+	if err := validateToolURLElicitations(request.Tools); err != nil {
+		return nil, err
+	}
+	if request.Nested != nil {
+		if err := validateToolURLElicitations(request.Nested.Tools); err != nil {
+			return nil, err
+		}
+	}
 	return &request, nil
+}
+
+func validateToolURLElicitations(tools []HITLTool) error {
+	for _, tool := range tools {
+		if tool.URLElicitation == nil {
+			continue
+		}
+		if err := ValidateElicitationURL(tool.URLElicitation.URL); err != nil {
+			return fmt.Errorf("tool %q: %w", tool.ID, err)
+		}
+	}
+	return nil
 }
 
 // ParseAskUserRequest decodes an ask-user request when one is present.

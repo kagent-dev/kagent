@@ -89,8 +89,8 @@ func decodeJSON[T any](raw map[string]any, wantType string) *T {
 }
 
 func GetToolApprovalRequest(message *a2atype.Message) *apia2a.ToolApprovalRequest {
-	v := decodeJSON[apia2a.ToolApprovalRequest](rawHitlMap(message), HITLTypeToolApprovalRequest)
-	if v == nil || len(v.Tools) == 0 {
+	v, _ := apia2a.ParseToolApprovalRequest(message)
+	if v == nil {
 		return nil
 	}
 	normalizeTools(v.Tools)
