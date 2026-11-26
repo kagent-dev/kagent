@@ -130,6 +130,12 @@ through the read/write login, that all required migrations are applied.
 Push settings live under `push` (`config.push` in Helm). Set
 `push.signingPrivateKeyFile` to an unencrypted PKCS#8 Ed25519 PEM key to enable
 JWT signing. Helm mounts the Secret named by `controller.push.signing.secretName`.
+For restart handoff, optionally set `push.previousSigningPrivateKeyFile`, or
+`controller.push.signing.previousSecretName` in Helm. Current is hot reloaded;
+previous is read only at startup. The existing `push.signingKeyActivationDelay`
+applies to startup staging when a distinct previous key is available and current
+is not the latest database activation. Without previous, startup uses current
+immediately. Signing-state migrations must complete before signer initialization.
 See [push notifications](a2a-push-notifications.md) for mounts, rotation timing,
 and retry behavior.
 

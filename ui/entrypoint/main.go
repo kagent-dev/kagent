@@ -67,7 +67,7 @@ func render(environ []string) (string, string) {
 		fmt.Fprintf(os.Stderr, "entrypoint: KAGENT_UI_BASE_PATH='%s' is not a path like /ui, or starts with a path nginx serves; serving at the root\n", basePath)
 		basePath = ""
 	}
-	// A non-numeric timeout would abort every chat stream at once, so fall back instead.
+	// A non-numeric timeout would abort every conversation stream at once, so fall back instead.
 	timeout := get("KAGENT_UI_STREAM_TIMEOUT_MS", "1800000")
 	if !digitsRe.MatchString(timeout) {
 		fmt.Fprintf(os.Stderr, "entrypoint: KAGENT_UI_STREAM_TIMEOUT_MS='%s' is not a number; using 1800000\n", timeout)

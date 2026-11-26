@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import {
-  agentNewChat,
+  agentNewConversation,
   agentPage,
   agents,
   dataRows,
@@ -11,14 +11,14 @@ import {
   rowNamed,
 } from "../../helpers/app";
 import { tick } from "../../helpers/controls";
-import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
+import { dialog, expectRequired, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
- * An agent's own page — the surface between the agents list and a chat.
+ * An agent's own page — the surface between the agents list and a conversation.
  *
  * Named for the page rather than for conversations, because a conversation shows up
  * on three surfaces and only one of them is here: this page's table, the rail on the
- * chat page, and the transcript in the middle of it. The folder is the surface, so
+ * conversation page, and the transcript in the middle of it. The folder is the surface, so
  * "which spec owns this" has an answer — see `README.md`. **This file owns renaming
  * and deleting a conversation**; the rail keeps one test for doing either without
  * leaving the conversation, which is the only thing that table cannot say.
@@ -35,7 +35,7 @@ import { confirmation, pressOnce, pressUntil } from "../../helpers/resource";
  *   what it degrades to is asserted rather than assumed.
  * - **Somebody else's conversation is listed and cannot be opened.** `all_creators`
  *   is always asked for now, and `GetAgentInstance` is scoped to its creator, so
- *   such a row is genuinely a dead end. Offering a link into a chat that answers
+ *   such a row is genuinely a dead end. Offering a link into a conversation that answers
  *   `NotFound` would be worse than not listing it at all.
  */
 
@@ -43,7 +43,7 @@ test("agents: one agent lists its own conversations, and only its own", async ({
   page,
 }) => {
   await test.step("1. the agent's page opens", async () => {
-    // Opened directly: `agent-chat-entry.spec.ts` and the template-link test below own
+    // Opened directly: `agent-conversation-entry.spec.ts` and the template-link test below own
     // the clicks from the list and the rail.
     await loadPage(page, agentPage(agents.sharedOnK8s));
     await expectSettled(page);
@@ -80,10 +80,10 @@ test("agents: one agent lists its own conversations, and only its own", async ({
 
   await test.step("5. its twin, with identical refs, lists none of them in its rail", async () => {
     // Same template and harness as `shared-brain`, so only the agent's own name can tell them apart.
-    await loadPage(page, agentNewChat({ name: "shared-brain-twin", template: "", harness: "" }));
+    await loadPage(page, agentNewConversation({ name: "shared-brain-twin", template: "", harness: "" }));
     await expect(page.getByTestId("agent-rail-identity")).toContainText("shared-brain-twin");
-    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible();
-    await expect(page.getByTestId("chat-session-1d4f7a92-0c38-4e61-b25a-7f930e6c8b14")).toHaveCount(0);
+    await expect(page.getByTestId("rail-conversations-empty")).toBeVisible();
+    await expect(page.getByTestId("rail-conversation-1d4f7a92-0c38-4e61-b25a-7f930e6c8b14")).toHaveCount(0);
   });
 });
 
@@ -117,14 +117,13 @@ test("agents: a conversation is named by the reader, and never renders as a bare
      * aimed at it mid-transition is dropped. That reports as "the list never showed the
      * new name", which points at the save rather than at the press that never landed.
      */
-    const rename = page.getByTestId("conversation-rename-input");
+    const field = page.getByTestId("conversation-rename-input");
     await pressUntil(page.getByTestId(`conversation-rename-${instances.idle}`), () =>
-      expect(rename).toBeVisible(),
+      expect(field).toBeVisible(),
     );
     // The box opens *empty* for an unnamed conversation rather than pre-filled with
     // the placeholder, or clearing a title would be impossible: saving would turn an
     // honest "Untitled" into a literal one.
-    const field = rename.locator("input");
     await expect(field).toHaveValue("");
 
     await field.fill("Rollback rehearsal");
@@ -140,23 +139,26 @@ test("agents: a conversation is named by the reader, and never renders as a bare
 
   await test.step("4. a name the controller would refuse is refused before the round trip", async () => {
     await page.getByTestId(`conversation-rename-${instances.idle}`).click();
-    const field = page.getByTestId("conversation-rename-input").locator("input");
+    const field = page.getByTestId("conversation-rename-input");
+    // An empty name is valid: it puts the conversation back to untitled.
+    await expectRequired(page, { marked: [], unmarked: ["Conversation name"] });
     await field.fill(" leading space");
+    // Validation runs on submit, like every form; the dialog stays open on the refusal.
+    await pressOnce(page.getByRole("button", { name: "Save" }));
 
     // Refused rather than trimmed, which is what the controller does — and the
     // reason matters: silently rewriting what somebody typed reads on screen as a
     // rename that did not take.
-    await expect(page.getByTestId("conversation-rename-problem")).toContainText(
-      "cannot start or end with a space",
-    );
-    await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
+    await expect(field).toHaveAttribute("aria-invalid", "true");
+    await expect(field).toHaveAccessibleDescription(/cannot start or end with a space/);
+    await expect(field).toHaveValue(" leading space");
     // Same arriving-box case as the Save below: the rename modal animates in.
     await pressOnce(page.getByRole("button", { name: "Cancel" }));
   });
 
   await test.step("5. clearing a name puts it back to being untitled", async () => {
     await page.getByTestId(`conversation-rename-${instances.idle}`).click();
-    const field = page.getByTestId("conversation-rename-input").locator("input");
+    const field = page.getByTestId("conversation-rename-input");
     await expect(field).toHaveValue("Rollback rehearsal");
     await field.fill("");
     // Once the box has stopped arriving, for the reason the delete step below gives.
@@ -174,7 +176,7 @@ test("agents: the conversations table titles each row as the rail does", async (
   await loadPage(page, agentPage(agents.sharedOnFastLane));
   const derived = page.getByTestId(`conversation-link-${autoTitled}`);
   await expect(derived).toContainText("Summarise last night's deploy");
-  await expect(page.getByTestId(`chat-session-${autoTitled}`)).toContainText(
+  await expect(page.getByTestId(`rail-conversation-${autoTitled}`)).toContainText(
     "Summarise last night's deploy",
   );
 
@@ -184,7 +186,7 @@ test("agents: the conversations table titles each row as the rail does", async (
     const id = (await link.getAttribute("data-testid"))?.replace("conversation-link-", "");
     const title = (await link.textContent()) ?? "";
     // The rail appends the age after " · "; the title before it must match.
-    await expect(page.getByTestId(`chat-session-${id}`)).toContainText(title);
+    await expect(page.getByTestId(`rail-conversation-${id}`)).toContainText(title);
   }
 });
 
@@ -199,7 +201,7 @@ test("agents: a title still being read shows a placeholder, not Untitled", async
   });
   await loadPage(page, agentPage(agents.sharedOnFastLane));
   const link = page.getByTestId(`conversation-link-${autoTitled}`);
-  const railRow = page.getByTestId(`chat-session-${autoTitled}`);
+  const railRow = page.getByTestId(`rail-conversation-${autoTitled}`);
 
   await test.step("1. while held, both surfaces show the placeholder", async () => {
     await expect(link.getByTestId(`conversation-title-loading-${autoTitled}`)).toBeVisible();
@@ -285,7 +287,7 @@ test("agents: somebody else's conversation is listed, and plainly cannot be open
   });
 
   await test.step("3. and the ones that are not the reader's carry no link", async () => {
-    // The point of the whole step: no anchor, so nothing invites a click into a chat
+    // The point of the whole step: no anchor, so nothing invites a click into a conversation
     // that will answer NotFound. A link here would be worse than not listing the row.
     await expect(
       page.getByTestId(`conversation-link-${instances.someoneElses}`),
@@ -357,12 +359,12 @@ test("agents: an agent links to its template, and a conversation links up to its
     );
   });
 
-  await test.step("2. a conversation opens its chat", async () => {
+  await test.step("2. a conversation opens its conversation", async () => {
     await page.getByTestId(`conversation-link-${instances.ready}`).click();
-    await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/chat$`));
+    await expect(page).toHaveURL(new RegExp(`/agents/${instances.ready}/conversation$`));
     // Arrived somewhere a message can be typed, which is what opening a conversation
     // is for. A route that resolved but rendered no composer would pass a URL check.
-    await expect(page.getByTestId("chat-input")).toBeEditable();
+    await expect(page.getByTestId("conversation-input")).toBeEditable();
   });
 
   await test.step("3. and links back up to its agent from the rail", async () => {
@@ -384,7 +386,7 @@ test("agents: an agent links to its template, and a conversation links up to its
 });
 
 /**
- * Starting a conversation, which is what "New chat" on an agent does.
+ * Starting a conversation, which is what "New conversation" on an agent does.
  *
  * The whole story in one journey, because a create verified against anything but the
  * list is a create that passes with a broken backend: make it, come back, count.
@@ -395,7 +397,7 @@ test("agents: a conversation is created by its first message, not by the click",
   /*
    * The behaviour this inverts, and why.
    *
-   * "New chat" used to call `CreateAgentInstance` and navigate to the result, so an
+   * "New conversation" used to call `CreateAgentInstance` and navigate to the result, so an
    * instance existed the moment somebody clicked — and every visit that changed its mind
    * left an empty conversation behind for good. That is measured, not feared: the live
    * cluster accumulated nine of them, all unnamed, none with a single message, and the
@@ -416,12 +418,12 @@ test("agents: a conversation is created by its first message, not by the click",
   });
 
   await test.step("2. the click opens a conversation that does not exist yet", async () => {
-    await page.getByTestId("chat-new-session").click();
+    await page.getByTestId("rail-new-conversation").click();
     // Addressed by the *agent*, because there is no instance to address it by — which
     // is the whole point. An id in this URL would mean something had been created.
-    await page.waitForURL(new RegExp(`${agentNewChat(agents.k8s)}$`), { timeout: 30_000 });
-    await expect(page.getByTestId("new-chat-empty")).toBeVisible();
-    await expect(page.getByTestId("chat-input")).toBeEditable();
+    await page.waitForURL(new RegExp(`${agentNewConversation(agents.k8s)}$`), { timeout: 30_000 });
+    await expect(page.getByTestId("new-conversation-empty")).toBeVisible();
+    await expect(page.getByTestId("conversation-input")).toBeEditable();
   });
 
   await test.step("3. leaving without sending creates nothing", async () => {
@@ -433,18 +435,18 @@ test("agents: a conversation is created by its first message, not by the click",
   });
 
   await test.step("4. sending creates it, and lands in it", async () => {
-    await page.getByTestId("chat-new-session").click();
-    await page.waitForURL(new RegExp(`${agentNewChat(agents.k8s)}$`), { timeout: 30_000 });
-    await page.getByTestId("chat-input").fill("Why is checkout crashlooping?");
-    await page.getByTestId("chat-send").click();
+    await page.getByTestId("rail-new-conversation").click();
+    await page.waitForURL(new RegExp(`${agentNewConversation(agents.k8s)}$`), { timeout: 30_000 });
+    await page.getByTestId("conversation-input").fill("Why is checkout crashlooping?");
+    await page.getByTestId("conversation-send").click();
 
     // Now there is an id, because now there is a conversation.
-    await page.waitForURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 30_000 });
-    await expect(page.getByTestId("new-chat-error")).toHaveCount(0);
+    await page.waitForURL(/\/agents\/[0-9a-f-]{36}\/conversation$/, { timeout: 30_000 });
+    await expect(page.getByTestId("new-conversation-error")).toHaveCount(0);
     // And the message that created it is in the transcript rather than lost in the
-    // navigation — it is handed to the chat page and sent there, so the reader sees
+    // navigation — it is handed to the conversation page and sent there, so the reader sees
     // their own words in the conversation they are going to keep reading.
-    await expect(page.getByTestId("chat-message").first()).toContainText(
+    await expect(page.getByTestId("conversation-message").first()).toContainText(
       "Why is checkout crashlooping?",
       { timeout: 30_000 },
     );
@@ -518,14 +520,14 @@ test("agents: deleting an Agent preserves shared resources and conversations", a
   await loadPage(page, agentPage(agents.k8s));
   await expect(dataRows(page).first()).toBeVisible({ timeout: 30_000 });
   await pressOnce(page.getByTestId(`delete-${agents.k8s.name}`));
-  await expect(confirmation(page)).toContainText("Existing conversations keep their prepared revisions");
-  await pressOnce(confirmation(page).getByRole("button", { name: "Delete" }));
+  await expect(dialog(page)).toContainText("Existing conversations keep their prepared revisions");
+  await pressOnce(dialog(page).getByRole("button", { name: "Delete" }));
   await page.waitForURL(/\/agents(\?|$)/, {timeout: 30_000});
   await expect(rowNamed(page, agents.k8s.name)).toHaveCount(0);
   await loadPage(page, `/agent-templates/kagent/${agents.k8s.template}`);
   await expect(page.getByTestId("template-edit")).toBeVisible();
-  await loadPage(page, `/agents/${instances.ready}/chat`);
-  await expect(page.getByTestId("chat-input")).toBeVisible();
+  await loadPage(page, `/agents/${instances.ready}/conversation`);
+  await expect(page.getByTestId("conversation-input")).toBeVisible();
 });
 
 test("agents: conversations can be picked and deleted together from the table too", async ({
@@ -558,9 +560,7 @@ test("agents: conversations can be picked and deleted together from the table to
   });
 
   await test.step("3. and deleting says what goes with it", async () => {
-    const prompt = confirmation(page);
-    // Clicked once, not pressed until: this is the popconfirm's own trigger, and a
-    // retry closes what the first press opened.
+    const prompt = dialog(page);
     await page.getByTestId("delete-1 selected").click();
     await expect(prompt).toBeVisible();
     await expect(prompt).toContainText("can be recovered");

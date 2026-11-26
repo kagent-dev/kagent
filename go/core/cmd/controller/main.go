@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -68,6 +69,11 @@ func run(path string, check bool, level string) error {
 			continue
 		}
 		if _, err := config.ReadSecret(path); err != nil {
+			return err
+		}
+	}
+	if path := cfg.GetPush().GetPreviousSigningPrivateKeyFile(); path != "" {
+		if _, err := config.ReadSecret(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}

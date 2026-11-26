@@ -34,7 +34,7 @@ export function AgentConcepts() {
       <Line theme={theme} testId="concepts-pairing">
         An agent consists of one template (describing what it does), plus one harness (describing where and how it runs).
       </Line>
-      <Line theme={theme}>Each chat you start belongs to that agent.</Line>
+      <Line theme={theme}>Each conversation you start belongs to that agent.</Line>
 
       {/*
         Where these names come from, for a reader who has met the other half.
@@ -102,7 +102,7 @@ export function AgentConcepts() {
           onOpen={() => open("agents")}
         />
         <FlowArrow theme={theme} />
-        <Box kind="Session" detail="One chat with an agent, run as a Substrate Actor." />
+        <Box kind="Session" detail="One conversation with an agent, run as a Substrate Actor." />
       </div>
 
     </Card>

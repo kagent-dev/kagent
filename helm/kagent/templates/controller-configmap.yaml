@@ -22,6 +22,12 @@
 {{- if .Values.controller.push.signing.secretName -}}
 {{- $_ := set $config.push "signingPrivateKeyFile" "/etc/kagent/secrets/push-private-key.pem" -}}
 {{- end -}}
+{{- if .Values.controller.push.signing.previousSecretName -}}
+{{- $_ := set $config.push "previousSigningPrivateKeyFile" "/etc/kagent/secrets/push-previous-private-key.pem" -}}
+{{- end -}}
+{{- if and $config.push.previousSigningPrivateKeyFile (not $config.push.signingPrivateKeyFile) -}}
+{{- fail "push signing with a previous key requires controller.push.signing.secretName or config.push.signingPrivateKeyFile" -}}
+{{- end -}}
 {{- if not (hasKey $config.push "issuer") -}}
 {{- $_ := set $config.push "issuer" (coalesce (ternary .Values.ui.externalUrl "" .Values.ui.enabled) $config.gateway.publicUrl | trimSuffix "/") -}}
 {{- end -}}

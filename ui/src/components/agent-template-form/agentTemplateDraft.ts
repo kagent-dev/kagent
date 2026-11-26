@@ -25,6 +25,8 @@ import type {
   ObjectReference,
 } from "@/api/domain/agentTemplates";
 import type { BuiltinSkill, BuiltinSkillsCatalog } from "@/api/runtimeConfig";
+import { isValidNamespace } from "@/components/common/resourceName";
+import type { FieldIssue } from "@/components/form/useSubmitValidation";
 
 /** One MCP tool selection, flattened for a form to hold. */
 export interface McpToolDraft {
@@ -36,7 +38,7 @@ export interface McpToolDraft {
   requireApproval?: boolean;
 }
 
-/** One sub-agent binding, flattened for a form to hold. */
+/** One agent template used as a tool, flattened for a form to hold. */
 export interface SubAgentToolDraft {
   /** What the parent calls this tool. */
   name: string;
@@ -66,7 +68,7 @@ export interface SkillDraft {
   path: string;
 }
 
-type SkillTextField = Exclude<keyof SkillDraft, "sourceKind">;
+export type SkillTextField = Exclude<keyof SkillDraft, "sourceKind">;
 
 /** The fields each source kind writes. Text in another kind's fields is ignored. */
 const SKILL_SOURCE_FIELDS: Record<SkillSourceKind, SkillTextField[]> = {
@@ -344,64 +346,75 @@ export function labelsFromDraft(draft: AgentTemplateDraft): Record<string, strin
   return labels;
 }
 
+/** The form control an issue belongs to; repeated rows carry their index. */
+export type TemplateField =
+  | "name"
+  | "namespace"
+  | "model"
+  | "promptConfigMap"
+  | "promptKey"
+  | "outputSchema"
+  | "outputConfigMap"
+  | "outputKey"
+  | `mcp:${number}:server`
+  | `subAgent:${number}:template`
+  | `subAgent:${number}:name`
+  | `subAgent:${number}:description`
+  | `label:${number}:key`
+  | "skills"
+  | `skill:${number}:${SkillTextField}`;
+
 /**
  * What is wrong with the draft, in the order a reader would fix it.
- *
- * Only the rules the controller will actually refuse. A form that invented its own
- * would block a template the cluster would have accepted.
+ * Only rules the controller refuses, plus rows and sources left half filled in.
  */
-export function draftProblems(
+export function templateDraftIssues(
   draft: AgentTemplateDraft,
-  options: { isCreate: boolean },
-): string[] {
-  const problems: string[] = [];
+  options: { isCreate: boolean; modelRequired?: boolean },
+): FieldIssue<TemplateField>[] {
+  const issues: FieldIssue<TemplateField>[] = [];
+  const add = (field: TemplateField, message: string) => issues.push({ field, message });
 
-  if (options.isCreate && draft.name.trim() === "") {
-    problems.push("A name is required.");
-  }
-  if (draft.namespace.trim() === "") {
-    problems.push("A namespace is required.");
-  }
+  if (options.isCreate && draft.name.trim() === "") add("name", "A name is required.");
+  if (draft.namespace.trim() === "") add("namespace", "A namespace is required.");
+  else if (!isValidNamespace(draft.namespace)) add("namespace", "The namespace must be a valid Kubernetes name.");
+  if (options.modelRequired && !draft.modelConfig?.name.trim()) add("model", "Choose a model configuration.");
   if (draft.promptSource === "configMap") {
-    const name = draft.systemPromptConfigMap.trim();
-    const key = draft.systemPromptKey.trim();
-    if ((name === "") !== (key === "")) {
-      problems.push(
-        "A prompt read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-      );
-    }
+    if (draft.systemPromptConfigMap.trim() === "") add("promptConfigMap", "Enter the ConfigMap name.");
+    if (draft.systemPromptKey.trim() === "") add("promptKey", "Enter the key that holds the prompt.");
   }
   if (draft.outputSource === "configMap") {
-    const name = draft.outputSchemaConfigMap.trim();
-    const key = draft.outputSchemaKey.trim();
-    if (name === "" || key === "") {
-      problems.push(
-        "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-      );
-    }
+    if (draft.outputSchemaConfigMap.trim() === "") add("outputConfigMap", "Enter the ConfigMap name.");
+    if (draft.outputSchemaKey.trim() === "") add("outputKey", "Name the key that holds the schema.");
   }
   if (draft.outputSource === "inline") {
     const text = draft.outputSchema.trim();
     if (text === "") {
-      problems.push("An inline output schema is required.");
+      add("outputSchema", "An inline output schema is required.");
     } else {
       const schema = parseOutputSchema(text);
-      if (!schema) {
-        problems.push("The inline output schema must be a valid JSON object.");
-      } else if (schema.type !== "object") {
-        problems.push('The output schema must have "type": "object" at its root.');
-      }
+      if (!schema) add("outputSchema", "The inline output schema must be a valid JSON object.");
+      else if (schema.type !== "object") add("outputSchema", 'The output schema must have "type": "object" at its root.');
     }
   }
-  for (const tool of draft.subAgentTools) {
-    if (tool.name.trim() !== "" && tool.description.trim() === "") {
-      problems.push(
-        `The sub-agent tool "${tool.name.trim()}" needs a description — it is what tells the parent when to use it.`,
-      );
-    }
-  }
-  problems.push(...skillProblems(draft.skills, draft.pluginSkills));
-  return problems;
+  draft.mcpTools.forEach((tool, index) => {
+    if (tool.serverRef.name.trim() === "") add(`mcp:${index}:server`, "Choose an MCP server.");
+  });
+  draft.subAgentTools.forEach((tool, index) => {
+    if (tool.refName.trim() === "") add(`subAgent:${index}:template`, "Choose an agent template.");
+    if (tool.name.trim() === "") add(`subAgent:${index}:name`, "Enter a tool name.");
+    if (tool.description.trim() === "") add(`subAgent:${index}:description`, "Say when to use this tool.");
+  });
+  issues.push(...skillIssues(draft.skills, draft.pluginSkills));
+  draft.labels.forEach((label, index) => {
+    if (label.key.trim() === "") add(`label:${index}:key`, "Add a key or remove this label.");
+  });
+  return issues;
+}
+
+/** The same issues as plain messages, for callers that list them. */
+export function draftProblems(draft: AgentTemplateDraft, options: { isCreate: boolean }): string[] {
+  return templateDraftIssues(draft, options).map((issue) => issue.message);
 }
 
 /** Mirrors the CRD's `AgentTemplateSkill` and `ArtifactSource` validation. */
@@ -418,10 +431,11 @@ function ociRepository(ref: string): string {
   return rest.length > 0 && (host === "localhost" || /[.:]/.test(host)) ? rest.join("/") : name;
 }
 
-function skillProblems(drafts: SkillDraft[], pluginSkills: string[]): string[] {
-  const problems: string[] = [];
+function skillIssues(drafts: SkillDraft[], pluginSkills: string[]): FieldIssue<TemplateField>[] {
+  const issues: FieldIssue<TemplateField>[] = [];
+  const add = (field: TemplateField, message: string) => issues.push({ field, message });
   if (drafts.filter((skill) => !isBlankSkill(skill)).length > MAX_SKILLS) {
-    problems.push(`A template can have at most ${MAX_SKILLS} skills.`);
+    add("skills", `A template can have at most ${MAX_SKILLS} skills.`);
   }
 
   const seen = new Set<string>();
@@ -431,57 +445,52 @@ function skillProblems(drafts: SkillDraft[], pluginSkills: string[]): string[] {
     if (isBlankSkill(draft)) return;
     const skill = skillFromDraft(draft);
     const label = skill.name ? `The skill "${skill.name}"` : `Skill ${index + 1}`;
-    if (!skill.name) problems.push(`${label} needs a name.`);
+    const at = (field: SkillTextField, message: string) => add(`skill:${index}:${field}`, message);
+    if (!skill.name) at("name", `${label} needs a name.`);
     else if (skill.name === "." || skill.name === ".." || /[/\\]/.test(skill.name)) {
-      problems.push(`${label} needs a name that is one path segment: not "." or "..", and without "/" or "\\".`);
+      at("name", `${label} needs a name that is one path segment: not "." or "..", and without "/" or "\\".`);
     } else if (seen.has(skill.name)) repeated.add(skill.name);
     else if (pluginSkills.includes(skill.name)) fromPlugins.add(skill.name);
     seen.add(skill.name);
 
     const { source } = skill;
     if (draft.sourceKind === "oci" && !OCI_DIGEST_REF.test(source.oci ?? "")) {
-      problems.push(`${label} needs an OCI image pinned by digest, like ghcr.io/org/skills@sha256:<64 hex characters>.`);
+      at("oci", `${label} needs an OCI image pinned by digest, like ghcr.io/org/skills@sha256:<64 hex characters>.`);
     } else if (draft.sourceKind === "oci" && /[A-Z]/.test(ociRepository(source.oci ?? ""))) {
-      problems.push(`${label} needs an image path in lowercase, like ghcr.io/org/skills.`);
+      at("oci", `${label} needs an image path in lowercase, like ghcr.io/org/skills.`);
     }
     if (draft.sourceKind === "git") {
       if (!HTTP_URL.test(source.git?.url ?? "")) {
-        problems.push(`${label} needs a Git URL that starts with http:// or https://.`);
+        at("gitUrl", `${label} needs a Git URL that starts with http:// or https://.`);
       }
       if (!GIT_COMMIT.test(source.git?.commit ?? "")) {
-        problems.push(`${label} needs a full Git commit ID: 40 or 64 hex characters.`);
+        at("gitCommit", `${label} needs a full Git commit ID: 40 or 64 hex characters.`);
       }
     }
     if (draft.sourceKind === "s3") {
       const s3 = source.bucket?.s3;
       if (!HTTP_URL.test(s3?.endpoint ?? "")) {
-        problems.push(`${label} needs an S3 endpoint that starts with http:// or https://.`);
+        at("s3Endpoint", `${label} needs an S3 endpoint that starts with http:// or https://.`);
       }
-      const missing = [
-        s3?.bucket ? "" : "bucket",
-        s3?.key ? "" : "key",
-        s3?.versionId ? "" : "version ID",
-      ].filter(Boolean);
-      if (missing.length > 0) {
-        const fields = missing.length === 1 ? missing[0] : `${missing.slice(0, -1).join(", ")} and ${missing.at(-1)}`;
-        problems.push(`${label} needs an S3 ${fields}.`);
-      }
+      if (!s3?.bucket) at("s3Bucket", `${label} needs an S3 bucket.`);
+      if (!s3?.key) at("s3Key", `${label} needs an S3 key.`);
+      if (!s3?.versionId) at("s3VersionId", `${label} needs an S3 version ID.`);
     }
     const path = source.path ?? "";
     if (path.startsWith("/") || path.split("/").includes("..")) {
-      problems.push(`${label} needs a path relative to the artifact, without ".." segments.`);
+      at("path", `${label} needs a path relative to the artifact, without ".." segments.`);
     }
     if (path.length > MAX_PATH_LENGTH) {
-      problems.push(`${label} needs a path of at most ${MAX_PATH_LENGTH} characters.`);
+      at("path", `${label} needs a path of at most ${MAX_PATH_LENGTH} characters.`);
     }
   });
   for (const name of repeated) {
-    problems.push(`More than one skill is named "${name}". Skill names must be unique.`);
+    add("skills", `More than one skill is named "${name}". Skill names must be unique.`);
   }
   for (const name of fromPlugins) {
-    problems.push(`A plugin on this template already selects a skill named "${name}". Skill names must be unique.`);
+    add("skills", `A plugin on this template already selects a skill named "${name}". Skill names must be unique.`);
   }
-  return problems;
+  return issues;
 }
 
 function skillDraftFromSpec(skill: AgentTemplateSkill): SkillDraft {

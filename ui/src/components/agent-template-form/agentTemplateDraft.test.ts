@@ -6,6 +6,7 @@ import {
   draftProblems,
   emptyDraft,
   emptySkillDraft,
+  templateDraftIssues,
   labelsFromDraft,
   matchBuiltinSkill,
   specFromDraft,
@@ -283,6 +284,19 @@ describe("the agent template draft", () => {
     expect(draftProblems(draft, { isCreate: true })).toHaveLength(1);
   });
 
+  it("files a missing model and a malformed namespace under their own fields", () => {
+    const draft = { ...emptyDraft("Team A"), name: "t" };
+    expect(templateDraftIssues(draft, { isCreate: true })).toEqual([
+      { field: "namespace", message: "The namespace must be a valid Kubernetes name." },
+    ]);
+    draft.namespace = "team-a";
+    expect(templateDraftIssues(draft, { isCreate: true, modelRequired: true })).toEqual([
+      { field: "model", message: "Choose a model configuration." },
+    ]);
+    draft.modelConfig = { name: "gpt" };
+    expect(templateDraftIssues(draft, { isCreate: true, modelRequired: true })).toEqual([]);
+  });
+
   it("reports incomplete or malformed structured-output configuration", () => {
     const draft = emptyDraft("kagent");
     draft.name = "t";
@@ -308,9 +322,24 @@ describe("the agent template draft", () => {
 
     draft.outputSource = "configMap";
     draft.outputSchemaConfigMap = "schemas";
-    expect(draftProblems(draft, { isCreate: true })).toContain(
-      "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-    );
+    expect(templateDraftIssues(draft, { isCreate: true })).toEqual([
+      { field: "outputKey", message: "Name the key that holds the schema." },
+    ]);
+  });
+
+  it("ties each half-filled row to the field that needs it", () => {
+    const draft = emptyDraft("kagent");
+    draft.name = "t";
+    draft.mcpTools = [{ serverRef: { name: "" }, tools: [] }];
+    draft.subAgentTools = [{ name: "review", description: "", refName: "" }];
+    draft.labels = [{ key: " ", value: "x" }];
+
+    expect(templateDraftIssues(draft, { isCreate: true }).map((issue) => issue.field)).toEqual([
+      "mcp:0:server",
+      "subAgent:0:template",
+      "subAgent:0:description",
+      "label:0:key",
+    ]);
   });
 
   it("carries labels through, because they decide whether anything runs it", () => {
@@ -494,7 +523,8 @@ describe("skills", () => {
       'The skill "git" needs a Git URL that starts with http:// or https://.',
       'The skill "git" needs a full Git commit ID: 40 or 64 hex characters.',
       'The skill "s3" needs an S3 endpoint that starts with http:// or https://.',
-      'The skill "s3" needs an S3 key and version ID.',
+      'The skill "s3" needs an S3 key.',
+      'The skill "s3" needs an S3 version ID.',
       'The skill "up" needs a path relative to the artifact, without ".." segments.',
       'The skill "abs" needs a path relative to the artifact, without ".." segments.',
       'The skill ".." needs a name that is one path segment: not "." or "..", and without "/" or "\\".',
@@ -529,6 +559,21 @@ describe("skills", () => {
 
     expect(draftProblems(draftFromSpec(spec, "kagent"), { isCreate: false })).toEqual([
       'A plugin on this template already selects a skill named "review". Skill names must be unique.',
+    ]);
+  });
+
+  it("ties each skill message to the field that shows it", () => {
+    const draft = draftWithSkills(
+      { name: "git", sourceKind: "git", gitUrl: "https://x.test/r.git", gitCommit: "main" },
+      { sourceKind: "s3", s3Endpoint: "https://s3.test", s3Bucket: "b", path: "/abs" },
+    );
+
+    expect(templateDraftIssues(draft, { isCreate: true }).map((issue) => issue.field)).toEqual([
+      "skill:0:gitCommit",
+      "skill:1:name",
+      "skill:1:s3Key",
+      "skill:1:s3VersionId",
+      "skill:1:path",
     ]);
   });
 

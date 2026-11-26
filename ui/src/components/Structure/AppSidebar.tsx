@@ -9,23 +9,12 @@ import {
   ExtensionSlot,
   applyNavOverrides,
   buildSidebarSections,
-  isNavPathActive,
+  activeSidebarKey,
   useExtensionNavItems,
   useExtensionNavOverrides,
 } from "@/appExtensions";
 
 const { Sider } = Layout;
-
-/**
- * Picks the nav key whose path is the longest prefix of the current location,
- * so /agents/foo/chat still highlights "Agents" while "/" only matches itself.
- */
-function activeKeyFor(pathname: string, items: readonly NavItem[]): string[] {
-  const match = items
-    .filter((item) => isNavPathActive(item.path, pathname))
-    .sort((a, b) => b.path.length - a.path.length)[0];
-  return match ? [match.key] : [];
-}
 
 function navEntry(item: NavItem) {
   const Icon = item.icon;
@@ -95,6 +84,7 @@ export function AppSidebar() {
     applyNavOverrides(coreNavItems, navOverrides),
     extensionNavItems,
   );
+  const activeKey = activeSidebarKey(pathname, sections);
 
   return (
     <Sider
@@ -151,7 +141,7 @@ export function AppSidebar() {
             mode="inline"
             inlineIndent={NAV_INSET}
             inlineCollapsed={collapsed}
-            selectedKeys={activeKeyFor(pathname, section.items)}
+            selectedKeys={activeKey === undefined ? [] : [activeKey]}
             css={{ borderInlineEnd: "none" }}
             /*
              * The whole row stays clickable, but not when the click was already the
@@ -175,10 +165,7 @@ export function AppSidebar() {
           ) : (
             <section.item.Component
               key={section.key}
-              isActive={
-                section.item.path !== undefined &&
-                isNavPathActive(section.item.path, pathname)
-              }
+              isActive={activeKey === section.key}
               collapsed={collapsed}
             />
           ),

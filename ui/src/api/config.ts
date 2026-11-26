@@ -74,7 +74,7 @@ export const apiBaseUrl: string = stripTrailingSlash(
   apiMode === "live" ? withBasePath(env("API_BASE_URL")) : MOCK_API_BASE_URL,
 );
 
-/** How long a unary request may run before the client aborts it. Streams use the idle timeout in `useChat` instead. */
+/** How long a unary request may run before the client aborts it. Streams use the idle timeout in `useConversation` instead. */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
 function stripTrailingSlash(url: string): string {

@@ -91,6 +91,58 @@ tests:
           path: data["controller.yaml"]
           pattern: 'apiVersion:|kind:|KAGENT_|OTEL_'
 
+  - it: configures separate current and previous signing files
+    template: controller-configmap.yaml
+    set:
+      controller.push.signing.secretName: current-key
+      controller.push.signing.previousSecretName: previous-key
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'signingPrivateKeyFile: /etc/kagent/secrets/push-private-key.pem'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'previousSigningPrivateKeyFile: /etc/kagent/secrets/push-previous-private-key.pem'
+
+  - it: projects the previous Secret optionally while requiring current
+    template: controller-deployment.yaml
+    set:
+      controller.push.signing.secretName: current-key
+      controller.push.signing.previousSecretName: previous-key
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[1].projected.sources[2].secret.optional
+      - equal:
+          path: spec.template.spec.volumes[1].projected.sources[3].secret
+          value:
+            name: previous-key
+            optional: true
+            items:
+              - key: private-key.pem
+                path: push-previous-private-key.pem
+
+  - it: overrides previous CSI path independently of current
+    template: controller-configmap.yaml
+    set:
+      config.push.signingPrivateKeyFile: /csi/current.pem
+      config.push.previousSigningPrivateKeyFile: /csi/previous.pem
+      controller.push.signing.previousSecretName: previous-key
+    asserts:
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'signingPrivateKeyFile: /csi/current.pem'
+      - matchRegex:
+          path: data["controller.yaml"]
+          pattern: 'previousSigningPrivateKeyFile: /etc/kagent/secrets/push-previous-private-key.pem'
+
+  - it: fails rendering when a previous signing Secret has no current key
+    template: controller-deployment.yaml
+    set:
+      controller.push.signing.previousSecretName: previous-key
+    asserts:
+      - failedTemplate:
+          errorMessage: push signing with a previous key requires controller.push.signing.secretName or config.push.signingPrivateKeyFile
+
   - it: omits default-off feature flags so older releases can read the config
     template: controller-configmap.yaml
     asserts:

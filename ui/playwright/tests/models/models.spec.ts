@@ -12,7 +12,7 @@ import {
   chooseFilter,
   clickRefresh,
   confirmDelete,
-  confirmation,
+  dialog,
   expectRequired,
   selectOption,
 } from "../../helpers/resource";
@@ -160,16 +160,33 @@ test("models: a configuration is created, read, changed and deleted", async ({
      * would pass on a form that marked every field.
      */
     await expectRequired(page, {
-      marked: ["Provider", "Model", "Name", "Namespace", "API key"],
-      // A radio group that arrives with a choice already made cannot be missing one.
-      unmarked: ["Authentication"],
+      marked: ["Provider", "Provider model", "Namespace", "Authentication", "API key"],
+      unmarked: ["Display name"],
     });
+    await expect(page.getByTestId("model-namespace")).toHaveClass(/ant-select/);
+
+    // Create is held back; an empty required field is flagged once it is left.
+    await expect(page.getByTestId("model-submit")).toHaveAttribute("aria-disabled", "true");
+    await page.getByTestId("model-provider").getByRole("combobox").focus();
+    await page.getByTestId("model-provider").getByRole("combobox").blur();
+    await expect(page.getByText("Choose a provider.")).toBeVisible();
+
+    // Refresh is an icon-only button, named by its label and its tooltip.
+    const refresh = page.getByTestId("model-fetch");
+    await expect(refresh).toHaveAccessibleName("Refresh models");
+    await refresh.hover();
+    await expect(page.getByRole("tooltip", { name: "Refresh models" })).toBeVisible();
+    await refresh.click();
+    await expect(page.getByTestId("model-provider")).toBeEnabled();
   });
 
   await test.step("6. a filled-in configuration is created and appears on the list", async () => {
     // The provider is picked by the name a reader sees, which is not the enum the
     // draft stores: `providerDisplayName` turns `AmazonBedrock` into "AWS Bedrock".
     await selectOption(page, "model-provider", "Anthropic");
+    // The chosen provider keeps its logo beside its name.
+    await expect(page.getByTestId("model-provider").getByTestId("provider-logo")).toBeVisible();
+    await expect(page.getByTestId("model-provider")).toContainText("Anthropic");
 
     // The model is an AutoComplete, not a Select — the test id is on the wrapper and
     // the caret goes in the input inside it. Typed rather than picked, because the
@@ -184,6 +201,17 @@ test("models: a configuration is created, read, changed and deleted", async ({
     // default.
     await selectOption(page, "model-namespace", "kagent");
     await page.getByTestId("model-api-key").fill("sk-not-a-real-key");
+
+    // Headers are a compact two-column list: column titles once, no per-row title.
+    await page.getByTestId("model-advanced").getByText("Advanced (headers, TLS)").click();
+    await page.getByTestId("model-headers-add").click();
+    const headers = page.getByTestId("model-headers");
+    await expect(headers.getByRole("textbox", { name: "Header name 1" })).toBeFocused();
+    await expect(headers.getByRole("textbox", { name: "Value 1" })).toHaveAttribute("placeholder", "Value");
+    await expect(headers.getByText("Header 1", { exact: true })).toHaveCount(0);
+    await headers.getByRole("textbox", { name: "Header name 1" }).fill("X-Team");
+    await headers.getByRole("button", { name: "Remove header X-Team" }).click();
+    await expect(headers.getByTestId("model-headers-row")).toHaveCount(0);
 
     await page.getByTestId("model-submit").click();
     await page.waitForURL(/\/models(\?|$)/, { timeout: 30_000 });
@@ -211,6 +239,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
      * it would write a resource nothing else in the cluster is pointing at.
      */
     await expect(page.getByTestId("model-name")).toBeDisabled();
+    await expect(page.getByTestId("model-namespace")).toHaveClass(/ant-select-disabled/);
     await expect(page.getByTestId("model-model").locator("input")).toBeDisabled();
 
     /*
@@ -228,8 +257,8 @@ test("models: a configuration is created, read, changed and deleted", async ({
       .getByText("API key", { exact: true })
       .click();
     await expectRequired(page, {
-      marked: ["Name", "Namespace"],
-      unmarked: ["API key (leave blank to keep existing)"],
+      marked: ["Namespace"],
+      unmarked: ["Display name"],
     });
   });
 
@@ -255,7 +284,7 @@ test("models: a configuration is created, read, changed and deleted", async ({
 
   await test.step("9. deleting asks first, and Keep leaves it alone", async () => {
     await page.getByTestId(`delete-${CREATED}`).click();
-    const prompt = confirmation(page);
+    const prompt = dialog(page);
     // The confirmation names the row. "Delete this model configuration?" is no help
     // in a table of five of them, and *which* is the one question the reader has.
     await expect(prompt).toContainText(CREATED);

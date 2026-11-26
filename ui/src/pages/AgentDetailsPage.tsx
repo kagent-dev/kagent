@@ -32,7 +32,7 @@ const { Paragraph, Text } = Typography;
  *
  * ## Where this sits now
  *
- * Between an agent and its chat. The agent — the Agent definition —
+ * Between an agent and its conversation. The agent — the Agent definition —
  * lists its conversations; this is one of them, and it links back up to the agent
  * rather than to the whole agents list. That is item 3 of the review, and the whole
  * of it: navigation, not a filter. "Agents filtered by this template" was circular
@@ -53,7 +53,7 @@ export function AgentDetailsPage() {
   /*
    * The other conversations with this agent, for the rail beside the page.
    *
-   * Read here for the same reason the chat page reads them: the rail lists the
+   * Read here for the same reason the conversation page reads them: the rail lists the
    * siblings of this instance, and a rail fetching its own copy would be a second
    * request for rows this page already has reason to hold.
    */
@@ -206,7 +206,7 @@ export function AgentDetailsPage() {
     // reaches for.
     <PageFrame
     >
-      {/* The same rail as the chat, which is the point of it: leaving a conversation
+      {/* The same rail as the conversation, which is the point of it: leaving a conversation
           to read the agent's record should not take away the list of conversations
           you navigate by. */}
       <div
@@ -219,7 +219,7 @@ export function AgentDetailsPage() {
            *
            * Stretched, each sidebar is as tall as the whole conversation — and a sticky
            * element as tall as its scroll container has nowhere to stick, so on a long
-           * chat both rails scrolled away with the page. At `flex-start` they keep
+           * conversation both rails scrolled away with the page. At `flex-start` they keep
            * their own height and stay put, which is the entire reason they are sticky.
            */
           alignItems: "flex-start",

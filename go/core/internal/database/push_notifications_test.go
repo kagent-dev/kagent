@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -10,9 +11,190 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+func publishTestSigningKey(ctx context.Context, client *Client, issuer, id string) (PushSigningState, error) {
+	snapshot, err := client.PublishPushSigningKeys(ctx, issuer, id, []PushJWK{{KeyID: id}}, time.Now().Add(time.Minute))
+	return snapshot.PushSigningState, err
+}
+
+func TestPushSigningActivationAcrossReplicas(t *testing.T) {
+	// Given a shared issuer, when replicas initialize and activate B together,
+	// assert that all succeed with one activation revision and durable recovery.
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	active, err := client.IsPushSigningKeyActive(ctx, testSigningIssuer, "key-b")
+	require.NoError(t, err)
+	require.False(t, active)
+	initial, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-a", Revision: 1}, initial)
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for range 8 {
+		workers.Go(func() {
+			<-start
+			peer := NewClient(sharedDB, "public")
+			state, err := publishTestSigningKey(ctx, peer, testSigningIssuer, "key-a")
+			require.NoError(t, err)
+			require.Contains(t, []string{"key-a", "key-b"}, state.KeyID)
+			active, err := peer.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", initial.Revision)
+			require.NoError(t, err)
+			require.Equal(t, PushSigningState{KeyID: "key-b", Revision: 2}, active)
+		})
+	}
+	close(start)
+	workers.Wait()
+	restarted := NewClient(sharedDB, "public")
+	state, err := publishTestSigningKey(ctx, restarted, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-b", Revision: 2}, state)
+	active, err = restarted.IsPushSigningKeyActive(ctx, testSigningIssuer, "key-b")
+	require.NoError(t, err)
+	require.True(t, active)
+	active, err = restarted.IsPushSigningKeyActive(ctx, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	require.False(t, active)
+	other, err := publishTestSigningKey(ctx, restarted, "https://other.example", "key-c")
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-c", Revision: 1}, other)
+}
+
+func TestPushSigningConcurrentInitialization(t *testing.T) {
+	// Given no record, when replicas propose different initial keys, assert that
+	// only the first initializes state and all readers see the same activation.
+	client := NewClient(setupTestDB(t), "public")
+	start := make(chan struct{})
+	results := make(chan PushSigningState, 2)
+	var workers sync.WaitGroup
+	for _, id := range []string{"key-a", "key-b"} {
+		workers.Go(func() {
+			<-start
+			state, err := publishTestSigningKey(t.Context(), client, testSigningIssuer, id)
+			require.NoError(t, err)
+			results <- state
+		})
+	}
+	close(start)
+	workers.Wait()
+	require.Len(t, results, 2)
+	first, second := <-results, <-results
+	require.Equal(t, first, second)
+	require.EqualValues(t, 1, first.Revision)
+}
+
+const testSigningIssuer = "https://kagent.example"
+
+func TestPushSigningPublicationAcrossReplicas(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	a, b := PushJWK{KeyID: "key-a", X: "public-a"}, PushJWK{KeyID: "key-b", X: "public-b"}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	until := now.Add(time.Hour)
+	initial, err := publishTestSigningKey(ctx, client, testSigningIssuer, a.KeyID)
+	require.NoError(t, err)
+
+	// Concurrent publication and activation share the issuer row. Shorter
+	// renewals of A must preserve both its longest deadline and peer key B.
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for i := range 12 {
+		workers.Go(func() {
+			<-start
+			key := []PushJWK{a, b}[i%2]
+			_, err := client.PublishPushSigningKeys(ctx, testSigningIssuer, key.KeyID, []PushJWK{key}, until.Add(time.Duration(i)*time.Minute))
+			require.NoError(t, err)
+		})
+	}
+	workers.Go(func() {
+		<-start
+		_, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, b.KeyID, initial.Revision)
+		require.NoError(t, err)
+	})
+	close(start)
+	workers.Wait()
+	peer := NewClient(sharedDB, "public")
+	snapshot, err := peer.PublishPushSigningKeys(ctx, testSigningIssuer, a.KeyID, []PushJWK{a}, until)
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: b.KeyID, Revision: initial.Revision + 1}, snapshot.PushSigningState)
+	require.Equal(t, map[string]PublishedPushKey{
+		a.KeyID: {JWK: a, RetainUntil: until.Add(10 * time.Minute)},
+		b.KeyID: {JWK: b, RetainUntil: until.Add(11 * time.Minute)},
+	}, snapshot.PublishedKeys)
+
+	const otherIssuer = "https://other.example"
+	_, err = publishTestSigningKey(ctx, client, otherIssuer, a.KeyID)
+	require.NoError(t, err)
+	other, err := client.PublishPushSigningKeys(ctx, otherIssuer, a.KeyID, []PushJWK{a}, until)
+	require.NoError(t, err)
+	require.Len(t, other.PublishedKeys, 1)
+	require.Contains(t, other.PublishedKeys, a.KeyID)
+}
+
+func TestPushSigningPublicationExpiresAbandonedKeys(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	a, b := PushJWK{KeyID: "key-a"}, PushJWK{KeyID: "key-b"}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	snapshot, err := client.PublishPushSigningKeys(ctx, testSigningIssuer, a.KeyID, []PushJWK{a}, deadline)
+	require.NoError(t, err)
+	require.Contains(t, snapshot.PublishedKeys, a.KeyID)
+	time.Sleep(time.Until(deadline))
+	snapshot, err = client.PublishPushSigningKeys(ctx, testSigningIssuer, b.KeyID, []PushJWK{b}, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.NotContains(t, snapshot.PublishedKeys, a.KeyID)
+	require.Contains(t, snapshot.PublishedKeys, b.KeyID)
+}
+
+func TestPushSigningActivationRejectsSupersededAttempt(t *testing.T) {
+	// Given A -> B -> A, when an old B attempt commits, assert that the newer
+	// rollback survives even though its key ID matches the original activation.
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	initial, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	second, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", initial.Revision)
+	require.NoError(t, err)
+	rollback, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-a", second.Revision)
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-a", Revision: 3}, rollback)
+	stale, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", initial.Revision)
+	require.NoError(t, err)
+	require.Equal(t, rollback, stale)
+	confirmed, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-a", initial.Revision)
+	require.NoError(t, err)
+	require.Equal(t, rollback, confirmed, "reconfirming A must not invalidate a newer candidate")
+	newAttempt, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", rollback.Revision)
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-b", Revision: 4}, newAttempt)
+}
+
+func TestPushSigningStateConstraints(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	t.Run("Given an unknown issuer, when activating, assert that the missing state is an error", func(t *testing.T) {
+		_, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-a", 1)
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
+	for _, input := range []struct{ issuer, key string }{{"", "key-a"}, {testSigningIssuer, ""}} {
+		t.Run("Given an empty scope or key, when initializing, assert that no invalid state is stored", func(t *testing.T) {
+			_, err := publishTestSigningKey(ctx, client, input.issuer, input.key)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			require.Equal(t, "23514", pgErr.Code)
+		})
+	}
+	state, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	_, err = client.ActivatePushSigningKey(ctx, testSigningIssuer, "", state.Revision)
+	require.Error(t, err)
+	unchanged, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-b")
+	require.NoError(t, err)
+	require.Equal(t, state, unchanged, "failed activation must roll back")
+}
 
 func TestPushPendingDeliveryTracksRetriesAndLeases(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")

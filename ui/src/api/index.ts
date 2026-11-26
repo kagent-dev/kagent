@@ -134,9 +134,9 @@ export type {
 export { useApiResource } from "./hooks/useApiResource";
 export type { ApiResource } from "./hooks/useApiResource";
 
-export { useChat } from "./hooks/useChat";
-export type { ChatController, ChatPhase } from "./hooks/useChat";
-export type { ChatTurnPhase } from "./chat/turnMachine";
+export { useConversation } from "./hooks/useConversation";
+export type { ConversationController, ConversationPhase } from "./hooks/useConversation";
+export type { ConversationTurnPhase } from "./conversation/turnMachine";
 export type {
   HitlQuestion,
   HitlTool,
@@ -144,22 +144,22 @@ export type {
   PendingRequest,
   ToolApprovalDecision,
   ToolApprovalRecord,
-} from "./chat/hitl";
-export { HITL_EXTENSION_URI } from "./chat/hitl";
+} from "./conversation/hitl";
+export { HITL_EXTENSION_URI } from "./conversation/hitl";
 
-export { getChatClient, resetChatClient, setChatClientFactory } from "./chat";
+export { getConversationClient, resetConversationClient, setConversationClientFactory } from "./conversation";
 export type {
-  ChatAskUserPart,
-  ChatClient,
-  ChatDataPart,
-  ChatEvent,
-  ChatMessage,
-  ChatPart,
-  ChatRole,
-  ChatTextPart,
-  ChatFilePart,
-  ChatToolApprovalPart,
-  ChatTurnState,
-} from "./chat";
+  ConversationAskUserPart,
+  ConversationClient,
+  ConversationDataPart,
+  ConversationEvent,
+  ConversationMessage,
+  ConversationPart,
+  ConversationRole,
+  ConversationTextPart,
+  ConversationFilePart,
+  ConversationToolApprovalPart,
+  ConversationTurnState,
+} from "./conversation";
 
 export { useAgent, useAgentsAcrossNamespaces, useInvalidateAgents } from "./hooks/useAgents";

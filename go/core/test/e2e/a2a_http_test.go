@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -27,10 +28,13 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	appsv1 "k8s.io/api/apps/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
@@ -244,13 +248,21 @@ func TestSessionHTTPPushNotifications(t *testing.T) {
 // the leader. The configured API endpoint must survive pod replacement.
 func TestSessionHTTPPushFromNonleader(t *testing.T) {
 	target := interactionTarget(t)
-	followerTarget, replaceLeader := preparePushLeaderHandoff(t)
-	exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, followerTarget, replaceLeader)
+	leaderTarget, followerTarget, replaceLeader := preparePushLeaderHandoff(t)
+	leaderKeys, followerKeys := pushJWKSKeys(t, leaderTarget), pushJWKSKeys(t, followerTarget)
+	id := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, followerTarget, replaceLeader)
+	if id == "" {
+		require.Empty(t, leaderKeys)
+		require.Empty(t, followerKeys)
+		return
+	}
+	require.Contains(t, leaderKeys, id, "the replacement must reuse the signing key")
+	require.Equal(t, leaderKeys[id], followerKeys[id])
 }
 
 // preparePushLeaderHandoff leaves the test with a ready follower to receive
 // registration and a hook that replaces the current leader after disconnect.
-func preparePushLeaderHandoff(t *testing.T) (string, func()) {
+func preparePushLeaderHandoff(t *testing.T) (string, string, func()) {
 	t.Helper()
 	kube := interactionKubeClient(t)
 	deployments := &appsv1.DeploymentList{}
@@ -321,12 +333,9 @@ func preparePushLeaderHandoff(t *testing.T) (string, func()) {
 		return leaderPod != nil && follower != nil, nil
 	})
 	require.NoError(t, err, "Lease holder %q did not match a ready controller Pod", leader)
+	leaderTarget := forwardPushController(t, leaderPod)
 	followerTarget := forwardPushController(t, follower)
-	leaderKID, leaderKey := pushJWKSKey(t, forwardPushController(t, leaderPod))
-	followerKID, followerKey := pushJWKSKey(t, followerTarget)
-	require.Equal(t, leaderKID, followerKID, "scaled-up replicas must reuse the signing key")
-	require.Equal(t, leaderKey, followerKey)
-	return followerTarget, func() {
+	return leaderTarget, followerTarget, func() {
 		require.NoError(t, kube.Get(t.Context(), leaseKey, lease))
 		require.Equal(t, leader, *lease.Spec.HolderIdentity, "registration must have been accepted by a nonleader")
 		require.NoError(t, kube.Delete(t.Context(), leaderPod))
@@ -336,17 +345,9 @@ func preparePushLeaderHandoff(t *testing.T) (string, func()) {
 	}
 }
 
-func pushJWKSKey(t *testing.T, target string) (string, ed25519.PublicKey) {
-	t.Helper()
-	keys := pushJWKSKeys(t, target)
-	if len(keys) == 0 {
-		return "", nil
-	}
-	require.Len(t, keys, 1)
-	for id, key := range keys {
-		return id, key
-	}
-	return "", nil
+func pushPublicKeyID(key ed25519.PublicKey) string {
+	digest := sha256.Sum256(key)
+	return base64.RawURLEncoding.EncodeToString(digest[:])
 }
 
 func pushJWKSKeys(t *testing.T, target string) map[string]ed25519.PublicKey {
@@ -378,7 +379,7 @@ func pushJWKSKeys(t *testing.T, target string) map[string]ed25519.PublicKey {
 // Keep this test sequential: it rotates shared signing material. The callback
 // caches A before rotation, then a later callback verifies against cached A+B.
 func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
-	_ = interactionTarget(t)
+	apiTarget := interactionTarget(t)
 	kube := interactionKubeClient(t)
 	deployments := &appsv1.DeploymentList{}
 	require.NoError(t, kube.List(t.Context(), deployments, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels{"app.kubernetes.io/component": "controller"}))
@@ -404,15 +405,9 @@ func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
 	if signingSecret == "" {
 		t.Skip("requires controller.push.signing.secretName; enabled in CI")
 	}
-	pods := &corev1.PodList{}
-	require.NoError(t, kube.List(t.Context(), pods, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels(deployment.Spec.Selector.MatchLabels)))
-	pods.Items = slices.DeleteFunc(pods.Items, func(pod corev1.Pod) bool {
-		return pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-	})
-	require.Len(t, pods.Items, 1, "rotation E2E requires one controller replica")
-	pod := pods.Items[0]
-	target := forwardPushController(t, &pod)
-	originalID, _ := pushJWKSKey(t, target)
+	require.Equal(t, new(int32(1)), deployment.Spec.Replicas, "rotation E2E requires one controller replica")
+	pod := waitPushControllerPod(t, t.Context(), kube, &deployment)
+	target := forwardPushController(t, pod)
 	configMap := &corev1.ConfigMap{}
 	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKey{Namespace: deployment.Namespace, Name: configName}, configMap))
 	cfg := &configv1.ControllerConfig{}
@@ -422,6 +417,12 @@ func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
 	secretKey := ctrlclient.ObjectKey{Namespace: deployment.Namespace, Name: signingSecret}
 	require.NoError(t, kube.Get(t.Context(), secretKey, secret))
 	original := secret.DeepCopy()
+	block, _ := pem.Decode(original.Data["private-key.pem"])
+	require.NotNil(t, block)
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	require.NoError(t, err)
+	require.IsType(t, ed25519.PrivateKey{}, key)
+	originalID := pushPublicKeyID(key.(ed25519.PrivateKey).Public().(ed25519.PublicKey))
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
@@ -429,41 +430,29 @@ func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
 		require.NoError(t, kube.Get(ctx, secretKey, current))
 		current.Data = original.Data
 		require.NoError(t, kube.Update(ctx, current))
-		// Restore a single-key fixture before other sequential replica tests run.
-		require.NoError(t, kube.Delete(ctx, &pod))
-		require.Eventually(t, func() bool {
-			replacement := &corev1.PodList{}
-			if kube.List(ctx, replacement, ctrlclient.InNamespace("kagent"), ctrlclient.MatchingLabels(deployment.Spec.Selector.MatchLabels)) != nil {
-				return false
-			}
-			for _, candidate := range replacement.Items {
-				if candidate.UID == pod.UID || candidate.DeletionTimestamp != nil {
-					continue
-				}
-				for _, condition := range candidate.Status.Conditions {
-					if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-						return true
-					}
-				}
-			}
-			return false
-		}, 2*time.Minute, time.Second)
+		// Restore the original signing key before the other replica tests run.
+		currentPod := waitPushControllerPod(t, ctx, kube, &deployment)
+		require.NoError(t, kube.Delete(ctx, currentPod))
+		restarted := waitPushControllerPod(t, ctx, kube, &deployment)
+		require.NotEqual(t, currentPod.UID, restarted.UID)
 	})
 	var publishedAt time.Time
-	oldID := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, true, "", func() {
+	var replacementID string
+	oldID := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, apiTarget, true, "", func() {
 		_, private, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
+		replacementID = pushPublicKeyID(private.Public().(ed25519.PublicKey))
 		der, err := x509.MarshalPKCS8PrivateKey(private)
 		require.NoError(t, err)
 		secret.Data["private-key.pem"] = pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 		require.NoError(t, kube.Update(t.Context(), secret))
 		require.Eventually(t, func() bool {
 			keys := pushJWKSKeys(t, target)
-			return len(keys) == 2 && keys[originalID] != nil
+			return keys[replacementID] != nil
 		}, 2*time.Minute, time.Second, "running pod must publish the replacement from its Secret volume")
 		publishedAt = time.Now()
 	})
-	require.Equal(t, originalID, oldID, "cached original JWKS must verify the callback during staging")
+	require.Equal(t, originalID, oldID, "the original signing Secret must sign throughout staging")
 	// The public configuration controls the wait; the 30s buffer is fixed by the
 	// rotation contract. Waiting from observation is conservative by one HTTP poll.
 	activateAfter := publishedAt.Add(cfg.GetPush().GetSigningKeyActivationDelay().AsDuration() + 30*time.Second)
@@ -474,15 +463,147 @@ func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal("timed out waiting for key activation")
 	}
-	newID := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, target, false, "", nil)
-	require.NotEqual(t, originalID, newID)
-	require.Contains(t, pushJWKSKeys(t, target), originalID, "old tokens remain verifiable after activation")
+	newID := exerciseHTTPPush(t, testHarness{name: "kagent", runtimeLabel: "kagent"}, apiTarget, false, "", nil)
+	require.Equal(t, replacementID, newID)
+	require.Contains(t, pushJWKSKeys(t, target), oldID, "old tokens remain verifiable after activation")
 	unchanged := &corev1.Pod{}
-	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(&pod), unchanged))
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(pod), unchanged))
 	require.Equal(t, pod.UID, unchanged.UID)
 	for i := range pod.Status.ContainerStatuses {
 		require.Equal(t, pod.Status.ContainerStatuses[i].RestartCount, unchanged.Status.ContainerStatuses[i].RestartCount)
 	}
+	exercisePushSigningRollout(t, kube, &deployment, configMap, cfg, signingSecret, newID)
+}
+
+// Given B is active, when a Secret-name rollout installs C/current and B/previous,
+// assert that callbacks use B during staging, then survive a Pod restart with C.
+func exercisePushSigningRollout(t *testing.T, kube ctrlclient.Client, deployment *appsv1.Deployment,
+	configMap *corev1.ConfigMap, cfg *configv1.ControllerConfig, previousSecret, previousID string,
+) {
+	t.Helper()
+	const (
+		currentFile      = "push-private-key.pem"
+		previousFile     = "push-previous-private-key.pem"
+		secretKey        = "private-key.pem"
+		controllerConfig = "controller.yaml"
+	)
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(deployment), deployment))
+	originalDeployment, originalConfig := deployment.DeepCopy(), configMap.DeepCopy()
+	_, private, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	der, err := x509.MarshalPKCS8PrivateKey(private)
+	require.NoError(t, err)
+	currentSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: deployment.Namespace, GenerateName: "push-signing-rollout-"},
+		Data:       map[string][]byte{secretKey: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})},
+	}
+	require.NoError(t, kube.Create(t.Context(), currentSecret))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		restoredConfig := &corev1.ConfigMap{}
+		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(configMap), restoredConfig))
+		restoredConfig.Data = originalConfig.Data
+		require.NoError(t, kube.Update(ctx, restoredConfig))
+		restoredDeployment := &appsv1.Deployment{}
+		require.NoError(t, kube.Get(ctx, ctrlclient.ObjectKeyFromObject(deployment), restoredDeployment))
+		restoredDeployment.Spec = originalDeployment.Spec
+		require.NoError(t, kube.Update(ctx, restoredDeployment))
+		waitPushControllerPod(t, ctx, kube, restoredDeployment)
+		require.NoError(t, kube.Delete(ctx, currentSecret))
+	})
+	harness := testHarness{name: "kagent", runtimeLabel: "kagent"}
+	apiTarget := interactionTarget(t)
+	var pod *corev1.Pod
+	var currentOnly *corev1.PodTemplateSpec
+	currentID := pushPublicKeyID(private.Public().(ed25519.PublicKey))
+	// Prepare a blocked task before rollout, so runtime provisioning does not
+	// consume the interval in which the callback must use the previous key.
+	id := exerciseHTTPPush(t, harness, apiTarget, false, "", func() {
+		// These are the config and projection changes produced by Helm's two Secret values.
+		// Leave time for the two-minute rollout bound before testing old-key signing.
+		cfg.Push.SigningKeyActivationDelay = durationpb.New(max(cfg.Push.SigningKeyActivationDelay.AsDuration(), 2*time.Minute))
+		cfg.Push.PreviousSigningPrivateKeyFile = "/etc/kagent/secrets/" + previousFile
+		contents, err := protojson.Marshal(cfg)
+		require.NoError(t, err)
+		configMap.Data[controllerConfig] = string(contents)
+		require.NoError(t, kube.Update(t.Context(), configMap))
+		replaced := false
+		for i := range deployment.Spec.Template.Spec.Volumes {
+			projection := deployment.Spec.Template.Spec.Volumes[i].Projected
+			if projection == nil {
+				continue
+			}
+			for j := range projection.Sources {
+				secret := projection.Sources[j].Secret
+				if secret == nil || !slices.ContainsFunc(secret.Items, func(item corev1.KeyToPath) bool { return item.Path == currentFile }) {
+					continue
+				}
+				secret.Name = currentSecret.Name
+				currentOnly = deployment.Spec.Template.DeepCopy()
+				projection.Sources = append(projection.Sources, corev1.VolumeProjection{Secret: &corev1.SecretProjection{
+					LocalObjectReference: corev1.LocalObjectReference{Name: previousSecret}, Optional: new(true),
+					Items: []corev1.KeyToPath{{Key: secretKey, Path: previousFile}},
+				}})
+				replaced = true
+				break
+			}
+		}
+		require.True(t, replaced)
+		require.NoError(t, kube.Update(t.Context(), deployment))
+		pod = waitPushControllerPod(t, t.Context(), kube, deployment)
+		keys := pushJWKSKeys(t, forwardPushController(t, pod))
+		require.Contains(t, keys, previousID)
+		require.Equal(t, private.Public(), keys[currentID])
+	})
+	require.Equal(t, previousID, id, "routine Secret-name rollout must preserve previous-key signing")
+	// Give the replacement Pod its full activation delay before checking C.
+	timer := time.NewTimer(cfg.GetPush().GetSigningKeyActivationDelay().AsDuration() + 30*time.Second)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-t.Context().Done():
+		t.Fatal("timed out waiting for rollout key activation")
+	}
+	id = exerciseHTTPPush(t, harness, apiTarget, false, "", nil)
+	require.Equal(t, currentID, id)
+	// Removing B's projection forces a rollout. The new Pod has only C's
+	// private key and must recover B's public key from PostgreSQL.
+	require.NoError(t, kube.Get(t.Context(), ctrlclient.ObjectKeyFromObject(deployment), deployment))
+	deployment.Spec.Template = *currentOnly
+	require.NoError(t, kube.Update(t.Context(), deployment))
+	restarted := waitPushControllerPod(t, t.Context(), kube, deployment)
+	require.NotEqual(t, pod.UID, restarted.UID)
+	keys := pushJWKSKeys(t, forwardPushController(t, restarted))
+	require.Contains(t, keys, previousID)
+	require.Contains(t, keys, currentID)
+	id = exerciseHTTPPush(t, harness, apiTarget, false, "", nil)
+	require.Equal(t, currentID, id, "restarting the controller must preserve current-key signing")
+}
+
+func waitPushControllerPod(t *testing.T, ctx context.Context, kube ctrlclient.Client, deployment *appsv1.Deployment) *corev1.Pod {
+	t.Helper()
+	var ready *corev1.Pod
+	require.Eventually(t, func() bool {
+		current := &appsv1.Deployment{}
+		if kube.Get(ctx, ctrlclient.ObjectKeyFromObject(deployment), current) != nil ||
+			current.Status.ObservedGeneration < current.Generation || current.Status.UpdatedReplicas != 1 || current.Status.Replicas != 1 {
+			return false
+		}
+		pods := &corev1.PodList{}
+		if kube.List(ctx, pods, ctrlclient.InNamespace(deployment.Namespace), ctrlclient.MatchingLabels(deployment.Spec.Selector.MatchLabels)) != nil || len(pods.Items) != 1 {
+			return false
+		}
+		pod := &pods.Items[0]
+		if pod.DeletionTimestamp != nil || !slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
+			return c.Type == corev1.PodReady && c.Status == corev1.ConditionTrue
+		}) {
+			return false
+		}
+		ready = pod
+		return true
+	}, 2*time.Minute, time.Second, "controller Pod must finish rollout")
+	return ready
 }
 
 // exerciseHTTPPush keeps the model blocked until the observation connection is
@@ -490,9 +611,19 @@ func TestSessionHTTPPushSigningKeyReload(t *testing.T) {
 func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streaming bool, sendTarget string, afterDisconnect func()) string {
 	t.Helper()
 	modelURL, started, unblock, _ := startScheduledRecoveryModel(t)
-	// Release the model before session cleanup, including on assertion failure.
-	defer unblock()
 	fixture := newInteractionFixture(t, harness, target, modelURL)
+	var contextID string
+	defer func() {
+		// Release the model even on assertion failure. A completed callback can
+		// precede automatic suspension, so clean up before callers restart Pods.
+		unblock()
+		if contextID == "" {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
+		defer cancel()
+		require.NoError(t, deleteIdleSession(cleanup, fixture.sessions, contextID), "delete push session %s", contextID)
+	}()
 	publicKeys := pushJWKSKeys(t, target)
 	signingKeys := make(chan string, 8)
 	callbacks := make(chan *a2atype.TaskStatusUpdateEvent, 8)
@@ -557,7 +688,6 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 	observation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var taskID a2atype.TaskID
-	var contextID string
 	if streaming {
 		next, stop := iter.Pull2(sendHTTPStreamingMessageWithRetry(observation, client, request))
 		defer stop()
@@ -574,11 +704,6 @@ func exerciseHTTPPush(t *testing.T, harness testHarness, target string, streamin
 		taskID, contextID = task.ID, task.ContextID
 		cancel()
 	}
-	t.Cleanup(func() {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(fixture.ctx), time.Minute)
-		defer cancel()
-		require.NoError(t, deleteIdleSession(cleanup, fixture.sessions, contextID))
-	})
 	select {
 	case <-started:
 	case <-ctx.Done():

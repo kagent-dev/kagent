@@ -11,7 +11,7 @@ import { useLocation, type Location } from "react-router-dom";
 export interface BackLinkState {
   /** The path and search of the page to return to. */
   from: string;
-  /** What the back control says, e.g. "Back to conversation". */
+  /** What the back control says, e.g. "Conversation". */
   fromLabel: string;
 }
 

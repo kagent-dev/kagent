@@ -179,7 +179,7 @@ func (p *pushTestSender) SendPush(context.Context, *a2a.PushConfig, a2a.Event) e
 
 func testPushSigner(t *testing.T) *PushJWTSigner {
 	t.Helper()
-	signer, err := NewPushJWTSigner(pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
+	signer, err := newPushTestSigner(t, pushKeyFile(t, []byte(testPushPrivateKeyPEM)), "https://kagent.example", 5*time.Minute)
 	require.NoError(t, err)
 	return signer
 }

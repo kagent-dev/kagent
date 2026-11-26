@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   Alert,
   Button,
-  Modal,
   Skeleton,
   Space,
   Table,
@@ -12,8 +12,7 @@ import {
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import toast from "react-hot-toast";
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams, type Blocker } from "react-router-dom";
 import { useTheme } from "@emotion/react";
 import { Pencil } from "lucide-react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -23,11 +22,18 @@ import { AgentTemplateForm } from "@/components/agent-template-form/AgentTemplat
 import { hasUnshownSpecFields } from "@/components/agent-template-form/unshownFields";
 import {
   draftFromTemplate,
-  draftProblems,
   labelsFromDraft,
   specFromDraft,
+  templateDraftIssues,
   type AgentTemplateDraft,
 } from "@/components/agent-template-form/agentTemplateDraft";
+import { SubmitError } from "@/components/common/SubmitError";
+import { BackLink } from "@/components/form/BackLink";
+import { FormActions } from "@/components/form/FormActions";
+import { toastSaved } from "@/components/form/saveToast";
+import { UnsavedChangesModal } from "@/components/form/UnsavedChangesModal";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
+import { useUnsavedChangesGuard } from "@/components/form/useUnsavedChangesGuard";
 import { agentTemplatesTab } from "@/router/routes";
 import { useBackLink } from "@/router/backLink";
 import {
@@ -54,13 +60,13 @@ export function AgentTemplateDetailsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // Back to wherever the reader came from — a conversation's context panel, say — and
   // to the list when they opened this page directly.
-  const back = useBackLink({ to: agentTemplatesTab, label: "Back to templates" });
+  const back = useBackLink({ to: agentTemplatesTab, label: "Templates" });
 
   const template = useAgentTemplate(namespace, name);
   const invalidateTemplates = useInvalidateAgentTemplates();
 
   const [isSubmitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string>();
+  const [failure, setFailure] = useState<unknown>();
 
   /*
    * The draft is *derived* from the loaded template until the reader edits it.
@@ -105,8 +111,15 @@ export function AgentTemplateDetailsPage() {
     JSON.stringify(draft) !== JSON.stringify(loaded);
 
   const [isConfirmingDiscard, setConfirmingDiscard] = useState(false);
-  /** Set when the back button opened the discard prompt, so confirming it also leaves. */
-  const [isLeavingAfterDiscard, setLeavingAfterDiscard] = useState(false);
+  const validation = useSubmitValidation(
+    draft && isEditing ? templateDraftIssues(draft, { isCreate: false }) : [],
+  );
+
+  // One modal for both exits: a blocked route change, or Cancel standing in as one.
+  const { blocker: routeBlocker } = useUnsavedChangesGuard(isDirty);
+  const discardBlocker: Blocker = isConfirmingDiscard
+    ? { state: "blocked", location, proceed: discardEdit, reset: () => setConfirmingDiscard(false) }
+    : routeBlocker;
 
   const activeTab = searchParams.get(TAB_PARAM) === "agents" ? "agents" : "details";
   const setTab = (tab: string) => {
@@ -135,38 +148,16 @@ export function AgentTemplateDetailsPage() {
   function discardEdit() {
     setEditingRef(undefined);
     setEdited(undefined);
-    setError(undefined);
+    setFailure(undefined);
+    validation.reset();
     setConfirmingDiscard(false);
-    if (isLeavingAfterDiscard) {
-      setLeavingAfterDiscard(false);
-      goBack();
-    }
-  }
-
-  /*
-   * Follows the back button. A return steps back through history rather than pushing
-   * the origin again, so it leaves no duplicate entry for the browser's Back button to
-   * land on; tab switches replace their entry, so the one before is still the origin.
-   */
-  function goBack() {
-    if (back.isReturn) navigate(-1);
-    else navigate(back.to);
-  }
-
-  /** Leaves the page by its back button, asking first when an unsaved draft would be lost. */
-  function leave() {
-    if (isDirty) {
-      setLeavingAfterDiscard(true);
-      setConfirmingDiscard(true);
-      return;
-    }
-    goBack();
   }
 
   async function save(): Promise<void> {
     if (!draft || !template.data) return;
+    setFailure(undefined);
+    if (!validation.attempt()) return;
     setSubmitting(true);
-    setError(undefined);
     try {
       const updated = await apiClient.agentBuildingBlocks.updateAgentTemplate({
         namespace: template.data.namespace,
@@ -191,11 +182,12 @@ export function AgentTemplateDetailsPage() {
       // catch below and report a save that succeeded as one that failed.
       await template.refresh().catch(() => {});
       await invalidateTemplates();
-      toast.success(`Agent template ${updated.name} saved`);
+      toastSaved("saved", "agent template", updated.name);
       setEditingRef(undefined);
       setEdited(undefined);
+      validation.reset();
     } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setFailure(cause);
     } finally {
       setSubmitting(false);
     }
@@ -211,13 +203,13 @@ export function AgentTemplateDetailsPage() {
 
   /** Back to the list — this page is about an object that is gone. */
   async function afterDelete(): Promise<void> {
+    // Leave edit mode first, or the unsaved-changes guard blocks the navigation below.
+    flushSync(() => discardEdit());
     await invalidateTemplates();
     // See the note on the same navigation after a create: the list narrows on `ns`, and
     // the bare `/agent-templates` route is a redirect that carries no query string.
     navigate(`${agentTemplatesTab}&ns=${encodeURIComponent(namespace ?? "")}`);
   }
-
-  const problems = draft ? draftProblems(draft, { isCreate: false }) : [];
 
   const agentColumns = useMemo<ColumnsType<Agent>>(
     () => [
@@ -325,6 +317,18 @@ export function AgentTemplateDetailsPage() {
   );
 
   return (
+    <>
+    <BackLink
+      to={back.to}
+      resource={back.label}
+      // A return steps back through history rather than pushing the origin again, so the
+      // browser's Back button has no duplicate entry to land on. The unsaved-changes guard still applies.
+      onClick={(event) => {
+        if (!back.isReturn) return;
+        event.preventDefault();
+        navigate(-1);
+      }}
+    />
     <PageFrame
       title={name ? `Agent template ${name}` : "Agent template"}
       description={
@@ -367,12 +371,6 @@ export function AgentTemplateDetailsPage() {
             description="Agents referencing this template cannot prepare new configuration until it is restored or replaced. Existing conversations and last successful revisions are retained."
             />
           ) : null}
-          <Button
-            onClick={leave}
-            data-testid="template-back"
-          >
-            {back.label}
-          </Button>
         </Space>
       }
     >
@@ -397,16 +395,6 @@ export function AgentTemplateDetailsPage() {
                 Try again
               </Button>
             }
-          />
-        ) : null}
-
-        {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not save the agent template"
-            description={error}
-            data-testid="template-save-error"
           />
         ) : null}
 
@@ -441,6 +429,7 @@ export function AgentTemplateDetailsPage() {
                           isCreate={false}
                           namespace={template.data.namespace}
                           readOnly={!isEditing}
+                          fieldFor={validation.field}
                           hasUnshownFields={hasUnshownSpecFields(
                             template.data.resource.spec,
                           )}
@@ -448,27 +437,25 @@ export function AgentTemplateDetailsPage() {
                       </div>
 
                       {isEditing ? (
-                        <div
-                          css={{
-                            display: "flex",
-                            gap: theme.space(2),
-                            paddingTop: theme.space(5),
-                            borderTop: `1px solid ${theme.color.border}`,
-                          }}
-                        >
-                          <Button
-                            type="primary"
-                            loading={isSubmitting}
-                            disabled={problems.length > 0}
-                            onClick={() => void save()}
-                            data-testid="template-submit"
-                          >
-                            Save template
-                          </Button>
-                          <Button onClick={stopEditing} data-testid="template-stop-editing">
-                            Cancel
-                          </Button>
-                        </div>
+                        <FormActions
+                          submitLabel="Save"
+                          onSubmit={() => void save()}
+                          submitting={isSubmitting}
+                          cancel={{ onClick: stopEditing }}
+                          testIdPrefix="template"
+                          blocked={!validation.valid}
+                          error={
+                            failure !== undefined ? (
+                              <SubmitError
+                                error={failure}
+                                what="agent template"
+                                outcome="saved"
+                                onRetry={() => void save()}
+                                data-testid="template-save-error"
+                              />
+                            ) : null
+                          }
+                        />
                       ) : null}
                     </Space>
                   ),
@@ -508,29 +495,9 @@ export function AgentTemplateDetailsPage() {
         ) : null}
       </Space>
 
-      {/*
-        A controlled modal rather than `Modal.confirm`: antd 6's static methods cannot
-        read context, and the warning they log is a failure in the browser suite.
-      */}
-      <Modal
-        open={isConfirmingDiscard}
-        title="Discard your changes?"
-        okText="Discard"
-        okButtonProps={{ danger: true }}
-        cancelText="Keep editing"
-        onOk={discardEdit}
-        onCancel={() => {
-          setConfirmingDiscard(false);
-          setLeavingAfterDiscard(false);
-        }}
-        data-testid="template-discard-modal"
-      >
-        <Paragraph css={{ margin: 0 }} data-testid="template-discard-body">
-          This template has edits that have not been saved. Discarding throws them away;
-          the template on the cluster is unchanged either way.
-        </Paragraph>
-      </Modal>
+      <UnsavedChangesModal blocker={discardBlocker} testIdPrefix="template" />
     </PageFrame>
+    </>
   );
 }
 

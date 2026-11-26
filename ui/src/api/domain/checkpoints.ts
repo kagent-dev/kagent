@@ -7,7 +7,7 @@
  *
  * `headTaskId` is what ties a checkpoint back to the transcript: it names the turn the
  * boundary sits at, and every message of that turn carries the same id. That is the
- * only durable link between the two, so it is what the chat marks messages from.
+ * only durable link between the two, so it is what the conversation marks messages from.
  */
 
 /**

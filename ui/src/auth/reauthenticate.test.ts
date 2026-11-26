@@ -26,7 +26,7 @@ beforeEach(() => {
   Object.defineProperty(window, "location", {
     configurable: true,
     value: {
-      pathname: "/agents/kagent/k8s-agent/chat",
+      pathname: "/agents/kagent/k8s-agent/conversation",
       search: "?tab=logs",
       hash: "#latest",
       replace,
@@ -43,7 +43,7 @@ describe("reauthenticationUrl", () => {
     // Without `rd`, the proxy returns the reader wherever it defaults to — which is how
     // signing in again used to cost somebody the page they were on.
     expect(reauthenticationUrl(window.location)).toBe(
-      "/oauth2/start?rd=%2Fagents%2Fkagent%2Fk8s-agent%2Fchat%3Ftab%3Dlogs%23latest",
+      "/oauth2/start?rd=%2Fagents%2Fkagent%2Fk8s-agent%2Fconversation%3Ftab%3Dlogs%23latest",
     );
   });
 

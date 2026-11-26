@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Input, Modal, Typography } from "antd";
-import toast from "react-hot-toast";
+import { SubmitError } from "@/components/common/SubmitError";
+import { FormField } from "@/components/form/FormField";
+import { toastSaved, toastSuccess } from "@/components/form/saveToast";
+import { useSubmitValidation } from "@/components/form/useSubmitValidation";
 import { useTheme } from "@emotion/react";
 import {
   apiClient,
@@ -11,7 +14,7 @@ import {
 } from "@/api";
 import { shortInstanceId } from "./instanceLabels";
 
-const { Paragraph, Text } = Typography;
+const { Paragraph } = Typography;
 
 /**
  * Gives a conversation a name, or takes one away.
@@ -78,11 +81,14 @@ export function RenameConversationDialog({
   const [isSaving, setSaving] = useState(false);
   const invalidateConversations = useInvalidateConversations();
 
+  const [failure, setFailure] = useState<unknown>();
   const problem = conversationNameProblem(draft);
+  const validation = useSubmitValidation(problem ? [{ field: "name", message: problem }] : []);
 
   async function save() {
-    if (problem) return;
+    if (isSaving || !validation.attempt()) return;
     setSaving(true);
+    setFailure(undefined);
     try {
       await apiClient.agentInstances.rename(instance.id, draft);
       // Awaited before the toast, so every surface showing this conversation already
@@ -90,20 +96,10 @@ export function RenameConversationDialog({
       await invalidateConversations();
       await onRenamed?.();
       onClose();
-      toast.success(
-        draft === ""
-          ? `Cleared the name of conversation ${shortInstanceId(instance.id)}`
-          : `Renamed to “${draft}”`,
-      );
+      if (draft === "") toastSuccess(`Cleared the name of conversation ${shortInstanceId(instance.id)}`);
+      else toastSaved("saved", "conversation name", draft);
     } catch (cause: unknown) {
-      // Deliberately not transient: a rename that failed leaves the old name in
-      // place, and a reader who missed the message would believe it changed.
-      toast.error(
-        `Could not rename conversation ${shortInstanceId(instance.id)}: ${
-          cause instanceof Error ? cause.message : String(cause)
-        }`,
-        { duration: Infinity },
-      );
+      setFailure(cause);
     } finally {
       setSaving(false);
     }
@@ -118,7 +114,7 @@ export function RenameConversationDialog({
       // prop smuggled through `okButtonProps` lands wherever that component
       // decides. It answers to its accessible name, which is the affordance the
       // reader uses anyway.
-      okButtonProps={{ loading: isSaving, disabled: problem !== undefined }}
+      okButtonProps={{ loading: isSaving }}
       cancelText="Cancel"
       onOk={() => void save()}
       onCancel={onClose}
@@ -128,29 +124,27 @@ export function RenameConversationDialog({
         A conversation is named by you. Leave this empty to clear the name and go
         back to being identified by its id, {shortInstanceId(instance.id)}.
       </Paragraph>
-      {/* The id is on a wrapper this app owns rather than on the `Input`: antd
-          spreads unknown props onto its inner `<input>`, so an id handed to the
-          component lands somewhere a test cannot reliably reason about. */}
-      <div data-testid="conversation-rename-input">
+      <FormField label="Conversation name" required={false} {...validation.field("name")}>
         <Input
           value={draft}
+          id="conversation-rename-field"
+          data-testid="conversation-rename-input"
           autoFocus
           maxLength={MAX_CONVERSATION_NAME_LENGTH}
           showCount
           placeholder={`Untitled · ${shortInstanceId(instance.id)}`}
-          status={problem ? "error" : undefined}
           onChange={(event) => setDraft(event.target.value)}
           onPressEnter={() => void save()}
-          aria-label="Conversation name"
         />
-      </div>
-      {problem ? (
-        <Text
-          data-testid="conversation-rename-problem"
-          css={{ color: theme.color.dangerText, fontSize: 12 }}
-        >
-          {problem}
-        </Text>
+      </FormField>
+      {failure !== undefined ? (
+        <SubmitError
+          error={failure}
+          what="conversation name"
+          outcome="saved"
+          onRetry={() => void save()}
+          data-testid="conversation-rename-error"
+        />
       ) : null}
     </Modal>
   );

@@ -20,7 +20,7 @@ export interface EnvironmentVariables {
   API_BASE_URL: string;
   /** Where "Sign in with SSO" sends the browser. */
   SSO_REDIRECT_PATH: string;
-  /** Chat stream inactivity timeout, in milliseconds, before the client aborts. */
+  /** Conversation stream inactivity timeout, in milliseconds, before the client aborts. */
   STREAM_TIMEOUT_MS: string;
   /** `"true"` serves the whole API from in-browser fixtures. */
   ENABLE_MOCK_UI: string;

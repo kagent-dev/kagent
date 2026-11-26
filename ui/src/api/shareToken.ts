@@ -22,7 +22,7 @@ const SHARE_HEADER = "X-Share-Token";
  * `transformInterceptor` passes them straight through. Giving them one would mean
  * inventing operation ids for a client deliberately outside the operation table.
  *
- * So the token is registered here and the chat client reads it. The ordinary
+ * So the token is registered here and the conversation client reads it. The ordinary
  * AgentInstance operations use the same registration and header below.
  */
 
@@ -46,7 +46,7 @@ export function agentInstanceShareToken(
 /**
  * Spends a share token for one AgentInstance for as long as the page is mounted.
  *
- * A layout effect for the reason the session one is: SWR and the chat client both
+ * A layout effect for the reason the session one is: SWR and the conversation client both
  * start reading from a layout effect, and a passive effect would register the token
  * *after* the first request had already gone without it — which the backend answers
  * as an anonymous read, and which looks like success.
@@ -59,7 +59,7 @@ export function useAgentInstanceShareToken(
     if (!id || !token) return;
     sharedInstance = { key: id, token };
     /*
-     * And on the ordinary operations too, not only on the chat client.
+     * And on the ordinary operations too, not only on the conversation client.
      *
      * The A2A calls need the registration above because they bypass the operation
      * table; everything else about a conversation goes through it, and until this

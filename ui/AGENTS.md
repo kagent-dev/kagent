@@ -56,7 +56,7 @@ is signed in correctly reports nobody — there is no backend to have signed in 
 
 An `AppExtensionConfig` contributes navigation entries and overrides, routes and
 route handles, slots, form fields, table columns, API overrides, providers, theme
-tokens, shell regions, branding, provider icons, chat part renderers and agent
+tokens, shell regions, branding, provider icons, conversation part renderers and agent
 links. Components read every colour, radius and font from those tokens, so
 overriding them restyles components an extension never touches. When adding a
 feature, check whether it belongs behind an extension point rather than as a branch

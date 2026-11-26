@@ -11,7 +11,7 @@ import { pressOnce } from "../helpers/resource";
  *
  * Needs the chart's built-in skills catalog in `KAGENT_UI_BUILTIN_SKILLS` (the value the
  * chart writes to the UI ConfigMap), the `kagent` Harness and `default-model-config` in
- * `kagent`. The chat test also needs a working model behind `default-model-config`.
+ * `kagent`. The conversation test also needs a working model behind `default-model-config`.
  */
 
 const NAMESPACE = "kagent";
@@ -62,9 +62,8 @@ async function storedSpec(baseURL: string, name: string) {
 }
 
 /**
- * Picks an option from the dropdown just opened. Each skill row's kind select has its own
- * dropdown with the same titles, and the last one can still be fading out; antd appends a
- * dropdown to the body the first time it opens, so the newest open one is the last.
+ * Picks an option from the dropdown just opened. An earlier dropdown can still be fading
+ * out; antd appends each to the body the first time it opens, so the newest is the last.
  */
 async function choose(page: Page, testId: string, title: string) {
   await page.getByTestId(testId).click();
@@ -77,9 +76,9 @@ async function addBuiltinSkill(page: Page, name: string) {
 }
 
 async function addOwnSkill(page: Page, index: number, name: string, kind: "OCI image" | "Git" | "S3") {
-  await page.getByTestId("template-form-add-skill").click();
+  await page.getByTestId("template-form-skills-add").click();
   await page.getByTestId(`template-form-skill-name-${index}`).fill(name);
-  if (kind !== "OCI image") await choose(page, `template-form-skill-kind-${index}`, kind);
+  if (kind !== "OCI image") await page.getByTestId(`template-form-skill-kind-${index}`).getByText(kind, { exact: true }).click();
 }
 
 test("live: agent template skills are saved, read back and kept through an edit", async ({ page, baseURL }) => {
@@ -129,7 +128,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await page.getByTestId("template-form-skill-s3-version-3").fill(S3.versionId);
     await page.getByTestId("template-form-skill-path-3").fill("skills/incident-review");
 
-    await expect(page.getByTestId("template-form-problems")).toHaveCount(0);
+    await expect(page.getByTestId("template-blocked")).toHaveCount(0);
     templates.add(name);
     await page.getByTestId("template-submit").click();
     await expect(page).toHaveURL(/\/agents\?tab=templates/, { timeout: 60_000 });
@@ -143,7 +142,7 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await loadLive(page, `/agent-templates/${NAMESPACE}/${name}`);
     await expectNoLoadFailure(page);
     await expect(page.getByTestId("template-edit")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId("template-form-add-skill")).toHaveCount(0);
+    await expect(page.getByTestId("template-form-skills-add")).toHaveCount(0);
 
     const builtin = page.getByTestId("template-form-skill-0");
     await expect(builtin.locator(".ant-tag")).toHaveText("kagent");
@@ -185,22 +184,24 @@ test("live: agent template skills are saved, read back and kept through an edit"
     await page.getByTestId("template-form-skill-git-url-0").fill(GIT_URL);
     await page.getByTestId("template-form-skill-git-commit-0").fill("abc");
 
-    const problems = page.getByTestId("template-form-problems");
-    await expect(problems).toContainText('The skill "team/runbooks" needs a name that is one path segment');
-    await expect(problems).toContainText('The skill "team/runbooks" needs a full Git commit ID: 40 or 64 hex characters.');
-    await expect(page.getByTestId("template-submit")).toBeDisabled();
+    // Each field flags itself under the row, and the submit is held back with a note.
+    const skill = page.getByTestId("template-form-skill-0");
+    await expect(skill).toContainText('The skill "team/runbooks" needs a name that is one path segment');
+    await expect(skill).toContainText('The skill "team/runbooks" needs a full Git commit ID: 40 or 64 hex characters.');
+    await expect(page.getByTestId("template-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("template-blocked")).toBeVisible();
   });
 });
 
-test("live: an agent built with a kagent skill loads it in chat", async ({ page }, testInfo) => {
+test("live: an agent built with a kagent skill loads it in a conversation", async ({ page }, testInfo) => {
   test.setTimeout(READY_TIMEOUT + 300_000);
-  const name = throwawayName("skill-chat");
+  const name = throwawayName("skill-conversation");
 
   await test.step("1. create an Agent whose inline template has only the kagent skill", async () => {
     await loadLive(page, liveRoutes.agentNew);
     await expectNoLoadFailure(page);
     await page.getByTestId("agent-form-name").fill(name);
-    await page.getByTestId("agent-form-template-source").getByText("Inline", { exact: true }).click();
+    await page.getByTestId("agent-form-template-source").getByText("Define here", { exact: true }).click();
     await choose(page, "template-form-model", MODEL);
     await page.getByTestId("template-form-description").fill(`Live ${name}`);
     await page
@@ -232,28 +233,28 @@ test("live: an agent built with a kagent skill loads it in chat", async ({ page 
   await test.step("3. asked about a crashing pod, it loads the skill", async () => {
     await page.getByTestId(`agent-link-${NAMESPACE}-${name}`).click();
     await page
-      .getByTestId("chat-input")
+      .getByTestId("conversation-input")
       .fill(
         // Not "word for word": Azure OpenAI's content filter reads that as a jailbreak and refuses the request.
         "A pod in namespace default is in CrashLoopBackOff. Which of your skills applies? Load it, then tell me the opening line of its instructions in quotes.",
       );
-    await page.getByTestId("chat-send").click();
-    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 60_000 });
+    await page.getByTestId("conversation-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/conversation$/, { timeout: 60_000 });
     // The turn has started once the agent says something, and has ended once it can no longer be cancelled.
-    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]').first()).toBeVisible({ timeout: 240_000 });
-    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 240_000 });
+    await expect(page.locator('[data-testid="conversation-message"][data-role="agent"]').first()).toBeVisible({ timeout: 240_000 });
+    await expect(page.getByTestId("conversation-cancel")).toHaveCount(0, { timeout: 240_000 });
 
-    const call = page.locator('[data-testid="chat-tool-call"][data-tool-name="load_skill"]');
+    const call = page.locator('[data-testid="conversation-tool-call"][data-tool-name="load_skill"]');
     await expect(call.first()).toBeVisible();
-    await expect(call.first().getByTestId("chat-tool-payload")).toContainText(BUILTIN);
+    await expect(call.first().getByTestId("conversation-tool-payload")).toContainText(BUILTIN);
     // The skill's own text, from opt/kagent-tools-skills/skills/k8s-troubleshooting/SKILL.md in the kagent-tools image.
-    const loaded = page.locator('[data-testid="chat-tool-result"][data-tool-name="load_skill"]');
-    await expect(loaded.first().getByTestId("chat-tool-payload")).toContainText("Work from symptoms to cause.");
+    const loaded = page.locator('[data-testid="conversation-tool-result"][data-tool-name="load_skill"]');
+    await expect(loaded.first().getByTestId("conversation-tool-payload")).toContainText("Work from symptoms to cause.");
     // The reply's wording varies between runs (it sometimes quotes the heading), so the
     // skill's text is checked in the tool result above, not in the reply.
-    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]').last()).not.toBeEmpty();
-    await page.screenshot({ path: testInfo.outputPath("chat-reply.png"), fullPage: true });
-    testInfo.annotations.push({ type: "session", description: new URL(page.url()).pathname.split("/")[2] });
+    await expect(page.locator('[data-testid="conversation-message"][data-role="agent"]').last()).not.toBeEmpty();
+    await page.screenshot({ path: testInfo.outputPath("conversation-reply.png"), fullPage: true });
+    testInfo.annotations.push({ type: "conversation", description: new URL(page.url()).pathname.split("/")[2] });
   });
 });
 

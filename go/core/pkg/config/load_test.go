@@ -50,6 +50,8 @@ func TestControllerConfig(t *testing.T) {
 		{"interval", "sessions: {expirationInterval: 0s}", true},
 		{"old gateway push configuration", "gateway: {push: {allowHttp: true}}", true},
 		{"push configuration", "push: {issuer: https://issuer.example, allowHttp: true, allowPrivateNetworks: true}", false},
+		{"Given both push keys, when decoding configuration, assert that startup handoff is accepted", "push: {signingPrivateKeyFile: current.pem, previousSigningPrivateKeyFile: previous.pem}", false},
+		{"Given only a previous push key, when decoding configuration, assert that missing current is rejected", "push: {previousSigningPrivateKeyFile: previous.pem}", true},
 		{"invalid push issuer", "push: {issuer: invalid}", true},
 		{"push key activation delay", "push: {signingKeyActivationDelay: 60s}", false},
 		{"maximum push key activation delay", "push: {signingKeyActivationDelay: 86400s}", false},
@@ -146,10 +148,25 @@ func TestDefaultingPreservesPresence(t *testing.T) {
 	require.Equal(t, "kagent", cfg.Database.GetSchema())
 	require.Equal(t, "extensions", cfg.Database.GetVectorSchema())
 	require.Empty(t, cfg.Push.SigningPrivateKeyFile)
+	require.Empty(t, cfg.Push.PreviousSigningPrivateKeyFile)
 	require.Equal(t, 5*time.Minute, cfg.Push.SigningKeyActivationDelay.AsDuration())
 	require.Equal(t, time.Minute, cfg.Push.RecoveryInterval.AsDuration())
 	require.EqualValues(t, 10, cfg.Push.GetMaxConcurrency())
 	require.Equal(t, 5*time.Second, cfg.Push.SendTimeout.AsDuration())
+}
+
+func TestPushKeyPathsResolveFromConfigDirectory(t *testing.T) {
+	// Given relative CSI paths, when resolving config, assert that both use the
+	// configuration directory and an absolute previous path remains unchanged.
+	cfg := &configv1.ControllerConfig{Push: &configv1.PushConfig{
+		SigningPrivateKeyFile: "current.pem", PreviousSigningPrivateKeyFile: "previous.pem",
+	}}
+	config.DefaultController(cfg)
+	config.ResolveControllerPaths(cfg, "/etc/kagent/controller.yaml")
+	require.Equal(t, "/etc/kagent/current.pem", cfg.Push.SigningPrivateKeyFile)
+	require.Equal(t, "/etc/kagent/previous.pem", cfg.Push.PreviousSigningPrivateKeyFile)
+	config.ResolveControllerPaths(cfg, "/another/controller.yaml")
+	require.Equal(t, "/etc/kagent/previous.pem", cfg.Push.PreviousSigningPrivateKeyFile)
 }
 
 func TestExplicitEmptyStringFailsSchemaValidation(t *testing.T) {

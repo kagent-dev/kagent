@@ -40,7 +40,7 @@ export function SubmitError({
       showIcon
       title={`The ${what} was not ${outcome}`}
       data-testid={testId}
-      description={explain(error, outcome)}
+      description={explain(error, what, outcome)}
       action={
         <Button size="small" onClick={onRetry}>
           Try again
@@ -54,15 +54,19 @@ export function SubmitError({
  * The most useful sentence available for a rejection.
  *
  * The status codes worth their own wording are the ones the user can do
- * something about — a name collision or a rejected payload are fixable here,
- * where a 500 is not.
+ * something about — a name collision, a stale edit or a rejected payload are
+ * fixable here, where a 500 is not. Both a name clash (`AlreadyExists`) and a
+ * stale edit (`Aborted`) arrive as 409, so the gRPC code tells them apart.
  */
-function explain(error: unknown, outcome: "created" | "saved"): string {
+function explain(error: unknown, what: string, outcome: "created" | "saved"): string {
   if (!isApiError(error)) {
     return error instanceof Error ? error.message : "Something went wrong.";
   }
   if (error.isUnreachable) {
     return `The backend could not be reached, so nothing was ${outcome}. Check the connection and try again.`;
+  }
+  if (error.code === "Aborted") {
+    return `This ${what} changed since you opened it. Reload to see the latest, then redo your edits.`;
   }
   if (error.status === 409) {
     return "Something with that name already exists in this namespace. Choose a different name.";
