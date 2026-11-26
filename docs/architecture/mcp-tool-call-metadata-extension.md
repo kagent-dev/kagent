@@ -127,11 +127,15 @@ the same key can receive its value. Servers must treat values as untrusted
 application data and independently authenticate and authorize their requests.
 
 Values are not credentials. A caller must not put access tokens, refresh
-tokens, API keys or other secrets in them, and a server must not accept one
-from them. Authorization stays in the transport's `Authorization` header, as
-the MCP authorization specification requires: a server only accepts tokens
-issued for itself, and passing a caller's token on to another service is
-forbidden (MCP security best practices, token passthrough).
+tokens, API keys or other secrets in them, and a server must not treat these
+values as credentials. For HTTP transports using MCP authorization, access
+tokens belong in the `Authorization` header, and the server must validate
+that they were issued for its resources. Stdio servers should obtain
+credentials from the environment, as the
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)
+recommends. A server must not accept or forward tokens issued for another
+resource; see the
+[MCP token passthrough guidance](https://modelcontextprotocol.io/docs/2026-07-28/tutorials/security/security_best_practices#token-passthrough).
 
 Breaking changes to the A2A contract require a new URI; breaking changes to
 the MCP extension require a new extension identifier. Unknown settings fields
