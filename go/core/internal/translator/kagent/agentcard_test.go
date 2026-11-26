@@ -16,6 +16,9 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/translator"
 )
 
+const testAgentName = "pizza-agent"
+const testAgentNamespace = "team-a"
+
 func TestCompilerRequiresModelConfig(t *testing.T) {
 	_, err := NewCompiler(krt.TestingDummyContext{}, translator.Collections{}, testRuntimeDefaults()).Compile(context.Background(), &translator.HarnessInput{
 		Harness: &translator.HarnessConfiguration{Spec: v1alpha3.HarnessSpec{Kagent: &v1alpha3.KagentHarness{}}},
@@ -33,8 +36,8 @@ func TestCompilerRequiresModelConfig(t *testing.T) {
 // knows to ask — which is exactly why it needs a test: the failure is a client
 // that cannot tell an answerable question from an unanswerable one.
 func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
-	card := translator.ManagedAgentCard("pizza-agent", &translator.TemplateConfiguration{
-		Name: "pizza-agent", Namespace: "team-a", Source: &metav1.ObjectMeta{Name: "pizza-agent", Namespace: "team-a"},
+	card := translator.ManagedAgentCard(testAgentName, &translator.TemplateConfiguration{
+		Name: testAgentName, Namespace: testAgentNamespace, Source: &metav1.ObjectMeta{Name: testAgentName, Namespace: testAgentNamespace},
 	})
 
 	if !card.Capabilities.Streaming {
@@ -67,7 +70,7 @@ func TestAgentTemplateCardDeclaresHumanInTheLoop(t *testing.T) {
 // the Codex and Claude harnesses share the managed card but do not emit usage.
 func TestAgentCardDeclaresUsage(t *testing.T) {
 	template := &translator.TemplateConfiguration{
-		Name: "pizza-agent", Namespace: "team-a", Source: &metav1.ObjectMeta{Name: "pizza-agent", Namespace: "team-a"},
+		Name: testAgentName, Namespace: testAgentNamespace, Source: &metav1.ObjectMeta{Name: testAgentName, Namespace: testAgentNamespace},
 	}
 	declares := func(card *a2atype.AgentCard) bool {
 		return slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
@@ -75,10 +78,10 @@ func TestAgentCardDeclaresUsage(t *testing.T) {
 		})
 	}
 
-	if !declares(agentCard("pizza-agent", template)) {
+	if !declares(agentCard(testAgentName, template)) {
 		t.Fatal("kagent card does not declare the optional usage extension")
 	}
-	if declares(translator.ManagedAgentCard("pizza-agent", template)) {
+	if declares(translator.ManagedAgentCard(testAgentName, template)) {
 		t.Fatal("the shared managed card declares usage, which the Codex and Claude harnesses do not emit")
 	}
 }

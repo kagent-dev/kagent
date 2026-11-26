@@ -114,13 +114,15 @@ func MCPAppToolNamesFromToolsets(ctx context.Context, toolsets []tool.Toolset) m
 }
 
 func newMCPAppClient(configuredFilter map[string]bool, discovery *mcpAppDiscovery) *mcpsdk.Client {
+	capabilities := mcpUIClientCapabilities()
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "kagent-adk"}, &mcpsdk.ClientOptions{
-		Capabilities: mcpUIClientCapabilities(),
+		Capabilities: capabilities,
 		// New-protocol servers subscribe only when a handler is configured.
 		// The SDK itself invalidates its list cache on these notifications.
 		ToolListChangedHandler: func(context.Context, *mcpsdk.ToolListChangedRequest) {},
 	})
 	client.AddSendingMiddleware(captureImages)
+	client.AddSendingMiddleware(sendRequestMetadata)
 	client.AddSendingMiddleware(func(next mcpsdk.MethodHandler) mcpsdk.MethodHandler {
 		return func(ctx context.Context, method string, req mcpsdk.Request) (mcpsdk.Result, error) {
 			if method != "tools/list" {
