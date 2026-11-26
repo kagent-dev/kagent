@@ -497,8 +497,8 @@ func TestBuildHITLStatusMessageURLElicitation(t *testing.T) {
 	if GetToolApprovalRequest(message) != nil {
 		t.Fatal("a URL elicitation is presented as a tool approval")
 	}
-	if text := messageText(message); !strings.Contains(text, "https://gateway.example/oauth/proxy/start?s=1") {
-		t.Fatalf("a client that renders only the text gets no link: %q", text)
+	if text := messageText(message); text != "gateway asks: Sign in to github https://gateway.example/oauth/proxy/start?s=1" {
+		t.Fatalf("a client that renders only the text gets the server, its message and the link: %q", text)
 	}
 
 	plain := BuildHITLStatusMessage(urlElicitationConfirmationMessage(), false)

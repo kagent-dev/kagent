@@ -121,9 +121,11 @@ runtime composes that text the same way, and a client receives it whether or not
 it activated the extension:
 
 - an `ask_user` pause renders its questions, joined with `; `;
-- a URL elicitation renders, for a client that activated the extension, its
-  message followed by the URL, so a client that does not know
-  `url_elicitation_request` still shows the link; for any other client, which
+- a URL elicitation renders, for a client that activated the extension,
+  `<server> asks: <message> <url>`, or `<server> asks you to open a link to
+  continue. <url>` without a message, so a client that does not know
+  `url_elicitation_request` still shows the link and which configured server
+  asked; for any other client, which
   may hand the text to a model, it renders `<server> asks you to open a link to
   continue.`, without the URL or the server's message; in a tool approval, that
   text is the waiting tool's hint;
