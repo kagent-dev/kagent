@@ -570,6 +570,28 @@ jobs:
         run: |
           helm unittest helm/kagent
 
+  windows-install-script:
+    name: Windows CLI install script
+    runs-on: windows-2025
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The test builds its fake kagent binaries with Go.
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go/go.mod
+          cache: false
+
+      - name: Test CLI install script (Windows PowerShell)
+        shell: powershell
+        run: ./scripts/get-kagent_test.ps1
+
+      - name: Test CLI install script (PowerShell)
+        shell: pwsh
+        run: ./scripts/get-kagent_test.ps1
+
   ui-tests:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
