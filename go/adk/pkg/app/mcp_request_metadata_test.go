@@ -16,12 +16,12 @@ import (
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 )
 
-func TestHandlerOptionsActivateMCPToolCallMetadata(t *testing.T) {
+func TestHandlerOptionsActivateMCPRequestMetadata(t *testing.T) {
 	for _, scenario := range []struct {
 		name      string
 		requested bool
 	}{
-		{name: "Given application handler options, when a client requests tool-call metadata, assert that the executor sees the activated extension", requested: true},
+		{name: "Given application handler options, when a client requests MCP request metadata, assert that the executor sees the activated extension", requested: true},
 		{name: "Given application handler options, when a client omits activation, assert that the executor sees the extension inactive"},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -38,7 +38,7 @@ func TestHandlerOptionsActivateMCPToolCallMetadata(t *testing.T) {
 	}
 }
 
-func TestHandlerOptionsRejectMalformedMCPToolCallMetadata(t *testing.T) {
+func TestHandlerOptionsRejectMalformedMCPRequestMetadata(t *testing.T) {
 	for _, scenario := range []struct {
 		name   string
 		values any
@@ -59,7 +59,7 @@ func TestHandlerOptionsRejectMalformedMCPToolCallMetadata(t *testing.T) {
 	}
 }
 
-func TestBuildAgentCardDeclaresOptionalMCPToolCallMetadata(t *testing.T) {
+func TestBuildAgentCardDeclaresOptionalMCPRequestMetadata(t *testing.T) {
 	agent, err := adkagent.New(adkagent.Config{
 		Name: "metadata_agent",
 		Run: func(adkagent.InvocationContext) iter.Seq2[*session.Event, error] {
@@ -72,15 +72,15 @@ func TestBuildAgentCardDeclaresOptionalMCPToolCallMetadata(t *testing.T) {
 		name  string
 		agent adkagent.Agent
 	}{
-		{name: "Given an application without skill derivation, when its card is built, assert that tool-call metadata is optional"},
-		{name: "Given an ADK agent, when its card is built, assert that tool-call metadata is optional and declared once", agent: agent},
+		{name: "Given an application without skill derivation, when its card is built, assert that MCP request metadata is optional"},
+		{name: "Given an ADK agent, when its card is built, assert that MCP request metadata is optional and declared once", agent: agent},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			card := buildAgentCard(AppConfig{AgentCard: a2atype.AgentCard{Name: "metadata-agent"}, Agent: scenario.agent})
 
 			var declarations []a2atype.AgentExtension
 			for _, extension := range card.Capabilities.Extensions {
-				if extension.URI == apia2a.MCPToolCallMetadataExtensionURI {
+				if extension.URI == apia2a.MCPRequestMetadataExtensionURI {
 					declarations = append(declarations, extension)
 				}
 			}
@@ -100,7 +100,7 @@ func metadataWiringContext(t *testing.T, requested bool) context.Context {
 	t.Helper()
 	parameters := map[string][]string{}
 	if requested {
-		parameters[a2atype.SvcParamExtensions] = []string{apia2a.MCPToolCallMetadataExtensionURI}
+		parameters[a2atype.SvcParamExtensions] = []string{apia2a.MCPRequestMetadataExtensionURI}
 	}
 	requestContext, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	t.Cleanup(cancel)
@@ -112,7 +112,7 @@ func metadataWiringRequest(values any) *a2atype.SendMessageRequest {
 	return &a2atype.SendMessageRequest{
 		Message: a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart("hello")),
 		Metadata: map[string]any{
-			apia2a.MCPToolCallMetadataExtensionURI: values,
+			apia2a.MCPRequestMetadataExtensionURI: values,
 		},
 	}
 }
@@ -127,7 +127,7 @@ func (e *mcpMetadataWiringExecutor) Execute(ctx context.Context, request *a2asrv
 		if request.StoredTask == nil && !yield(a2atype.NewSubmittedTask(request, request.Message), nil) {
 			return
 		}
-		extension := apia2a.MCPToolCallMetadataExtension()
+		extension := apia2a.MCPRequestMetadataExtension()
 		extensions, present := a2asrv.ExtensionsFrom(ctx)
 		e.activations <- present && extensions.Active(&extension)
 		yield(a2atype.NewStatusUpdateEvent(request, a2atype.TaskStateCompleted, nil), nil)

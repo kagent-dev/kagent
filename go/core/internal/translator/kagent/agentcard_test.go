@@ -87,7 +87,7 @@ func TestAgentCardDeclaresUsage(t *testing.T) {
 	}
 }
 
-func TestCompiledCardDeclaresToolCallMetadataOnlyForDefaultGoRuntime(t *testing.T) {
+func TestCompiledCardDeclaresRequestMetadataOnlyForDefaultGoRuntime(t *testing.T) {
 	for _, scenario := range []struct {
 		name     string
 		workload v1alpha3.HarnessWorkload
@@ -101,12 +101,12 @@ func TestCompiledCardDeclaresToolCallMetadataOnlyForDefaultGoRuntime(t *testing.
 		t.Run("Given "+scenario.name+", when a card is compiled, assert that metadata support matches the runtime contract", func(t *testing.T) {
 			card := agentCard("assistant", &translator.TemplateConfiguration{}, scenario.workload)
 			declared := slices.ContainsFunc(card.Capabilities.Extensions, func(extension a2atype.AgentExtension) bool {
-				return extension.URI == apia2a.MCPToolCallMetadataExtensionURI && !extension.Required
+				return extension.URI == apia2a.MCPRequestMetadataExtensionURI && !extension.Required
 			})
 			require.Equal(t, scenario.want, declared)
 		})
 	}
-	require.NotContains(t, translator.ManagedAgentCard("assistant", &translator.TemplateConfiguration{}).Capabilities.Extensions, apia2a.MCPToolCallMetadataExtension())
+	require.NotContains(t, translator.ManagedAgentCard("assistant", &translator.TemplateConfiguration{}).Capabilities.Extensions, apia2a.MCPRequestMetadataExtension())
 }
 
 func testRuntimeDefaults() *configv1.RuntimeDefaultsConfig {

@@ -89,7 +89,7 @@ func agentCard(agentName string, template *translator.TemplateConfiguration, wor
 	card := translator.ManagedAgentCard(agentName, template)
 	card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.UsageExtension())
 	if workload.Image == nil && len(workload.Command) == 0 && len(workload.Args) == 0 {
-		card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.MCPToolCallMetadataExtension())
+		card.Capabilities.Extensions = append(card.Capabilities.Extensions, apia2a.MCPRequestMetadataExtension())
 	}
 	return card
 }

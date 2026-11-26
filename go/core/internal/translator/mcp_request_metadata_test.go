@@ -15,7 +15,7 @@ import (
 
 const metadataWorkerPoolName = "default"
 
-func TestCompiledRevisionAdvertisesToolCallMetadataForDefaultGoWorkload(t *testing.T) {
+func TestCompiledRevisionAdvertisesRequestMetadataForDefaultGoWorkload(t *testing.T) {
 	for _, scenario := range []struct {
 		name     string
 		workload v1alpha3.HarnessWorkload
@@ -38,7 +38,7 @@ func TestCompiledRevisionAdvertisesToolCallMetadataForDefaultGoWorkload(t *testi
 			revision, err := compiler(t, model, harness).CompileAgent(t.Context(), inlineAgent(harness, template))
 			require.NoError(t, err)
 			declared := slices.ContainsFunc(revision.AgentCard.GetCapabilities().GetExtensions(), func(extension *a2apb.AgentExtension) bool {
-				return extension.GetUri() == apia2a.MCPToolCallMetadataExtensionURI && !extension.GetRequired()
+				return extension.GetUri() == apia2a.MCPRequestMetadataExtensionURI && !extension.GetRequired()
 			})
 			require.Equal(t, scenario.want, declared)
 		})

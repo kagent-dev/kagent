@@ -55,7 +55,7 @@ The gateway remains responsible for applying the resulting durable order.
 ## Other metadata
 
 Versioned A2A extensions, such as the [human-in-the-loop](human-in-the-loop.md),
-[token usage](usage-extension.md) and [MCP tool-call metadata](mcp-tool-call-metadata-extension.md)
+[token usage](usage-extension.md) and [MCP MCP request metadata](mcp-request-metadata-extension.md)
 extensions, keep their URI as the metadata key.
 
 Unknown application metadata is currently preserved. A future gateway
