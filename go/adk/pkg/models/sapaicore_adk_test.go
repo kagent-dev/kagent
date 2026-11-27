@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 )
@@ -821,6 +822,43 @@ func TestGenaiToolsToOrchTools_WithJsonSchema(t *testing.T) {
 	}
 	if fn["description"] != "List K8s namespaces" {
 		t.Errorf("description = %v", fn["description"])
+	}
+}
+
+func TestGenaiToolsToOrchTools_TypedJsonSchema(t *testing.T) {
+	typed := &jsonschema.Schema{
+		Type:       "object",
+		Properties: map[string]*jsonschema.Schema{"path": {Type: "string"}},
+		Required:   []string{"path"},
+	}
+	noArgs := map[string]any{"type": "object"}
+	tools := []*genai.Tool{{
+		FunctionDeclarations: []*genai.FunctionDeclaration{
+			{Name: "read_file", ParametersJsonSchema: typed},
+			{Name: "typed_no_args", ParametersJsonSchema: &jsonschema.Schema{Type: "object"}},
+			{Name: "map_no_args", ParametersJsonSchema: noArgs},
+		},
+	}}
+	got := genaiToolsToOrchTools(tools)
+	if len(got) != 3 {
+		t.Fatalf("len(got) = %d, want 3", len(got))
+	}
+	want := []string{
+		`{"properties":{"path":{"type":"string"}},"required":["path"],"type":"object"}`,
+		`{"properties":{},"type":"object"}`,
+		`{"properties":{},"type":"object"}`,
+	}
+	for i, tool := range got {
+		b, err := json.Marshal(tool["function"].(map[string]any)["parameters"])
+		if err != nil {
+			t.Fatalf("marshal parameters: %v", err)
+		}
+		if string(b) != want[i] {
+			t.Errorf("tool %d parameters = %s, want %s", i, b, want[i])
+		}
+	}
+	if _, ok := noArgs["properties"]; ok {
+		t.Error("caller's schema map was mutated")
 	}
 }
 
