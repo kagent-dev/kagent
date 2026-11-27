@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"iter"
 	"log/slog"
 	"math"
 	"net"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
@@ -223,20 +226,16 @@ func TestSettlementSurvivesFlushDeadline(t *testing.T) {
 		deadline, _ := ctx.Deadline()
 		settlementDeadline <- deadline
 	}}, nil, nil)
-	var firstDeadline, secondDeadline time.Time
+	var firstDeadline time.Time
 	flushes := 0
 	wrapper := store.WrapExecutor(a2asrv.AgentExecutorFunc(nil), "", func(ctx context.Context) error {
 		flushes++
 		require.NoError(t, ctx.Err(), "each flush gets a fresh context after observer cancellation")
 		deadline, ok := ctx.Deadline()
 		require.True(t, ok, "flush must remain bounded")
-		if flushes == 1 {
-			firstDeadline = deadline
-			<-ctx.Done()
-			return ctx.Err()
-		}
-		secondDeadline = deadline
-		return nil
+		firstDeadline = deadline
+		<-ctx.Done()
+		return ctx.Err()
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	state := &execution{ready: make(chan struct{})}
@@ -245,9 +244,69 @@ func TestSettlementSurvivesFlushDeadline(t *testing.T) {
 	wrapper.track(ctx, "task")
 	cancel()
 	wrapper.Cleanup(ctx, &a2asrv.ExecutorContext{TaskID: "task"}, nil, nil)
-	require.Equal(t, 2, flushes)
+	require.Equal(t, 1, flushes)
 	require.True(t, receive(t, settlementDeadline).After(firstDeadline), "an expired flush must not consume settlement's deadline")
-	require.True(t, secondDeadline.After(firstDeadline), "the second flush must have its own deadline")
+}
+
+func TestSettlementDoesNotWaitForAnotherExport(t *testing.T) {
+	task := completedUpdate().Task
+	wire, err := pbconv.ToProtoTask(task)
+	require.NoError(t, err)
+	var settled atomic.Bool
+	store := newReadinessStore(t, &readinessServer{task: wire, settle: func(context.Context) {
+		settled.Store(true)
+	}}, nil, nil)
+	exporting, release := make(chan struct{}), make(chan struct{})
+	defer close(release)
+	executor := a2asrv.AgentExecutorFunc(func(_ context.Context, input *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
+		return func(yield func(a2a.Event, error) bool) {
+			yield(a2a.NewStatusUpdateEvent(input, a2a.TaskStateCompleted, nil), nil)
+		}
+	})
+	wrapper := store.WrapExecutor(executor, "", func(ctx context.Context) error {
+		if !settled.Load() {
+			return nil
+		}
+		close(exporting)
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	observed := cleanupObserver{wrapper, make(chan struct{})}
+	var _ a2asrv.AgentExecutionCleaner = observed
+	handler := a2asrv.NewHandler(observed, a2asrv.WithTaskStore(store), a2asrv.WithCallInterceptors(wrapper))
+	server := httptest.NewServer(a2asrv.NewJSONRPCHandler(handler))
+	defer server.Close()
+	client := a2aclient.NewJSONRPCTransport(server.URL, server.Client())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result, err := client.SendMessage(ctx, a2aclient.ServiceParams{a2a.SvcParamVersion: {string(a2a.Version)}}, &a2a.SendMessageRequest{
+		Message: a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("complete")),
+	})
+	require.NoError(t, err)
+	require.Equal(t, a2a.TaskStateCompleted, result.(*a2a.Task).Status.State)
+
+	select {
+	case <-exporting:
+		t.Fatal("cleanup started a blocking telemetry export after SettleTask acknowledged the boundary")
+	case <-observed.done:
+		require.True(t, settled.Load(), "cleanup must still settle the saved boundary")
+	case <-ctx.Done():
+		t.Fatal("cleanup did not reach settlement")
+	}
+}
+
+type cleanupObserver struct {
+	*settledExecutor
+	done chan struct{}
+}
+
+func (o cleanupObserver) Cleanup(ctx context.Context, input *a2asrv.ExecutorContext, result a2a.SendMessageResult, err error) {
+	defer close(o.done)
+	o.settledExecutor.Cleanup(ctx, input, result, err)
 }
 
 func completedUpdate() *sdktaskstore.UpdateRequest {
