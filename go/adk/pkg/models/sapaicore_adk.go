@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -268,12 +269,18 @@ func genaiToolsToOrchTools(tools []*genai.Tool) []map[string]any {
 			}
 			params := map[string]any{"type": "object", "properties": map[string]any{}}
 			if fd.ParametersJsonSchema != nil {
-				if m, ok := fd.ParametersJsonSchema.(map[string]any); ok {
-					params = m
+				if m := parametersJsonSchemaToMap(fd.ParametersJsonSchema); m != nil {
+					params = maps.Clone(m)
 				}
 			} else if fd.Parameters != nil {
 				if m := genaiSchemaToMap(fd.Parameters); m != nil {
 					params = m
+				}
+			}
+			// Object schemas need a "properties" field on OpenAI models.
+			if params["type"] == "object" {
+				if _, ok := params["properties"]; !ok {
+					params["properties"] = map[string]any{}
 				}
 			}
 			out = append(out, map[string]any{
