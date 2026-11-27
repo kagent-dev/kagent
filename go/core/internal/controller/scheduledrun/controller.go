@@ -15,11 +15,15 @@ import (
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
+	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 )
 
 type controllerStore interface {
+	GetSessionTaskByMessage(context.Context, string, string, string) (*a2atype.Task, error)
+	RetryUnacceptedScheduledRun(context.Context, database.ScheduledRunExecutionLease) error
+	ScheduledMessageMayRun(context.Context, string, string) (bool, error)
 	ReserveScheduledRunExecutionSession(context.Context, uuid.UUID, string) (*apiv1.ScheduledRunExecution, error)
 	ClaimScheduledRunDispatch(context.Context, database.ScheduledRunExecutionLease) error
 	LeaseScheduledRunExecutions(context.Context, int) ([]database.LeasedScheduledRunExecution, error)
@@ -36,17 +40,18 @@ type controllerWorkflow interface {
 // Controller reconciles executions on every replica. SQL leases fence status
 // writes; a durable dispatch claim prevents resending after an uncertain result.
 type Controller struct {
-	store        controllerStore
-	workflow     controllerWorkflow
-	gateway      a2asrv.RequestHandler
-	pollInterval time.Duration
+	store                 controllerStore
+	workflow              controllerWorkflow
+	gateway               a2asrv.RequestHandler
+	pollInterval          time.Duration
+	recoverCrashedSession func(context.Context, string) (*apiv1.Session, error)
 }
 
 var _ manager.LeaderElectionRunnable = (*Controller)(nil)
 var _ manager.Runnable = (*Controller)(nil)
 
-func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, pollInterval time.Duration) *Controller {
-	return &Controller{store: store, workflow: workflow, gateway: gateway, pollInterval: pollInterval}
+func NewController(store controllerStore, workflow controllerWorkflow, gateway a2asrv.RequestHandler, recoverCrashedSession func(context.Context, string) (*apiv1.Session, error), pollInterval time.Duration) *Controller {
+	return &Controller{store: store, workflow: workflow, gateway: gateway, recoverCrashedSession: recoverCrashedSession, pollInterval: pollInterval}
 }
 
 func (*Controller) NeedLeaderElection() bool { return false }
@@ -79,7 +84,7 @@ func (c *Controller) tick(ctx context.Context) error {
 	for _, lease := range leases {
 		wg.Go(func() {
 			// Leave room in the 30-second lease for persisting the result.
-			attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			attemptCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 			err := c.reconcile(attemptCtx, lease)
 			cancel()
 			if err != nil && ctx.Err() == nil {
@@ -104,7 +109,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	expired := !time.Now().Before(execution.GetDeadline().AsTime())
 	if execution.GetSessionId() == "" {
 		if expired {
-			finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
+			finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed before session reservation")
 			return nil
 		}
 		linked, err := c.store.ReserveScheduledRunExecutionSession(ctx, leased.Lease.ExecutionID, execution.GetCreator())
@@ -130,9 +135,12 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	ctx = a2atype.AttachTenant(ctx, session.GetAgent().GetRef().GetNamespace()+"/"+session.GetAgent().GetRef().GetName())
 	// A lost response may precede persisting the returned task ID. Recover it
 	// from the original message, including at expiry when sending is forbidden.
-	task, err := c.executionTask(ctx, execution)
-	if err != nil {
-		return err
+	var task *a2atype.Task
+	if execution.GetTaskId() != "" || execution.GetState() == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING {
+		task, err = c.executionTask(ctx, execution)
+		if err != nil {
+			return err
+		}
 	}
 	if task != nil {
 		execution.TaskId = string(task.ID)
@@ -142,18 +150,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 		}
 	}
 	if expired {
-		stopped, err := c.stop(ctx, execution, session, task)
-		if err != nil {
-			return err
-		}
-		// Cancellation requested for this deadline is a timeout even if the
-		// runtime clock trails ours. Preserve other outcomes that won the race.
-		if stopped != nil && stopped.Status.State.Terminal() && stopped.Status.State != a2atype.TaskStateCanceled && stopped.Status.Timestamp != nil && !stopped.Status.Timestamp.After(execution.GetDeadline().AsTime()) {
-			observeTask(execution, stopped)
-			return nil
-		}
-		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, "Execution deadline elapsed")
-		return nil
+		return c.expire(ctx, execution, session, task)
 	}
 	if execution.GetTaskId() != "" || execution.GetState() == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING {
 		// The runtime persists independently. Reconciliation only needs the
@@ -170,6 +167,18 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 			return err
 		}
 	}
+	if execution.ContinueConversation && database.RuntimeLost(session) {
+		finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED, "Session runtime was lost. Start a new conversation.")
+		return nil
+	}
+	if database.CrashRecoveryAdmitted(session) && execution.ContinueConversation {
+		execution.FailureReason = "Session crash recovery is pending"
+		if c.recoverCrashedSession != nil {
+			_, err := c.recoverCrashedSession(dispatchCtx, session.Id)
+			return err
+		}
+		return nil
+	}
 	if session.GetState() != apiv1.RuntimeState_RUNTIME_STATE_READY || session.GetOperation() != apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE {
 		return fmt.Errorf("scheduled session %s is not ready for dispatch", session.GetId())
 	}
@@ -184,7 +193,16 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	// The runtime assigns the task ID. Return after its first event; a lost
 	// response is recovered by the original message on the next reconciliation.
 	for event, err := range events {
+		if event == nil && sessionsvc.IsUnacceptedSend(err) {
+			if retryErr := c.store.RetryUnacceptedScheduledRun(ctx, leased.Lease); retryErr != nil {
+				return retryErr
+			}
+			execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING
+			execution.FailureReason = err.Error()
+			return nil
+		}
 		if event != nil && event.TaskInfo().TaskID != "" {
+			execution.FailureReason = ""
 			execution.TaskId = string(event.TaskInfo().TaskID)
 			execution.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING
 		}
@@ -204,6 +222,15 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1.Schedul
 		zero := 0
 		task, err := c.gateway.GetTask(ctx, &a2atype.GetTaskRequest{ID: a2atype.TaskID(taskID), HistoryLength: &zero})
 		if errors.Is(err, a2atype.ErrTaskNotFound) {
+			return nil, nil
+		}
+		return task, err
+	}
+	// A continuing conversation may contain years of history. Look up its
+	// reserved message ID in the session-scoped event index.
+	if execution.ContinueConversation {
+		task, err := c.store.GetSessionTaskByMessage(ctx, execution.SessionId, "", scheduling.MessageIDPrefix+execution.Id)
+		if errors.Is(err, database.ErrNotFound) {
 			return nil, nil
 		}
 		return task, err
@@ -228,12 +255,61 @@ func (c *Controller) executionTask(ctx context.Context, execution *apiv1.Schedul
 	}
 }
 
+// expire settles only this firing. A shared conversation stays blocked while
+// an earlier send or its cancellation could still affect the runtime.
+func (c *Controller) expire(ctx context.Context, execution *apiv1.ScheduledRunExecution, session *apiv1.Session, task *a2atype.Task) error {
+	if execution.ContinueConversation && task == nil && execution.GetState() == apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING {
+		possible, err := c.store.ScheduledMessageMayRun(ctx, execution.SessionId, scheduling.MessageIDPrefix+execution.Id)
+		if err != nil {
+			return err
+		}
+		if possible {
+			execution.FailureReason = "Waiting for the previous dispatch to settle"
+			return nil
+		}
+	}
+	stopped, err := c.stop(ctx, execution, session, task)
+	if err != nil {
+		if execution.ContinueConversation {
+			execution.FailureReason = "Cancellation has not settled. Check the session and recover it if the runtime crashed."
+			if c.recoverCrashedSession != nil {
+				// A failed cancel may have used its whole attempt. Recovery
+				// verifies a crash before reverting and leaves healthy work alone.
+				recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				defer cancel()
+				_, recoveryErr := c.recoverCrashedSession(recoveryCtx, session.Id)
+				return errors.Join(err, recoveryErr)
+			}
+		}
+		return err
+	}
+	if execution.ContinueConversation && execution.TaskId != "" && (stopped == nil ||
+		stopped.Status.State == a2atype.TaskStateWorking || stopped.Status.State == a2atype.TaskStateSubmitted) {
+		return nil
+	}
+	// Cancellation requested for this deadline is a timeout even if the
+	// runtime clock trails ours. Preserve other outcomes that won the race.
+	if stopped != nil && stopped.Status.State.Terminal() && stopped.Status.State != a2atype.TaskStateCanceled && stopped.Status.Timestamp != nil && !stopped.Status.Timestamp.After(execution.GetDeadline().AsTime()) {
+		observeTask(execution, stopped)
+		return nil
+	}
+	reason := "Execution deadline elapsed"
+	if execution.FailureReason != "" {
+		reason += ": " + execution.FailureReason
+	}
+	finishExecution(execution, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, reason)
+	return nil
+}
+
 func (c *Controller) stop(ctx context.Context, execution *apiv1.ScheduledRunExecution, session *apiv1.Session, task *a2atype.Task) (*a2atype.Task, error) {
 	if task != nil && (task.Status.State.Terminal() || task.Status.State == a2atype.TaskStateInputRequired || task.Status.State == a2atype.TaskStateAuthRequired) {
 		return task, nil
 	}
 	if execution.GetTaskId() != "" {
 		return c.gateway.CancelTask(ctx, &a2atype.CancelTaskRequest{ID: a2atype.TaskID(execution.GetTaskId())})
+	}
+	if execution.ContinueConversation {
+		return nil, nil
 	}
 	// No invocation was accepted; clean up the ordinary session lifecycle.
 	if session.GetState() == apiv1.RuntimeState_RUNTIME_STATE_CREATING {

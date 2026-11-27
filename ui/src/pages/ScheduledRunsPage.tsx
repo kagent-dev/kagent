@@ -181,6 +181,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
             how often, and in whose clock. The rest is in the list below. */}
         {schedule && config && <Space size={8} wrap data-testid="schedule-meta" css={{ marginTop: theme.space(2) }}>
           {scheduleStatusTag(schedule)}
+          {config.continueConversation && <DataPill>Continues previous conversation</DataPill>}
           <DataPill>
             <CalendarClock size={12} aria-hidden /> {scheduleDescription(config.schedule)}
           </DataPill>
@@ -233,9 +234,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
-            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentConversation, { id: row.sessionId })}
+            ? <Space orientation="vertical" size={0}>
+              {row.previousConversationUnavailable && <span>Previous conversation unavailable</span>}
+              <Link data-testid="execution-conversation" to={buildPath(paths.agentConversation, { id: row.sessionId })}
               css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              Open conversation<ExternalLink size={14} /></Link> : "Not started" },
+              Open conversation<ExternalLink size={14} /></Link>
+            </Space> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
           { key: "prompt", label: "Prompt", children: <span css={{ whiteSpace: "pre-wrap" }}>{row.prompt}</span> },
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
@@ -313,6 +317,7 @@ function executionText(row: ScheduledRunExecution) {
        matches. */
     columns: [time(row.createdAt), triggerLabel(row), executionStateLabel(row.state),
       time(row.completedAt), row.failureReason || "—",
+      row.previousConversationUnavailable ? "Previous conversation unavailable" : "",
       row.sessionId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
     panel: [row.prompt, time(row.deadline), row.taskId || "Not assigned"].join(" ").toLowerCase(),
   };

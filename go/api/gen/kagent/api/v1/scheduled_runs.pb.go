@@ -86,9 +86,11 @@ func (ScheduledRunExecutionState) EnumDescriptor() ([]byte, []int) {
 
 // Mutable configuration. Changes affect only subsequently reserved executions.
 type ScheduledRunConfig struct {
-	state    protoimpl.MessageState `protogen:"open.v1"`
-	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Schedule string                 `protobuf:"bytes,2,opt,name=schedule,proto3" json:"schedule,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Reuse one conversation across successive cron and manual firings.
+	ContinueConversation bool   `protobuf:"varint,7,opt,name=continue_conversation,json=continueConversation,proto3" json:"continue_conversation,omitempty"`
+	Name                 string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Schedule             string `protobuf:"bytes,2,opt,name=schedule,proto3" json:"schedule,omitempty"`
 	// An omitted time zone defaults to UTC.
 	TimeZone string `protobuf:"bytes,3,opt,name=time_zone,json=timeZone,proto3" json:"time_zone,omitempty"`
 	Prompt   string `protobuf:"bytes,4,opt,name=prompt,proto3" json:"prompt,omitempty"`
@@ -128,6 +130,13 @@ func (x *ScheduledRunConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ScheduledRunConfig.ProtoReflect.Descriptor instead.
 func (*ScheduledRunConfig) Descriptor() ([]byte, []int) {
 	return file_kagent_api_v1_scheduled_runs_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *ScheduledRunConfig) GetContinueConversation() bool {
+	if x != nil {
+		return x.ContinueConversation
+	}
+	return false
 }
 
 func (x *ScheduledRunConfig) GetName() string {
@@ -882,8 +891,12 @@ type ScheduledRunExecution struct {
 	CompletedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=completed_at,json=completedAt,proto3" json:"completed_at,omitempty"`
 	// Stable explanation of failure. Runtime diagnostics remain in A2A/telemetry.
 	FailureReason string `protobuf:"bytes,13,opt,name=failure_reason,json=failureReason,proto3" json:"failure_reason,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Conversation policy captured at reservation.
+	ContinueConversation bool `protobuf:"varint,14,opt,name=continue_conversation,json=continueConversation,proto3" json:"continue_conversation,omitempty"`
+	// This execution started fresh because the previous session was deleted or expired.
+	PreviousConversationUnavailable bool `protobuf:"varint,15,opt,name=previous_conversation_unavailable,json=previousConversationUnavailable,proto3" json:"previous_conversation_unavailable,omitempty"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *ScheduledRunExecution) Reset() {
@@ -1016,6 +1029,20 @@ func (x *ScheduledRunExecution) GetFailureReason() string {
 		return x.FailureReason
 	}
 	return ""
+}
+
+func (x *ScheduledRunExecution) GetContinueConversation() bool {
+	if x != nil {
+		return x.ContinueConversation
+	}
+	return false
+}
+
+func (x *ScheduledRunExecution) GetPreviousConversationUnavailable() bool {
+	if x != nil {
+		return x.PreviousConversationUnavailable
+	}
+	return false
 }
 
 type isScheduledRunExecution_Trigger interface {
@@ -1230,8 +1257,9 @@ var File_kagent_api_v1_scheduled_runs_proto protoreflect.FileDescriptor
 
 const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	"\n" +
-	"\"kagent/api/v1/scheduled_runs.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"\x9f\x02\n" +
-	"\x12ScheduledRunConfig\x12\x1c\n" +
+	"\"kagent/api/v1/scheduled_runs.proto\x12\rkagent.api.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1akagent/api/v1/common.proto\"\xd4\x02\n" +
+	"\x12ScheduledRunConfig\x123\n" +
+	"\x15continue_conversation\x18\a \x01(\bR\x14continueConversation\x12\x1c\n" +
 	"\x04name\x18\x01 \x01(\tB\b\xbaH\x05r\x03\x18\xc8\x01R\x04name\x12&\n" +
 	"\bschedule\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\bschedule\x12%\n" +
@@ -1287,7 +1315,7 @@ const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	"request_id\x18\x02 \x01(\tB\n" +
 	"\xbaH\ar\x05\x10\x01\x18\x80\x01R\trequestId\"a\n" +
 	"\x1bTriggerScheduledRunResponse\x12B\n" +
-	"\texecution\x18\x01 \x01(\v2$.kagent.api.v1.ScheduledRunExecutionR\texecution\"\xd3\x04\n" +
+	"\texecution\x18\x01 \x01(\v2$.kagent.api.v1.ScheduledRunExecutionR\texecution\"\xd4\x05\n" +
 	"\x15ScheduledRunExecution\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\acreator\x18\x02 \x01(\tR\acreator\x12(\n" +
@@ -1304,7 +1332,9 @@ const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	" \x01(\x0e2).kagent.api.v1.ScheduledRunExecutionStateR\x05state\x12\x17\n" +
 	"\atask_id\x18\v \x01(\tR\x06taskId\x12=\n" +
 	"\fcompleted_at\x18\f \x01(\v2\x1a.google.protobuf.TimestampR\vcompletedAt\x12%\n" +
-	"\x0efailure_reason\x18\r \x01(\tR\rfailureReasonB\t\n" +
+	"\x0efailure_reason\x18\r \x01(\tR\rfailureReason\x123\n" +
+	"\x15continue_conversation\x18\x0e \x01(\bR\x14continueConversation\x12J\n" +
+	"!previous_conversation_unavailable\x18\x0f \x01(\bR\x1fpreviousConversationUnavailableB\t\n" +
 	"\atrigger\"N\n" +
 	"\x1fGetScheduledRunExecutionRequest\x12+\n" +
 	"\fexecution_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\vexecutionId\"f\n" +

@@ -91,8 +91,16 @@ the final tombstone. No public operation API is introduced.
 Session runtime suspension and resumption are platform-managed: idle settlement
 suspends the Actor while the Session stays READY, and Substrate ingress resumes
 it for the next interaction. There are no public Session suspend/resume controls;
-standalone Sandboxes retain their explicit controls. Scheduled-run deadline cleanup
-can still suspend a Session internally when no scheduled task can be identified.
+standalone Sandboxes retain their explicit controls. A schedule creates a fresh Session per firing by default. With **Continue the
+previous conversation** enabled, accepted cron and manual firings run in
+reservation order in one Session. Each firing has its own A2A task and deadline,
+including time spent waiting. A prompt edit or pause preserves the conversation.
+Disabling and re-enabling continuity starts a new conversation for future
+firings. If idle expiration or deletion removed the prior Session, history marks
+the first execution that creates its replacement. Deadline cleanup can suspend
+a dedicated Session internally. On a shared Session it acts only on the
+execution's own task. Enable continuity after all controller replicas have
+rolled out, since older execution workers always allocate a fresh Session.
 Deletion closes task admission,
 stops and deletes the Actor, then tombstones the session. The workflow
 entry points are in

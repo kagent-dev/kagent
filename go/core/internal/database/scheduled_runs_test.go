@@ -630,4 +630,100 @@ func TestScheduledDispatchClaimSurvivesLeaseReplacement(t *testing.T) {
 	require.ErrorIs(t, client.ClaimScheduledRunDispatch(t.Context(), leases[0].Lease), ErrConflict)
 	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, leases[0].Execution.State)
 	require.Empty(t, leases[0].Execution.TaskId)
+	require.ErrorIs(t, client.RetryUnacceptedScheduledRun(t.Context(), lease), ErrConflict)
+	require.NoError(t, client.RetryUnacceptedScheduledRun(t.Context(), leases[0].Lease))
+	require.NoError(t, client.ClaimScheduledRunDispatch(t.Context(), leases[0].Lease))
+}
+
+func TestScheduledConversationContinuity(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	schedule, _ := createTestSchedule(t, c)
+	id := uuid.MustParse(schedule.Id)
+	ctx := t.Context()
+	setContinuity := func(enabled bool) {
+		t.Helper()
+		config := proto.CloneOf(schedule.Config)
+		config.ContinueConversation = enabled
+		var err error
+		schedule, err = c.UpdateScheduledRun(ctx, id, schedule.Creator, schedule.Etag, config)
+		require.NoError(t, err)
+	}
+	trigger := func() uuid.UUID {
+		t.Helper()
+		e, err := c.TriggerScheduledRun(ctx, id, schedule.Creator, uuid.NewString())
+		require.NoError(t, err)
+		return uuid.MustParse(e.Id)
+	}
+	finish := func(executionID uuid.UUID) *apiv1.ScheduledRunExecution {
+		t.Helper()
+		leases, err := c.LeaseScheduledRunExecutions(ctx, 8)
+		require.NoError(t, err)
+		require.Len(t, leases, 1)
+		require.Equal(t, executionID, leases[0].Lease.ExecutionID)
+		e, err := c.ReserveScheduledRunExecutionSession(ctx, executionID, schedule.Creator)
+		require.NoError(t, err)
+		require.NoError(t, c.UpdateScheduledRunExecution(ctx, leases[0].Lease, ScheduledRunExecutionProgress{
+			State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, TaskID: uuid.NewString(),
+		}))
+		return e
+	}
+
+	setContinuity(true)
+	first, second := trigger(), trigger()
+	_, err := c.ReserveScheduledRunExecutionSession(ctx, second, schedule.Creator)
+	require.ErrorIs(t, err, ErrConflict)
+	a := finish(first)
+	b := finish(second)
+	require.NotEmpty(t, a.SessionId)
+	require.Equal(t, a.SessionId, b.SessionId)
+	require.False(t, b.PreviousConversationUnavailable)
+	require.NoError(t, deleteSession(ctx, c, b.SessionId))
+	replacement := finish(trigger())
+	require.True(t, replacement.PreviousConversationUnavailable)
+	require.NotEqual(t, b.SessionId, replacement.SessionId)
+
+	queued := trigger()
+	setContinuity(false)
+	setContinuity(true)
+	require.Equal(t, replacement.SessionId, finish(queued).SessionId)
+	fresh := finish(trigger())
+	require.NotEqual(t, replacement.SessionId, fresh.SessionId)
+	require.False(t, fresh.PreviousConversationUnavailable)
+}
+
+func TestSharedConversationQueueDeadline(t *testing.T) {
+	c := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	schedule, _ := createTestSchedule(t, c)
+	id := uuid.MustParse(schedule.Id)
+	config := proto.CloneOf(schedule.Config)
+	config.ContinueConversation = true
+	schedule, err := c.UpdateScheduledRun(ctx, id, schedule.Creator, schedule.Etag, config)
+	require.NoError(t, err)
+	first, err := c.TriggerScheduledRun(ctx, id, schedule.Creator, "first")
+	require.NoError(t, err)
+	leases, err := c.LeaseScheduledRunExecutions(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, leases, 1)
+	linked, err := c.ReserveScheduledRunExecutionSession(ctx, uuid.MustParse(first.Id), schedule.Creator)
+	require.NoError(t, err)
+	require.NoError(t, c.ClaimScheduledRunDispatch(ctx, leases[0].Lease))
+
+	config.ExecutionTimeout = durationpb.New(time.Microsecond)
+	_, err = c.UpdateScheduledRun(ctx, id, schedule.Creator, schedule.Etag, config)
+	require.NoError(t, err)
+	queued, err := c.TriggerScheduledRun(ctx, id, schedule.Creator, "queued")
+	require.NoError(t, err)
+	expiring, err := c.LeaseScheduledRunExecutions(ctx, 8)
+	require.NoError(t, err)
+	require.Len(t, expiring, 1)
+	require.Equal(t, queued.Id, expiring[0].Execution.Id)
+	expired, err := c.ReserveScheduledRunExecutionSession(ctx, uuid.MustParse(queued.Id), schedule.Creator)
+	require.NoError(t, err)
+	require.Empty(t, expired.SessionId)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, expired.State)
+	active, err := c.GetScheduledRunExecution(ctx, uuid.MustParse(first.Id), schedule.Creator)
+	require.NoError(t, err)
+	require.Equal(t, linked.SessionId, active.SessionId)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, active.State)
 }

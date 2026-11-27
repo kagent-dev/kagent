@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
 	kagentv1alpha3 "github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/a2agateway"
@@ -406,8 +407,12 @@ func Run(ctx context.Context, input *configv1.ControllerConfig, opts Options) er
 	if err := manager.Add(scheduledruncontroller.NewScheduler(store, cfg.GetScheduledRuns().GetPollInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run scheduler: %w", err)
 	}
+	var recoverScheduledSession func(context.Context, string) (*apiv1.Session, error)
+	if cfg.GetSessions().GetAutomaticRecovery() {
+		recoverScheduledSession = sessions.Revert
+	}
 	if err := manager.Add(scheduledruncontroller.NewController(store, sessionWorkflow,
-		gateway, cfg.GetScheduledRuns().GetExecutionInterval().AsDuration())); err != nil {
+		gateway, recoverScheduledSession, cfg.GetScheduledRuns().GetExecutionInterval().AsDuration())); err != nil {
 		return fmt.Errorf("add scheduled run controller: %w", err)
 	}
 	sandboxTemplates := kubecrud.NewService(manager.GetClient(), authorizer, &kagentv1alpha3.SandboxTemplate{}, &kagentv1alpha3.SandboxTemplateList{}, kagentv1alpha3.SandboxTemplateKind)

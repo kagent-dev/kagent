@@ -79,8 +79,9 @@ describe("new schedule page", () => {
     expect(screen.getByLabelText(/^Schedule name/)).toHaveAccessibleName(/optional/);
     expect(screen.getByLabelText(/^Time zone/)).toHaveAccessibleName(/optional/);
     expect(screen.getByLabelText(/^Execution timeout/)).toHaveAccessibleName(/required/);
-    // Agent, repeat, at time, prompt, timeout are required; name, time zone, enabled are optional.
-    expect([screen.getAllByTestId("field-required").length, screen.getAllByTestId("field-optional").length]).toEqual([5, 3]);
+    expect(screen.getByRole("switch", { name: /^Continue the previous conversation/ })).not.toBeChecked();
+    // Name, time zone, continuity, and enabled are optional.
+    expect([screen.getAllByTestId("field-required").length, screen.getAllByTestId("field-optional").length]).toEqual([5, 4]);
     expect(screen.queryByText("Schedule Name")).not.toBeInTheDocument();
   });
 

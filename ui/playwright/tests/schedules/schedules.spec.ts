@@ -273,6 +273,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
   await test.step("11. a filled-in schedule is created and lands on its own page", async () => {
     await page.getByTestId("schedule-agent").click();
     await optionNamed(page, "kagent/k8s-agent-7f3a91c").click();
+    await page.getByLabel("Continue the previous conversation").check();
     await page.getByTestId("schedule-name").fill(CREATED);
 
     // The picker, not the raw expression: a weekly cadence is stated back in words, so a
@@ -350,6 +351,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
       "will run automatically after it is saved",
     );
 
+    await expect(page.getByLabel("Continue the previous conversation")).toBeChecked();
     await page.getByTestId("schedule-name").fill(RENAMED);
     // The time zone is an AutoComplete, so its id is on the wrapper and the caret goes
     // in the input inside it. Every other field here carries its id on the control.

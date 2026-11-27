@@ -105,18 +105,25 @@ func crashDuringTurn(t *testing.T, harness testHarness, target string) *crashedT
 	healthy, err := fixture.sessions.RevertSession(fixture.ctx, crash.revert)
 	require.NoError(t, err, "a healthy runtime has nothing to recover")
 	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
-	assignment := crash.running.GetStatus().GetWorkerAssignment()
-	require.Equal(t, crash.namespace, assignment.GetWorkerNamespace())
+	crashActorWorker(t, fixture.ctx, fixture.system, crash.namespace, crash.name, crash.running)
+	return crash
+}
+
+// crashActorWorker deletes only the worker assigned exclusively to this Actor.
+func crashActorWorker(t *testing.T, testCtx context.Context, system apiv1.SystemServiceClient, namespace, name string, actor *ateapipb.Actor) {
+	t.Helper()
+	assignment := actor.GetStatus().GetWorkerAssignment()
+	require.Equal(t, namespace, assignment.GetWorkerNamespace())
 	require.NotEmpty(t, assignment.GetWorkerPod())
 	for token := ""; ; {
-		page, err := fixture.system.ListSubstrateActors(fixture.ctx, &apiv1.ListSubstrateActorsRequest{
+		page, err := system.ListSubstrateActors(testCtx, &apiv1.ListSubstrateActorsRequest{
 			Page: &apiv1.PageRequest{Limit: 100, PageToken: token},
 		})
 		require.NoError(t, err)
 		require.Empty(t, page.GetAteApiError())
-		for _, actor := range page.GetActors() {
-			other := actor.GetStatus().GetWorkerAssignment()
-			if actor.GetMetadata().GetUid() != crash.running.GetMetadata().GetUid() {
+		for _, neighbor := range page.GetActors() {
+			other := neighbor.GetStatus().GetWorkerAssignment()
+			if neighbor.GetMetadata().GetUid() != actor.GetMetadata().GetUid() {
 				require.False(t, other.GetWorkerNamespace() == assignment.GetWorkerNamespace() && other.GetWorkerPod() == assignment.GetWorkerPod(),
 					"refuse to delete a worker shared with another Actor")
 			}
@@ -128,19 +135,18 @@ func crashDuringTurn(t *testing.T, harness testHarness, target string) *crashedT
 	}
 	kube := interactionKubeClient(t)
 	pod := &corev1.Pod{}
-	require.NoError(t, kube.Get(fixture.ctx, ctrlclient.ObjectKey{
+	require.NoError(t, kube.Get(testCtx, ctrlclient.ObjectKey{
 		Namespace: assignment.GetWorkerNamespace(), Name: assignment.GetWorkerPod(),
 	}, pod))
 	require.NotEmpty(t, pod.UID)
-	require.NoError(t, kube.Delete(fixture.ctx, pod, &ctrlclient.DeleteOptions{
+	require.NoError(t, kube.Delete(testCtx, pod, &ctrlclient.DeleteOptions{
 		GracePeriodSeconds: new(int64(0)), Preconditions: &metav1.Preconditions{UID: &pod.UID},
 	}))
-	err = wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
-		actor, err := findSubstrateActor(ctx, fixture.system, crash.namespace, crash.name)
+	err := wait.PollUntilContextTimeout(testCtx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+		actor, err := findSubstrateActor(ctx, system, namespace, name)
 		return actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED, err
 	})
 	require.NoError(t, err)
-	return crash
 }
 
 // assertRecovered checks the Actor was restored in place, the completed turn kept

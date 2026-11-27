@@ -15,6 +15,7 @@ export interface ScheduleDraft extends Omit<ScheduleTiming, "minute" | "monthDay
   timeZone: string;
   prompt: string;
   enabled: boolean;
+  continueConversation: boolean;
   /** Null while the field is empty. */
   timeoutSeconds: number | null;
   minute: number | null;
@@ -32,6 +33,7 @@ export function draftFromSchedule(schedule?: ScheduledRun): ScheduleDraft {
     timeZone: config?.timeZone || "UTC",
     prompt: config?.prompt ?? "",
     enabled: !(config?.paused ?? false),
+    continueConversation: config?.continueConversation ?? false,
     timeoutSeconds: timeout ? Number(timeout.seconds) + timeout.nanos / 1e9 : DEFAULT_TIMEOUT_SECONDS,
   };
 }
