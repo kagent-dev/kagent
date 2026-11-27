@@ -3,6 +3,7 @@ package dbtest_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -56,4 +57,23 @@ func TestClonedDatabasesAreIsolatedAndRemoved(t *testing.T) {
 	require.Equal(t, 1, count, "clones must not modify the template")
 	require.NoError(t, template.QueryRow(ctx, "SELECT count(*) FROM pg_database WHERE datname = ANY($1)", databaseNames).Scan(&count))
 	require.Zero(t, count, "test cleanup must remove every clone")
+}
+
+func TestStartTTerminatesContainerAfterTestContextIsCanceled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	var connStr string
+	require.True(t, t.Run("fixture", func(t *testing.T) {
+		// t.Context is canceled before the fixture's cleanup runs.
+		connStr = dbtest.StartT(t.Context(), t)
+		conn, err := pgx.Connect(t.Context(), connStr)
+		require.NoError(t, err)
+		require.NoError(t, conn.Close(t.Context()))
+	}))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err := pgx.Connect(ctx, connStr)
+	require.Error(t, err, "postgres container still accepts connections after cleanup")
 }
