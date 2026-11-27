@@ -57,6 +57,10 @@ type Revision struct {
 	Environment []corev1.EnvVar
 	CPU         string
 	Memory      string
+	// AddCapabilities and DropCapabilities change the container's Linux
+	// capabilities. Both are sorted and hold each name once.
+	AddCapabilities  []string
+	DropCapabilities []string
 	// ConfigJSON is delivered in the immutable bootstrap bundle.
 	// AgentCard stays typed until a runtime or public protocol boundary renders it.
 	ConfigJSON  []byte
@@ -111,6 +115,8 @@ func (r *Revision) Digest() (RevisionID, error) {
 		Image                   string                       `json:"image"`
 		Command                 []string                     `json:"command,omitempty"`
 		Args                    []string                     `json:"args,omitempty"`
+		AddCapabilities         []string                     `json:"addCapabilities,omitempty"`
+		DropCapabilities        []string                     `json:"dropCapabilities,omitempty"`
 		Environment             []corev1.EnvVar              `json:"environment"`
 		ConfigJSON              json.RawMessage              `json:"config"`
 		SkillImages             []SkillImage                 `json:"skillImages,omitempty"`
@@ -128,6 +134,7 @@ func (r *Revision) Digest() (RevisionID, error) {
 		BootstrapVersion: bootstrap.FormatVersion, ControlPlaneURL: r.ControlPlaneURL,
 		AgentName: r.AgentName, AgentUID: r.AgentUID, Namespace: r.Namespace,
 		CPU: r.CPU, Memory: r.Memory,
+		AddCapabilities: r.AddCapabilities, DropCapabilities: r.DropCapabilities,
 		Image: r.Image, Command: r.Command, Args: r.Args, Environment: r.Environment, ConfigJSON: r.ConfigJSON,
 		SkillImages:    r.SkillImages,
 		WorkerPoolName: r.WorkerPoolName, SnapshotLocation: r.SnapshotLocation,

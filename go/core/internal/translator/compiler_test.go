@@ -113,6 +113,78 @@ func TestCompileAgentPreservesWorkloadOverrides(t *testing.T) {
 	}
 }
 
+func TestCompileAgentActorCapabilities(t *testing.T) {
+	compile := func(t *testing.T, securityContext *v1alpha3.HarnessSecurityContext) (*translator.CompileResult, translator.RevisionID) {
+		t.Helper()
+		harness := &v1alpha3.Harness{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "kagent"},
+			Spec: v1alpha3.HarnessSpec{
+				Kagent:          &v1alpha3.KagentHarness{},
+				Workload:        v1alpha3.HarnessWorkload{Image: new("example.com/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")},
+				SecurityContext: securityContext,
+				Substrate: v1alpha3.RuntimeSubstratePolicy{
+					WorkerPoolRef: corev1.LocalObjectReference{Name: "default"}, SnapshotPolicy: v1alpha3.RuntimeSnapshotPolicy{Location: "snapshots"},
+				},
+			},
+		}
+		template := &v1alpha3.AgentTemplate{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "assistant"},
+			Spec:       v1alpha3.AgentTemplateSpec{ModelConfig: &v1alpha3.ModelConfigReference{Name: "default-model"}, SystemPrompt: "help"},
+		}
+		model := modelConfig()
+		model.Spec.APIKeySecret, model.Spec.APIKeySecretKey = "model-auth", "api-key"
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "test", Name: "model-auth"}, Data: map[string][]byte{"api-key": []byte("secret")}}
+		original := harness.DeepCopy()
+
+		result, err := compiler(t, model, harness, secret).CompileAgent(t.Context(), inlineAgent(harness, template))
+		require.NoError(t, err)
+		require.Equal(t, original, harness, "compiling must not change the Harness it reads")
+		digest, err := result.Digest()
+		require.NoError(t, err)
+		return result, digest
+	}
+	capabilities := func(add, drop []corev1.Capability) *v1alpha3.HarnessSecurityContext {
+		return &v1alpha3.HarnessSecurityContext{Capabilities: &corev1.Capabilities{Add: add, Drop: drop}}
+	}
+	_, defaultDigest := compile(t, nil)
+
+	for _, scenario := range []struct {
+		name            string
+		securityContext *v1alpha3.HarnessSecurityContext
+	}{
+		{name: "without a security context"},
+		{name: "with an empty security context", securityContext: &v1alpha3.HarnessSecurityContext{}},
+		{name: "with empty capabilities", securityContext: capabilities(nil, nil)},
+	} {
+		t.Run("Given a Harness "+scenario.name+", when its agent is compiled, assert that the revision is the one compiled before the field existed", func(t *testing.T) {
+			result, digest := compile(t, scenario.securityContext)
+
+			require.Empty(t, result.AddCapabilities)
+			require.Empty(t, result.DropCapabilities)
+			require.Equal(t, defaultDigest, digest)
+		})
+	}
+
+	t.Run("Given a Harness that adds and drops capabilities out of order and twice, when its agent is compiled, assert that the revision carries each name once and sorted", func(t *testing.T) {
+		result, digest := compile(t, capabilities(
+			[]corev1.Capability{"SETUID", "SETGID", "SETUID"},
+			[]corev1.Capability{"NET_BIND_SERVICE", "KILL", "KILL"},
+		))
+
+		require.Equal(t, []string{"SETGID", "SETUID"}, result.AddCapabilities)
+		require.Equal(t, []string{"KILL", "NET_BIND_SERVICE"}, result.DropCapabilities)
+		require.NotEqual(t, defaultDigest, digest, "capabilities must make a different revision")
+	})
+
+	t.Run("Given two Harnesses that list the same capabilities in a different order, when their agents are compiled, assert that the revisions are the same", func(t *testing.T) {
+		_, first := compile(t, capabilities([]corev1.Capability{"SETUID", "SETGID"}, []corev1.Capability{"ALL"}))
+
+		_, second := compile(t, capabilities([]corev1.Capability{"SETGID", "SETUID"}, []corev1.Capability{"ALL"}))
+
+		require.Equal(t, first, second)
+	})
+}
+
 func TestCompileAgentPinsAgentPluginSources(t *testing.T) {
 	embeddingModel := modelConfig()
 	embeddingModel.Name = "embedding-model"

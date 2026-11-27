@@ -303,6 +303,22 @@ func TestConfigurationCRDValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("Given a Harness that adds and drops capabilities, when it is created, assert that both lists are stored", func(t *testing.T) {
+		harness := validHarness(namespace, "capabilities", HarnessSpec{
+			Kagent: &KagentHarness{},
+			SecurityContext: &HarnessSecurityContext{Capabilities: &corev1.Capabilities{
+				Add: []corev1.Capability{"SETUID", "SETGID"}, Drop: []corev1.Capability{"ALL"},
+			}},
+		})
+		want := harness.Spec.SecurityContext.DeepCopy()
+
+		require.NoError(t, cl.Create(ctx, harness))
+
+		stored := &Harness{}
+		require.NoError(t, cl.Get(ctx, ctrlclient.ObjectKeyFromObject(harness), stored))
+		require.Equal(t, want, stored.Spec.SecurityContext)
+	})
+
 	cases := []struct {
 		name       string
 		object     ctrlclient.Object

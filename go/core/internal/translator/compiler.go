@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"istio.io/istio/pkg/kube/krt"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	configv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/config/v1"
@@ -175,6 +176,7 @@ func (c *Compiler) compileConfiguration(ctx context.Context, agent *v1alpha3.Age
 	result.Image = image
 	result.CPU = c.settings.GetCpu()
 	result.Memory = c.settings.GetMemory()
+	result.AddCapabilities, result.DropCapabilities = actorCapabilities(harness)
 	result.SandboxClass = (*workerPool).Spec.DefaultSandboxClass()
 	// Shared agents and plugin selections can contribute the same image.
 	// Normalize once after the complete harness configuration has been compiled.
@@ -196,6 +198,28 @@ func harnessType(harness *HarnessConfiguration) HarnessType {
 	default:
 		return ""
 	}
+}
+
+// actorCapabilities returns the capabilities a Harness adds and drops, each
+// sorted and without repeats, so their order in the Harness does not change the
+// revision.
+func actorCapabilities(harness *HarnessConfiguration) (add, drop []string) {
+	securityContext := harness.Spec.SecurityContext
+	if securityContext == nil || securityContext.Capabilities == nil {
+		return nil, nil
+	}
+	names := func(capabilities []corev1.Capability) []string {
+		if len(capabilities) == 0 {
+			return nil
+		}
+		result := make([]string, 0, len(capabilities))
+		for _, capability := range capabilities {
+			result = append(result, string(capability))
+		}
+		slices.Sort(result)
+		return slices.Compact(result)
+	}
+	return names(securityContext.Capabilities.Add), names(securityContext.Capabilities.Drop)
 }
 
 func (c *Compiler) resolveTree(ctx context.Context, harness *HarnessConfiguration, root *TemplateConfiguration) (*resolvedTemplateTree, error) {

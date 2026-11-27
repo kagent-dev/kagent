@@ -269,6 +269,75 @@ func TestActorResources(t *testing.T) {
 	}
 }
 
+func TestActorTemplateContainerCapabilities(t *testing.T) {
+	build := func(t *testing.T, add, drop []string) (*ateapipb.ActorTemplate, error) {
+		t.Helper()
+		spec := &translator.Revision{ControlPlaneURL: testControlPlaneURL, CPU: "1", Memory: "1Gi",
+			Namespace: "agents", AgentName: "helper",
+			Image:          "agent.example/image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			WorkerPoolName: "default", SnapshotLocation: "snapshots",
+			ConfigJSON: []byte(`{"instruction":"help"}`), AgentCard: &a2apb.AgentCard{Name: "helper", Version: "v1", Capabilities: &a2apb.AgentCapabilities{},
+				SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}}, DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"}},
+			AddCapabilities: add, DropCapabilities: drop,
+		}
+		revisionID, err := spec.Digest()
+		require.NoError(t, err)
+		bundle, err := spec.BootstrapBundle(revisionID)
+		require.NoError(t, err)
+		return ActorTemplateForRevision(spec, revisionID, bundle)
+	}
+
+	for _, scenario := range []struct {
+		name      string
+		add, drop []string
+	}{
+		{name: "without capabilities"},
+		{name: "with empty capability lists", add: []string{}, drop: []string{}},
+	} {
+		t.Run("Given a revision "+scenario.name+", when its ActorTemplate is built, assert that the container has no security context", func(t *testing.T) {
+			template, err := build(t, scenario.add, scenario.drop)
+
+			require.NoError(t, err)
+			require.Nil(t, template.GetContainers()[0].GetSecurityContext(),
+				"an empty security context would differ from templates built before the field existed")
+		})
+	}
+
+	for _, scenario := range []struct {
+		name      string
+		add, drop []string
+	}{
+		{name: "adds capabilities", add: []string{"SETGID", "SETUID"}},
+		{name: "drops capabilities", drop: []string{"KILL"}},
+		{name: "drops ALL and adds capabilities", add: []string{"SETGID", "SETUID"}, drop: []string{"ALL"}},
+		// Substrate checks dropped names; kagent passes them on.
+		{name: "drops a name kagent does not know", drop: []string{"NOT_A_CAPABILITY"}},
+	} {
+		t.Run("Given a revision that "+scenario.name+", when its ActorTemplate is built, assert that the container carries them", func(t *testing.T) {
+			template, err := build(t, scenario.add, scenario.drop)
+
+			require.NoError(t, err)
+			capabilities := template.GetContainers()[0].GetSecurityContext().GetCapabilities()
+			require.Equal(t, scenario.add, capabilities.GetAdd())
+			require.Equal(t, scenario.drop, capabilities.GetDrop())
+		})
+	}
+
+	for _, scenario := range []struct{ name, capability string }{
+		{name: "a capability Substrate does not allow", capability: "NET_ADMIN"},
+		{name: "ALL", capability: "ALL"},
+		{name: "a lowercase name", capability: "setuid"},
+		{name: "a name with the CAP_ prefix", capability: "CAP_SETUID"},
+	} {
+		t.Run("Given a revision that adds "+scenario.name+", when its ActorTemplate is built, assert that the error names the capability", func(t *testing.T) {
+			template, err := build(t, []string{"SETUID", scenario.capability}, nil)
+
+			require.ErrorContains(t, err, fmt.Sprintf("capability %q cannot be added", scenario.capability))
+			require.Nil(t, template)
+		})
+	}
+}
+
 func TestGoldenEgressPolicyIsPartOfTemplateIdentity(t *testing.T) {
 	policy, err := bootstrapEgressPolicy("team-a", "https://controller.example")
 	require.NoError(t, err)
