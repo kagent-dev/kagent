@@ -1,6 +1,7 @@
 package translator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -260,6 +261,24 @@ func TestCompileCredentialsTokenPassthroughTargets(t *testing.T) {
 			tools:       []ResolvedMCPTool{server("user", "https://mcp.example.com/mcp", true)}, wantErr: "mixes tokenPassthrough",
 		},
 		{
+			// The host is carried on the compiled model, not in OLLAMA_API_BASE.
+			name: "keyless custom Ollama host from the spec", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOllama, Model: "llama3", Ollama: &v1alpha3.OllamaConfig{Host: "https://mcp.example.com"}},
+			tools: []ResolvedMCPTool{server("user", "https://mcp.example.com/mcp", true)}, wantErr: "mixes tokenPassthrough",
+		},
+		{
+			// A second Ollama model on another host must not hide this one.
+			name: "keyless custom Ollama beside another Ollama host", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOllama, Model: "llama3", Ollama: &v1alpha3.OllamaConfig{Host: "https://mcp.example.com"}},
+			extra:       []*ResolvedModelConfig{model(v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOllama, Model: "llama3", Ollama: &v1alpha3.OllamaConfig{Host: "http://127.0.0.1:11435"}})},
+			environment: []corev1.EnvVar{{Name: "OLLAMA_API_BASE", Value: "http://127.0.0.1:11435"}},
+			tools:       []ResolvedMCPTool{server("user", "https://mcp.example.com/mcp", true)}, wantErr: "mixes tokenPassthrough",
+		},
+		{
+			// Without a spec host the runtime falls back to OLLAMA_API_BASE.
+			name: "keyless Ollama host from the environment", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderOllama, Model: "llama3", Ollama: &v1alpha3.OllamaConfig{}},
+			environment: []corev1.EnvVar{{Name: "OLLAMA_API_BASE", Value: "https://mcp.example.com"}},
+			tools:       []ResolvedMCPTool{server("user", "https://mcp.example.com/mcp", true)}, wantErr: "mixes tokenPassthrough",
+		},
+		{
 			name: "keyless Vertex model", spec: v1alpha3.ModelConfigSpec{Provider: v1alpha3.ModelProviderGeminiVertexAI, Model: "gemini-2.5-flash", GeminiVertexAI: &v1alpha3.GeminiVertexAIConfig{BaseVertexAIConfig: v1alpha3.BaseVertexAIConfig{ProjectID: "project", Location: "us-central1"}}},
 			tools: []ResolvedMCPTool{server("user", "https://us-central1-aiplatform.googleapis.com/mcp", true)}, wantErr: "mixes tokenPassthrough",
 		},
@@ -334,4 +353,41 @@ func TestSameNamedSecretsInDifferentNamespaces(t *testing.T) {
 	}
 	require.ElementsMatch(t, []string{"ate-secret://k8s.io/default/team/auth/token", "ate-secret://k8s.io/default/shared/auth/token"}, uris)
 	require.False(t, SameModelCredentials(input.Root.ResolvedModelConfig.Config, child.ResolvedModelConfig.Config))
+}
+
+// A bare host defaults to http, which is right for a daemon but wrong for
+// ollama.com's API: it serves HTTPS only, an http request is answered with a
+// redirect, and Go turns a 301 into a GET, so POST /api/chat came back
+// 405 Method Not Allowed. An explicit scheme is kept in any letter case.
+func TestOllamaHostURL(t *testing.T) {
+	tests := []struct {
+		host string
+		want string
+	}{
+		// The cloud endpoint is HTTPS-only, and a bare host is how it is written.
+		{host: "api.ollama.com", want: "https://api.ollama.com"},
+		{host: "ollama.com", want: "https://ollama.com"},
+		// An explicit scheme is never rewritten, including http, which is a
+		// deliberate choice by the operator rather than a default.
+		{host: "https://api.ollama.com", want: "https://api.ollama.com"},
+		{host: "http://api.ollama.com", want: "http://api.ollama.com"},
+		// A daemon is plain http on a private address, and keeps that.
+		{host: "host.docker.internal:11434", want: "http://host.docker.internal:11434"},
+		{host: "gpu-box.lan:11434", want: "http://gpu-box.lan:11434"},
+		{host: "gpu", want: "http://gpu"},
+		{host: "[::1]:11434", want: "http://[::1]:11434"},
+		{host: "http://[::1]:11434", want: "http://[::1]:11434"},
+		{host: "https://gpu-box.lan:11434", want: "https://gpu-box.lan:11434"},
+		{host: "http://gpu-box.lan:11434/", want: "http://gpu-box.lan:11434/"},
+		// Schemes are case-insensitive. Only the scheme is lowercased: an
+		// uppercase one used to get a second scheme prepended, which turned
+		// HTTP://gpu:11434 into the origin http://http:80.
+		{host: "HTTP://gpu:11434", want: "http://gpu:11434"},
+		{host: "Https://GPU-Box.lan:11434/Path", want: "https://GPU-Box.lan:11434/Path"},
+	}
+	for _, tt := range tests {
+		t.Run(strings.ReplaceAll(tt.host, "/", "_"), func(t *testing.T) {
+			require.Equal(t, tt.want, OllamaHostURL(tt.host))
+		})
+	}
 }

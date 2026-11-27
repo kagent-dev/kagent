@@ -322,16 +322,6 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 		if model.Spec.Ollama == nil {
 			return nil, nil, fmt.Errorf("ollama model config is required")
 		}
-		// Only set a host when the operator gave one. An empty value keeps
-		// OLLAMA_API_BASE unset so the runtime applies its own cloud/local
-		// routing; writing a default here would look operator-chosen and pin
-		// every cloud model to the local daemon.
-		if model.Spec.Ollama.Host != "" {
-			modelDeploymentData.EnvVars = append(modelDeploymentData.EnvVars, corev1.EnvVar{
-				Name:  env.OllamaAPIBase.Name(),
-				Value: withDefaultScheme(model.Spec.Ollama.Host),
-			})
-		}
 		// Bind the Secret only when the model reaches api.ollama.com; the
 		// gateway injects the key at egress, while the agent sees only a
 		// placeholder. The same predicate decides the credential binding.
@@ -351,11 +341,23 @@ func translateModel(resolved *translator.ResolvedModelConfig) (*configv1.ADKMode
 				},
 			})
 		}
+		// The host stays on the compiled model so each Ollama model in the
+		// agent keeps its own server. It used to be written to the shared
+		// OLLAMA_API_BASE variable, where the last model compiled won for all
+		// of them. Only set a host when the operator gave one: an empty value
+		// lets the runtime apply its own cloud/local routing, while a default
+		// written here would look operator-chosen and pin every cloud model
+		// to the local daemon.
+		var host string
+		if model.Spec.Ollama.Host != "" {
+			host = translator.OllamaHostURL(model.Spec.Ollama.Host)
+		}
 		ollama := &configv1.ADKModelConfig{
 			Model:   model.Spec.Model,
 			Headers: model.Spec.DefaultHeaders,
 			Provider: &configv1.ADKModelConfig_Ollama{Ollama: &configv1.ADKOllama{
 				Options: model.Spec.Ollama.Options,
+				Host:    host,
 			}},
 		}
 		// Populate shared transport settings.

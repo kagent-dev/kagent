@@ -84,15 +84,18 @@ func TestRenderBedrockCredentialsFromReferences(t *testing.T) {
 }
 
 // The Ollama key reaches the agent as an environment variable read from a
-// Secret, never serialized into the agent config, and the host is written only
-// when the operator set one — an empty value lets the runtime apply its own
-// cloud/local routing instead of looking like a chosen endpoint.
+// Secret, never serialized into the agent config. The host is compiled onto
+// the model only when the operator set one — an empty value lets the runtime
+// apply its own cloud/local routing instead of looking like a chosen endpoint
+// — and never into the shared OLLAMA_API_BASE variable, where one model's host
+// would replace another's.
 func TestTranslateOllamaEnvironment(t *testing.T) {
 	tests := []struct {
 		name      string
 		spec      v1alpha3.ModelConfigSpec
 		wantNames []string
 		noEnv     string
+		wantHost  string
 	}{
 		{
 			name: "cloud model mounts the key from a Secret",
@@ -110,8 +113,9 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 				Provider: v1alpha3.ModelProviderOllama, Model: "llama3.2",
 				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
 			},
-			wantNames: []string{env.OllamaAPIBase.Name()},
+			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),
+			wantHost:  "http://host.docker.internal:11434",
 		},
 		{
 			name: "local model with no credential sets neither",
@@ -148,8 +152,9 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
 				Ollama: &v1alpha3.OllamaConfig{Host: "host.docker.internal:11434"},
 			},
-			wantNames: []string{env.OllamaAPIBase.Name()},
+			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),
+			wantHost:  "http://host.docker.internal:11434",
 		},
 		{
 			// The cloud endpoint written out longhand is the cloud route, not an
@@ -162,7 +167,8 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
 				Ollama: &v1alpha3.OllamaConfig{Host: "api.ollama.com"},
 			},
-			wantNames: []string{env.OllamaAPIBase.Name(), env.OllamaAPIKey.Name()},
+			wantNames: []string{env.OllamaAPIKey.Name()},
+			wantHost:  "https://api.ollama.com",
 		},
 		{
 			// ...but it must not promote a local model to the cloud.
@@ -172,8 +178,9 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 				APIKeySecret: "ollama-cloud", APIKeySecretKey: "OLLAMA_API_KEY",
 				Ollama: &v1alpha3.OllamaConfig{Host: "api.ollama.com"},
 			},
-			wantNames: []string{env.OllamaAPIBase.Name()},
+			wantNames: []string{},
 			noEnv:     env.OllamaAPIKey.Name(),
+			wantHost:  "https://api.ollama.com",
 		},
 		{
 			// Same problem without a host: a local model has no cloud binding,
@@ -197,7 +204,7 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 					Spec:       tt.spec,
 				},
 			}
-			_, data, err := translateModel(resolved)
+			model, data, err := translateModel(resolved)
 			require.NoError(t, err)
 			names := make([]string, 0, len(data.EnvVars))
 			for _, variable := range data.EnvVars {
@@ -205,34 +212,8 @@ func TestTranslateOllamaEnvironment(t *testing.T) {
 			}
 			require.ElementsMatch(t, tt.wantNames, names)
 			require.NotContains(t, names, tt.noEnv)
-		})
-	}
-}
-
-// A bare host defaults to http, which is right for a daemon but wrong for
-// ollama.com's API: it serves HTTPS only, an http request is answered with a
-// redirect, and Go turns a 301 into a GET, so POST /api/chat came back
-// 405 Method Not Allowed. The runtime's own copy of this already preferred
-// https for the cloud endpoint; this is the compiler agreeing with it.
-func TestWithDefaultScheme(t *testing.T) {
-	tests := []struct {
-		host string
-		want string
-	}{
-		// The cloud endpoint is HTTPS-only, and a bare host is how it is written.
-		{host: "api.ollama.com", want: "https://api.ollama.com"},
-		{host: "ollama.com", want: "https://ollama.com"},
-		// An explicit scheme is never rewritten, including http, which is a
-		// deliberate choice by the operator rather than a default.
-		{host: "https://api.ollama.com", want: "https://api.ollama.com"},
-		{host: "http://api.ollama.com", want: "http://api.ollama.com"},
-		// A daemon is plain http on a private address, and keeps that.
-		{host: "host.docker.internal:11434", want: "http://host.docker.internal:11434"},
-		{host: "gpu-box.lan:11434", want: "http://gpu-box.lan:11434"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.host, func(t *testing.T) {
-			require.Equal(t, tt.want, withDefaultScheme(tt.host))
+			require.NotContains(t, names, env.OllamaAPIBase.Name())
+			require.Equal(t, tt.wantHost, model.GetOllama().GetHost())
 		})
 	}
 }

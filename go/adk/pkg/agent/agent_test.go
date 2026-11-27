@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/adk/v2/agent"
+	adkmodel "google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/genai"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -715,6 +717,80 @@ func TestUsesRawOutputSchema(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, test.want, usesRawOutputSchema(test.model))
+		})
+	}
+}
+
+// TestCreateLLMOllamaHost pins which server an Ollama model is sent to. The
+// compiled model's own host wins, so two Ollama models in one runtime (for
+// example the agent and its summarizer) can use different servers.
+// OLLAMA_API_BASE stays the fallback for configs compiled without a host.
+func TestCreateLLMOllamaHost(t *testing.T) {
+	// ollamaServer answers /api/chat with its own name and records every
+	// request path, so a test can tell which server a request reached.
+	ollamaServer := func(t *testing.T, name string) (*httptest.Server, func() []string) {
+		t.Helper()
+		var mu sync.Mutex
+		var paths []string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			paths = append(paths, r.URL.Path)
+			mu.Unlock()
+			if r.URL.Path == "/api/chat" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = fmt.Fprintf(w, `{"model":"llama3.2","message":{"role":"assistant","content":%q},"done":true}`, "from "+name)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		t.Cleanup(server.Close)
+		return server, func() []string {
+			mu.Lock()
+			defer mu.Unlock()
+			return slices.Clone(paths)
+		}
+	}
+	scenarios := []struct {
+		name      string
+		modelHost bool
+		wantReply string
+	}{
+		{name: "Given OLLAMA_API_BASE names another server, when the compiled model carries a host, assert that requests go to the model's host", modelHost: true, wantReply: "from model"},
+		{name: "Given OLLAMA_API_BASE names a server, when the compiled model has no host, assert that requests fall back to OLLAMA_API_BASE", wantReply: "from env"},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			modelServer, modelPaths := ollamaServer(t, "model")
+			envServer, envPaths := ollamaServer(t, "env")
+			t.Setenv("OLLAMA_API_BASE", envServer.URL)
+			ollama := &configv1.ADKOllama{}
+			if scenario.modelHost {
+				ollama.Host = modelServer.URL
+			}
+
+			llm, err := CreateLLM(t.Context(), &configv1.ADKModelConfig{Model: "llama3.2", Provider: &configv1.ADKModelConfig_Ollama{Ollama: ollama}})
+			require.NoError(t, err)
+			ollamaModel, ok := llm.(*models.OllamaModel)
+			require.True(t, ok)
+			require.NoError(t, ollamaModel.Client.Heartbeat(t.Context()))
+			var reply string
+			for response, err := range llm.GenerateContent(t.Context(), &adkmodel.LLMRequest{
+				Model:    "llama3.2",
+				Contents: []*genai.Content{genai.NewContentFromText("hi", genai.RoleUser)},
+			}, false) {
+				require.NoError(t, err)
+				for _, part := range response.Content.Parts {
+					reply += part.Text
+				}
+			}
+
+			require.Equal(t, scenario.wantReply, reply)
+			hit, missed := modelPaths(), envPaths()
+			if !scenario.modelHost {
+				hit, missed = missed, hit
+			}
+			require.Equal(t, []string{"/", "/api/chat"}, hit)
+			require.Empty(t, missed)
 		})
 	}
 }
