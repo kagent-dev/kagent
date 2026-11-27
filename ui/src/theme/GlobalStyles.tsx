@@ -1,7 +1,22 @@
 import { Global, css, useTheme } from "@emotion/react";
+import { dataPillLook } from "@/components/form/dataPillLook";
+import { pillBorder } from "./theme";
+
+
+// antd's own "down" icon, as a mask so it takes the theme colour.
+const CHEVRON_MASK = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='64 64 896 896'%3E%3Cpath d='M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z'/%3E%3C/svg%3E") center / contain no-repeat`;
 
 export function GlobalStyles() {
   const theme = useTheme();
+  const pill = dataPillLook(theme);
+  const c = theme.color;
+  // Status tags wear the theme's pill triples: antd's filled variant has no border and inks with the mid foreground.
+  const statusTag = (status: string, bg: string, border: string, text: string) => `
+    .ant-tag.ant-tag.ant-tag-${status}:not(.ant-tag-disabled):not(.ant-tag-solid) {
+      background-color: ${bg};
+      border: 1px solid ${pillBorder(border, bg)};
+      color: ${text};
+    }`;
   return (
     <Global
       styles={css`
@@ -27,6 +42,49 @@ export function GlobalStyles() {
           text-decoration: none;
         }
         /*
+         * antd's 1.57 line-height seats a label's glyphs below the icon's centre.
+         * A button is a fixed-height flex row, so a one-em line box centres both.
+         */
+        .ant-btn {
+          line-height: 1;
+        }
+        /* AutoComplete ships with no suffix, so it gets the same chevron as Select. */
+        .ant-select-auto-complete::after {
+          content: "";
+          flex: none;
+          align-self: center;
+          width: 12px;
+          height: 12px;
+          margin-inline-start: 4px;
+          background-color: ${theme.color.textMuted};
+          mask: ${CHEVRON_MASK};
+          -webkit-mask: ${CHEVRON_MASK};
+          pointer-events: none;
+        }
+        /* A closed searchable select still reads as a dropdown; the text cursor appears once it opens. */
+        .ant-select-single.ant-select-show-search:not(.ant-select-auto-complete):not(.ant-select-open):not(.ant-select-disabled),
+        .ant-select-single.ant-select-show-search:not(.ant-select-auto-complete):not(.ant-select-open):not(.ant-select-disabled) input {
+          cursor: pointer;
+        }
+        /* Tag and multiple-mode values render as data pills. */
+        .ant-select-multiple .ant-select-selection-item {
+          border-radius: ${pill.borderRadius}px;
+          font-family: ${pill.fontFamily};
+          font-size: ${pill.fontSize}px;
+        }
+        .ant-select-multiple .ant-select-selection-item-remove {
+          border-radius: 2px;
+          color: ${theme.color.textMuted};
+        }
+        .ant-select-multiple .ant-select-selection-item-remove:hover {
+          background: ${theme.color.text}29;
+          color: ${theme.color.text};
+        }
+        .ant-select-multiple .ant-select-selection-item-remove:active {
+          background: ${theme.color.text}3d;
+          color: ${theme.color.text};
+        }
+        /*
          * The surfaces, given a very shallow gradient.
          *
          * Here rather than on each component because these are the component
@@ -42,6 +100,16 @@ export function GlobalStyles() {
         }
         .ant-layout-header {
           background: ${theme.color.surfaceNav};
+        }
+
+        ${statusTag("success", c.successBg, c.successBorder, c.successText)}
+        ${statusTag("processing", c.infoBg, c.infoBorder, c.infoText)}
+        ${statusTag("warning", c.warningBg, c.warningBorder, c.warningText)}
+        ${statusTag("error", c.dangerBg, c.dangerBorder, c.dangerText)}
+        ${statusTag("default", c.bg, c.borderStrong, c.textMuted)}
+        /* Pills are labels, not text to copy: a drag or double-click shouldn't highlight them. */
+        .ant-tag {
+          user-select: none;
         }
 
         /*
@@ -78,27 +146,19 @@ export function GlobalStyles() {
           cursor: pointer;
         }
 
-        /*
-         * Pressed, and visibly different from hovered.
-         *
-         * This rule existed and did nothing: it set the border token, which is the same colour
-         * antd already uses for the row hover — measured at rgb(50, 44, 61) for both, so
-         * pressing a row looked exactly like pointing at it and a click on a slow route
-         * still looked like it had not registered. The whole point of the rule was to
-         * distinguish the two.
-         *
-         * Tinted with the brand colour rather than made a lighter grey: the row is
-         * already grey when hovered, and another grey a few percent lighter is a
-         * difference nobody notices under a moving finger.
-         *
-         * At 40% rather than the 30% it carried: the stronger row hover it now has to
-         * beat left the two within 1.12:1 of each other on the light theme.
-         */
+        /* Pressed rows, menu items and options: the row tint at twice the hover's strength. */
         .ant-table-wrapper
           .ant-table-tbody
           .ant-table-row.clickable-table-row:active
-          > .ant-table-cell {
-          background: ${theme.color.primary}66;
+          > .ant-table-cell,
+        .ant-dropdown-menu-item:not(.ant-dropdown-menu-item-disabled):not(.ant-dropdown-menu-item-danger):active,
+        .ant-select-item-option:not(.ant-select-item-option-disabled):not(.ant-select-item-option-selected):active {
+          background: ${c.rowPressBg};
+        }
+        .ant-table-wrapper .ant-table-tbody .ant-table-row.clickable-table-row > .ant-table-cell,
+        .ant-dropdown-menu-item,
+        .ant-select-item-option {
+          transition: none;
         }
 
         /*
@@ -142,6 +202,78 @@ export function GlobalStyles() {
           background: transparent;
           box-shadow: none;
           outline: none;
+        }
+
+        /* Focus shows on the field's frame (antd's border and glow), never as a browser ring on the bare input inside it. */
+        .ant-input-affix-wrapper input:focus,
+        .ant-input-number input:focus,
+        .ant-input-number-affix-wrapper input:focus,
+        .ant-input-textarea-affix-wrapper textarea:focus,
+        .ant-select input:focus,
+        .ant-picker input:focus,
+        .ant-input-outlined:focus,
+        .ant-input-filled:focus {
+          outline: none;
+        }
+
+        /* Tabs and segmented options: instant hover and press fills, drawn behind the label so nothing moves. */
+        .ant-tabs:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab {
+          isolation: isolate;
+        }
+        .ant-tabs:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab::before {
+          content: "";
+          position: absolute;
+          /* Square at the foot, so the fill sits flat on the tab line. */
+          inset: 6px 0 0;
+          z-index: -1;
+          border-radius: ${theme.radius.sm}px ${theme.radius.sm}px 0 0;
+          pointer-events: none;
+        }
+        .ant-tabs:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-disabled):hover::before {
+          background: ${c.navHoverBg};
+        }
+        .ant-tabs:not(.ant-tabs-card) > .ant-tabs-nav .ant-tabs-tab:not(.ant-tabs-tab-disabled):active::before {
+          background: ${c.navPressBg};
+        }
+        .ant-tabs > .ant-tabs-nav .ant-tabs-tab,
+        .ant-tabs > .ant-tabs-nav .ant-tabs-tab-btn,
+        .ant-segmented .ant-segmented-item,
+        .ant-segmented .ant-segmented-item::after {
+          transition: none;
+        }
+
+        /* Modals fade in place: antd's zoom grows them from the click point, so they slid across the page. */
+        @keyframes kagentModalFadeIn {
+          from {
+            opacity: 0;
+          }
+          to {
+            opacity: 1;
+          }
+        }
+        @keyframes kagentModalFadeOut {
+          from {
+            opacity: 1;
+          }
+          to {
+            opacity: 0;
+          }
+        }
+        .ant-modal-root .ant-modal.ant-zoom-enter,
+        .ant-modal-root .ant-modal.ant-zoom-appear,
+        .ant-modal-root .ant-modal.ant-zoom-leave,
+        .ant-modal-root .ant-fade-enter,
+        .ant-modal-root .ant-fade-appear,
+        .ant-modal-root .ant-fade-leave {
+          animation-duration: 120ms;
+          animation-timing-function: ease-out;
+        }
+        .ant-modal-root .ant-modal.ant-zoom-enter.ant-zoom-enter-active,
+        .ant-modal-root .ant-modal.ant-zoom-appear.ant-zoom-appear-active {
+          animation-name: kagentModalFadeIn;
+        }
+        .ant-modal-root .ant-modal.ant-zoom-leave.ant-zoom-leave-active {
+          animation-name: kagentModalFadeOut;
         }
       `}
     />

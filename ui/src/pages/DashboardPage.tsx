@@ -1,5 +1,7 @@
+import { isPermissionDenied } from "@/api/ApiError";
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
-import { Alert, Button, Card, Empty, Space, Tag, Typography } from "antd";
+import { Card, Empty, Space, Tag, Typography } from "antd";
 import { useTheme } from "@emotion/react";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "react-router-dom";
@@ -19,7 +21,11 @@ import {
   useTools,
   type AgentInstance,
 } from "@/api";
-import { conversationTitle } from "@/components/agent-instances/instanceLabels";
+import {
+  conversationTitle,
+  isConversationTitlePending,
+} from "@/components/agent-instances/instanceLabels";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import { RefreshButton } from "@/components/table/RefreshButton";
 
@@ -52,7 +58,8 @@ export function DashboardPage() {
     [namespaces.data],
   );
   // Agent resources for the tile; conversations for the recent card.
-  const definitions = useAgentsAcrossNamespaces(namespaceNames);
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const definitions = useAgentsAcrossNamespaces(namespaceDenied ? null : namespaceNames);
   const agents = useAgentInstances();
   const models = useModels();
   const servers = useMcpServers();
@@ -66,18 +73,28 @@ export function DashboardPage() {
     { label: "MCP servers", resource: servers },
     { label: "tools", resource: tools },
   ];
-  const failures = resources.filter((entry) => entry.resource.error);
+  const failedReads = resources.flatMap(({ label, resource }) =>
+    resource.error ? [{ label, error: resource.error, refresh: resource.refresh }] : [],
+  );
+  const denied = failedReads.filter(({ error }) => isPermissionDenied(error));
+  const failures = failedReads.filter(({ error }) => !isPermissionDenied(error));
   const isRefreshing = resources.some((entry) => entry.resource.isValidating);
 
   async function refreshAll(): Promise<void> {
-    await Promise.all(resources.map((entry) => entry.resource.refresh()));
+    await Promise.all(resources.map(async ({ resource }) => {
+      try {
+        await resource.refresh();
+      } catch (error) {
+        if (!isPermissionDenied(error)) throw error;
+      }
+    }));
   }
 
   // Rows are dropped on failure for the same reason the lists drop them: a
   // failed read must not be rendered as "there is nothing here".
   const agentRows = agents.error ? [] : (agents.data ?? []);
   const readyCount = agentRows.filter((row) => row.state === "ready").length;
-  const agentsError = namespaces.error ?? definitions.error;
+  const agentsError = (namespaceDenied ? undefined : namespaces.error) ?? definitions.error;
   const agentList = agentsError ? undefined : definitions.data?.agents;
   const readyAgents = agentList?.filter((agent) => agentRevisionState(agent) === "ready").length;
   // A partial namespace refusal still returns a list, so say the count is short.
@@ -93,34 +110,37 @@ export function DashboardPage() {
    * The hook reads one task list per conversation and only for the ones nobody has
    * named, so this is at most five reads and usually fewer — well inside the budget it
    * enforces for the rail, which does the same thing for thirty. Without it a card
-   * headed "Recent agent chat sessions" lists rows called "Untitled", which is true and
+   * headed "Recent agent conversations" lists rows called "Untitled", which is true and
    * useless.
    */
-  const derivedTitles = useConversationTitles(recent);
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(recent);
 
   return (
     <PageFrame
       title="Dashboard"
       description="Overview of agents, models, and recent activity."
       actions={
-        <RefreshButton onRefresh={refreshAll} what="Dashboard" loading={isRefreshing} />
+        <RefreshButton onRefresh={refreshAll} what="Dashboard" loading={isRefreshing} iconOnly />
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
+        {denied.length > 0 ? (
+          <ReadError
+            resource={listNames(denied.map((entry) => entry.label))}
+            error={denied[0].error}
+            testId="dashboard-access-denied"
+          />
+        ) : null}
         {failures.length > 0 ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource={listNames(failures.map((entry) => entry.label))}
+            error={failures[0].error}
             title="Some of this page could not be loaded"
-            description={`Failed to read ${listNames(
-              failures.map((entry) => entry.label),
-            )}. Everything else here is current.`}
-            data-testid="dashboard-error"
-            action={
-              <Button size="small" onClick={() => void refreshAll()}>
-                Try again
-              </Button>
-            }
+            description={`Failed to read ${listNames(failures.map((entry) => entry.label))}. Everything else here is current.`}
+            testId="dashboard-error"
+            onRetry={async () => {
+              await Promise.all(failures.map((entry) => entry.refresh()));
+            }}
           />
         ) : null}
 
@@ -185,21 +205,21 @@ export function DashboardPage() {
             />
           </Card>
 
-          <Card title="Recent agent chat sessions" data-testid="dashboard-recent-card">
+          <Card title="Recent agent conversations" data-testid="dashboard-recent-card">
             <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
               {agents.error ? (
                 <Text
                   data-testid="recent-agents-unavailable"
                   css={{ color: theme.color.textMuted }}
                 >
-                  Recent activity is unavailable while chat sessions cannot be read.
+                  Recent activity is unavailable while conversations cannot be read.
                 </Text>
               ) : recent.length === 0 ? (
                 agents.isLoading ? null : (
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     data-testid="recent-agents-empty"
-                    description="No chat sessions yet."
+                    description="No conversations yet."
                   />
                 )
               ) : (
@@ -214,6 +234,11 @@ export function DashboardPage() {
                         key={row.id}
                         row={row}
                         autoTitle={derivedTitles[row.id]}
+                        isTitleLoading={isConversationTitlePending(
+                          row,
+                          derivedTitles[row.id],
+                          loadingTitles,
+                        )}
                       />
                     ))}
                   </ul>
@@ -230,7 +255,15 @@ export function DashboardPage() {
 const UNREADABLE = "Could not be read";
 
 /** One row of the recent-activity list: which agent it is, whether it came up, and when. */
-function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: string }) {
+function RecentAgent({
+  row,
+  autoTitle,
+  isTitleLoading,
+}: {
+  row: AgentInstance;
+  autoTitle?: string;
+  isTitleLoading: boolean;
+}) {
   const theme = useTheme();
 
   return (
@@ -248,14 +281,18 @@ function RecentAgent({ row, autoTitle }: { row: AgentInstance; autoTitle?: strin
     >
       <div css={{ minWidth: 0 }}>
         <Link
-          to={buildPath(paths.agentChat, { id: row.id })}
+          to={buildPath(paths.agentConversation, { id: row.id })}
           css={{ fontWeight: 500 }}
         >
           {/* The name the reader gave it, the title derived from its first message, or
               "Untitled" and the short id — the same three answers in the same order as
               the rail and the conversations table. This used to be the bare short id,
               on the reasoning that a conversation had no name to show. It does now. */}
-          {conversationTitle(row, autoTitle)}
+          {isTitleLoading ? (
+            <ConversationTitlePlaceholder instanceId={row.id} />
+          ) : (
+            conversationTitle(row, autoTitle)
+          )}
         </Link>
         <Text css={{ display: "block", color: theme.color.textMuted, fontSize: 12 }}>
           {row.agent ?? "template not reported"}

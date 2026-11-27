@@ -9,7 +9,8 @@ import {
   harnessRefName,
   type Agent,
 } from "@/api";
-import { agentNewChatUrl } from "./agentUrl";
+import { isPermissionDenied } from "@/api/ApiError";
+import { agentNewConversationUrl } from "./agentUrl";
 import { rowStyles, searchInputStyles } from "./controlStyles";
 
 const { Text } = Typography;
@@ -24,7 +25,7 @@ const { Text } = Typography;
  *
  * ## Where it sends you
  *
- * To the chosen agent's chat, not to whatever page you were on. A form or a
+ * To the chosen agent's conversation, not to whatever page you were on. A form or a
  * particular conversation belongs to the agent it was opened from — carrying that
  * path across would ask the new agent for a conversation that is not theirs.
  *
@@ -49,9 +50,9 @@ export function AgentSwitcher({
     [namespaces.data],
   );
 
-  const definitions = useAgentsAcrossNamespaces(namespaceNames);
-  /** Either read failing means the list is unknown, not empty. */
-  const readError = namespaces.error ?? definitions.error;
+  const namespaceDenied = isPermissionDenied(namespaces.error);
+  const definitions = useAgentsAcrossNamespaces(namespaceDenied ? null : namespaceNames);
+  const readError = (namespaceDenied ? undefined : namespaces.error) ?? definitions.error;
   /** One loading state while the namespaces or the agents are on their way. */
   const isReading = namespaces.isLoading || definitions.isLoading;
   const agents = useMemo(() => definitions.data?.agents ?? [], [definitions.data]);
@@ -126,7 +127,7 @@ export function AgentSwitcher({
     // To the call to action for that agent — a conversation that does not exist yet.
     // Picking an agent is the start of talking to it, and nothing is created until a
     // message is sent.
-    const href = agentNewChatUrl(row);
+    const href = agentNewConversationUrl(row);
     if (href) navigate(href);
   }
 

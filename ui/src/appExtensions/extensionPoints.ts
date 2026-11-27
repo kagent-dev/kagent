@@ -14,15 +14,20 @@ export const EXTENSION_POINT_IDS = [
   "app_shell_appLayout_contentArea_globalOverlay",
   "app_shell_appLayout_appSidebar_footer",
   "app_agents_agentsList_pageHeader_actions",
+  "app_agents_agentsList_overview_createActions",
+  "app_agents_agentsList_createModal_options",
   "app_agents_agentsList_agentListItem_badge",
-  "app_agents_agentChat_agentChatMessage_additionalActionsButton",
-  "app_agents_agentChat_snapshotDetails_footer",
-  "app_agents_agentChat_snapshotDivider_actions",
-  "app_agents_agentRail_chatRow_menuItems",
-  "app_agents_agentRail_chatRow_marker",
+  "app_agents_agentConversation_agentConversationMessage_additionalActionsButton",
+  "app_agents_agentConversation_snapshotDetails_footer",
+  "app_agents_agentConversation_snapshotDivider_actions",
+  "app_agents_agentRail_conversationRow_menuItems",
+  "app_agents_agentRail_conversationRow_marker",
   "app_agents_agentRail_gutter_actions",
   "app_dashboard_dashboardOverview_summaryGrid_leadingCard",
 ] as const;
+
+/** The resources the Agents page can create. The page's create options are keyed by this. */
+export type CreatableKind = "Agent" | "AgentTemplate" | "Harness";
 
 /** Union of valid point IDs. A typo anywhere is a compile error. */
 export type ExtensionPointId = (typeof EXTENSION_POINT_IDS)[number];
@@ -39,11 +44,13 @@ type PropsFor<T extends Partial<Record<ExtensionPointId, object>>> = T;
  * take no context — their components render from the extension's own state.
  */
 type ExtensionPointPropsMap = PropsFor<{
+  /** One per create-able box in the overview diagram, told which kind it sits on. */
+  app_agents_agentsList_overview_createActions: { kind: CreatableKind };
   app_agents_agentsList_agentListItem_badge: {
     agentName: string;
     namespace: string;
   };
-  app_agents_agentChat_agentChatMessage_additionalActionsButton: {
+  app_agents_agentConversation_agentConversationMessage_additionalActionsButton: {
     messageId: string;
     role: "user" | "agent";
     text: string;
@@ -60,7 +67,7 @@ type ExtensionPointPropsMap = PropsFor<{
     /** RFC3339, for a lookup that has to be windowed in time. */
     createdAt?: string;
     /** The conversation this message is part of. */
-    sessionId?: string;
+    conversationId?: string;
   };
   /*
    * The two snapshot points take the same context — the boundary they are about —
@@ -68,8 +75,8 @@ type ExtensionPointPropsMap = PropsFor<{
    * transcript, and at the foot of the record those controls open. Splitting the
    * contract would let the two disagree about which snapshot they mean.
    */
-  app_agents_agentChat_snapshotDetails_footer: SnapshotDetailsContext;
-  app_agents_agentChat_snapshotDivider_actions: SnapshotDetailsContext;
+  app_agents_agentConversation_snapshotDetails_footer: SnapshotDetailsContext;
+  app_agents_agentConversation_snapshotDivider_actions: SnapshotDetailsContext;
   /*
    * The two rail-row points below take the same context — the conversation the row is
    * for — because they are one affordance in two places: an entry in the row's menu,
@@ -80,26 +87,26 @@ type ExtensionPointPropsMap = PropsFor<{
    * reader and may want the conversation's age or agent, and a point that hands over
    * an id forces every contributor to re-read a record the row is already holding.
    */
-  app_agents_agentRail_chatRow_menuItems: AgentRailChatRowContext;
-  app_agents_agentRail_chatRow_marker: AgentRailChatRowContext;
+  app_agents_agentRail_conversationRow_menuItems: AgentRailConversationRowContext;
+  app_agents_agentRail_conversationRow_marker: AgentRailConversationRowContext;
   /*
    * The gutter beside an open conversation, which is the same subject seen from the
    * other side: the row points at a conversation, the gutter is standing in one. So it
    * takes the same context rather than a third shape that would have to be kept in step
    * with this one every time either changes.
    */
-  app_agents_agentRail_gutter_actions: AgentRailChatRowContext;
+  app_agents_agentRail_gutter_actions: AgentRailConversationRowContext;
 }>;
 
 /**
- * What a contribution to a chat row in the agent rail is told about that row.
+ * What a contribution to a conversation row in the agent rail is told about that row.
  *
  * Structural rather than an import of the API's `AgentInstance`: this module is the
  * contract between the application and code that does not live in it, and a contract
  * that names a generated type changes shape whenever that type is regenerated. The two
  * fields here are the ones the row itself uses, so they are the ones it can promise.
  */
-export type AgentRailChatRowContext = {
+export type AgentRailConversationRowContext = {
   /** The conversation's id — the key every one of its addresses is built from. */
   instanceId: string;
   /**
@@ -117,7 +124,7 @@ export type AgentRailChatRowContext = {
  * What a contribution at the foot of the snapshot details modal is told.
  *
  * Structural rather than an import of the API's `Checkpoint`, for the reason given
- * above `AgentRailChatRowContext`: this module is the contract with code that does not
+ * above `AgentRailConversationRowContext`: this module is the contract with code that does not
  * live in the app, and a contract naming a generated type changes shape whenever that
  * type is regenerated.
  *
@@ -166,12 +173,14 @@ export const EXTENSION_POINT_RENDER_MODE: Record<
   app_shell_appLayout_contentArea_globalOverlay: "portal",
   app_shell_appLayout_appSidebar_footer: "inline",
   app_agents_agentsList_pageHeader_actions: "inline",
+  app_agents_agentsList_overview_createActions: "inline",
+  app_agents_agentsList_createModal_options: "inline",
   app_agents_agentsList_agentListItem_badge: "inline",
-  app_agents_agentChat_agentChatMessage_additionalActionsButton: "inline",
-  app_agents_agentChat_snapshotDetails_footer: "inline",
-  app_agents_agentChat_snapshotDivider_actions: "inline",
-  app_agents_agentRail_chatRow_menuItems: "inline",
-  app_agents_agentRail_chatRow_marker: "inline",
+  app_agents_agentConversation_agentConversationMessage_additionalActionsButton: "inline",
+  app_agents_agentConversation_snapshotDetails_footer: "inline",
+  app_agents_agentConversation_snapshotDivider_actions: "inline",
+  app_agents_agentRail_conversationRow_menuItems: "inline",
+  app_agents_agentRail_conversationRow_marker: "inline",
   app_agents_agentRail_gutter_actions: "inline",
   app_dashboard_dashboardOverview_summaryGrid_leadingCard: "inline",
 };

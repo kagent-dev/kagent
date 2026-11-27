@@ -3,7 +3,6 @@ package translator
 import (
 	"istio.io/istio/pkg/kube/krt"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
@@ -14,13 +13,11 @@ import (
 // while compilation fails. The visited set also bounds invalid template cycles.
 func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v1alpha3.Agent) []*v1alpha3.AllowedNamespaces {
 	var policies []*v1alpha3.AllowedNamespaces
-	addModel := func(ref *v1alpha3.ObjectReference) {
+	addModel := func(ref *v1alpha3.ModelConfigReference) {
 		if ref == nil {
 			return
 		}
-		key := ref.NamespacedName(agent.Namespace)
-		model := krt.FetchOne(ctx, inputs.ResolvedModelConfigs, krt.FilterObjectName(key))
-		if model != nil {
+		if _, model, _ := fetchModel(ctx, inputs, agent.Namespace, *ref); model != nil {
 			policies = append(policies, model.Config.Spec.AllowedNamespaces)
 		}
 	}
@@ -48,11 +45,9 @@ func agentReferencePolicies(ctx krt.HandlerContext, inputs Collections, agent *v
 	visitTemplate = func(spec *v1alpha3.AgentTemplateSpec) {
 		addModel(spec.ModelConfig)
 		for _, tool := range spec.Tools {
-			if tool.MCP != nil && tool.MCP.Server.Kind == "RemoteMCPServer" {
-				key := (v1alpha3.ObjectReference{Name: tool.MCP.Server.Name, Namespace: ptr.Deref(tool.MCP.Server.Namespace, "")}).NamespacedName(agent.Namespace)
-				server := krt.FetchOne(ctx, inputs.RemoteMCPServers, krt.FilterObjectName(key))
-				if server != nil {
-					policies = append(policies, (*server).Spec.AllowedNamespaces)
+			if tool.MCP != nil {
+				if _, server, _ := fetchMCPServer(ctx, inputs, agent.Namespace, tool.MCP.Server); server != nil {
+					policies = append(policies, server.Spec.AllowedNamespaces)
 				}
 			}
 			if tool.SubAgent != nil && tool.SubAgent.TemplateRef != nil {

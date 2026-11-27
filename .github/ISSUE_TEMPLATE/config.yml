@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/kagent-dev/kagent/blob/main/SECURITY.md
+    about: Do not open a public issue. Follow the private reporting process in SECURITY.md.
+  - name: 💬 Ask a question on Discord
+    url: https://discord.gg/Fu3k65f2k3
+    about: Get help using kagent and discuss ideas with the community.
+  - name: 💬 Ask a question on CNCF Slack
+    url: https://cloud-native.slack.com/archives/C08ETST0076
+    about: Chat with maintainers and contributors in #kagent-dev.

@@ -6,6 +6,7 @@ import {
   emptyModelDraft,
   modelDraftFrom,
   modelDraftIssues,
+  paramLabel,
   newHeaderRow,
   supportsActorJWT,
   type ModelDraft,
@@ -33,7 +34,7 @@ const issuesFor = (
     requiredParamKeys: [],
     isEdit: false,
     ...extra,
-  });
+  }).map((issue) => issue.message);
 
 describe("buildModelPayload — provider params", () => {
   it("puts params in the provider's spec block, coercing numeric fields", () => {
@@ -285,13 +286,20 @@ describe("modelDraftIssues", () => {
     ).toContain("A secret key needs the secret that holds it.");
   });
 
+  it("requires a named secret in secret mode, for Ollama too", () => {
+    const msg = "Enter the name of the secret.";
+    expect(issuesFor(draft({ authType: "secret" }))).toContain(msg);
+    expect(issuesFor(draft({ provider: "Ollama", model: "llama3.2", authType: "secret" }))).toContain(msg);
+    expect(issuesFor(draft({ authType: "secret", apiKeySecret: "kagent-openai" }))).not.toContain(msg);
+  });
+
   it("flags a missing required parameter and a non-numeric numeric field", () => {
     expect(
       issuesFor(draft({ authType: "none", params: {} }), { requiredParamKeys: ["region"] }),
-    ).toContain("region is required.");
+    ).toContain("Region is required.");
     expect(
       issuesFor(draft({ authType: "none", params: { maxTokens: "lots" } })),
-    ).toContain("maxTokens must be a number.");
+    ).toContain("Max tokens must be a number.");
   });
 });
 
@@ -336,4 +344,18 @@ it("preserves target reference policy through model edits", () => {
     spec: { provider: "OpenAI", model: "example", allowedNamespaces: { from: "All" } },
   };
   expect(buildModelPayload(modelDraftFrom(model)).spec.allowedNamespaces).toEqual({ from: "All" });
+});
+
+describe("paramLabel", () => {
+  it("turns a camelCase key into a sentence-case label", () => {
+    expect(paramLabel("maxTokens")).toBe("Max tokens");
+    expect(paramLabel("azureDeployment")).toBe("Azure deployment");
+    expect(paramLabel("region")).toBe("Region");
+  });
+
+  it("spells out acronyms the generic rule would lowercase", () => {
+    expect(paramLabel("baseUrl")).toBe("Base URL");
+    expect(paramLabel("apiVersion")).toBe("API version");
+    expect(paramLabel("topK")).toBe("Top K");
+  });
 });

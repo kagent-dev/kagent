@@ -19,8 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 
@@ -55,6 +57,9 @@ type gatewayTestStore struct {
 	initialID        string
 	listedIDs        []string
 	revoked          bool
+	reverts          int
+	onRevert         func()
+	revertErr        error
 	session          *apiv1.Session
 	revision         *database.RuntimeRevision
 	err              error
@@ -808,6 +813,81 @@ func TestGatewayReportsOnlyRevokedAttemptsAsNotAccepted(t *testing.T) {
 		if runtime.sendCalls != 1 {
 			t.Fatalf("retried a transport failure: %d sends", runtime.sendCalls)
 		}
+		if want := map[bool]int{false: 0, true: 1}[revoked]; store.reverts != want {
+			t.Fatalf("reverts = %d, want %d: only a refused send checks for a crashed runtime", store.reverts, want)
+		}
+	}
+}
+
+func TestGatewaySendJoinsAnAdmittedCrashRecovery(t *testing.T) {
+	session := gatewayTestSession()
+	session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_REVERT
+	store := &gatewayTestStore{session: session}
+	runtime := &gatewayTestRuntime{}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+	_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	var protocolError *a2atype.Error
+	if !errors.As(err, &protocolError) || protocolError.ErrorInfo().Value["metadata"].(map[string]string)["reason"] != "KAGENT_SEND_NOT_ACCEPTED" {
+		t.Fatalf("error = %v, want a retryable send", err)
+	}
+	if store.reverts != 1 || runtime.sendCalls != 0 {
+		t.Fatalf("reverts = %d, sends = %d: the send must join the recovery, not reach the runtime", store.reverts, runtime.sendCalls)
+	}
+}
+
+// A crash during a turn leaves it open, so a send refused for an open turn probes
+// the runtime once. Other conflicts, and a probe that cannot run, keep the refusal.
+func TestGatewayBusySendRecoversACrashedTurn(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		reserveErr    error
+		crashed       bool
+		revertErr     error
+		reverts, sent int
+		reason        string
+	}{
+		{name: "a busy healthy runtime", reserveErr: database.ErrActiveTurn, reverts: 1, reason: "KAGENT_TURN_ACTIVE"},
+		{name: "a crashed turn", reserveErr: database.ErrActiveTurn, crashed: true, reverts: 1, sent: 1},
+		{name: "a revert that Substrate cannot run", reserveErr: database.ErrActiveTurn,
+			revertErr: status.Error(codes.Unavailable, "control plane unavailable"), reverts: 1, reason: "KAGENT_TURN_ACTIVE"},
+		{name: "a checkpoint in progress", reserveErr: database.ErrConflict},
+	} {
+		t.Run("Given "+test.name+", when a send is refused, assert that recovery runs only for an open turn", func(t *testing.T) {
+			store := &gatewayTestStore{session: gatewayTestSession(), reserveErr: test.reserveErr, taskErr: database.ErrNotFound, revertErr: test.revertErr}
+			if test.crashed {
+				store.onRevert = func() { store.reserveErr = nil }
+			}
+			runtime := &gatewayTestRuntime{}
+			gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+			_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+			require.Equal(t, test.reverts, store.reverts)
+			require.Equal(t, test.sent, runtime.sendCalls)
+			if test.sent == 1 {
+				return
+			}
+			require.ErrorIs(t, err, a2atype.ErrUnsupportedOperation)
+			require.Equal(t, test.reason, errorInfoReason(err), "a refusal that is not a crash must not invite a retry loop")
+		})
+	}
+}
+
+func TestGatewaySendToLostRuntimeFailsFromStoredState(t *testing.T) {
+	session := gatewayTestSession()
+	session.State, session.Operation = apiv1.RuntimeState_RUNTIME_STATE_FAILED, apiv1.RuntimeOperation_RUNTIME_OPERATION_NONE
+	session.Failure = &apiv1.Failure{Reason: database.SessionRuntimeLost, Message: "Runtime cannot be recovered"}
+	store := &gatewayTestStore{session: session}
+	runtime := &gatewayTestRuntime{}
+	gateway := newTestGateway(store, &gatewayTestAuthorizer{}, &gatewayTestDialer{client: gatewayTestClient(t, runtime)}, gatewayTestURL)
+	_, err := gateway.SendMessage(gatewayTestContext(), gatewayTestRequest())
+	var protocolError *a2atype.Error
+	if !errors.As(err, &protocolError) || !errors.Is(err, a2atype.ErrUnsupportedOperation) {
+		t.Fatalf("error = %v, want a non-retryable refusal", err)
+	}
+	if meta, _ := protocolError.ErrorInfo().Value["metadata"].(map[string]string); meta["reason"] == "KAGENT_SEND_NOT_ACCEPTED" {
+		t.Fatalf("a lost runtime must not invite a retry: %v", err)
+	}
+	if store.reverts != 0 || runtime.sendCalls != 0 {
+		t.Fatalf("reverts = %d, sends = %d: a recorded loss is answered from PostgreSQL", store.reverts, runtime.sendCalls)
 	}
 }
 

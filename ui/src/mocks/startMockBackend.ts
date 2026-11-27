@@ -17,11 +17,12 @@
 import { MOCK_API_BASE_URL } from "@/api/config";
 import { setApiTransport } from "@/api/transport";
 import { mockTransport } from "./transport";
+import { mockBuiltinSkills } from "./fixtures";
 import {
   AUTH_SCENARIOS,
   AUTH_SCENARIO_PARAM,
-  CHAT_SCENARIOS,
-  CHAT_SCENARIO_PARAM,
+  CONVERSATION_SCENARIOS,
+  CONVERSATION_SCENARIO_PARAM,
   MOCK_SCENARIOS,
   MOCK_SCENARIO_PARAM,
   currentScenario,
@@ -29,6 +30,13 @@ import {
 
 export async function startMockBackend(): Promise<void> {
   setApiTransport(mockTransport);
+
+  if (!window.environmentVariables?.BUILTIN_SKILLS) {
+    window.environmentVariables = {
+      ...window.environmentVariables,
+      BUILTIN_SKILLS: JSON.stringify(mockBuiltinSkills),
+    };
+  }
 
   const { worker } = await import("./browser");
 
@@ -48,7 +56,7 @@ export async function startMockBackend(): Promise<void> {
   console.info(
     `[mock backend] serving the gRPC API from fixtures — scenario "${currentScenario()}". ` +
       `Append ?${MOCK_SCENARIO_PARAM}=<${MOCK_SCENARIOS.join("|")}>, ` +
-      `?${CHAT_SCENARIO_PARAM}=<${CHAT_SCENARIOS.join("|")}> or ` +
+      `?${CONVERSATION_SCENARIO_PARAM}=<${CONVERSATION_SCENARIOS.join("|")}> or ` +
       `?${AUTH_SCENARIO_PARAM}=<${AUTH_SCENARIOS.join("|")}> to any route to change it.`,
   );
 }

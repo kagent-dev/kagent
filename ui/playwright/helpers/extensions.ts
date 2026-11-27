@@ -18,8 +18,10 @@ export const EXTENSION_POINT_IDS = [
   "app_shell_appLayout_contentArea_globalOverlay",
   "app_shell_appLayout_appSidebar_footer",
   "app_agents_agentsList_pageHeader_actions",
+  "app_agents_agentsList_overview_createActions",
+  "app_agents_agentsList_createModal_options",
   "app_agents_agentsList_agentListItem_badge",
-  "app_agents_agentChat_agentChatMessage_additionalActionsButton",
+  "app_agents_agentConversation_agentConversationMessage_additionalActionsButton",
   "app_dashboard_dashboardOverview_summaryGrid_leadingCard",
 ] as const;
 

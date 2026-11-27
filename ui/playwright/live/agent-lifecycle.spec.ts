@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { expectNoLoadFailure, liveRoutes, loadLive, rowNamed } from "./helpers/live";
 import { liveApi } from "./helpers/api";
+import { confirmDelete, rowAction } from "../helpers/resource";
 
 /**
  * Agent CRUD on a real cluster, through the UI, for each template source.
@@ -38,7 +39,7 @@ async function pick(page: Page, testId: string, title: string) {
 async function chooseTemplateSource(page: Page, source: Source) {
   await page
     .getByTestId("agent-form-template-source")
-    .getByText(source === "inline" ? "Inline" : "Reference", { exact: true })
+    .getByText(source === "inline" ? "Define here" : "Use existing", { exact: true })
     .click();
 }
 
@@ -92,16 +93,16 @@ for (const { template, slug } of CASES) {
       await expectReady(page, name);
     });
 
-    await test.step("3. opening it lands on its new chat", async () => {
+    await test.step("3. opening it lands on its new conversation", async () => {
       await page.getByTestId(`agent-link-${NAMESPACE}-${name}`).click();
       await expect(page).toHaveURL(new RegExp(`/agents/${NAMESPACE}/${name}/new$`));
-      await expect(page.getByTestId("chat-input")).toBeEditable();
+      await expect(page.getByTestId("conversation-input")).toBeEditable();
     });
 
     await test.step("4. an edit is saved, read back and becomes a new revision", async () => {
       const before = await liveApi(baseURL!).latestRevision(NAMESPACE, name);
       await loadLive(page, liveRoutes.agents);
-      await page.getByTestId(`edit-${name}`).click();
+      await rowAction(page, `kagent/${name}`, "edit");
       await expect(page.getByTestId("agent-form-name")).toBeDisabled();
       // A referenced template is switched to inline; an inline one gets a new description.
       await fillInlineTemplate(page, `Edited ${name}`);
@@ -115,8 +116,7 @@ for (const { template, slug } of CASES) {
     });
 
     await test.step("5. delete asks first, then the row is gone and the rest remain", async () => {
-      await page.getByTestId(`delete-${name}`).click();
-      await page.locator(".ant-popconfirm:visible").getByRole("button", { name: "Delete" }).click();
+      await confirmDelete(page, `kagent/${name}`, { fromMenu: true });
       await expect(rowNamed(page, name)).toHaveCount(0, { timeout: 60_000 });
       // Other specs add and remove rows in parallel, so check a fixed neighbour, not a count.
       await expect(page.getByTestId(`agent-link-${NAMESPACE}-assistant`)).toBeVisible();
@@ -127,7 +127,7 @@ for (const { template, slug } of CASES) {
 test("live: two agents with the same template and harness keep separate conversations", async ({ page }) => {
   test.setTimeout(READY_TIMEOUT * 2 + 240_000);
   const [first, second] = [`e2e-twin-a-${RUN}`, `e2e-twin-b-${RUN}`];
-  let chatId = "";
+  let conversationId = "";
 
   await test.step("1. create both from the same refs", async () => {
     await createAgent(page, first, "reference");
@@ -136,28 +136,28 @@ test("live: two agents with the same template and harness keep separate conversa
     await expectReady(page, second);
   });
 
-  await test.step("2. chat with the first and get a real reply", async () => {
+  await test.step("2. talk to the first and get a real reply", async () => {
     await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
-    await page.getByTestId("chat-input").fill("Say hello in three words.");
-    await page.getByTestId("chat-send").click();
-    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/chat$/, { timeout: 60_000 });
-    chatId = new URL(page.url()).pathname.split("/")[2];
-    await expect(page.locator('[data-testid="chat-message"][data-role="agent"]')).toHaveCount(1, { timeout: 180_000 });
-    await expect(page.getByTestId("chat-cancel")).toHaveCount(0, { timeout: 180_000 });
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible();
+    await page.getByTestId("conversation-input").fill("Say hello in three words.");
+    await page.getByTestId("conversation-send").click();
+    await expect(page).toHaveURL(/\/agents\/[0-9a-f-]{36}\/conversation$/, { timeout: 60_000 });
+    conversationId = new URL(page.url()).pathname.split("/")[2];
+    await expect(page.locator('[data-testid="conversation-message"][data-role="agent"]')).toHaveCount(1, { timeout: 180_000 });
+    await expect(page.getByTestId("conversation-cancel")).toHaveCount(0, { timeout: 180_000 });
+    await expect(page.getByTestId(`rail-conversation-${conversationId}`)).toBeVisible();
   });
 
-  await test.step("3. the second agent does not list that chat", async () => {
+  await test.step("3. the second agent does not list that conversation", async () => {
     await loadLive(page, liveRoutes.agents);
     await page.getByTestId(`agent-link-${NAMESPACE}-${second}`).click();
     await expect(page.getByTestId("agent-rail-identity")).toContainText(second);
-    await expect(page.getByTestId("chat-sessions-empty")).toBeVisible({ timeout: 60_000 });
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toHaveCount(0);
+    await expect(page.getByTestId("rail-conversations-empty")).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId(`rail-conversation-${conversationId}`)).toHaveCount(0);
   });
 
   await test.step("4. and the first still does", async () => {
     await loadLive(page, liveRoutes.agents);
     await page.getByTestId(`agent-link-${NAMESPACE}-${first}`).click();
-    await expect(page.getByTestId(`chat-session-${chatId}`)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId(`rail-conversation-${conversationId}`)).toBeVisible({ timeout: 60_000 });
   });
 });

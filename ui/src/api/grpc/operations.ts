@@ -38,7 +38,7 @@ import { ScheduledRunService } from "@/generated/kagent/api/v1/scheduled_runs_pb
  * `CheckpointService` is reached through the `agentInstances.checkpoints.*` ids, and
  * **`agentInstances.fork`** composes two of them — a checkpoint of the conversation
  * as it stands, then a fork of it. `GetCheckpoint` and `DeleteCheckpoint` have no id:
- * the chat reads boundaries from the list and nothing removes one yet.
+ * the conversation page reads boundaries from the list and nothing removes one yet.
  */
 
 import { ModelService } from "@/generated/kagent/api/v1/models_pb";
@@ -117,7 +117,7 @@ import type {
 } from "../operations";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 import { createContextValues } from "@connectrpc/connect";
-import { getChatClient } from "../chat";
+import { getConversationClient } from "../conversation";
 
 /**
  * The call options every RPC is given.
@@ -646,7 +646,7 @@ const CHECKPOINT_STATE_FROM_PB: Partial<Record<PbCheckpointState, CheckpointStat
  * One saved turn boundary.
  *
  * A state this build has not heard of becomes `unknown` rather than `ready`: the
- * chat offers a fork from anything ready, and a newer controller adding a state must
+ * the conversation page offers a fork from anything ready, and a newer controller adding a state must
  * not have that read as an invitation.
  */
 function toCheckpoint(checkpoint: PbCheckpoint): Checkpoint {
@@ -677,6 +677,7 @@ const agentInstances: Pick<
   | "agentInstances.rename"
   | "agentInstances.fork"
   | "agentInstances.delete"
+  | "agentInstances.revert"
 > = {
   "agentInstances.list": async (input, options) => {
     const name = "SessionService/ListSessions";
@@ -729,7 +730,7 @@ const agentInstances: Pick<
           agent: input.agent,
           requestId: input.requestId,
           // Optional, and empty means unnamed rather than untitled-by-mistake: a
-          // conversation started from a "New chat" button has nothing to be called
+          // conversation started from a "New conversation" button has nothing to be called
           // yet, and inventing a name for it would be putting words in the reader's
           // mouth that they would then have to clear.
           name: input.name ?? "",
@@ -804,7 +805,7 @@ const agentInstances: Pick<
   },
 
   /*
-   * Newest first, because that is the order the chat needs them in and the controller
+   * Newest first, because that is the order the conversation page needs them in and the controller
    * does not promise one. One page: a conversation's boundaries are counted in
    * handfuls, and paging a list this short would be machinery with nothing to do.
    */
@@ -824,7 +825,7 @@ const agentInstances: Pick<
   /*
    * The fork of a boundary saved earlier, which is where the history it holds stops.
    *
-   * `ForkSession` names the fork after the snapshot, so the chat sends no name
+   * `ForkSession` names the fork after the snapshot, so the conversation page sends no name
    * and takes that. `name` is for the caller that wants something else — duplicating a
    * conversation from the rail, which titles the copy after the conversation — and it
    * costs a second call because the fork RPC has nowhere to put it.
@@ -876,7 +877,7 @@ const agentInstances: Pick<
   "agentInstances.fork": async (input, options) => {
     const source = await agentInstances["agentInstances.get"]({ id: input.id }, options);
     const agent = required(source.agent, "SessionService/GetSession", "agent reference");
-    const history = await getChatClient().history({ id: input.id, agent }, options);
+    const history = await getConversationClient().history({ id: input.id, agent }, options);
     const expectedHeadTaskId = history.messages.at(-1)?.taskId;
     if (!expectedHeadTaskId) throw new ApiError("There is no completed turn to fork.", { kind: "http", url: "CheckpointService/CreateCheckpoint", status: 400 });
     const checkpoint = await agentInstances["agentInstances.checkpoints.create"](
@@ -952,6 +953,16 @@ const agentInstances: Pick<
     return toAgentInstance(required(response.session, name, "agent instance"));
   },
 
+  "agentInstances.revert": async (input, options) => {
+    const name = "SessionService/RevertSession";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(SessionService).revertSession(
+        { sessionId: input.id },
+        call("agentInstances.revert", options),
+      ),
+    );
+    return toAgentInstance(required(response.session, name, "agent instance"));
+  },
 };
 
 // endregion
@@ -1076,6 +1087,7 @@ const agentBuildingBlocks: Pick<
   | "agentTemplates.list"
   | "agentTemplates.get"
   | "harnesses.create"
+  | "harnesses.update"
   | "harnesses.delete"
   | "agentTemplates.create"
   | "agentTemplates.update"
@@ -1103,6 +1115,20 @@ const agentBuildingBlocks: Pick<
       ),
     );
     return toHarness(required(response.harness, name, "created harness"));
+  },
+
+  "harnesses.update": async (input, options) => {
+    const name = "HarnessService/UpdateHarness";
+    const response = await rpc(name, options.signal, () =>
+      serviceClient(HarnessService).updateHarness(
+        {
+          ref: { namespace: input.namespace, name: input.name },
+          resource: wrap("Harness", input.resource),
+        },
+        call("harnesses.update", options),
+      ),
+    );
+    return toHarness(required(response.harness, name, "updated harness"));
   },
 
   "harnesses.delete": async (input, options) => {
@@ -1402,9 +1428,20 @@ const cluster: Pick<
   ApiOperations,
   | "namespaces.list"
   | "substrate.summary"
+  | "substrate.workerPools"
   | "substrate.actors"
   | "substrate.workers"
 > = {
+  "substrate.workerPools": async (input, options) => {
+    const response = await rpc("SystemService/ListWorkerPools", options.signal, () =>
+      serviceClient(SystemService).listWorkerPools(
+        { namespace: input.namespace ?? "" },
+        call("substrate.workerPools", options),
+      ),
+    );
+    return list(response.workerPools).map(toWorkerPoolEntry);
+  },
+
   "namespaces.list": async (_input, options) => {
     const response = await rpc("SystemService/ListNamespaces", options.signal, () =>
       serviceClient(SystemService).listNamespaces({}, call("namespaces.list", options)),

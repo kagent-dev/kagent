@@ -1,4 +1,6 @@
 import { defined, mergeDefined } from "./merge";
+import { extensionRowActionsForMenu } from "./rowActions";
+import type { ExtensionRowAction, ExtensionRowMenuId } from "./rowActions";
 import { extensionColumnsForTable } from "./tableColumns";
 import type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
 import { extensionFieldsForForm } from "./formFields";
@@ -15,7 +17,7 @@ import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import type {
   AppExtensionConfig,
   ExtensionAgentLinks,
-  ExtensionChatPartRenderers,
+  ExtensionConversationPartRenderers,
   ExtensionNavItemContribution,
   ExtensionRouteContribution,
   ExtensionRouteHandle,
@@ -115,6 +117,17 @@ export function extensionTableColumns<TRow>(
   );
 }
 
+/** The contributed items for one row menu, in install order. */
+export function extensionRowActions(
+  extensions: readonly AppExtensionConfig[],
+  menuId: ExtensionRowMenuId,
+): ExtensionRowAction[] {
+  return extensionRowActionsForMenu(
+    extensions.flatMap((extension) => extension.rowActions ?? []),
+    menuId,
+  );
+}
+
 /** Every extension's app-level context providers, outermost first. */
 export function extensionProviders(
   extensions: readonly AppExtensionConfig[],
@@ -173,9 +186,9 @@ export function extensionProviderIcons(
   return mergeDefined(extensions.map((extension) => extension.providerIcons));
 }
 
-/** Chat part renderers from every extension, later ones replacing earlier keys. */
-export function extensionChatPartRenderers(
+/** Conversation part renderers from every extension, later ones replacing earlier keys. */
+export function extensionConversationPartRenderers(
   extensions: readonly AppExtensionConfig[],
-): ExtensionChatPartRenderers {
-  return mergeDefined(extensions.map((extension) => extension.chatPartRenderers));
+): ExtensionConversationPartRenderers {
+  return mergeDefined(extensions.map((extension) => extension.conversationPartRenderers));
 }

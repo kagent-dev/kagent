@@ -10,6 +10,10 @@ export { AppExtensionContext, NO_APP_EXTENSIONS } from "./context";
 export { AppExtensionsProvider } from "./AppExtensionsProvider";
 export { ExtensionProviders } from "./ExtensionProviders";
 export { ExtensionSlot } from "./ExtensionSlot";
+// The one UI component re-exported here, so an extension building a Create-modal row
+// matches the built-in rows without copying their styling. It stays safe from import
+// cycles only while it imports nothing from this barrel: keep it that way.
+export { CreateOptionRow } from "@/components/CreateOptionRow";
 export type { ExtensionSlotProps } from "./ExtensionSlot";
 
 export {
@@ -17,13 +21,14 @@ export {
   useExtensionAgentLinks,
   useExtensionApis,
   useExtensionBranding,
-  useExtensionChatPartRenderers,
+  useExtensionConversationPartRenderers,
   useExtensionFormFields,
   useExtensionAgentRailItems,
   useExtensionAgentRailOverrides,
   useExtensionNavItems,
   useExtensionNavOverrides,
   useExtensionProviderIcons,
+  useExtensionRowActions,
   useExtensionRoutes,
   useExtensionShell,
   useExtensionSlotComponents,
@@ -36,7 +41,7 @@ export {
   extensionAgentLinks,
   extensionApis,
   extensionBranding,
-  extensionChatPartRenderers,
+  extensionConversationPartRenderers,
   extensionFormFields,
   extensionAgentRailItems,
   extensionAgentRailOverrides,
@@ -44,6 +49,7 @@ export {
   extensionNavOverrides,
   extensionProviderIcons,
   extensionProviders,
+  extensionRowActions,
   extensionRouteHandles,
   extensionRoutes,
   extensionShell,
@@ -68,10 +74,10 @@ export type {
 
 export type {
   AppExtensionConfig,
-  ChatPartForKey,
-  ChatPartRendererKey,
-  ChatPartRendererProps,
-  ExtensionChatPartRenderers,
+  ConversationPartForKey,
+  ConversationPartRendererKey,
+  ConversationPartRendererProps,
+  ExtensionConversationPartRenderers,
   ExtensionAgentLinks,
   ExtensionAgentInstanceRef,
   ExtensionAgentRef,
@@ -101,7 +107,12 @@ export type {
   ExtensionFormPayload,
 } from "./formFields";
 
-export { buildSidebarSections, isNavPathActive } from "./composition";
+export {
+  activeKeyFor,
+  activeSidebarKey,
+  buildSidebarSections,
+  isNavPathActive,
+} from "./composition";
 export type { SidebarSection } from "./composition";
 
 // One deployment setting, by name. An extension's own settings are named
@@ -114,6 +125,8 @@ export { readEnv } from "@/env";
 // and Table both take a light/dark choice that no design token can stand in for.
 export { useThemeMode } from "@/theme/useThemeMode";
 export type { ThemeMode } from "@/theme/theme";
+// The rail's `Menu` indent, so a contributed entry lines up with the core ones.
+export { NAV_INSET as navInlineIndent } from "@/components/Structure/navItems";
 
 export {
   AppExtensionConfigError,
@@ -154,6 +167,18 @@ export {
   withExtensionColumns,
 } from "./tableColumns";
 export type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
+
+// Row menu actions: items in a list row's ellipsis menu, as data so the host renders
+// them as real menu items.
+export {
+  EXTENSION_ROW_MENU_IDS,
+  extensionRowActionsForMenu,
+  isExtensionRowMenuId,
+  isRowActionVisible,
+  rowActionLink,
+  runRowAction,
+} from "./rowActions";
+export type { ExtensionRowAction, ExtensionRowContext, ExtensionRowMenuId } from "./rowActions";
 
 // Branding: the product's own name and mark, which is identity rather than
 // styling and so should not cost a layout replacement.

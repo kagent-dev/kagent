@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -245,9 +246,68 @@ func (t *turn) items() int { return len(t.entries) }
 
 func (t *turn) item(i int) TaskItem {
 	if e := t.entries[i]; e.artifact != nil {
-		return TaskItem{Index: i, Artifact: e.artifact}
+		artifact := *e.artifact
+		artifact.Parts = withoutImageData(artifact.Parts)
+		return TaskItem{Index: i, Artifact: &artifact}
 	}
-	return TaskItem{Index: i, Message: t.entries[i].message}
+	message := *t.entries[i].message
+	message.Parts = withoutImageData(message.Parts)
+	return TaskItem{Index: i, Message: &message}
+}
+
+// withoutImageData is parts with each tool result image's data replaced by its
+// size, since a text client cannot use base64 and it would crowd out the result.
+func withoutImageData(parts a2atype.ContentParts) a2atype.ContentParts {
+	out := parts
+	for i, part := range parts {
+		if stripped := withoutPartImageData(part); stripped != part {
+			if &out[0] == &parts[0] {
+				out = slices.Clone(parts)
+			}
+			out[i] = stripped
+		}
+	}
+	return out
+}
+
+func withoutPartImageData(part *a2atype.Part) *a2atype.Part {
+	if part == nil {
+		return nil
+	}
+	data, _ := part.Data().(map[string]any)
+	response, _ := data["response"].(map[string]any)
+	// Go agents send response.images; Python agents send image items in response.content.
+	changed := false
+	for _, key := range []string{apia2a.ToolResultImagesKey, "content"} {
+		items, _ := response[key].([]any)
+		listed := make([]any, len(items))
+		for i, item := range items {
+			listed[i] = item
+			fields, ok := item.(map[string]any)
+			encoded, isData := fields["data"].(string)
+			if !ok || !isData || (key == "content" && fields["type"] != "image") {
+				continue
+			}
+			fields = maps.Clone(fields)
+			delete(fields, "data")
+			fields["size"] = len(encoded)
+			listed[i] = fields
+			if !changed {
+				response, changed = maps.Clone(response), true
+			}
+		}
+		if changed && len(items) > 0 {
+			response[key] = listed
+		}
+	}
+	if !changed {
+		return part
+	}
+	data = maps.Clone(data)
+	data["response"] = response
+	out := a2atype.NewDataPart(data)
+	out.Filename, out.MediaType, out.Metadata = part.Filename, part.MediaType, part.Metadata
+	return out
 }
 
 // call is the turn's tool call ref names: its index or its id.
@@ -268,15 +328,17 @@ func (call *toolCall) parts(budget int) (ToolCallParts, bool) {
 	out := ToolCallParts{Index: call.index, ID: call.id, Name: call.name, Pending: call.result == nil}
 	omitted := false
 	if call.call != nil {
-		if size := jsonSize(call.call); jsonSize(out)+size <= budget {
-			out.Call = call.call
+		part := withoutPartImageData(call.call)
+		if size := jsonSize(part); jsonSize(out)+size <= budget {
+			out.Call = part
 		} else {
 			out.OmittedBytes, omitted = out.OmittedBytes+size, true
 		}
 	}
 	if call.result != nil {
-		if size := jsonSize(call.result); jsonSize(out)+size <= budget {
-			out.Result = call.result
+		part := withoutPartImageData(call.result)
+		if size := jsonSize(part); jsonSize(out)+size <= budget {
+			out.Result = part
 		} else {
 			out.OmittedBytes, omitted = out.OmittedBytes+size, true
 		}

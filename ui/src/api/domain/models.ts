@@ -13,8 +13,15 @@ export interface OpenAIConfig {
   seed?: number;
   n?: number;
   timeout?: number;
-  reasoningEffort?: string;
+  reasoningEffort?: OpenAIReasoningEffort;
+  /** Defaults to chatCompletions on the cluster. Codex needs responses. */
+  apiFormat?: OpenAIAPIFormat;
 }
+
+/** `OpenAIAPIFormat` in the CRD. */
+export type OpenAIAPIFormat = "chatCompletions" | "responses";
+/** `OpenAIReasoningEffort` in the CRD. */
+export type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export interface AnthropicConfig {
   baseUrl?: string;
@@ -28,7 +35,6 @@ export interface AzureOpenAIConfig {
   azureEndpoint: string;
   apiVersion: string;
   azureDeployment?: string;
-  azureAdToken?: string;
   temperature?: string;
   maxTokens?: number;
   topP?: string;
@@ -84,7 +90,7 @@ export interface FoundryConfig {
   endpoint?: string;
   deployment: string;
   apiVersion?: string;
-  /** OpenAI-compatible chat completions (default) or the Anthropic Messages API for Claude models. */
+  /** OpenAI-compatible conversation completions (default) or the Anthropic Messages API for Claude models. */
   apiFormat?: "OpenAI" | "Anthropic";
 }
 

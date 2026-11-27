@@ -6,8 +6,13 @@ export interface AgentTemplateLocalRef {
   name: string;
 }
 
-/** A model or MCP reference, local when namespace is omitted. */
+/**
+ * A model or MCP reference, local when namespace is omitted. Omitted `group` and
+ * `kind` mean the default kind; the form keeps them so an edit cannot repoint a reference.
+ */
 export interface ObjectReference {
+  group?: string;
+  kind?: string;
   name: string;
   namespace?: string;
 }
@@ -31,7 +36,8 @@ export interface ConfigMapKeyRef {
  * non-empty list limits the binding to those names.
  */
 export interface McpToolBinding {
-  server: ObjectReference & { kind: "RemoteMCPServer" };
+  /** The API server stores `kind: RemoteMCPServer` when it is omitted. */
+  server: ObjectReference;
   tools?: string[];
   requireApproval?: boolean;
 }
@@ -41,7 +47,7 @@ export interface SubAgentToolBinding {
   name: string;
   description: string;
   templateRef: AgentTemplateLocalRef;
-  // Deferred until Dedicated subagent execution is available.
+  // Deferred until dedicated execution of an agent template used as a tool is available.
   // agentRef?: AgentTemplateLocalRef;
 }
 
@@ -54,8 +60,7 @@ export interface ToolBinding {
 /**
  * One immutable artifact, as `skills` and `plugins` reference content.
  *
- * Exactly one of `oci`, `git` or `bucket`. Left as-is by this build's form, which
- * does not author skills or plugins — see `AgentTemplateSpec.skills`.
+ * Exactly one of `oci`, `git` or `bucket`, plus an optional relative `path` inside it.
  */
 export interface ArtifactSource {
   oci?: string;

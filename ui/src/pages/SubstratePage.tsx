@@ -1,3 +1,5 @@
+import { ReadError } from "@/components/common/ReadError";
+import { pillBorder } from "@/theme/theme";
 import {
   useCallback,
   useEffect,
@@ -151,22 +153,22 @@ function statusPalette(theme: Theme): Record<StatusTone, CSSObject> {
   return {
     healthy: {
       background: theme.color.successBg,
-      borderColor: theme.color.successBorder,
+      borderColor: pillBorder(theme.color.successBorder, theme.color.successBg),
       color: theme.color.successText,
     },
     danger: {
       background: theme.color.dangerBg,
-      borderColor: theme.color.dangerBorder,
+      borderColor: pillBorder(theme.color.dangerBorder, theme.color.dangerBg),
       color: theme.color.dangerText,
     },
     warning: {
       background: theme.color.warningBg,
-      borderColor: theme.color.warningBorder,
+      borderColor: pillBorder(theme.color.warningBorder, theme.color.warningBg),
       color: theme.color.warningText,
     },
     progress: {
       background: theme.color.infoBg,
-      borderColor: theme.color.infoBorder,
+      borderColor: pillBorder(theme.color.infoBorder, theme.color.infoBg),
       color: theme.color.infoText,
     },
     idle: {
@@ -1210,7 +1212,7 @@ export function SubstratePage() {
             </Tooltip>
           ) : null}
 
-          <RefreshButton onRefresh={refreshAll} what="Substrate" loading={isRefreshing} />
+          <RefreshButton onRefresh={refreshAll} what="Substrate" loading={isRefreshing} iconOnly />
         </Space>
       }
     >
@@ -1223,6 +1225,8 @@ export function SubstratePage() {
           <div data-testid="substrate-namespace">
             <Select
               css={{ minWidth: 240 }}
+              autoComplete="off"
+              showSearch={{ optionFilterProp: "label" }}
               value={namespace}
               loading={namespaces.isLoading}
               onChange={(value: string) => {
@@ -1269,32 +1273,23 @@ export function SubstratePage() {
         </Space>
 
         {namespaces.error ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource="the namespace list"
+            error={namespaces.error}
+            testId="substrate-namespaces-error"
+            onRetry={namespaces.refresh}
             title="Could not load the list of namespaces"
             description={`${namespaces.error.message} You can still name a namespace in this page's address.`}
-            data-testid="substrate-namespaces-error"
-            action={
-              <Button size="small" onClick={() => void namespaces.refresh()}>
-                Try again
-              </Button>
-            }
           />
         ) : null}
 
         {summary.error ? (
-          <Alert
-            type="error"
-            showIcon
+          <ReadError
+            resource="Substrate inventory"
+            error={summary.error}
+            testId="substrate-inventory-error"
+            onRetry={summary.refresh}
             title="Substrate inventory could not be read"
-            description={summary.error.message}
-            data-testid="substrate-inventory-error"
-            action={
-              <Button size="small" onClick={() => void summary.refresh()}>
-                Try again
-              </Button>
-            }
           />
         ) : inventory?.ateApiError ? (
           /* A warning beside the data rather than an error instead of it. The read
@@ -1453,17 +1448,12 @@ export function SubstratePage() {
           data-testid="substrate-actors-card"
         >
           {actors.error ? (
-            <Alert
-              type="error"
-              showIcon
+            <ReadError
+              resource="actors"
+              error={actors.error}
+              testId="substrate-actors-error"
+              onRetry={actors.refresh}
               title="Actors could not be read"
-              description={actors.error.message}
-              data-testid="substrate-actors-error"
-              action={
-                <Button size="small" onClick={() => void actors.refresh()}>
-                  Try again
-                </Button>
-              }
             />
           ) : actors.data?.ateApiError ? (
             <PageWarning
@@ -1477,7 +1467,7 @@ export function SubstratePage() {
             title="Actor status"
             vocabulary={ACTOR_STATES}
             noun="Actors"
-            unread={Boolean(summary.error)}
+            unread={Boolean(summary.error || actors.error)}
             counts={inventory?.actorStatusCounts ?? []}
             emptyText="No actors visible in this scope."
           />
@@ -1533,16 +1523,19 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={actors.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
-
-            <PageControls
-              testId="substrate-actors-pages"
-              page={actorPage}
-              hasNext={Boolean(actors.data?.nextPageToken)}
-              onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
-              onBack={actorPage.back}
-              isLoading={actors.isLoading}
-            />
+            {!actors.error && (
+              <>
+                <PageAge computedAt={actors.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
+                <PageControls
+                  testId="substrate-actors-pages"
+                  page={actorPage}
+                  hasNext={Boolean(actors.data?.nextPageToken)}
+                  onNext={() => actorPage.next(actors.data?.nextPageToken ?? "")}
+                  onBack={actorPage.back}
+                  isLoading={actors.isLoading}
+                />
+              </>
+            )}
           </div>
         </Card>
 
@@ -1557,17 +1550,12 @@ export function SubstratePage() {
           data-testid="substrate-workers-card"
         >
           {workers.error ? (
-            <Alert
-              type="error"
-              showIcon
+            <ReadError
+              resource="workers"
+              error={workers.error}
+              testId="substrate-workers-error"
+              onRetry={workers.refresh}
               title="Workers could not be read"
-              description={workers.error.message}
-              data-testid="substrate-workers-error"
-              action={
-                <Button size="small" onClick={() => void workers.refresh()}>
-                  Try again
-                </Button>
-              }
             />
           ) : workers.data?.ateApiError ? (
             <PageWarning
@@ -1611,16 +1599,19 @@ export function SubstratePage() {
               "& > [data-testid$='-pages']": { marginTop: 0 },
             }}
           >
-            <PageAge computedAt={workers.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
-
-            <PageControls
-              testId="substrate-workers-pages"
-              page={workerPage}
-              hasNext={Boolean(workers.data?.nextPageToken)}
-              onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
-              onBack={workerPage.back}
-              isLoading={workers.isLoading}
-            />
+            {!workers.error && (
+              <>
+                <PageAge computedAt={workers.data?.computedAt} pollMs={isTicking ? pollMs : undefined} />
+                <PageControls
+                  testId="substrate-workers-pages"
+                  page={workerPage}
+                  hasNext={Boolean(workers.data?.nextPageToken)}
+                  onNext={() => workerPage.next(workers.data?.nextPageToken ?? "")}
+                  onBack={workerPage.back}
+                  isLoading={workers.isLoading}
+                />
+              </>
+            )}
           </div>
         </Card>
       </Space>

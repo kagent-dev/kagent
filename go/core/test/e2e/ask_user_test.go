@@ -32,7 +32,7 @@ func TestSessionAskUserDisabled(t *testing.T) {
 		template := &v1alpha3.AgentTemplate{
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "ask-user-disabled-", Namespace: "kagent", Labels: harness.labels()},
 			Spec: v1alpha3.AgentTemplateSpec{
-				ModelConfig: &v1alpha3.ObjectReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
+				ModelConfig: &v1alpha3.ModelConfigReference{Name: model.Name}, SystemPrompt: "Reply briefly.",
 			},
 		}
 		createAndWaitInteractionTemplate(t, harness, kube, template)

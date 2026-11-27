@@ -26,7 +26,7 @@ import { withScenario } from "./app";
  *
  * **By shape, not by folder.** Any one test of ten or more steps needs it, wherever it
  * lives — `conventions.test.ts` checks that. Applying it to the resource folders alone
- * left `chat/questions.spec.ts` with twelve steps on the default, which is what timed
+ * left `conversation/questions.spec.ts` with twelve steps on the default, which is what timed
  * out in CI at step eight while passing twenty times in isolation.
  *
  * Sixty rather than ninety, and the difference is the point: loose enough for a
@@ -39,8 +39,8 @@ export const LIFECYCLE_TIMEOUT = 60_000;
 /**
  * Presses a dialog's button, once the dialog has stopped arriving.
  *
- * antd animates a modal and a popconfirm in, and Playwright can compute a click's
- * coordinates while one is still moving — measured once on a loaded Firefox run at
+ * antd animates a modal in, and Playwright can compute a click's coordinates
+ * while it is still moving — measured once on a loaded Firefox run at
  * 238px left and 224px below the button, on the backdrop, with the button itself in
  * the same place before the click and after it. It fails as "the dialog would not
  * close" rather than as a missed click, which is why it costs an afternoon each time.
@@ -80,14 +80,13 @@ export async function pressOnce(button: Locator): Promise<void> {
  * **Three preconditions, each of which has been broken at least once.**
  *
  * - **`button` must not toggle.** Retrying a control that toggles undoes the press
- *   that worked — an antd popconfirm trigger is one.
+ *   that worked — a dropdown trigger is one.
  * - **`settled` must not be satisfiable by doing nothing.** "The dialog is gone" is
  *   already true before the dialog opens, so the helper returns without pressing
  *   anything and the failure surfaces somewhere else entirely.
  * - **A second click must be harmless where it *lands*,** not only on the button it
  *   was aimed at. A dialog sits over the page, so a retry going out after the dialog
- *   has closed hits whatever is behind it: a popconfirm sits directly over its own
- *   trigger, and a modal usually sits over a list of links.
+ *   has closed hits whatever is behind it: a modal usually sits over a list of links.
  *
  * Where any of those is in doubt, use `pressOnce`. What this also gives up is a
  * control that genuinely needed pressing twice — a real product bug it can no longer
@@ -203,17 +202,6 @@ export async function chooseFilter(
   await page.keyboard.press("Escape");
 }
 
-/**
- * The confirmation a row's delete opens, and the modal a page-level one opens.
- *
- * Scoped to the visible one: every row's popconfirm is in the DOM at once, so an
- * unscoped "Delete" can answer a prompt nobody is looking at — and pass while
- * deleting the wrong resource.
- */
-export function confirmation(page: Page): Locator {
-  return page.locator(".ant-popconfirm:visible");
-}
-
 export function dialog(page: Page): Locator {
   return page.locator(".ant-modal:visible");
 }
@@ -226,7 +214,7 @@ export function anyDialog(page: Page): Locator {
 /**
  * Opens one row's delete confirmation and answers it.
  *
- * Any previous confirmation is waited out first, because a dismissed popconfirm stays
+ * Any previous confirmation is waited out first, because a dismissed modal stays
  * visible while it animates away — a caller that has just pressed "Keep" would
  * otherwise find that closing dialog and click the Delete inside it.
  *
@@ -234,31 +222,41 @@ export function anyDialog(page: Page): Locator {
  * first press opened. The `toBeVisible` between the two is what makes a Delete aimed
  * at nothing fail here rather than several assertions downstream.
  */
-export async function confirmDelete(page: Page, name: string): Promise<void> {
-  const open = confirmation(page);
+export async function confirmDelete(
+  page: Page,
+  name: string, // the row's `namespace/name` when `fromMenu`
+  { fromMenu = false }: { fromMenu?: boolean } = {},
+): Promise<void> {
+  const open = dialog(page);
   await expect(open).toHaveCount(0);
 
-  await page.getByTestId(`delete-${name}`).click();
+  if (fromMenu) {
+    await page.getByTestId(`row-actions-${name}`).click();
+    await page.getByTestId(`row-delete-${name}`).click();
+  } else {
+    await page.getByTestId(`delete-${name}`).click();
+  }
   await expect(open).toBeVisible();
   await pressOnce(open.getByRole("button", { name: "Delete" }));
 }
 
 /** One field's label, by the text a reader sees on it. */
 function fieldLabel(page: Page, text: string): Locator {
-  // Exact, because these labels are prefixes of each other: "Name" would otherwise
-  // match "Namespace" too, and match it first.
+  // Anchored, because labels are prefixes of each other ("Name", "Namespace"), and
+  // `FieldLabel` appends "*(required)" or "(optional)" after the text.
+  const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return page
     .locator(".ant-form-item-label label")
-    .filter({ has: page.getByText(text, { exact: true }) });
+    .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*(\\*\\s*\\(required\\)|\\(optional\\))\\s*$`) });
 }
 
 /**
- * The asterisk on a field the form will not submit without — and its absence.
+ * The required mark on a field the form will not submit without, and "(optional)" on
+ * every other one.
  *
- * antd draws the mark from `required` on a `Form.Item`, while every authoring surface
- * here gates its own submit in code (`draftProblems`, `modelDraftIssues`,
- * `validateMcpServerForm`). So the mark and the gate are two separate statements
- * about the same field, and nothing but a test keeps them agreeing.
+ * `FieldLabel` draws the mark from `required` on a `FormField`, while every authoring
+ * surface gates its own submit in code. So the mark and the gate are two separate
+ * statements about the same field, and nothing but a test keeps them agreeing.
  *
  * Both lists are taken so a call site reads as the claim it is making: a check of the
  * marks alone would pass just as well on a form that marked every field.
@@ -277,13 +275,17 @@ export async function expectRequired(
   for (const text of marked) {
     const label = fieldLabel(page, text);
     await expect(label, `"${text}" is required, so it must be marked`).toHaveCount(1);
-    await expect(label).toHaveClass(/ant-form-item-required/);
+    await expect(label.getByTestId("field-required")).toHaveCount(1);
   }
   for (const text of unmarked) {
     const label = fieldLabel(page, text);
-    await expect(label, `"${text}" is optional, so it must not be marked`).toHaveCount(
-      1,
-    );
-    await expect(label).not.toHaveClass(/ant-form-item-required/);
+    await expect(label, `"${text}" is optional, so it must say so`).toHaveCount(1);
+    await expect(label.getByTestId("field-optional")).toHaveCount(1);
   }
+}
+
+/** Opens a list row's ellipsis menu and picks `action`. `ref` is the row's `namespace/name`. */
+export async function rowAction(page: Page, ref: string, action: "edit" | "copy"): Promise<void> {
+  await page.getByTestId(`row-actions-${ref}`).click();
+  await page.getByTestId(`row-${action}-${ref}`).click();
 }

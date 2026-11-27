@@ -169,6 +169,8 @@ func compilationFailure(err error) *ReconciliationFailure {
 	var validation *translator.ValidationError
 	var missingPool *translator.WorkerPoolNotFoundError
 	switch {
+	case errors.Is(err, translator.ErrInvalidKind):
+		reason = "InvalidKind"
 	case errors.As(err, &validation):
 		// TODO(tim): Separate structural Agent validation from resolved
 		// compatibility failures so invalid sources do not report Accepted=True
@@ -540,26 +542,24 @@ func (r *Reconciler) reconcileModelConfigStatus(ctx context.Context, key string)
 }
 
 func statusWithTransitionTimes(desired, current kagentv1alpha3.AgentStatus) kagentv1alpha3.AgentStatus {
-	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
-	for i := range desired.Conditions {
-		condition := &desired.Conditions[i]
-		previous := apimeta.FindStatusCondition(current.Conditions, condition.Type)
-		if previous != nil && previous.Status == condition.Status {
-			condition.LastTransitionTime = previous.LastTransitionTime
-		} else {
-			condition.LastTransitionTime = metav1.Now()
-		}
-	}
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
 	return desired
 }
 
 func modelConfigStatusWithTransitionTimes(desired, current kagentv1alpha3.ModelConfigStatus) kagentv1alpha3.ModelConfigStatus {
-	desired.Conditions = append([]metav1.Condition(nil), desired.Conditions...)
-	for conditionIndex := range desired.Conditions {
-		condition := &desired.Conditions[conditionIndex]
-		if previous := apimeta.FindStatusCondition(current.Conditions, condition.Type); previous != nil &&
-			previous.Status == condition.Status && previous.Reason == condition.Reason &&
-			previous.Message == condition.Message && previous.ObservedGeneration == condition.ObservedGeneration {
+	desired.Conditions = conditionsWithTransitionTimes(desired.Conditions, current.Conditions)
+	return desired
+}
+
+// conditionsWithTransitionTimes keeps the transition time a condition's
+// status holds and stamps the current time when the status changes, as
+// apimeta.SetStatusCondition does; a new reason or message alone is no
+// transition.
+func conditionsWithTransitionTimes(desired, current []metav1.Condition) []metav1.Condition {
+	desired = append([]metav1.Condition(nil), desired...)
+	for conditionIndex := range desired {
+		condition := &desired[conditionIndex]
+		if previous := apimeta.FindStatusCondition(current, condition.Type); previous != nil && previous.Status == condition.Status {
 			condition.LastTransitionTime = previous.LastTransitionTime
 			continue
 		}

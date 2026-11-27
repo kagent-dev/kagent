@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { EgressPolicy } from "@/api";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import {
   POLICY_NAME_MAX,
   draftFromPolicy,
+  destinationFieldKey,
+  draftFieldIssues,
   draftIssues,
   emptyDestination,
   emptyPolicyDraft,
@@ -16,7 +19,7 @@ const policy: EgressPolicy = {
   namespace: "kagent",
   name: "github",
   resource: {
-    apiVersion: "api.kagent.dev/v1alpha3",
+    apiVersion: KAGENT_API_VERSION,
     kind: "EgressPolicy",
     metadata: { name: "github", namespace: "kagent", resourceVersion: "7", labels: { team: "infra" } },
     spec: {
@@ -107,5 +110,23 @@ describe("policyNameProblem", () => {
 
   it("asks for a name when it is blank", () => {
     expect(policyNameProblem("  ")).toBe(egressCopy.form.nameRequired);
+  });
+
+  it("files each problem under the field that shows it", () => {
+    const draft = emptyPolicyDraft("kagent");
+    draft.name = "x";
+    const row = { ...emptyDestination(), origin: "https://a.example.com", auth: "secret" as const, prefix: "a\u0001" };
+    draft.destinations = [row];
+    const fields = draftFieldIssues(draft).map((issue) => issue.field);
+    expect(fields).toEqual([
+      destinationFieldKey(row.id, "header"),
+      destinationFieldKey(row.id, "prefix"),
+      destinationFieldKey(row.id, "secretName"),
+      destinationFieldKey(row.id, "secretKey"),
+    ]);
+    expect(draftFieldIssues({ ...draft, name: "", namespace: "" }).map((issue) => issue.field).slice(0, 2)).toEqual([
+      "name",
+      "namespace",
+    ]);
   });
 });

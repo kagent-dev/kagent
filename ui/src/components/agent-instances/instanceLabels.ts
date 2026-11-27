@@ -169,7 +169,7 @@ const AUTO_TITLE_LENGTH = 60;
  * whole of why this is a separate function rather than something `conversationTitle`
  * does for itself. Deriving it needs `ListTasks` for that one conversation, so a
  * *list* of conversations would pay one round trip per row to put a title on each;
- * the chat page has the messages in hand already, and passes what it found.
+ * the conversation page has the messages in hand already, and passes what it found.
  *
  * Cut on a word boundary where there is one within reach, because a title broken
  * mid-word reads as a rendering fault rather than as a summary. Returns `undefined`
@@ -207,10 +207,22 @@ export function autoTitleFrom(firstMessage: string | undefined): string | undefi
 export function conversationTitle(
   instance: AgentInstance,
   autoTitle?: string,
+  isTitleLoading = false,
 ): string {
   if (instance.name.trim() !== "") return instance.name;
   if (autoTitle && autoTitle.trim() !== "") return autoTitle;
+  // Not "Untitled" until the read says so; text contexts name it by id meanwhile.
+  if (isTitleLoading) return `Conversation ${shortInstanceId(instance.id)}`;
   return `Untitled · ${shortInstanceId(instance.id)}`;
+}
+
+/** Whether a row should show the title placeholder: unnamed, untitled, and its read in flight. */
+export function isConversationTitlePending(
+  instance: AgentInstance,
+  autoTitle: string | undefined,
+  loading: ReadonlySet<string>,
+): boolean {
+  return !hasConversationName(instance) && !autoTitle?.trim() && loading.has(instance.id);
 }
 
 /**

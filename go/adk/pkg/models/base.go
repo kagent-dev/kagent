@@ -88,6 +88,21 @@ func withConnectTimeout(base http.RoundTripper, connectTimeout time.Duration) (h
 // BearerTokenKey is the context key for storing the bearer token for API key passthrough
 var BearerTokenKey = &contextKey{}
 
+type sessionIDKey struct{}
+
+// WithSessionID preserves the native ADK session ID when HTTP clients and MCP
+// transports derive contexts that no longer expose ADK methods.
+func WithSessionID(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, sessionIDKey{}, sessionID)
+}
+
+// SessionIDFromContext returns the native ADK session ID captured before
+// transport wrapping, or an empty string when none was captured.
+func SessionIDFromContext(ctx context.Context) string {
+	sessionID, _ := ctx.Value(sessionIDKey{}).(string)
+	return sessionID
+}
+
 // PassthroughToken returns the caller's bearer token from ctx when apiKeyPassthrough
 // is enabled, so every model/embedding provider resolves passthrough the same way.
 // Each caller wraps the returned token in its own SDK's request-option type, since

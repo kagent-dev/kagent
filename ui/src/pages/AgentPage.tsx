@@ -1,13 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Alert, Button, Card, Space, Table, Tooltip, Typography } from "antd";
+import { Alert, Button, Card, Skeleton, Space, Table, Tooltip, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Pencil } from "lucide-react";
 import { useTheme } from "@emotion/react";
 import { AgentRail } from "@/components/agent/AgentRail";
 import { AgentStatusTag } from "@/components/agent/AgentStatusTag";
 import { AgentSchedules } from "@/components/agent/AgentSchedules";
-import { AgentContextPanel } from "@/components/chat/AgentContextPanel";
+import { AgentContextPanel } from "@/components/conversation/AgentContextPanel";
 import { PageFrame } from "@/components/Structure/PageFrame";
 import { buildPath, paths } from "@/router/routes";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/appExtensions";
 import {
   apiClient,
+  agentUpdateFailedReason,
   isNotFound,
   newConversationBlockedReason,
   useAgentConversations,
@@ -26,18 +27,21 @@ import {
   type Agent,
   type AgentInstance,
 } from "@/api";
+import { useConversationTitles } from "@/api/hooks/useConversationTitles";
 import { agentPageUrl, agentUrl } from "@/components/agent/agentUrl";
 import { StateTag, ValueOrNotReported } from "@/components/agent-instances/InstanceTags";
 import {
   conversationTitle,
   hasConversationName,
+  isConversationTitlePending,
   relativeAge,
   shortInstanceId,
 } from "@/components/agent-instances/instanceLabels";
 import { RenameConversationButton } from "@/components/agent-instances/RenameConversationButton";
+import { ConversationTitlePlaceholder } from "@/components/agent-instances/ConversationTitlePlaceholder";
 import { DeleteResourceButton } from "@/components/table/DeleteResourceButton";
 import { FilterBar } from "@/components/table/FilterBar";
-import { useListView } from "@/components/table/useListView";
+import { useListView, type SortState } from "@/components/table/useListView";
 import { clickableRow } from "@/components/table/rowClick";
 import {
   byText,
@@ -51,13 +55,15 @@ const { Paragraph, Text } = Typography;
 
 const FILTER_IDS: readonly string[] = ["state"];
 const PAGE_SIZE = 25;
+// Most recently active first until the reader picks another order.
+const DEFAULT_SORT: SortState = { column: "updatedAt", direction: "desc" };
 
 /** An Agent definition and the conversations pinned to its revisions. */
 export function AgentPage() {
   const theme = useTheme();
   const navigate = useNavigate();
   const { namespace, name } = useParams<{ namespace: string; name: string }>();
-  const view = useListView(FILTER_IDS);
+  const view = useListView(FILTER_IDS, DEFAULT_SORT);
   const definition = useAgent(namespace, name);
   const invalidateAgents = useInvalidateAgents();
   const conversations = useAgentConversations(namespace, name);
@@ -74,6 +80,19 @@ export function AgentPage() {
   const openableIds = useMemo(
     () => conversations.data && new Set(conversations.data.own.map((row) => row.id)),
     [conversations.data],
+  );
+
+  // Titled the way the rail titles them, from the same cached reads.
+  const { titles: derivedTitles, loading: loadingTitles } = useConversationTitles(rows);
+  const isTitlePending = useMemo(
+    () => (row: AgentInstance) =>
+      isConversationTitlePending(row, derivedTitles[row.id], loadingTitles),
+    [derivedTitles, loadingTitles],
+  );
+  const titleOf = useMemo(
+    () => (row: AgentInstance) =>
+      conversationTitle(row, derivedTitles[row.id], isTitlePending(row)),
+    [derivedTitles, isTitlePending],
   );
 
   const stateOptions = useMemo(() => {
@@ -94,25 +113,25 @@ export function AgentPage() {
         // The id as well as the title: an id is what a bug report or a log line
         // carries, and it is the only handle an untitled conversation has.
         return matchesQuery(view.query, [
-          conversationTitle(row),
+          titleOf(row),
           row.id,
           row.creator,
         ]);
       }),
-    [rows, selectedStates, view.query],
+    [rows, selectedStates, view.query, titleOf],
   );
 
   /**
    * Where a conversation row leads.
    *
-   * A distribution serving its own chat redirects it through
+   * A distribution serving its own conversation page redirects it through
    * `agentLinks.fromInstancesList` — which is where instance rows are listed now — and
    * a contribution that throws or answers with nothing falls back to this
    * application's own route rather than to a dead link.
    */
   const { fromInstancesList } = useExtensionAgentLinks();
-  const chatPath = (row: AgentInstance) => {
-    const own = agentUrl.chat({ id: row.id });
+  const conversationPath = (row: AgentInstance) => {
+    const own = agentUrl.conversation({ id: row.id });
     if (!fromInstancesList) return own;
     try {
       const destination = fromInstancesList(row);
@@ -123,6 +142,7 @@ export function AgentPage() {
   };
 
   const blockedReason = agent ? newConversationBlockedReason(agent) : undefined;
+  const updateFailedReason = agent ? agentUpdateFailedReason(agent) : undefined;
 
   /*
    * Goes to the new-conversation page rather than creating one here.
@@ -130,10 +150,10 @@ export function AgentPage() {
    * Creating on the click is what left nine empty conversations on the live cluster —
    * every visit that changed its mind kept its instance, and an instance holds a
    * prepared revision that is not collected when the last one referencing it goes. The
-   * create now belongs to the first message; see `AgentNewChatPage`.
+   * create now belongs to the first message; see `AgentNewConversationPage`.
    */
   function startConversation(): void {
-    if (namespace && name) navigate(buildPath(paths.agentNewChat, { namespace, name }));
+    if (namespace && name) navigate(buildPath(paths.agentNewConversation, { namespace, name }));
   }
 
   async function removeAgent(): Promise<void> {
@@ -175,10 +195,15 @@ export function AgentPage() {
       {
         title: "Conversation",
         key: "name",
-        sorter: byText<AgentInstance>((row) => conversationTitle(row)),
+        sorter: byText<AgentInstance>(titleOf),
         sortOrder: sortOrderFor(view, "name"),
         render: (_, row) => {
-          const title = conversationTitle(row);
+          const title = titleOf(row);
+          const shown = isTitlePending(row) ? (
+            <ConversationTitlePlaceholder instanceId={row.id} width="9em" />
+          ) : (
+            title
+          );
           // Until the read lands nothing is known about who may open what, so
           // nothing is claimed: treating an unread answer as "not yours" would
           // strip the links off a list that is about to be perfectly openable.
@@ -188,7 +213,7 @@ export function AgentPage() {
             <Space size={8}>
               {openable ? (
                 <Link
-                  to={chatPath(row)}
+                  to={conversationPath(row)}
                   aria-label={`Open conversation ${title}`}
                   data-testid={`conversation-link-${row.id}`}
                   css={{
@@ -196,7 +221,7 @@ export function AgentPage() {
                     fontStyle: hasConversationName(row) ? undefined : "italic",
                   }}
                 >
-                  {title}
+                  {shown}
                 </Link>
               ) : (
                 /* No link, deliberately. `GetAgentInstance` is scoped to its
@@ -210,7 +235,7 @@ export function AgentPage() {
                     data-testid={`conversation-unopenable-${row.id}`}
                     css={{ color: theme.color.textMuted, fontStyle: "italic" }}
                   >
-                    {title}
+                    {shown}
                   </Text>
                 </Tooltip>
               )}
@@ -257,6 +282,8 @@ export function AgentPage() {
         width: 140,
         sorter: byText<AgentInstance>((row) => row.updatedAt),
         sortOrder: sortOrderFor(view, "updatedAt"),
+        // Clearing returns to the newest-first default, so the click cycle starts there.
+        sortDirections: ["descend", "ascend"],
         render: (_, row) =>
           row.updatedAt ? (
             <Tooltip title={row.updatedAt}>
@@ -281,7 +308,7 @@ export function AgentPage() {
               <RenameConversationButton instance={row} disabled={!mine} />
               <DeleteResourceButton
                 kind="conversation"
-                name={conversationTitle(row)}
+                name={titleOf(row)}
                 disabled={!mine}
                 forceLabel="Stop active turns and delete"
                 onDelete={(force) => apiClient.agentInstances.remove(row.id, { force })}
@@ -292,11 +319,11 @@ export function AgentPage() {
         },
       },
     ],
-    // `chatPath` is rebuilt every render and closes only over the extension link, which
+    // `conversationPath` is rebuilt every render and closes only over the extension link, which
     // is stable for the life of the app, so it is deliberately not a dependency:
     // antd rebuilds a table's internal column state whenever this array changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [conversations.refresh, openableIds, theme, extensionColumns, view],
+    [conversations.refresh, openableIds, theme, extensionColumns, view, titleOf, isTitlePending],
   );
 
   const othersCount = rows.filter(
@@ -307,7 +334,7 @@ export function AgentPage() {
     // No heading and no actions row.
     //
     // The rail beside this page names the agent and carries both the way back to the
-    // agents list and New chat, so a title repeating the name, a subtitle repeating the
+    // agents list and New conversation, so a title repeating the name, a subtitle repeating the
     // harness, and three buttons duplicating rail entries cost a band across the top and
     // said nothing new.
     //
@@ -319,7 +346,7 @@ export function AgentPage() {
       {/*
         The same rail as the conversation surfaces.
 
-        This page was the one agent surface without it, so arriving here from a chat
+        This page was the one agent surface without it, so arriving here from a conversation
         took the navigation away — and arriving from the agents list gave a reader no
         way onward except back. The rail is the navigation *within* an agent, so a
         surface that drops it is a dead end.
@@ -329,10 +356,9 @@ export function AgentPage() {
         conversation — its record, and the switcher — are withheld rather than pointed
         at an id that does not exist.
 
-        Its conversation list and the table below are the same rows twice, and that is
-        deliberate rather than overlooked: the rail is chrome that persists across every
-        agent surface, and the table is this page's content, carrying state, counts,
-        renaming and deletion that the rail does not.
+        Its list is the caller's own conversations, as on every agent surface, so opening
+        one keeps the same rows. The table also lists others' conversations, which only
+        their creators can open.
       */}
       <div
         data-testid="agent-surface"
@@ -344,7 +370,7 @@ export function AgentPage() {
            *
            * Stretched, each sidebar is as tall as the whole conversation — and a sticky
            * element as tall as its scroll container has nowhere to stick, so on a long
-           * chat both rails scrolled away with the page. At `flex-start` they keep
+           * conversation both rails scrolled away with the page. At `flex-start` they keep
            * their own height and stay put, which is the entire reason they are sticky.
            */
           alignItems: "flex-start",
@@ -361,8 +387,8 @@ export function AgentPage() {
             // Known from the URL here, so the switcher can leave this agent out of its
             // own list without waiting for a conversation that does not exist.
             agentRef={{ namespace: namespace ?? "", name }}
-            instances={{ ...conversations, data: rows }}
-            onNewChat={startConversation}
+            instances={{ ...conversations, data: conversations.data?.own }}
+            onNewConversation={startConversation}
           />
         ) : null}
 
@@ -413,6 +439,20 @@ export function AgentPage() {
           />
         ) : null}
 
+        {updateFailedReason ? (
+          <Alert
+            type="warning"
+            showIcon
+            data-testid="agent-update-failed"
+            data-update-failed-reason={updateFailedReason}
+            title="The latest change to this agent failed. Conversations still use the last good revision."
+            // Nothing is blocked here, because conversations keep the last good revision, so
+            // the status tag's tooltip was the only place this showed up. The message is
+            // the controller's Ready condition, which is already redacted for status.
+            description={updateFailedReason}
+          />
+        ) : null}
+
         {conversations.error ? (
           <Alert
             type="error"
@@ -443,7 +483,7 @@ export function AgentPage() {
           />
         ) : null}
 
-        {agent ? <AgentIdentityCard agent={agent} /> : null}
+        {agent || definition.isLoading ? <AgentIdentityCard agent={agent} /> : null}
 
         <FilterBar
           testId="conversations-filters"
@@ -557,11 +597,11 @@ export function AgentPage() {
               : view.isNarrowed
                 ? "No conversations match those filters."
                 : conversations.data
-                  ? "No conversations with this agent yet. Start one with “New chat”."
+                  ? "No conversations with this agent yet. Start one with “New conversation”."
                   : " ",
           }}
           onRow={(row) =>
-            clickableRow(() => void navigate(chatPath(row)), {
+            clickableRow(() => void navigate(conversationPath(row)), {
               enabled: openableIds === undefined || openableIds.has(row.id),
             })
           }
@@ -577,7 +617,7 @@ export function AgentPage() {
       {/*
         What this agent is, beside the conversations it has had.
 
-        The same panel the chat carries, given the Agent reference rather than a conversation: the
+        The same panel the conversation page carries, given the Agent reference rather than a conversation: the
         model, the instructions and the tools all live on the template, so this page can
         show them without an instance to read them through. Only the prepared revision
         needs a conversation, and it is left out here rather than guessed at.
@@ -606,7 +646,7 @@ export function AgentPage() {
                 navigate(paths.agents);
                 void invalidateAgents().catch(() => {});
               }}
-              description="Stops new conversations. Existing conversations keep their prepared revisions. Shared templates and Harnesses are preserved."
+              description="Stops new conversations. Existing conversations keep their prepared revisions. Agent templates and harnesses are preserved."
             />
           </Space>
         ) : null}
@@ -644,14 +684,24 @@ function IdentityField({ label, children }: { label: string; children: ReactNode
   );
 }
 
-/** What this agent is made of: each half is a shared resource or inline in the Agent. */
-function AgentIdentityCard({ agent }: { agent: Agent }) {
+/** A value still loading, as tall as the line it stands in for: 22px for text, 23px for a tag. */
+function IdentityPlaceholder({ height }: { height: number }) {
+  return (
+    <div css={{ height, display: "flex", alignItems: "center" }}>
+      <Skeleton.Input active size="small" style={{ height: 14, minWidth: 0, width: 120 }} />
+    </div>
+  );
+}
+
+/**
+ * What this agent is made of: each half is a shared resource or inline in the Agent.
+ * Without an agent it holds the same layout with placeholders, so the table below stays put.
+ */
+function AgentIdentityCard({ agent }: { agent?: Agent }) {
   const theme = useTheme();
-  const { spec, status } = agent.resource;
-  const mono = { fontFamily: theme.font.mono, fontSize: 12 };
 
   return (
-    <Card data-testid="agent-identity" size="small">
+    <Card data-testid={agent ? "agent-identity" : "agent-identity-loading"} size="small">
       <div
         css={{
           display: "grid",
@@ -659,61 +709,15 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
           gap: theme.space(4),
         }}
       >
-        <IdentityField label="Agent template">
-          {spec.template.ref ? (
-            <Link
-              to={buildPath(paths.agentTemplateDetail, {
-                namespace: agent.namespace,
-                name: spec.template.ref.name,
-              })}
-              data-testid="agent-template-link"
-              css={{
-                fontFamily: theme.font.mono,
-                color: theme.color.primaryText,
-                display: "inline-flex",
-                alignItems: "center",
-                gap: theme.space(2),
-                minWidth: 0,
-              }}
-            >
-              <Text
-                ellipsis={{ tooltip: spec.template.ref.name }}
-                css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
-              >
-                {spec.template.ref.name}
-              </Text>
-              <Pencil size={12} aria-hidden color={theme.color.textMuted} />
-            </Link>
-          ) : (
-            <Text data-testid="agent-template-inline">Inline</Text>
-          )}
-        </IdentityField>
-
-        <IdentityField label="Runs on">
-          <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
-            {spec.harnessRef.name}
-          </Text>
-        </IdentityField>
-
-        <IdentityField label="Revision">
-          {status?.latestSuccessfulRevision ? (
-            // Truncated with a copy button: a revision is a long hash people copy, not read.
-            <Text
-              ellipsis={{ tooltip: status.latestSuccessfulRevision }}
-              copyable={{ text: status.latestSuccessfulRevision }}
-              css={mono}
-              data-testid="agent-revision"
-            >
-              {status.latestSuccessfulRevision}
-            </Text>
-          ) : (
-            <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None yet</Text>
-          )}
-        </IdentityField>
-
-        <IdentityField label="Status">
-          <AgentStatusTag agent={agent} testId="agent-revision-state" />
-        </IdentityField>
+        {agent ? (
+          <AgentIdentityFields agent={agent} />
+        ) : (
+          ["Agent template", "Harness", "Revision", "Status"].map((label) => (
+            <IdentityField key={label} label={label}>
+              <IdentityPlaceholder height={label === "Status" ? 23 : 22} />
+            </IdentityField>
+          ))
+        )}
       </div>
       <Paragraph
         css={{
@@ -727,5 +731,72 @@ function AgentIdentityCard({ agent }: { agent: Agent }) {
         Templates may be inline or shared; Harnesses are always referenced.
       </Paragraph>
     </Card>
+  );
+}
+
+function AgentIdentityFields({ agent }: { agent: Agent }) {
+  const theme = useTheme();
+  const { spec, status } = agent.resource;
+  const mono = { fontFamily: theme.font.mono, fontSize: 12 };
+
+  return (
+    <>
+      <IdentityField label="Agent template">
+        {spec.template.ref ? (
+          <Link
+            to={buildPath(paths.agentTemplateDetail, {
+              namespace: agent.namespace,
+              name: spec.template.ref.name,
+            })}
+            data-testid="agent-template-link"
+            css={{
+              fontFamily: theme.font.mono,
+              color: theme.color.primaryText,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: theme.space(2),
+              minWidth: 0,
+            }}
+          >
+            <Text
+              ellipsis={{ tooltip: spec.template.ref.name }}
+              css={{ color: "inherit", fontFamily: "inherit", fontSize: 12 }}
+            >
+              {spec.template.ref.name}
+            </Text>
+            <Pencil size={12} aria-hidden color={theme.color.textMuted} />
+          </Link>
+        ) : (
+          <Text data-testid="agent-template-inline">Inline</Text>
+        )}
+      </IdentityField>
+
+      <IdentityField label="Harness">
+        <Text ellipsis={{ tooltip: spec.harnessRef.name }} css={mono}>
+          {spec.harnessRef.name}
+        </Text>
+      </IdentityField>
+
+      <IdentityField label="Revision">
+        {status?.latestSuccessfulRevision ? (
+          // Truncated with a copy button: a revision is a long hash people copy, not read.
+          <Text
+            ellipsis={{ tooltip: status.latestSuccessfulRevision }}
+            copyable={{ text: status.latestSuccessfulRevision }}
+            // One line before antd measures the ellipsis, or the first frame wraps the hash.
+            css={{ ...mono, whiteSpace: "nowrap" }}
+            data-testid="agent-revision"
+          >
+            {status.latestSuccessfulRevision}
+          </Text>
+        ) : (
+          <Text css={{ color: theme.color.textMuted, fontSize: 12 }}>None yet</Text>
+        )}
+      </IdentityField>
+
+      <IdentityField label="Status">
+        <AgentStatusTag agent={agent} testId="agent-revision-state" />
+      </IdentityField>
+    </>
   );
 }

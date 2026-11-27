@@ -83,6 +83,10 @@ export type Session = Message<"kagent.api.v1.Session"> & {
   operation: RuntimeOperation;
 
   /**
+   * Output only. With state FAILED, reason RuntimeCrashed and operation REVERT
+   * mean a crash recovery is pending; reason RuntimeLost and operation NONE mean
+   * the recorded runtime is gone and the Session can only be deleted.
+   *
    * @generated from field: kagent.api.v1.Failure failure = 9;
    */
   failure?: Failure | undefined;

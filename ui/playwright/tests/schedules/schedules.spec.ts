@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import { tick } from "../../helpers/controls";
-import { LIFECYCLE_TIMEOUT, optionNamed, pressUntil } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, anyDialog, optionNamed, pressOnce, pressUntil } from "../../helpers/resource";
 
 /**
  * Schedules — the whole life of one, in a single journey.
@@ -106,7 +106,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     const conversation = page.getByTestId("execution-conversation").first();
     await expect(conversation).toHaveAttribute(
       "href",
-      "/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat",
+      "/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/conversation",
     );
     await expect(conversation.locator("svg")).toHaveCount(1);
   });
@@ -141,7 +141,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     // is what this pins: the click would then unfold the row on the way out, and only
     // this assertion would notice.
     await row.getByTestId("execution-conversation").click();
-    await expect(page).toHaveURL("/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/chat");
+    await expect(page).toHaveURL("/agents/6f1c9d20-1b7a-4a1e-9a3f-2c0d8e5b1a44/conversation");
     await expect(page.getByTestId("execution-detail")).toHaveCount(0);
     await page.goBack();
     await expect(page).toHaveURL(`/schedules/${SEEDED}`);
@@ -196,7 +196,7 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
     // The header keeps the four reversible controls and none of the destructive one.
     await expect(
-      page.getByRole("button", { name: /^(Run|Pause|Resume|Edit|Refresh)$/ }),
+      page.getByRole("button", { name: /^(Run|Pause|Resume|Edit|Refresh schedule)$/ }),
     ).toHaveCount(4);
     await expect(page.getByRole("button", { name: /^Delete/ })).toHaveCount(1);
   });
@@ -251,8 +251,23 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
     ).toBeVisible();
     await expect(page.getByTestId("schedule-history")).toHaveCount(0);
 
-    await page.getByTestId("schedule-submit").click();
+    // Create is held back beside a note; Enter in a field flags every problem instead.
+    await expect(page.getByTestId("schedule-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("schedule-blocked")).toContainText("Fill in the required (*) fields.");
+    await page.getByTestId("schedule-name").press("Enter");
     await expect(page.getByText("Choose an agent.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Enter a prompt.", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("schedule-form-error")).toHaveCount(0);
+    await expect(page).toHaveURL("/schedules/new");
+
+    // Leaving a dirty form asks first; Keep editing stays.
+    await page.getByTestId("schedule-prompt").fill("Draft");
+    await page.getByTestId("schedule-cancel").click();
+    await expect(page.getByTestId("schedule-discard-modal")).toBeVisible();
+    await pressOnce(page.getByRole("button", { name: "Keep editing" }));
+    // A closing modal still traps focus, so a fill before it is gone types into the dialog.
+    await expect(anyDialog(page)).toBeHidden();
+    await expect(page).toHaveURL("/schedules/new");
   });
 
   await test.step("11. a filled-in schedule is created and lands on its own page", async () => {
@@ -368,9 +383,8 @@ test("schedules: a schedule is created, read, run, changed and deleted", async (
 
   await test.step("15. and the delete on its own page asks in a modal, which Keep dismisses", async () => {
     /*
-     * The other delete surface, and a different control: the list asks in a popconfirm
-     * beside the row, while the page about one schedule asks in a modal from its danger
-     * zone. Both are reached here rather than only the list one, because the two are
+     * The other delete surface, and a different control: the list asks from the row, while the page about one
+     * schedule asks from its danger zone. Both are reached here rather than only the list one, because the two are
      * separate call sites and it is the page-level one that carries the sentence saying
      * what deleting costs.
      */

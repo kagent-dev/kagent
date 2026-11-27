@@ -15,7 +15,7 @@ describe("the agent rail's own entries", () => {
   it("names both entries an override can address", () => {
     // The override table is keyed by these, so a rename here without one there
     // silently stops a product being able to reach the entry.
-    expect(CORE_RAIL_KEYS).toEqual(["agentDetails", "newChat"]);
+    expect(CORE_RAIL_KEYS).toEqual(["agentDetails", "newConversation"]);
   });
 
   it("leaves out an entry whose address cannot be derived", () => {
@@ -30,16 +30,16 @@ describe("the agent rail's own entries", () => {
   });
 
   it("orders its own entries with gaps, so a contribution can sit between them", () => {
-    const items = coreRailItems({ agentHref: "/a", newChatHref: "/a/new" });
+    const items = coreRailItems({ agentHref: "/a", newConversationHref: "/a/new" });
     expect(items.map((item) => [item.key, item.order])).toEqual([
       ["agentDetails", 100],
-      ["newChat", 200],
+      ["newConversation", 200],
     ]);
   });
 });
 
 describe("interleaving contributions", () => {
-  const items = coreRailItems({ agentHref: "/a", newChatHref: "/a/new" });
+  const items = coreRailItems({ agentHref: "/a", newConversationHref: "/a/new" });
 
   it("places a contribution by its order, not after everything", () => {
     const merged = mergeRailEntries(items, [contribution("middle", 150)]);
@@ -47,7 +47,7 @@ describe("interleaving contributions", () => {
       merged.map((slot) =>
         slot.kind === "core" ? slot.item.key : slot.contribution.key,
       ),
-    ).toEqual(["agentDetails", "middle", "newChat"]);
+    ).toEqual(["agentDetails", "middle", "newConversation"]);
   });
 
   it("keeps the application's entry first on a tie", () => {

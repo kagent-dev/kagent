@@ -112,6 +112,7 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	// shared pool connections are active.
 	_, err := sharedDB.Exec(context.Background(), `
 		TRUNCATE TABLE
+			push_signing_state,
 			scheduled_run,
 			tool, toolserver, memory,
 			session_share,

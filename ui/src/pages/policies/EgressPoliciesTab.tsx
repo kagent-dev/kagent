@@ -173,7 +173,7 @@ export function EgressPoliciesTab() {
         view={view}
         search={{ label: egressCopy.list.search, placeholder: egressCopy.list.search }}
         filters={[{ id: "ns", label: "Namespace", allLabel: "All namespaces", options: namespaceOptions }]}
-        trailing={<RefreshButton onRefresh={invalidate} what="Egress policies" loading={policies.isLoading} />}
+        trailing={<RefreshButton onRefresh={invalidate} what="Egress policies" loading={policies.isLoading} iconOnly />}
       />
 
       <Text css={{ color: theme.color.textMuted, fontSize: 12 }} data-testid="egress-policies-used-by-scope">

@@ -1,5 +1,7 @@
+import { ReadError } from "@/components/common/ReadError";
+import { pillBorder } from "@/theme/theme";
 import { useMemo } from "react";
-import { Alert, Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { Plus } from "lucide-react";
 import { useTheme } from "@emotion/react";
@@ -186,7 +188,7 @@ export function McpServersPage() {
           const kind = shortKind(row.server.groupKind);
           const pill = {
             background: theme.color.infoBg,
-            borderColor: theme.color.infoBorder,
+            borderColor: pillBorder(theme.color.infoBorder, theme.color.infoBg),
             color: theme.color.infoText,
           };
           return <Tag css={pill}>{kind}</Tag>;
@@ -214,7 +216,7 @@ export function McpServersPage() {
           const { namespace, name } = parseRef(row.server.ref);
           return (
             <DeleteResourceButton
-              kind="tool server"
+              kind="MCP server"
               name={name}
               onDelete={() => apiClient.mcpServers.remove(namespace, name)}
               onDeleted={invalidateServers}
@@ -234,14 +236,9 @@ export function McpServersPage() {
   return (
     <PageFrame
       title="MCP servers"
-      description="Tool servers agents can call. Expand a server to see the tools it exposes."
+      description="MCP servers agents can call. Expand a server to see its tools."
       actions={
         <Space size={8}>
-          <RefreshButton
-            onRefresh={refresh}
-            what="Tool servers"
-            loading={isLoading}
-          />
           <Link to={paths.mcpServerNew}>
             <Button
               type="primary"
@@ -251,22 +248,22 @@ export function McpServersPage() {
               New Server
             </Button>
           </Link>
+          <RefreshButton
+            onRefresh={refresh}
+            what="MCP servers"
+            loading={isLoading}
+            iconOnly
+          />
         </Space>
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load MCP servers"
-            description={error.message}
-            data-testid="mcp-servers-error"
-            action={
-              <Button size="small" onClick={() => void refresh()}>
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="MCP servers"
+            error={error}
+            testId="mcp-servers-error"
+            onRetry={refresh}
           />
         ) : null}
 

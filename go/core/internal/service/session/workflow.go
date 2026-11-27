@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
+	"go.opentelemetry.io/otel/metric"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
@@ -17,6 +18,7 @@ import (
 type workflowStore interface {
 	GetSessionGeneration(context.Context, string) (*database.SessionGeneration, error)
 	BeginCrashedSessionRecovery(context.Context, *database.SessionGeneration, database.SessionTaskSnapshot) (*database.SessionOperation, error)
+	RecordLostSessionRuntime(context.Context, string, uuid.UUID, string) (*apiv1.Session, error)
 	ClaimSessionQuiescence(context.Context) (*database.SessionQuiescence, error)
 	HasPendingSessionQuiescence(context.Context) (bool, error)
 	FinishSessionQuiescence(context.Context, *database.SessionQuiescence, *database.SessionTaskSnapshot) error
@@ -42,12 +44,13 @@ type ActorWorkflow struct {
 	actors           actorClient
 	recoveryInterval time.Duration
 	quiescenceWake   chan struct{}
+	meterProvider    metric.MeterProvider
 }
 
 // quiescenceWake is a shared, single-slot hint channel. Callers must not close it;
 // the workflow stops through context cancellation.
-func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration) *ActorWorkflow {
-	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake}
+func NewActorWorkflow(store workflowStore, actors actorClient, quiescenceWake chan struct{}, recoveryInterval time.Duration, provider metric.MeterProvider) *ActorWorkflow {
+	return &ActorWorkflow{store: store, actors: actors, recoveryInterval: recoveryInterval, quiescenceWake: quiescenceWake, meterProvider: provider}
 }
 
 // Quiesce durably suspends the runtime without changing the Session's
@@ -224,9 +227,10 @@ func (w *ActorWorkflow) failPreparation(ctx context.Context, admitted *database.
 	if database.CrashRecoveryAdmitted(admitted.Instance) {
 		// Admission already failed the interrupted turn, so clearing the operation
 		// would leave a FAILED Session that a retried RevertSession could not
-		// continue. Delete can supersede the kept intent, even after a claim.
+		// continue. Delete can supersede the kept intent, even after a claim. A lost
+		// Actor ends the recovery, so it is recorded instead.
 		if errors.Is(cause, substrate.ErrActorUnrecoverable) {
-			return nil, fmt.Errorf("%w: %w", cause, errRuntimeUnrecoverable)
+			return nil, fmt.Errorf("%w: %w", cause, w.recordLost(ctx, admitted.Instance.Id, admitted.ID, "its Actor is missing or was replaced"))
 		}
 		return nil, cause
 	}

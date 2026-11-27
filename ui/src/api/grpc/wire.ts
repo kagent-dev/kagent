@@ -38,6 +38,7 @@ import type { ResourceReference, StructuredObject } from "@/generated/kagent/api
  * The `kagent.api.v1` protobuf package carries custom resources whose
  * Kubernetes API version remains `api.kagent.dev/v1alpha3`.
  */
+// eslint-disable-next-line no-restricted-syntax -- the single place the version is spelled
 export const KAGENT_API_VERSION = "api.kagent.dev/v1alpha3";
 
 /** A missing collection is an empty one — an absent list is not an error. */

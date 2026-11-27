@@ -31,7 +31,7 @@ const darkColor = {
    * Its own token because `text` is the foreground for the *page*, and on this theme
    * the two happen to agree — which is what hid the bug. On the light theme `text` is
    * near-black, and anything painted on the primary purple with it came out as dark on
-   * dark: the chat's own messages were the worst of it. An extension overriding `primary`
+   * dark: the conversation's own messages were the worst of it. An extension overriding `primary`
    * needs somewhere to say what goes on top of it, too.
    */
   textOnPrimary: "#f9fafb",
@@ -100,6 +100,24 @@ const darkColor = {
    * boundary, which this clears.
    */
   borderStrong: "#6f6a83",
+  // A hovered field's edge: a hue shift from `borderStrong`, 4.7:1 on the page.
+  borderHover: "#8b5cf6",
+  // Header and sidebar text and states; their surface is `surfaceNav`.
+  navText: "#c2c0ca",
+  navHoverText: "#f9fafb",
+  // Each hover is halfway to its press: the same fill at half the strength.
+  navHoverBg: "rgba(249, 250, 251, 0.08)",
+  navPressBg: "rgba(249, 250, 251, 0.16)",
+  navActiveBg: "rgba(139, 92, 246, 0.24)",
+  navActiveHoverBg: "rgba(139, 92, 246, 0.3)",
+  navActiveText: "#f9fafb",
+  navActiveIcon: "#c4b5fd",
+  navActivePressBg: "rgba(139, 92, 246, 0.36)",
+  navMuted: "#a9a5b4",
+  navFocus: "rgba(249, 250, 251, 0.6)",
+  // Rows, list items and option cards: a greyed lavender, hover at half the press.
+  rowHoverBg: "rgba(140, 120, 190, 0.12)",
+  rowPressBg: "rgba(140, 120, 190, 0.24)",
 } as const;
 
 const lightColor: Record<keyof typeof darkColor, string> = {
@@ -115,7 +133,8 @@ const lightColor: Record<keyof typeof darkColor, string> = {
   border: "#ddd7e7",
   // The wordmark's own dark, so type and logo agree rather than nearly agreeing.
   text: "#151927",
-  textMuted: "#6b6577",
+  // Dark enough to keep 4.5:1 on a pressed row's tint.
+  textMuted: "#625c6e",
   success: "#15803d",
   warning: "#b45309",
   // Darker than the dark theme's red for the same reason that one is not the old
@@ -151,6 +170,22 @@ const lightColor: Record<keyof typeof darkColor, string> = {
    * clears it on both with room to spare (3.5:1 on white, 3.2:1 on a near-white panel).
    */
   borderStrong: "#8a86a0",
+  // 5.3:1 on the page, 5.7:1 on white.
+  borderHover: "#7c3aed",
+  navText: "#383b49",
+  navHoverText: "#151927",
+  navHoverBg: "rgba(21, 25, 39, 0.05)",
+  navPressBg: "rgba(21, 25, 39, 0.1)",
+  navActiveBg: "rgba(109, 40, 217, 0.11)",
+  navActiveHoverBg: "rgba(109, 40, 217, 0.155)",
+  navActiveText: "#5b21b6",
+  navActiveIcon: "#6d28d9",
+  navActivePressBg: "rgba(109, 40, 217, 0.2)",
+  navMuted: "#5f5a6b",
+  navFocus: "rgba(21, 25, 39, 0.55)",
+  // Lighter than the dark theme's: a stronger press pulls muted text under 4.5:1.
+  rowHoverBg: "rgba(140, 120, 190, 0.1)",
+  rowPressBg: "rgba(140, 120, 190, 0.2)",
 };
 
 export const tokens = {
@@ -181,6 +216,16 @@ export function themeFor(mode: ThemeMode): AppTheme {
 }
 
 export const appTheme: AppTheme = themeFor("dark");
+
+/** A pill's edge: its border token blended halfway into its fill, so the outline stays soft (about 2:1). */
+export function pillBorder(border: string, fill: string): string {
+  return `color-mix(in srgb, ${border} 55%, ${fill})`;
+}
+
+/** The colour halfway between two: a hover state's fill, given its rest and pressed fills. */
+export function halfway(rest: string, pressed: string): string {
+  return `color-mix(in srgb, ${rest}, ${pressed})`;
+}
 
 /**
  * The component library's config for one mode.
@@ -233,15 +278,15 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
       },
       Table: {
         headerBg: color.bgElevated,
-        /*
-         * The page's own foreground at a fifth opacity, not `border`, which is tuned
-         * to be quiet: measured, a hovered row moved 1.35:1 from rest on the dark theme
-         * and sat within 1.11:1 of the pressed state, which separated the two by hue
-         * alone. Derived, so it lightens on dark and darkens on light without a value
-         * per mode.
-         */
-        rowHoverBg: `${color.text}33`,
+        // Pressed is `rowPressBg`, in GlobalStyles.
+        rowHoverBg: color.rowHoverBg,
+        // The "No … found" line, which antd paints in its disabled grey (about 1.9:1).
+        colorTextDisabled: color.textMuted,
       },
+      // Empty states in selects, lists and panels: muted, but readable.
+      Empty: { colorTextDescription: color.textMuted },
+      // Menu and option rows hover with the row tint; pressed is `rowPressBg`, in GlobalStyles.
+      Dropdown: { controlItemBgHover: color.rowHoverBg },
       /*
        * Inputs, selects and pickers: a stronger edge and a legible placeholder.
        *
@@ -251,27 +296,38 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
        * about 2.2:1. The border is a component boundary (3:1) and the placeholder is text
        * somebody has to read to know what the field is for.
        */
+      // Focus lands on the field's frame: a readable purple edge and a soft ring, in both themes.
       Input: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        ...fieldStates(color),
       },
       Select: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        hoverBorderColor: color.borderHover,
+        activeBorderColor: color.primaryText,
+        activeOutlineColor: `${color.primary}40`,
+        // Tag and multiple-mode values, drawn as data pills (see DataPill).
+        multipleItemBg: `${color.text}14`,
+        multipleItemBorderColor: color.borderStrong,
         /*
          * The chevron, which antd paints from its quaternary text token — a quarter
          * opacity, measured at 2.2:1. It is the only mark saying the control opens, so it
          * was the least visible part of the thing a reader is looking for.
          */
         colorTextQuaternary: color.textMuted,
+        optionActiveBg: color.rowHoverBg,
       },
       DatePicker: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        ...fieldStates(color),
       },
       InputNumber: {
         colorBorder: color.borderStrong,
         colorTextPlaceholder: color.textMuted,
+        ...fieldStates(color),
       },
       /*
        * The segmented control, which on the dark theme had no visible edge anywhere.
@@ -280,8 +336,8 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
        * same colour — and the selected pill at 1.12:1 against the track, behind an
        * elevation shadow antd paints at one percent white. So nothing said "toggle" and
        * nothing but a slightly brighter label said which half was chosen. The light
-       * theme escapes it because its pill is white with a dark shadow under it, so this
-       * leaves that mode alone.
+       * theme escapes it because its pill is white with a dark shadow under it, so the
+       * edge below is dark-only.
        *
        * Fixed with an edge rather than a fill, the way the inputs above are. A fill
        * cannot carry it at this end of the range: the page is near-black, so reaching
@@ -290,15 +346,21 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
        * boundary every other control in the app is outlined with, which leaves the two
        * fills with only the pill's shape to carry.
        */
-      ...(mode === "dark"
-        ? {
-            Segmented: {
+      // Dark takes the tabs' hover and press fills: antd's hover matched the selected pill there.
+      Segmented: {
+        itemColor: color.navText,
+        itemHoverColor: color.navHoverText,
+        itemSelectedColor: color.text,
+        ...(mode === "dark"
+          ? {
               trackBg: color.bgElevated,
               itemSelectedBg: color.border,
+              itemHoverBg: color.navHoverBg,
+              itemActiveBg: color.navPressBg,
               boxShadowTertiary: `0 0 0 1px ${color.borderStrong}`,
-            },
-          }
-        : {}),
+            }
+          : {}),
+      },
       Radio: {
         /*
          * The selected option's label and border are the brand colour used as ink, and
@@ -319,32 +381,61 @@ export function antdThemeFor(mode: ThemeMode): ThemeConfig {
        * so the tab you were not on was the one you could read, which is the same
        * mistake recorded against the segmented control above and the prompt links.
        */
+      // Hover and press are neutral (ink plus a fill from GlobalStyles), so only the selected tab is purple.
+      // Padding holds the fill inside the tab; the label gap stays 32px.
       Tabs: {
+        itemColor: color.navText,
+        itemHoverColor: color.navHoverText,
+        itemActiveColor: color.navHoverText,
         itemSelectedColor: color.primaryText,
-        itemHoverColor: color.primaryText,
         inkBarColor: color.primaryText,
+        horizontalItemPadding: "12px 12px 11px",
+        horizontalItemGutter: 8,
       },
+      // The rail's states, all instant: motion tokens are zeroed for the menu only.
       Menu: {
-        darkItemBg: "transparent",
-        darkSubMenuItemBg: "transparent",
         itemBg: "transparent",
         subMenuItemBg: "transparent",
-        // Selected and hover, stated for both themes.
-        //
-        // Left to antd, the dark menu paints the selected row in solid primary — a
-        // filled purple band, which is the opposite of the inset pill the rail is
-        // shaped for, and it left the pressed state indistinguishable from the
-        // settled one. A tint of the primary over the rail reads as a pill and lets
-        // hover, press and selected be three visible steps.
-        darkItemSelectedBg: "rgba(139, 92, 246, 0.22)",
-        darkItemSelectedColor: "#f9fafb",
-        darkItemHoverBg: "rgba(249, 250, 251, 0.07)",
-        darkItemHoverColor: "#f9fafb",
-        itemSelectedBg: "rgba(109, 40, 217, 0.1)",
-        itemSelectedColor: color.primaryText,
-        itemHoverBg: "rgba(21, 25, 39, 0.04)",
+        // Extension menus may still pass theme="dark"; give them the same rows.
+        darkItemBg: "transparent",
+        darkSubMenuItemBg: "transparent",
+        darkItemColor: color.navText,
+        darkItemHoverColor: color.navHoverText,
+        darkItemHoverBg: color.navHoverBg,
+        darkItemSelectedBg: color.navActiveBg,
+        darkItemSelectedColor: color.navActiveText,
+        darkPopupBg: color.bgElevated,
+        itemColor: color.navText,
+        itemHoverColor: color.navHoverText,
+        itemHoverBg: color.navHoverBg,
+        itemActiveBg: color.navPressBg,
+        itemSelectedBg: color.navActiveBg,
+        itemSelectedColor: color.navActiveText,
+        itemHeight: 40,
+        itemMarginInline: 8,
+        itemMarginBlock: 2,
+        itemBorderRadius: tokens.radius.md,
+        iconSize: 16,
+        iconMarginInlineEnd: 10,
+        fontSize: 14,
+        activeBarBorderWidth: 0,
+        motionDurationFast: "0s",
+        motionDurationMid: "0s",
+        motionDurationSlow: "0s",
       },
     },
+  };
+}
+
+/**
+ * Hover and focus for text-entry controls. Hover turns the border `borderHover`
+ * violet; focus uses `primaryText` plus a ring (6.6:1, 7.1:1).
+ */
+function fieldStates(color: Record<keyof typeof darkColor, string>) {
+  return {
+    hoverBorderColor: color.borderHover,
+    activeBorderColor: color.primaryText,
+    activeShadow: `0 0 0 3px ${color.primary}40`,
   };
 }
 

@@ -47,13 +47,6 @@ var (
 		ComponentAgentRuntime, ComponentCLI,
 	)
 
-	AzureADToken = RegisterStringVar(
-		"AZURE_AD_TOKEN",
-		"",
-		"Azure Active Directory authentication token for Azure OpenAI.",
-		ComponentAgentRuntime,
-	)
-
 	OpenAIAPIVersion = RegisterStringVar(
 		"OPENAI_API_VERSION",
 		"",

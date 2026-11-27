@@ -68,6 +68,14 @@ Installation passes embedded defaults before configured chart values files.
 Files are applied in order, with the last file winning. Provider credentials
 continue to use the provider SDK environment interface.
 
+`kagent install --provider` overrides `install.defaultModelProvider` for one
+install; the protovalidate `in` rule on that field defines the accepted names.
+After a successful install the CLI prints next steps.
+
+`kagent version --client` prints only the CLI build without connecting to the
+controller. The `get-kagent` install script uses it to skip reinstalling a
+matching version.
+
 ## Controller
 
 The controller reads `/etc/kagent/controller.yaml`, or the file selected by
@@ -97,6 +105,7 @@ gateway:
   publicUrl: https://kagent.example.com
 push:
   signingPrivateKeyFile: secrets/push-private-key.pem
+  signingKeyActivationDelay: 300s
 sessions:
   idleTtl: 604800s
 runtimeDefaults:
@@ -106,17 +115,29 @@ runtimeDefaults:
     level: info
 ```
 
+`sessions.automaticRecovery` enables recovery of crashed runtimes during sends.
+It defaults to false. The chart renders it only when set, so a rollback to a
+release that predates the setting can still read the default config. Explicit
+`RevertSession` calls remain available with either value. The setting does not
+change migrations or stored data.
+
 The controller connects with two logins. `database.owner` applies migrations at
 startup; `database.readWrite` serves every runtime query. Each assumes its `role`
 after connecting. Set `database.skipMigrations: true` when migrations are applied
 out-of-band; the owner login is then not needed, and startup still verifies,
 through the read/write login, that all required migrations are applied.
 
-The controller owns callback delivery through the top-level `push` section
-(`config.push` in Helm). Push JWT signing is optional:
-`push.signingPrivateKeyFile` names an
-unencrypted PKCS#8 Ed25519 PEM key when enabled. Helm projects the operator-managed
-Secret selected by `controller.push.signing.secretName`.
+Push settings live under `push` (`config.push` in Helm). Set
+`push.signingPrivateKeyFile` to an unencrypted PKCS#8 Ed25519 PEM key to enable
+JWT signing. Helm mounts the Secret named by `controller.push.signing.secretName`.
+For restart handoff, optionally set `push.previousSigningPrivateKeyFile`, or
+`controller.push.signing.previousSecretName` in Helm. Current is hot reloaded;
+previous is read only at startup. The existing `push.signingKeyActivationDelay`
+applies to startup staging when a distinct previous key is available and current
+is not the latest database activation. Without previous, startup uses current
+immediately. Signing-state migrations must complete before signer initialization.
+See [push notifications](a2a-push-notifications.md) for mounts, rotation timing,
+and retry behavior.
 
 Config files use `sigs.k8s.io/yaml.YAMLToJSONStrict` followed by Go's
 `protojson.Unmarshal`. Protovalidate checks the schema after command-line overrides

@@ -1,5 +1,6 @@
 /** Reusable Harness and AgentTemplate resources used to define Agents. */
 
+import { namespaceReadError } from "./namespaceReadError";
 import { apiClient } from "../client";
 import { type AgentTemplate } from "../domain/agentTemplates";
 import type { Harness } from "../domain/harnesses";
@@ -13,8 +14,8 @@ import { useAgent } from "./useAgents";
  * empty one — it is a Kubernetes list, not a per-namespace database query — so
  * "all namespaces" is one request rather than a fan-out.
  */
-export function useHarnesses(namespace?: string): ApiResource<Harness[]> {
-  return useApiResource(["harnesses.list", namespace ?? ""], () =>
+export function useHarnesses(namespace?: string, enabled = true): ApiResource<Harness[]> {
+  return useApiResource(enabled ? ["harnesses.list", namespace ?? ""] : null, () =>
     apiClient.agentBuildingBlocks.harnesses(namespace),
   );
 }
@@ -38,44 +39,25 @@ export function useAgentTemplates(namespace?: string): ApiResource<AgentTemplate
   );
 }
 
-/**
- * The harnesses in every namespace named, read one namespace at a time.
- *
- * `ListHarnesses` validates its namespace and refuses an empty one rather than treating
- * it as a wildcard — the same rule `ListAgentTemplates` has, and the same trap: a page
- * asking for "all harnesses" with no namespace gets a refusal, and the fixtures answer
- * it happily so nothing says otherwise until a cluster does.
- *
- * Partial refusal is a real state and is reported as the empty half of the pair rather
- * than as a failure. Total refusal is a broken read and throws, because `allSettled`
- * would otherwise turn it into an empty list — a page saying "no harnesses" about a
- * backend that answered nothing.
- */
+/** Reads the named namespaces, or every visible namespace when passed null. */
 export function useHarnessesAcrossNamespaces(
-  namespaces: readonly string[] | undefined,
+  namespaces: readonly string[] | null | undefined,
 ): ApiResource<Harness[]> {
-  const key = namespaces ? [...namespaces].sort().join(",") : undefined;
+  const key = namespaces === null ? "*" : namespaces?.slice().sort().join(",");
 
   return useApiResource(key ? ["harnesses.listAll", key] : null, async () => {
-    const names = key ? key.split(",").filter(Boolean) : [];
+    const names = key === "*" ? [""] : key ? key.split(",") : [];
     const settled = await Promise.allSettled(
       names.map((namespace) => apiClient.agentBuildingBlocks.harnesses(namespace)),
     );
 
     const harnesses: Harness[] = [];
-    const refused: string[] = [];
-    settled.forEach((outcome, index) => {
-      if (outcome.status === "fulfilled") harnesses.push(...outcome.value);
-      else
-        refused.push(
-          `${names[index]}: ${
-            outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)
-          }`,
-        );
-    });
-
+    const refused = settled.filter((result) => result.status === "rejected");
     if (names.length > 0 && refused.length === names.length) {
-      throw new Error(refused.join("; "));
+      throw namespaceReadError(refused);
+    }
+    for (const outcome of settled) {
+      if (outcome.status === "fulfilled") harnesses.push(...outcome.value);
     }
     return harnesses;
   });
@@ -88,35 +70,20 @@ export interface AgentTemplatesAcrossNamespaces {
 }
 
 /**
- * The agent templates in every namespace named, read one namespace at a time.
- *
- * `AgentTemplateService.List` validates its namespace before anything else and answers
- * `InvalidArgument: namespace is required` for an empty one — it is not a wildcard. So
- * "all namespaces" is a request per namespace, merged, exactly as
- * `useAgentInstances` does for the same reason.
- *
- * **This is why the agents page cannot simply call `useAgentTemplates()` unscoped.** It
- * did, and against a real controller the whole page failed with "namespace is required"
- * while the fixture backend served it happily — the mock accepted an empty namespace
- * that the controller never would. That is the fixture-more-permissive-than-the-backend
- * trap this repository keeps recording, and it is why the page is read against a cluster
- * before it is called done.
- *
- * Partial rather than all-or-nothing: a reader may be allowed six namespaces and refused
- * a seventh, and failing the whole list because of one would show them nothing. The
- * refusals are returned so the page can name them instead of quietly shortening the list.
+ * Reads the named namespaces, or every visible namespace when passed null.
+ * Returns partial refusals alongside any successfully loaded templates.
  */
 export function useAgentTemplatesAcrossNamespaces(
-  namespaces: readonly string[] | undefined,
+  namespaces: readonly string[] | null | undefined,
 ): ApiResource<AgentTemplatesAcrossNamespaces> {
   // Sorted into the key, so the same set in a different order is the same read rather
   // than a cache miss that refetches everything.
-  const key = namespaces ? [...namespaces].sort().join(",") : undefined;
+  const key = namespaces === null ? "*" : namespaces?.slice().sort().join(",");
 
   return useApiResource(
     key ? ["agentTemplates.listAll", key] : null,
     async () => {
-      const names = key ? key.split(",").filter(Boolean) : [];
+      const names = key === "*" ? [""] : key ? key.split(",") : [];
       const settled = await Promise.allSettled(
         names.map((namespace) => apiClient.agentBuildingBlocks.agentTemplates(namespace)),
       );
@@ -145,7 +112,7 @@ export function useAgentTemplatesAcrossNamespaces(
        * so the failure is reported rather than drawn as an absence.
        */
       if (names.length > 0 && refused.length === names.length) {
-        throw new Error(refused.map((entry) => entry.reason).join("; "));
+        throw namespaceReadError(settled.filter((result) => result.status === "rejected"));
       }
 
       templates.sort(

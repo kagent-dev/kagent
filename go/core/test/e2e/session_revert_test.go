@@ -13,6 +13,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
+	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/kagent-dev/mockllm"
 	"github.com/stretchr/testify/require"
 	ateapipb "go.ate.dev/substrate/api/ateapi/v1"
@@ -26,129 +27,184 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
+// crashedTurn is a Session whose worker was deleted during its second turn. The
+// first turn completed and left a durable snapshot; the second is still open.
+type crashedTurn struct {
+	fixture         *interactionFixture
+	namespace, name string
+	running         *ateapipb.Actor
+	revert          *apiv1.RevertSessionRequest
+	getTask         *a2apb.GetTaskRequest
+	before          *a2apb.Task
+	stopTurn        context.CancelFunc
+	turnDone        chan error
+}
+
+// crashDuringTurn holds the second turn's model call open, so the Actor is still
+// running when its worker is deleted, and returns once the Actor is CRASHED.
+func crashDuringTurn(t *testing.T, harness testHarness, target string) *crashedTurn {
+	t.Helper()
+	cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_agent.json", interactionMocks)
+	require.NoError(t, err)
+	upstream, err := url.Parse(startMockLLMConfig(t, cfg))
+	require.NoError(t, err)
+	proxy := httputil.NewSingleHostReverseProxy(upstream)
+	// Only an interaction runs a Session's Actor; quiescence suspends it once the
+	// turn settles.
+	var blockNext atomic.Bool
+	blocked := make(chan struct{}, 1)
+	release := make(chan struct{})
+	gate := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && blockNext.CompareAndSwap(true, false) {
+			blocked <- struct{}{}
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	require.NoError(t, gate.Listener.Close())
+	gate.Listener, err = net.Listen("tcp", "0.0.0.0:0")
+	require.NoError(t, err)
+	gate.Start()
+	t.Cleanup(gate.Close)
+	fixture := newInteractionFixture(t, harness, target, reachableModelURL(t, gate.URL))
+	t.Cleanup(func() {
+		close(release)
+		gate.CloseClientConnections()
+	})
+	_, _, task := fixture.send(t, "What is 2+2?")
+	require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
+	assertActorSuspended(t, fixture)
+	crash := &crashedTurn{fixture: fixture, getTask: &a2apb.GetTaskRequest{Tenant: fixture.tenant, Id: string(task.ID)},
+		revert: &apiv1.RevertSessionRequest{SessionId: fixture.sessionID}, turnDone: make(chan error, 1)}
+	crash.before, err = fixture.client.GetTask(fixture.ctx, crash.getTask)
+	require.NoError(t, err)
+	session, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
+	require.NoError(t, err)
+	crash.namespace, crash.name = session.GetSession().GetAgent().GetRef().GetNamespace(), substrate.ActorName(fixture.sessionID)
+	blockNext.Store(true)
+	_, turn := newMessageRequest(t, "What is 2+2?")
+	turn.Tenant, turn.Message.ContextId = fixture.tenant, fixture.sessionID
+	var turnCtx context.Context
+	turnCtx, crash.stopTurn = context.WithCancel(fixture.ctx)
+	t.Cleanup(crash.stopTurn)
+	go func() { _, err := sendMessageWithRetry(turnCtx, fixture.client, turn); crash.turnDone <- err }()
+	select {
+	case <-blocked:
+	case <-time.After(time.Minute):
+		t.Fatal("second turn never reached the blocking model")
+	}
+	crash.running, err = findSubstrateActor(fixture.ctx, fixture.system, crash.namespace, crash.name)
+	require.NoError(t, err)
+	require.NotNil(t, crash.running)
+	require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, crash.running.GetStatus().GetState())
+	require.NotEmpty(t, substrate.SnapshotURI(substrate.LatestDurableActorSnapshot(crash.running)))
+	healthy, err := fixture.sessions.RevertSession(fixture.ctx, crash.revert)
+	require.NoError(t, err, "a healthy runtime has nothing to recover")
+	require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
+	assignment := crash.running.GetStatus().GetWorkerAssignment()
+	require.Equal(t, crash.namespace, assignment.GetWorkerNamespace())
+	require.NotEmpty(t, assignment.GetWorkerPod())
+	for token := ""; ; {
+		page, err := fixture.system.ListSubstrateActors(fixture.ctx, &apiv1.ListSubstrateActorsRequest{
+			Page: &apiv1.PageRequest{Limit: 100, PageToken: token},
+		})
+		require.NoError(t, err)
+		require.Empty(t, page.GetAteApiError())
+		for _, actor := range page.GetActors() {
+			other := actor.GetStatus().GetWorkerAssignment()
+			if actor.GetMetadata().GetUid() != crash.running.GetMetadata().GetUid() {
+				require.False(t, other.GetWorkerNamespace() == assignment.GetWorkerNamespace() && other.GetWorkerPod() == assignment.GetWorkerPod(),
+					"refuse to delete a worker shared with another Actor")
+			}
+		}
+		token = page.GetPage().GetNextPageToken()
+		if token == "" {
+			break
+		}
+	}
+	kube := interactionKubeClient(t)
+	pod := &corev1.Pod{}
+	require.NoError(t, kube.Get(fixture.ctx, ctrlclient.ObjectKey{
+		Namespace: assignment.GetWorkerNamespace(), Name: assignment.GetWorkerPod(),
+	}, pod))
+	require.NotEmpty(t, pod.UID)
+	require.NoError(t, kube.Delete(fixture.ctx, pod, &ctrlclient.DeleteOptions{
+		GracePeriodSeconds: new(int64(0)), Preconditions: &metav1.Preconditions{UID: &pod.UID},
+	}))
+	err = wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
+		actor, err := findSubstrateActor(ctx, fixture.system, crash.namespace, crash.name)
+		return actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED, err
+	})
+	require.NoError(t, err)
+	return crash
+}
+
+// assertRecovered checks the Actor was restored in place, the completed turn kept
+// its history, and the interrupted caller stopped.
+func (c *crashedTurn) assertRecovered(t *testing.T) *ateapipb.Actor {
+	t.Helper()
+	recovered, err := findSubstrateActor(c.fixture.ctx, c.fixture.system, c.namespace, c.name)
+	require.NoError(t, err)
+	require.Equal(t, c.running.GetMetadata().GetUid(), recovered.GetMetadata().GetUid(), "recovery restores the recorded Actor in place")
+	retained, err := c.fixture.client.GetTask(c.fixture.ctx, c.getTask)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(c.before, retained), "recovery preserves the completed task and its history")
+	c.stopTurn()
+	select {
+	case <-c.turnDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("interrupted caller did not stop")
+	}
+	return recovered
+}
+
+// A worker is lost during a turn and the client calls RevertSession, as chat's
+// Recover does. The crashed Actor returns to its last durable snapshot.
 func TestSessionRevertCrashedRuntime(t *testing.T) {
 	target := interactionTarget(t)
 	forEachHarness(t, func(t *testing.T, harness testHarness) {
-		cfg, err := mockllm.LoadConfigFromFile("mocks/invoke_agent.json", interactionMocks)
-		require.NoError(t, err)
-		upstream, err := url.Parse(startMockLLMConfig(t, cfg))
-		require.NoError(t, err)
-		proxy := httputil.NewSingleHostReverseProxy(upstream)
-		// Only an interaction runs a Session's Actor; quiescence suspends it once
-		// the turn settles. The gate holds the second turn's model call open so
-		// the Actor is still running when its worker is deleted.
-		var blockNext atomic.Bool
-		blocked := make(chan struct{}, 1)
-		release := make(chan struct{})
-		gate := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost && blockNext.CompareAndSwap(true, false) {
-				blocked <- struct{}{}
-				select {
-				case <-r.Context().Done():
-				case <-release:
-				}
-				return
-			}
-			proxy.ServeHTTP(w, r)
-		}))
-		require.NoError(t, gate.Listener.Close())
-		gate.Listener, err = net.Listen("tcp", "0.0.0.0:0")
-		require.NoError(t, err)
-		gate.Start()
-		t.Cleanup(gate.Close)
-		fixture := newInteractionFixture(t, harness, target, reachableModelURL(t, gate.URL))
-		defer func() {
-			close(release)
-			gate.CloseClientConnections()
-		}()
-		_, _, task := fixture.send(t, "What is 2+2?")
-		require.Equal(t, a2a.TaskStateCompleted, task.Status.State)
-		assertActorSuspended(t, fixture)
-		getTask := &a2apb.GetTaskRequest{Tenant: fixture.tenant, Id: string(task.ID)}
-		before, err := fixture.client.GetTask(fixture.ctx, getTask)
-		require.NoError(t, err)
-		session, err := fixture.sessions.GetSession(fixture.ctx, &apiv1.GetSessionRequest{SessionId: fixture.sessionID})
-		require.NoError(t, err)
-		namespace, name := session.GetSession().GetAgent().GetRef().GetNamespace(), substrate.ActorName(fixture.sessionID)
-		blockNext.Store(true)
-		_, turn := newMessageRequest(t, "What is 2+2?")
-		turn.Tenant, turn.Message.ContextId = fixture.tenant, fixture.sessionID
-		turnCtx, stopTurn := context.WithCancel(fixture.ctx)
-		defer stopTurn()
-		sendDone := make(chan error, 1)
-		go func() { _, err := sendMessageWithRetry(turnCtx, fixture.client, turn); sendDone <- err }()
-		select {
-		case <-blocked:
-		case <-time.After(time.Minute):
-			t.Fatal("second turn never reached the blocking model")
-		}
-		running, err := findSubstrateActor(fixture.ctx, fixture.system, namespace, name)
-		require.NoError(t, err)
-		require.NotNil(t, running)
-		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_RUNNING, running.GetStatus().GetState())
-		require.NotEmpty(t, substrate.SnapshotURI(substrate.LatestDurableActorSnapshot(running)))
-		request := &apiv1.RevertSessionRequest{SessionId: fixture.sessionID}
-		healthy, err := fixture.sessions.RevertSession(fixture.ctx, request)
-		require.NoError(t, err, "a healthy runtime has nothing to recover")
-		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
-		assignment := running.GetStatus().GetWorkerAssignment()
-		require.Equal(t, namespace, assignment.GetWorkerNamespace())
-		require.NotEmpty(t, assignment.GetWorkerPod())
-		for token := ""; ; {
-			page, err := fixture.system.ListSubstrateActors(fixture.ctx, &apiv1.ListSubstrateActorsRequest{
-				Page: &apiv1.PageRequest{Limit: 100, PageToken: token},
-			})
-			require.NoError(t, err)
-			require.Empty(t, page.GetAteApiError())
-			for _, actor := range page.GetActors() {
-				other := actor.GetStatus().GetWorkerAssignment()
-				if actor.GetMetadata().GetUid() != running.GetMetadata().GetUid() {
-					require.False(t, other.GetWorkerNamespace() == assignment.GetWorkerNamespace() && other.GetWorkerPod() == assignment.GetWorkerPod(),
-						"refuse to delete a worker shared with another Actor")
-				}
-			}
-			token = page.GetPage().GetNextPageToken()
-			if token == "" {
-				break
-			}
-		}
-		kube := interactionKubeClient(t)
-		pod := &corev1.Pod{}
-		require.NoError(t, kube.Get(fixture.ctx, ctrlclient.ObjectKey{
-			Namespace: assignment.GetWorkerNamespace(), Name: assignment.GetWorkerPod(),
-		}, pod))
-		require.NotEmpty(t, pod.UID)
-		require.NoError(t, kube.Delete(fixture.ctx, pod, &ctrlclient.DeleteOptions{
-			GracePeriodSeconds: new(int64(0)), Preconditions: &metav1.Preconditions{UID: &pod.UID},
-		}))
-		err = wait.PollUntilContextTimeout(fixture.ctx, 100*time.Millisecond, time.Minute, true, func(ctx context.Context) (bool, error) {
-			actor, err := findSubstrateActor(ctx, fixture.system, namespace, name)
-			return actor.GetStatus().GetState() == ateapipb.ActorState_ACTOR_STATE_CRASHED, err
-		})
-		require.NoError(t, err)
-		reverted, err := fixture.sessions.RevertSession(fixture.ctx, request)
+		crash := crashDuringTurn(t, harness, target)
+		reverted, err := crash.fixture.sessions.RevertSession(crash.fixture.ctx, crash.revert)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, reverted.Session.State)
 		// Retry as a client whose success response was lost.
-		retried, err := fixture.sessions.RevertSession(fixture.ctx, request)
+		retried, err := crash.fixture.sessions.RevertSession(crash.fixture.ctx, crash.revert)
 		require.NoError(t, err)
 		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, retried.Session.State)
-		recovered, err := findSubstrateActor(fixture.ctx, fixture.system, namespace, name)
-		require.NoError(t, err)
-		require.Equal(t, running.GetMetadata().GetUid(), recovered.GetMetadata().GetUid())
+		recovered := crash.assertRecovered(t)
 		require.Equal(t, ateapipb.ActorState_ACTOR_STATE_SUSPENDED, recovered.GetStatus().GetState())
-		require.Equal(t, substrate.SnapshotURI(substrate.LatestDurableActorSnapshot(running)), substrate.SnapshotURI(substrate.LatestActorSnapshot(recovered)))
-		retained, err := fixture.client.GetTask(fixture.ctx, getTask)
-		require.NoError(t, err)
-		require.True(t, proto.Equal(before, retained), "recovery preserves the completed task and its history")
-		stopTurn()
-		select {
-		case <-sendDone:
-		case <-time.After(10 * time.Second):
-			t.Fatal("interrupted caller did not stop")
-		}
-		_, _, next := fixture.send(t, "What is 2+2?")
+		require.Equal(t, substrate.SnapshotURI(substrate.LatestDurableActorSnapshot(crash.running)), substrate.SnapshotURI(substrate.LatestActorSnapshot(recovered)))
+		_, _, next := crash.fixture.send(t, "What is 2+2?")
 		require.Equal(t, a2a.TaskStateCompleted, next.Status.State)
 		require.Contains(t, taskText(next), "4")
+	})
+}
+
+// A worker is lost during a turn. The next send recovers the crashed Actor to its
+// last durable snapshot and is answered by the restored runtime; the client calls
+// nothing but SendMessage. Requires sessions.automaticRecovery.
+func TestSessionSendRecoversCrashedRuntime(t *testing.T) {
+	target := interactionTarget(t)
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		crash := crashDuringTurn(t, harness, target)
+		_, next := newMessageRequest(t, "What is 2+2?")
+		next.Tenant, next.Message.ContextId = crash.fixture.tenant, crash.fixture.sessionID
+		answered, err := sendMessageWithRetry(crash.fixture.ctx, crash.fixture.client, next)
+		require.NoError(t, err, "the send recovers the crashed runtime and reaches the restored one")
+		answer, err := pbconv.FromProtoSendMessageResponse(answered)
+		require.NoError(t, err)
+		answerTask, ok := answer.(*a2a.Task)
+		require.True(t, ok, "response = %T", answer)
+		require.Equal(t, a2a.TaskStateCompleted, answerTask.Status.State)
+		require.Contains(t, taskText(answerTask), "4")
+		crash.assertRecovered(t)
+		// RevertSession afterwards finds a healthy runtime.
+		healthy, err := crash.fixture.sessions.RevertSession(crash.fixture.ctx, crash.revert)
+		require.NoError(t, err)
+		require.Equal(t, apiv1.RuntimeState_RUNTIME_STATE_READY, healthy.Session.State)
 	})
 }

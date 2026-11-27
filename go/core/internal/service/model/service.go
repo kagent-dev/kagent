@@ -28,7 +28,7 @@ const (
 )
 
 type Service struct {
-	kubeClient             client.Client
+	kubeClient             client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	modelConfigs           *kubecrud.Service[*v1alpha3.ModelConfig, *v1alpha3.ModelConfigList]
 	providerConfigs        *kubecrud.Service[*v1alpha3.ModelProviderConfig, *v1alpha3.ModelProviderConfigList]
 	defaultNamespace       string
@@ -59,7 +59,7 @@ type DeleteRequest struct {
 	Ref types.NamespacedName
 }
 
-func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, defaultNamespace string, options ...ServiceOption) *Service {
+func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer, defaultNamespace string, options ...ServiceOption) *Service { //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	service := &Service{
 		kubeClient:       kubeClient,
 		modelConfigs:     kubecrud.NewService(kubeClient, authorizer, &v1alpha3.ModelConfig{}, &v1alpha3.ModelConfigList{}, modelConfigResource),

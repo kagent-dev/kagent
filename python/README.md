@@ -1,12 +1,14 @@
 # kagent
 
 ## Prerequisites
+
 - [uv package manager](https://docs.astral.sh/uv/getting-started/installation/)
 - OpenAI API key
 
 ## Python
 
 First, set up a virtual environment:
+
 ```bash
 uv venv .venv
 ```
@@ -60,10 +62,39 @@ spec:
   kagent: {}
   workload:
     command: ["/.kagent/.venv/bin/kagent-adk"]
-    args: ["static", "--host", "0.0.0.0", "--port", "8080"]
+    args: ["static"]
 ```
 
-In this example, the HTTP listener uses port `8080`. Substrate readiness uses a
-separate listener on port `8081`. A2A gRPC binds to `[::]` on `runtime.port`,
+Substrate probes `GET /readyz` on port `8081` after the gRPC listener starts. A2A gRPC binds to `[::]` on `runtime.port`,
 which the controller sets to `80`. The same variable selects the Go ADK's
 shared HTTP/gRPC port.
+
+### Invoking a BYO agent
+
+Configure a BYO Harness with the image and reference the Harness from an Agent.
+Substrate starts the workload with the controller’s revision configuration and
+agent card. Discover the Agent at
+`GET /agents/{namespace}/{name}/.well-known/agent-card.json` on the controller
+gateway. Send messages to the advertised interface and use the returned context
+ID for subsequent turns. See [public A2A transports](../docs/architecture/a2a-transports.md).
+
+### Updating existing Python agents
+
+Replace `uvicorn.run(app.build(), ...)` with `app.build().run()` and launch the
+Python module directly. Replace OpenAI’s `build_local()` with `build()` and use a managed Agent for integration tests.
+
+A custom ADK `lifespan` hook now receives the `A2AServer`, not the FastAPI app.
+The server only exposes `run()` and `listen()`, so hooks that set `app.state` or
+add routes fail at startup; keep only setup and cleanup in the hook. Its setup runs
+before the runtime binds its listeners. Its cleanup runs after the listeners and
+controller client close, including when listener startup fails.
+
+Without `--local`, `kagent-adk run` loads `config.json` and `agent-card.json`
+from the controller's revision bundle in `/config` and ignores copies in the agent
+directory. Outside Substrate, run it with `--local` to use the agent directory's files.
+Move HTTP health checks to `GET /readyz` on port `8081`. Send JSON-RPC requests
+and fetch agent cards through the [controller gateway](../docs/architecture/a2a-transports.md).
+
+The Uvicorn flags `--host`, `--port`, `--workers`, and `--reload` on Python ADK
+workload commands are deprecated and ignored; remove them. The gRPC listener reads
+`runtime.host` and `runtime.port` from the runtime configuration.

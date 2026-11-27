@@ -2,17 +2,16 @@ import asyncio
 import importlib
 import json
 import logging
-import os
+from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
-import uvicorn
 from a2a.types import AgentCard
 from agentsts.adk import ADKSTSIntegration, ADKTokenPropagationPlugin
 from google.adk.agents import BaseAgent
 from google.adk.cli.utils.agent_loader import AgentLoader
 from google.protobuf.json_format import ParseDict
-from kagent.core import KAgentConfig, bootstrap, configure_logging, instrument_app, materialize_from_bootstrap
+from kagent.core import KAgentConfig, bootstrap, configure_logging, materialize_from_bootstrap
 from kagent.core._runtime_config import RuntimeConfig, TokenPropagationConfig
 from kagent.core.telemetry import conv
 
@@ -58,26 +57,43 @@ def parse_agent_card(data: dict) -> AgentCard:
     return ParseDict(data, AgentCard())
 
 
+def _load_agent_files(directory: Path) -> tuple[Config, AgentCard]:
+    config = parse_config((directory / "config.json").read_text())
+    card = parse_agent_card(json.loads((directory / "agent-card.json").read_text()))
+    return config, card
+
+
+def _load_revision(filepath: str) -> tuple[Config, AgentCard]:
+    materialize_from_bootstrap(filepath)
+    return _load_agent_files(Path(filepath))
+
+
+_DEPRECATED = "[DEPRECATED] Ignored; A2A gRPC listens on runtime.host and runtime.port."
+_Host = Annotated[Optional[str], typer.Option(help=_DEPRECATED)]
+_Port = Annotated[Optional[int], typer.Option(help=_DEPRECATED)]
+_Workers = Annotated[Optional[int], typer.Option(help=_DEPRECATED)]
+_Reload = Annotated[bool, typer.Option("--reload", help=_DEPRECATED)]
+
+
+def _warn_ignored_flags(**flags) -> None:
+    for name, value in flags.items():
+        if value:
+            logger.warning("--%s is deprecated and ignored; A2A gRPC listens on runtime.host and runtime.port", name)
+
+
 @app.command()
 def static(
-    host: str = "127.0.0.1",
-    port: int = 8080,
-    workers: int = 1,
     filepath: str = "/config",
-    reload: Annotated[bool, typer.Option("--reload")] = False,
+    host: _Host = None,
+    port: _Port = None,
+    workers: _Workers = None,
+    reload: _Reload = False,
 ):
-    # Bootstrap the revision bundle before loading the ADK working files.
-    materialize_from_bootstrap(filepath)
-
-    with open(os.path.join(filepath, "config.json"), "r") as f:
-        config = json.load(f)
-    config = parse_config(config)
+    config, agent_card = _load_revision(filepath)
     runtime = config.runtime
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
-    with open(os.path.join(filepath, "agent-card.json"), "r") as f:
-        agent_card = json.load(f)
-    agent_card = parse_agent_card(agent_card)
+    _warn_ignored_flags(host=host, port=port, workers=workers, reload=reload)
     plugins = None
     sts_integration = create_sts_integration(runtime.token_propagation)
     if sts_integration:
@@ -111,17 +127,7 @@ def static(
 
     server = kagent_app.build()
     bootstrap(conv.KagentRuntimeValues.ADK_PYTHON, fallback_name=agent_card.name, config=runtime)
-    instrument_app(server)
-
-    uvicorn.run(
-        server,
-        host=host,
-        port=port,
-        workers=workers,
-        reload=reload,
-        log_level=runtime.log_level or "info",
-        log_config=None,
-    )
+    server.run()
 
 
 def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
@@ -149,26 +155,32 @@ def add_to_agent(sts_integration: ADKTokenPropagationPlugin, agent: BaseAgent):
 def run(
     name: Annotated[str, typer.Argument(help="The name of the agent to run")],
     working_dir: str = ".",
-    host: str = "127.0.0.1",
-    port: int = 8080,
-    workers: int = 1,
     local: Annotated[
         bool, typer.Option("--local", help="Run with in-memory session service (for local development)")
     ] = False,
+    host: _Host = None,
+    port: _Port = None,
+    workers: _Workers = None,
 ):
-    # Load agent config to get stream setting
-    config = None
-    config_path = os.path.join(working_dir, name, "config.json")
-    try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-        config = parse_config(config)
-    except FileNotFoundError:
-        logger.debug(f"No config.json found at {config_path}, using defaults")
-
-    runtime = config.runtime if config is not None else RuntimeConfig()
+    if local:
+        agent_dir = Path(working_dir) / name
+        config_path = agent_dir / "config.json"
+        config = parse_config(config_path.read_text()) if config_path.exists() else Config()
+        agent_card = parse_agent_card(json.loads((agent_dir / "agent-card.json").read_text()))
+        # Local runs are unprivileged; port 80 on every interface is the Substrate default.
+        if not config.runtime.host:
+            config.runtime.host = "127.0.0.1"
+        if not config.runtime.port:
+            config.runtime.port = 8080
+    else:
+        try:
+            config, agent_card = _load_revision("/config")
+        except RuntimeError as e:
+            raise SystemExit(f"{e}. Outside Substrate, run with --local.") from e
+    runtime = config.runtime
     app_cfg = KAgentConfig(runtime=runtime)
     configure_logging(runtime.log_level or "info")
+    _warn_ignored_flags(host=host, port=port, workers=workers)
 
     plugins = None
     sts_integration = create_sts_integration(runtime.token_propagation)
@@ -187,10 +199,6 @@ def run(
 
         return root_agent
 
-    with open(os.path.join(working_dir, name, "agent-card.json"), "r") as f:
-        agent_card = json.load(f)
-    agent_card = parse_agent_card(agent_card)
-
     # Attempt to import optional user-defined lifespan(app) from the agent package
     lifespan = None
     try:
@@ -207,7 +215,7 @@ def run(
         app_cfg.app_name,
         lifespan=lifespan,
         plugins=plugins,
-        stream=config.agent.stream if config else False,
+        stream=config.agent.stream,
         config=config,
     )
 
@@ -218,16 +226,7 @@ def run(
         server = kagent_app.build()
 
     bootstrap(conv.KagentRuntimeValues.ADK_PYTHON, fallback_name=agent_card.name, config=runtime)
-    instrument_app(server)
-
-    uvicorn.run(
-        server,
-        host=host,
-        port=port,
-        workers=workers,
-        log_level=runtime.log_level or "info",
-        log_config=None,
-    )
+    server.run()
 
 
 async def test_agent(config: Config, agent_card: AgentCard, task: str):
@@ -259,14 +258,7 @@ def test(
     task: Annotated[str, typer.Option("--task", help="The task to test the agent with")],
     filepath: Annotated[str, typer.Option("--filepath", help="The path to the agent config file")],
 ):
-    with open(os.path.join(filepath, "config.json"), "r") as f:
-        content = f.read()
-        config = json.loads(content)
-
-    with open(os.path.join(filepath, "agent-card.json"), "r") as f:
-        agent_card = json.load(f)
-    agent_card = parse_agent_card(agent_card)
-    config = parse_config(config)
+    config, agent_card = _load_agent_files(Path(filepath))
     asyncio.run(test_agent(config, agent_card, task))
 
 

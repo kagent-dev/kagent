@@ -1,10 +1,13 @@
 import { test, expect } from "../../fixtures/test";
-import { loadPage, routes } from "../../helpers/app";
+import { loadPage, rowNamed, routes } from "../../helpers/app";
 import {
   LIFECYCLE_TIMEOUT,
   confirmDelete,
+  anyDialog,
+  dialog,
   expectRequired,
-  selectFirstOption,
+  pressOnce,
+  rowAction,
 } from "../../helpers/resource";
 
 /**
@@ -13,21 +16,23 @@ import {
  * One test, because a video and a trace are recorded per *test* — see
  * `playwright/README.md`.
  *
- * **There is no update half.** The tab offers create and delete and no edit, so the
- * journey is create, read back, remove. That is narrower than `HarnessService`, which
- * implements update too — this application has never called it.
+ * The journey is create, read back, edit, read back again, remove: every call the tab
+ * makes to `HarnessService`.
  *
  * ## Why the form is short
  *
  * The CRD is strict, and the constraints the form enforces are the cluster's rather than
- * this page's: exactly one runtime adapter, an image pinned by digest, and a worker pool
- * for the Substrate Actors to be scheduled onto. A form that accepted a tag would build a
- * resource the cluster rejects — the failure that is invisible until somebody tries it
- * for real, which is why the fixture refuses it too.
+ * this page's: exactly one runtime adapter, an image (when one is set) pinned by digest,
+ * a worker pool for the Substrate Actors to be scheduled onto and a snapshot location. A
+ * form that accepted a tag would build a resource the cluster rejects — the failure that
+ * is invisible until somebody tries it for real, which is why the fixture refuses it too.
+ * The defaults fill in what a fresh install has: the release's built-in image, the
+ * chart's `kagent-default` pool and a snapshot path.
  */
 
 /** The one this journey makes, reads back and removes. */
 const CREATED = "made-here";
+const PINNED = `ghcr.io/example/runtime@sha256:${"a".repeat(64)}`;
 
 /** Its rows, which is the surface that can say whether any of this happened. */
 const table = "harnesses-table";
@@ -39,11 +44,12 @@ const table = "harnesses-table";
  */
 test.describe.configure({ timeout: LIFECYCLE_TIMEOUT });
 
-test("harnesses: a harness is created, read and deleted", async ({ page }) => {
+test("harnesses: a harness is created, read, edited and deleted", async ({ page }) => {
   await test.step("1. the harnesses are listed", async () => {
     await loadPage(page, routes.harnesses, { title: "Agents" });
     await expect(page.getByTestId(table)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId(table).getByText("k8s-agent", { exact: true })).toBeVisible();
+    await expect(page.getByTestId(table).getByText("kagent-default", { exact: true })).toBeVisible();
     await expect(page.getByTestId(table).getByRole("columnheader", { name: "Ready", exact: true })).toHaveCount(0);
   });
 
@@ -62,72 +68,140 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before);
   });
 
-  await test.step("3. the form requires a complete runtime configuration", async () => {
+  await test.step("3. the form explains itself and marks what the cluster requires", async () => {
+    await page.getByTestId("agents-create").click();
     await page.getByTestId("agents-new-harness").click();
     await page.waitForURL(/\/harnesses\/new(\?|$)/);
 
+    await expect(page.getByTestId("form-back-link")).toHaveText("Harnesses");
+    await expect(page.getByTestId("harness-intro")).toContainText("A harness is where an agent runs");
     await expectRequired(page, {
-      marked: [
-        "Namespace",
-        "Name",
-        "Runtime adapter",
-        "Workload image",
-        "Worker pool",
-        "Snapshot location",
-      ],
-      unmarked: [],
+      marked: ["Namespace", "Name", "Runtime adapter", "Worker pool", "Snapshot location"],
+      // The release ships an image for every built-in adapter; only bring-your-own needs one.
+      unmarked: ["Workload image", "Command", "Arguments"],
     });
   });
 
-  await test.step("4. an image that is not pinned cannot be submitted", async () => {
-    // Any namespace will do: this step is about the image, not about where the harness
-    // lives.
-    await selectFirstOption(page, "harness-namespace");
+  await test.step("4. the namespace, its default pool and a snapshot path are filled in", async () => {
+    await expect(page.getByTestId("harness-namespace")).toContainText("kagent");
     await page.getByTestId("harness-name").fill(CREATED);
-    await page.getByTestId("harness-worker-pool").fill("kagent-default");
 
+    await expect(page.getByTestId("harness-worker-pool")).toContainText("kagent-default");
+    await expect(page.getByTestId("harness-snapshot")).toHaveValue("s3://ate-snapshots/kagent/");
+  });
+
+  await test.step("5. an image that is not pinned is flagged as typed, and Create is held back", async () => {
     await page.getByTestId("harness-image").fill("ghcr.io/example/runtime:latest");
-    await expect(
-      page.getByTestId("harness-create"),
-      "a tag can move under a running agent, and the CRD refuses one",
-    ).toBeDisabled();
+    // A tag can move under a running agent, and the CRD refuses one.
+    await expect(page.getByText("The workload image must be pinned by sha256 digest.")).toBeVisible();
+    await expect(page.getByTestId("harness-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("harness-blocked")).toHaveText("Fill in the required (*) fields.");
+    await expect(page).toHaveURL(/\/harnesses\/new(\?|$)/);
+    await page.getByTestId("harness-image").fill("");
   });
 
-  await test.step("5. nor can one with no snapshot location", async () => {
-    // The CRD requires it. This form used to treat it as optional, so a harness could be
-    // submitted without one and the controller answered "Invalid Harness" — naming
-    // neither the field nor what was wrong with it.
-    await page
-      .getByTestId("harness-image")
-      .fill(`ghcr.io/example/runtime@sha256:${"a".repeat(64)}`);
-    await expect(page.getByTestId("harness-create")).toBeDisabled();
+  await test.step("6. so is a missing snapshot location, once the field is left", async () => {
+    // The CRD requires it, and the controller's answer to a missing one is "Invalid
+    // Harness" — naming neither the field nor what was wrong with it.
+    await page.getByTestId("harness-snapshot").fill("");
+    await page.getByTestId("harness-snapshot").blur();
+    await expect(page.getByText("A snapshot location is required.")).toBeVisible();
   });
 
-  await test.step("6. pinned by digest and told where snapshots go, it is created", async () => {
-    await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent");
+  await test.step("6b. leaving with edits asks first", async () => {
+    await page.getByTestId("form-back-link").click();
+    await expect(dialog(page)).toContainText("Discard your changes?");
+    await pressOnce(dialog(page).getByRole("button", { name: "Keep editing" }));
+    await expect(anyDialog(page)).toBeHidden();
+    await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
+  });
 
-    await expect(page.getByTestId("harness-create")).toBeEnabled();
-    await page.getByTestId("harness-create").click();
+  await test.step("6c. command and arguments become pills: spaces split them, quotes keep them whole, a click removes one", async () => {
+    const command = page.getByTestId("harness-command");
+    await page.getByTestId("harness-command-input").pressSequentially("node server.js");
+    const add = page.getByTestId("harness-command-add");
+    await expect(add).toHaveAccessibleName("Add");
+    await add.hover();
+    await expect(page.getByRole("tooltip", { name: "Add" })).toBeVisible();
+    await add.click();
+    await expect(command.getByTestId("harness-command-list").getByRole("listitem")).toHaveText(["node", "server.js"]);
+
+    const args = page.getByTestId("harness-args");
+    await page.getByTestId("harness-args-input").pressSequentially('--port=8080 --name "two words" extra');
+    await page.getByTestId("harness-args-input").press("Enter");
+    await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words", "extra"]);
+    // The whole pill is the remove button: a click on its text removes it, and so does Enter.
+    await args.getByRole("listitem").filter({ hasText: /^extra$/ }).getByText("extra").click();
+    await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
+    await page.getByTestId("harness-args-input").pressSequentially("last");
+    await page.getByTestId("harness-args-input").press("Enter");
+    await args.getByRole("button", { name: "Remove last" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(args.getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
+  });
+
+  await test.step("7. with the release image and the defaults, it is created", async () => {
+    await page.getByTestId("harness-snapshot").fill("s3://ate-snapshots/kagent/");
+    await expect(page.getByTestId("harness-blocked")).toHaveCount(0);
+    await page.getByTestId("harness-submit").click();
 
     // Back to the tab it came from, with the new harness in the list. Read back off the
     // table rather than from a toast or a closed form: "the create returned" and "the
     // thing exists" are different claims, and only the list checks the second.
     await page.waitForURL(/tab=harnesses/);
     await expect(page.getByTestId(table)).toContainText(CREATED, { timeout: 30_000 });
+    await expect(rowNamed(page, CREATED)).toContainText("Release default");
   });
 
-  await test.step("7. a rejected delete reports failure and keeps the row", async () => {
+  await test.step("8. it is edited in place, and the change reads back", async () => {
+    await rowAction(page, `kagent/${CREATED}`, "edit");
+    await page.waitForURL(new RegExp(`/harnesses/kagent/${CREATED}/edit`));
+
+    await expect(page.getByTestId("harness-name")).toHaveValue(CREATED);
+    await expect(page.getByTestId("harness-name")).toBeDisabled();
+    await expect(page.getByTestId("harness-command").getByRole("listitem")).toHaveText(["node", "server.js"]);
+    await expect(page.getByTestId("harness-args").getByRole("listitem")).toHaveText(["--port=8080", "--name", "two words"]);
+    await page.getByTestId("harness-image").fill(PINNED);
+    await page.getByTestId("harness-submit").click();
+
+    await page.waitForURL(/tab=harnesses/);
+    await expect(rowNamed(page, CREATED)).toContainText(PINNED.slice(0, 20), { timeout: 30_000 });
+    await expect(rowNamed(page, CREATED)).not.toContainText("Release default");
+  });
+
+  await test.step("8b. a copy opens prefilled, and saving it adds a second harness", async () => {
+    await rowAction(page, `kagent/${CREATED}`, "copy");
+    await page.waitForURL(/\/harnesses\/new\?from=/);
+
+    await expect(page.getByTestId("harness-name")).toHaveValue(`${CREATED}-copy`);
+    await expect(page.getByTestId("harness-image")).toHaveValue(PINNED);
+    await page.getByTestId("harness-submit").click();
+
+    await page.waitForURL(/tab=harnesses/);
+    await expect(rowNamed(page, `${CREATED}-copy`)).toContainText(PINNED.slice(0, 20), { timeout: 30_000 });
+
+    // Removed again: the later steps find the original by a name this one contains.
+    await confirmDelete(page, `kagent/${CREATED}-copy`, { fromMenu: true });
+    await expect(page.getByTestId(table)).not.toContainText(`${CREATED}-copy`, { timeout: 30_000 });
+  });
+
+  await test.step("9. a rejected delete reports failure and keeps the row", async () => {
     await page.evaluate(() => {
       const url = new URL(window.location.href);
       url.searchParams.set("mock", "error");
       window.history.replaceState({}, "", url);
     });
 
-    await confirmDelete(page, CREATED);
+    await confirmDelete(page, `kagent/${CREATED}`, { fromMenu: true });
 
     await expect(page.getByText(`Could not delete harness ${CREATED}:`)).toBeVisible();
     await expect(page.getByText(`Deleted harness ${CREATED}`)).toHaveCount(0);
     await expect(page.getByTestId(table)).toContainText(CREATED);
+
+    // A failed delete leaves the confirmation open so it can be retried; close it, or the
+    // next step finds it still on screen.
+    await dialog(page).getByRole("button", { name: "Keep" }).click();
+    await expect(dialog(page)).toHaveCount(0);
 
     await page.evaluate(() => {
       const url = new URL(window.location.href);
@@ -136,11 +210,11 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     });
   });
 
-  await test.step("8. it is removed from the same tab, and the rest stays", async () => {
+  await test.step("10. it is removed from the same tab, and the rest stays", async () => {
     const rows = page.getByTestId(table).locator("tbody tr");
     const before = await rows.count();
 
-    await confirmDelete(page, CREATED);
+    await confirmDelete(page, `kagent/${CREATED}`, { fromMenu: true });
 
     await expect(page.getByTestId(table)).not.toContainText(CREATED, {
       timeout: 30_000,
@@ -150,7 +224,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect.poll(() => rows.count()).toBe(before - 1);
   });
 
-  await test.step("9. an empty result leaves the tab standing, with no rows", async () => {
+  await test.step("11. an empty result leaves the tab standing, with no rows", async () => {
     // Last, after the delete: reaching these needs the backend answering differently and
     // `?mock=` is per-navigation, which discards what the journey made.
     await loadPage(page, routes.harnesses, { scenario: "empty", title: "Agents" });
@@ -159,7 +233,7 @@ test("harnesses: a harness is created, read and deleted", async ({ page }) => {
     await expect(page.getByTestId("harnesses-error")).toHaveCount(0);
   });
 
-  await test.step("10. a failed load is reported, not disguised as an empty tab", async () => {
+  await test.step("12. a failed load is reported, not disguised as an empty tab", async () => {
     await loadPage(page, routes.harnesses, { scenario: "error", title: "Agents" });
 
     const alert = page.getByTestId("harnesses-error");

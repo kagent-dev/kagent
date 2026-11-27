@@ -26,6 +26,20 @@ func TestCheckConfigAllowsUnsignedPush(t *testing.T) {
 	require.ErrorContains(t, run(path, true, ""), filepath.Join(dir, "missing.pem"))
 }
 
+func TestCheckConfigAllowsMissingPreviousPushKey(t *testing.T) {
+	// Given a required current key, when previous is missing, assert that
+	// preflight accepts the fallback but still rejects other read errors.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller.yaml")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "database-url"), []byte("postgres://localhost/kagent"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "current.pem"), []byte("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n"), 0o600))
+	const contents = "database: {owner: {urlFile: database-url, role: kagent_owner}, readWrite: {urlFile: database-url, role: kagent_readwrite}}\npush: {signingPrivateKeyFile: current.pem, previousSigningPrivateKeyFile: previous.pem}\n"
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	require.NoError(t, run(path, true, ""))
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "previous.pem"), 0o700))
+	require.ErrorContains(t, run(path, true, ""), "previous.pem")
+}
+
 func TestCheckConfigSkipsOwnerFileWhenSkippingMigrations(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "controller.yaml")

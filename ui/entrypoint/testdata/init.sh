@@ -39,7 +39,7 @@ if ! [[ "$BASE_PATH" =~ ^(/[A-Za-z0-9._~-]+)*$ ]] || [[ "$BASE_PATH" =~ (^|/)\.\
   BASE_PATH=""
 fi
 
-# A non-numeric timeout would abort every chat stream immediately, which looks
+# A non-numeric timeout would abort every conversation stream immediately, which looks
 # like the backend hanging up rather than like a bad value. Fall back instead.
 if ! [[ "$STREAM_TIMEOUT_MS" =~ ^[0-9]+$ ]]; then
   echo "init.sh: KAGENT_UI_STREAM_TIMEOUT_MS='${STREAM_TIMEOUT_MS}' is not a number; using 1800000" >&2

@@ -16,8 +16,8 @@ export const routes = {
   agentNew: "/agents/new",
   models: "/models",
   modelNew: "/models/new",
-  mcpServers: "/mcp",
-  mcpServerNew: "/mcp/new",
+  mcpServers: "/mcp-servers",
+  mcpServerNew: "/mcp-servers/new",
   policies: "/policies",
   egressPolicyNew: "/policies/egress/new",
   prompts: "/prompts",
@@ -59,6 +59,8 @@ export const agents = {
   sharedOnFastLane: { name: "shared-brain-fast", template: "shared-brain", harness: "fast-lane" },
   /** Defined, but with no successful revision — so no conversation can start. */
   preparing: { name: "support-triage-2b91d0e", template: "support-triage-2b91d0e", harness: "support-triage" },
+  /** Ran once; its latest edit names a Harness image that cannot be pulled. */
+  updateFailed: { name: "triage-on-claude", template: "support-triage-2b91d0e", harness: "support-triage" },
 } as const;
 
 /** Where one agent lives: its namespace and name. */
@@ -74,7 +76,7 @@ export const agentPage = (
  * has. Nothing is created until the first message is sent, which is why the two are
  * different addresses rather than the same one behaving differently.
  */
-export const agentNewChat = (
+export const agentNewConversation = (
   agent: { name?: string; template: string; harness: string },
   namespace = "kagent",
 ) => `${agentPage(agent, namespace)}/new`;
@@ -91,8 +93,8 @@ export const agentNewChat = (
 export const SIBLING_OF_READY = instances.idle;
 
 /** Where one agent's conversation lives. */
-export const agentChat = (id: string) =>
-  `/agents/${id}/chat`;
+export const agentConversation = (id: string) =>
+  `/agents/${id}/conversation`;
 
 /** Where one agent's record lives. */
 export const agentDetail = (id: string) =>
@@ -105,7 +107,7 @@ export const agentDetail = (id: string) =>
  * `src/mocks/scenario.ts`), which is what makes the loading, empty and failure
  * paths drivable from a test without a second build or a stubbed module.
  */
-export type MockScenario = "ok" | "empty" | "error" | "slow";
+export type MockScenario = "ok" | "empty" | "error" | "slow" | "denied";
 
 /**
  * Adds the scenario to a path.

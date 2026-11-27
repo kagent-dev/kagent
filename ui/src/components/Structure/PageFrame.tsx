@@ -53,13 +53,14 @@ export function PageFrame({
         >
           <div>
             {title ? (
-              <Title level={2} css={{ margin: 0 }} data-testid="page-title">
+              // `&&` outranks antd's typography margins, which would add space under the header.
+              <Title level={2} css={{ "&&": { margin: 0 } }} data-testid="page-title">
                 {title}
               </Title>
             ) : null}
             {description ? (
               <Paragraph
-                css={{ margin: `${theme.space(2)} 0 0`, color: theme.color.textMuted }}
+                css={{ "&&": { margin: `${theme.space(2)} 0 0` }, color: theme.color.textMuted }}
               >
                 {description}
               </Paragraph>

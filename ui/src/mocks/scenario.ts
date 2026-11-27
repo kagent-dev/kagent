@@ -11,7 +11,7 @@
  * the query string. `?mock=ok` clears it again.
  */
 
-export const MOCK_SCENARIOS = ["ok", "empty", "error", "slow"] as const;
+export const MOCK_SCENARIOS = ["ok", "empty", "error", "slow", "denied"] as const;
 
 export type MockScenario = (typeof MOCK_SCENARIOS)[number];
 
@@ -26,6 +26,7 @@ export const SCENARIO_DELAY_MS: Record<MockScenario, number> = {
   ok: 450,
   empty: 450,
   error: 450,
+  denied: 450,
   slow: 2_500,
 };
 
@@ -69,15 +70,15 @@ function isScenario(value: string | null): value is MockScenario {
 }
 
 // ---------------------------------------------------------------------------
-// Chat transport
+// Conversation transport
 // ---------------------------------------------------------------------------
 
 /**
- * How the mock chat transport should behave.
+ * How the mock conversation transport should behave.
  *
  * Kept separate from the REST scenario above because the two fail
- * independently: a conversation can break while the session list loads fine, and
- * that combination is exactly what the chat error states are for. Folding them
+ * independently: a conversation can break while the conversation list loads fine, and
+ * that combination is exactly what the conversation error states are for. Folding them
  * into one switch would make "the stream failed" untestable without also taking
  * out the page around it.
  *
@@ -93,21 +94,21 @@ function isScenario(value: string | null): value is MockScenario {
  * `asks-text` offers one prose field — the only shape where the field can take the
  * caret on arrival and Enter can mean "send".
  */
-export const CHAT_SCENARIOS = ["ok", "error", "slow", "asks", "asks-text"] as const;
+export const CONVERSATION_SCENARIOS = ["ok", "error", "slow", "asks", "asks-text"] as const;
 
-export type ChatScenario = (typeof CHAT_SCENARIOS)[number];
+export type ConversationScenario = (typeof CONVERSATION_SCENARIOS)[number];
 
-export const CHAT_SCENARIO_PARAM = "chat";
+export const CONVERSATION_SCENARIO_PARAM = "conversation";
 
-/** The chat scenario in force, re-read per turn so it can change mid-session. */
-export function currentChatScenario(): ChatScenario {
+/** The conversation scenario in force, re-read per turn so it can change mid-session. */
+export function currentConversationScenario(): ConversationScenario {
   if (typeof window === "undefined") return "ok";
-  const value = new URLSearchParams(window.location.search).get(CHAT_SCENARIO_PARAM);
-  return isChatScenario(value) ? value : "ok";
+  const value = new URLSearchParams(window.location.search).get(CONVERSATION_SCENARIO_PARAM);
+  return isConversationScenario(value) ? value : "ok";
 }
 
-function isChatScenario(value: string | null): value is ChatScenario {
-  return value !== null && (CHAT_SCENARIOS as readonly string[]).includes(value);
+function isConversationScenario(value: string | null): value is ConversationScenario {
+  return value !== null && (CONVERSATION_SCENARIOS as readonly string[]).includes(value);
 }
 
 /**

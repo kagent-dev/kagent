@@ -1,6 +1,7 @@
-import { Alert, Button, Skeleton, Space } from "antd";
-import { ArrowLeft } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Alert, Skeleton, Space } from "antd";
+import { ReadError } from "@/components/common/ReadError";
+import { useNavigate, useParams } from "react-router-dom";
+import { BackLink } from "@/components/form/BackLink";
 import { invoke } from "@/api/operations";
 import { useApiResource } from "@/api/hooks/useApiResource";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -42,30 +43,21 @@ export function ScheduledRunEditPage() {
   }
 
   return (
+    <>
+    <BackLink to={paths.scheduledRuns} resource="Schedules" />
     <PageFrame
       title={schedule?.config?.name ? `Edit ${schedule.config.name}` : "Edit schedule"}
       description="Changes take effect from the next firing. Executions already accepted continue."
-      actions={
-        <Link to={detail}>
-          <Button icon={<ArrowLeft size={14} />}>Back</Button>
-        </Link>
-      }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {!id ? (
           <Alert type="error" showIcon title="Missing schedule ID" />
         ) : run.error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load this schedule"
-            description={run.error.message}
-            data-testid="schedule-edit-load-error"
-            action={
-              <Button size="small" onClick={() => void run.refresh()}>
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="this schedule"
+            error={run.error}
+            testId="schedule-edit-load-error"
+            onRetry={run.refresh}
           />
         ) : null}
 
@@ -76,11 +68,12 @@ export function ScheduledRunEditPage() {
         {schedule ? (
           <ScheduledRunForm
             schedule={schedule}
-            onCancel={() => void navigate(detail)}
+            cancelTo={detail}
             onSaved={() => void leaveSaved()}
           />
         ) : null}
       </Space>
     </PageFrame>
+    </>
   );
 }

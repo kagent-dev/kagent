@@ -1,5 +1,5 @@
 import { test, expect } from "../../fixtures/test";
-import { agentChat, agents, instances, loadPage, routes } from "../../helpers/app";
+import { agentConversation, agents, instances, loadPage, routes } from "../../helpers/app";
 import { expectShell } from "../../helpers/nav";
 import { CORE_NAV_ORDER, allSlots, navOrder } from "../../helpers/extensions";
 
@@ -52,9 +52,9 @@ test("extension points: a bare build renders the application and nothing else", 
   });
 
   await test.step("4. the agent rail carries the application's two entries and no more", async () => {
-    await loadPage(page, agentChat(instances.ready));
-    const rail = page.getByTestId("chat-sessions-nav");
-    // Both destinations are addresses of this agent, and the chat page derives them
+    await loadPage(page, agentConversation(instances.ready));
+    const rail = page.getByTestId("rail-conversations-nav");
+    // Both destinations are addresses of this agent, and the conversation page derives them
     // from the instance it is still fetching — so the nav is empty for a moment and
     // reading it straight away reads nothing.
     await expect(rail.getByTestId("agent-nav-agent-conversations")).toBeVisible({
@@ -63,7 +63,7 @@ test("extension points: a bare build renders the application and nothing else", 
     const order = await rail
       .locator("[data-testid]")
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-testid") ?? ""));
-    expect(order).toEqual(["agent-nav-agent-conversations", "chat-new-session"]);
+    expect(order).toEqual(["agent-nav-agent-conversations", "rail-new-conversation"]);
   });
 
   await test.step("4. a route only an extension would contribute is a 404", async () => {

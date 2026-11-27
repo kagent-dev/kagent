@@ -7,14 +7,19 @@ import {
   defineExtensionFormField,
   extensionAgentLinks,
   extensionBranding,
-  extensionChatPartRenderers,
+  extensionConversationPartRenderers,
   extensionFormFields,
   extensionNavItems,
   extensionNavOverrides,
   extensionProviderIcons,
   extensionShell,
+  extensionRowActions,
   extensionTableColumns,
   initialExtensionFieldValues,
+  activeKeyFor,
+  activeSidebarKey,
+  mergeExtensionNavOverrides,
+  applyNavOverrides,
   isNavPathActive,
   installExtensionApi,
   installExtensionApis,
@@ -32,6 +37,7 @@ import {
   applyResponseTransforms,
 } from "@/api/extensionPoints";
 import type { ApiCallId, ApiRequestContext, ApiResponseContext } from "@/api";
+import { coreNavItems } from "@/components/Structure/navItems";
 import type { NavItem } from "@/components/Structure/navItems";
 import { reservedRoutePaths } from "@/router/router";
 
@@ -212,9 +218,65 @@ describe("buildSidebarSections", () => {
   });
 
   it("matches nav paths by prefix, except the root", () => {
-    expect(isNavPathActive("/agents", "/agents/foo/chat")).toBe(true);
+    expect(isNavPathActive("/agents", "/agents/foo/conversation")).toBe(true);
     expect(isNavPathActive("/", "/agents")).toBe(false);
     expect(isNavPathActive("/", "/")).toBe(true);
+  });
+});
+
+describe("active nav entry", () => {
+  const item = (key: string, path: string, activePaths?: string[]): NavItem => ({
+    key,
+    label: key,
+    path,
+    activePaths,
+    icon: (() => null) as unknown as NavItem["icon"],
+    order: 0,
+  });
+
+  it("highlights Agents on template and harness pages, which live outside /agents", () => {
+    for (const pathname of [
+      "/agents",
+      "/agent-templates/kagent/k8s",
+      "/harnesses/new",
+      "/harnesses/kagent/default/edit",
+      // A page that does not exist yet, so a future harness page needs no nav change.
+      "/harnesses/kagent/default",
+    ]) {
+      expect(activeKeyFor(pathname, coreNavItems), pathname).toEqual(["agents"]);
+    }
+    expect(activeKeyFor("/models", coreNavItems)).toEqual(["models"]);
+  });
+
+  it("prefers the longest prefix across paths and activePaths", () => {
+    const items = [item("broad", "/x", ["/y"]), item("narrow", "/y/z")];
+    expect(activeKeyFor("/y/z/1", items)).toEqual(["narrow"]);
+    expect(activeKeyFor("/y/1", items)).toEqual(["broad"]);
+    expect(activeKeyFor("/q", items)).toEqual([]);
+  });
+
+  it("appends an override's activePaths to the entry's own", () => {
+    const [agents] = applyNavOverrides([item("agents", "/agents", ["/agent-templates"])], {
+      agents: { activePaths: ["/builder"] },
+    });
+    expect(agents.activePaths).toEqual(["/agent-templates", "/builder"]);
+  });
+
+  it("keeps every extension's activePaths when overrides merge", () => {
+    const merged = mergeExtensionNavOverrides([
+      { agents: { activePaths: ["/builder"] } },
+      { agents: { activePaths: ["/gallery"], label: "Bots" } },
+    ]);
+    expect(merged.agents).toEqual({ activePaths: ["/builder", "/gallery"], label: "Bots" });
+  });
+
+  it("highlights one entry across sections, extension items included", () => {
+    const ext = { ...extensionItem("catalog", 250), path: "/harnesses/catalog" };
+    const sections = buildSidebarSections(coreNavItems, [ext]);
+    expect(sections.filter((s) => s.kind === "core").length).toBeGreaterThan(1);
+    expect(activeSidebarKey("/harnesses/catalog/x", sections)).toBe("extension-catalog");
+    expect(activeSidebarKey("/harnesses/new", sections)).toBe("agents");
+    expect(activeSidebarKey("/models", sections)).toBe("models");
   });
 });
 
@@ -337,6 +399,21 @@ describe("composing several installed extensions", () => {
     expect(columns.map((c) => c.id)).toEqual(["region", "cluster"]);
   });
 
+  it("concatenates row actions for the menu they target", () => {
+    const rowAction = (id: string, menuId: "app_agents_agentsList_rowMenu" | "app_agents_harnessesList_rowMenu") =>
+      ({ id, menuId, label: id, onClick: () => {} });
+
+    const actions = extensionRowActions(
+      [
+        extension("a", { rowActions: [rowAction("one", "app_agents_agentsList_rowMenu")] }),
+        extension("b", { rowActions: [rowAction("other", "app_agents_harnessesList_rowMenu"), rowAction("two", "app_agents_agentsList_rowMenu")] }),
+      ],
+      "app_agents_agentsList_rowMenu",
+    );
+
+    expect(actions.map((a) => a.id)).toEqual(["one", "two"]);
+  });
+
   it("merges shell regions, later extensions winning per region", () => {
     const firstHeader = noopComponent;
     const secondHeader = () => null;
@@ -362,15 +439,15 @@ describe("composing several installed extensions", () => {
   });
 
   it("merges agent links, so a partial redirect keeps the other links", () => {
-    const chat = () => "/chat";
+    const conversation = () => "/conversation";
     const details = () => "/details";
 
     const links = extensionAgentLinks([
-      extension("a", { agentLinks: { chat, details } }),
+      extension("a", { agentLinks: { conversation, details } }),
       extension("b", { agentLinks: { details: () => "/other" } }),
     ]);
 
-    expect(links.chat).toBe(chat);
+    expect(links.conversation).toBe(conversation);
     expect(links.details).not.toBe(details);
   });
 
@@ -384,11 +461,11 @@ describe("composing several installed extensions", () => {
     expect(icons.OpenAI).not.toBe(noopComponent);
   });
 
-  it("merges chat part renderers, later extensions replacing a shared key", () => {
+  it("merges conversation part renderers, later extensions replacing a shared key", () => {
     const later = () => null;
-    const renderers = extensionChatPartRenderers([
-      extension("a", { chatPartRenderers: { text: noopComponent, tool_call: noopComponent } }),
-      extension("b", { chatPartRenderers: { text: later } }),
+    const renderers = extensionConversationPartRenderers([
+      extension("a", { conversationPartRenderers: { text: noopComponent, tool_call: noopComponent } }),
+      extension("b", { conversationPartRenderers: { text: later } }),
     ]);
 
     expect(Object.keys(renderers).sort()).toEqual(["text", "tool_call"]);
@@ -521,6 +598,29 @@ describe("validateAppExtensions", () => {
     ).toThrow(/contributed by more than one extension/);
   });
 
+  it("rejects two extensions contributing the same row action to one menu", () => {
+    const action = { id: "trace", menuId: "app_agents_agentsList_rowMenu" as const, label: "Trace", onClick: () => {} };
+    expect(() =>
+      validateAppExtensions([
+        { id: "a", name: "A", rowActions: [action] },
+        { id: "b", name: "B", rowActions: [action] },
+      ]),
+    ).toThrow(/row action "app_agents_agentsList_rowMenu:trace" is contributed by more than one extension/);
+  });
+
+  it("reports a row action repeated inside one extension once, and one with no label", () => {
+    const action = { id: "trace", menuId: "app_agents_agentsList_rowMenu" as const, label: "Trace", onClick: () => {} };
+    let thrown = "";
+    try {
+      validateAppExtensions([{ id: "a", name: "A", rowActions: [action, action, { ...action, id: "x", label: "" }] }]);
+    } catch (error) {
+      thrown = String(error);
+    }
+    expect(thrown).toMatch(/declared twice/);
+    expect(thrown).toMatch(/needs an id, a label and exactly one of link or onClick/);
+    expect(thrown).not.toMatch(/more than one extension/);
+  });
+
   it("rejects two extensions contributing the same nav key", () => {
     expect(() =>
       validateAppExtensions([
@@ -617,11 +717,11 @@ describe("validateExtensionConfig", () => {
   });
 
   it("rejects an agent rail key that is one of the application's own", () => {
-    // Contributing `newChat` would sit a second entry beside the one it was
+    // Contributing `newConversation` would sit a second entry beside the one it was
     // presumably meant to change, and `agentRailOverrides` is how that is done.
     const config: AppExtensionConfig = {
       ...base,
-      agentRailItems: [extensionItem("newChat", 10)],
+      agentRailItems: [extensionItem("newConversation", 10)],
     };
     expect(() => validateExtensionConfig(config)).toThrow(/agentRailOverrides/);
   });

@@ -8,7 +8,7 @@ from ._grpc import AsyncControllerClient, AsyncFileTokenProvider, AsyncTokenProv
 from ._logging import configure_logging
 from ._runtime_config import RuntimeConfig
 from ._structured_object import decode_structured_object, encode_structured_object
-from .telemetry import bootstrap, instrument_app, signal_enabled
+from .telemetry import bootstrap, signal_enabled
 
 configure_logging()
 
@@ -22,7 +22,6 @@ __all__ = [
     "decode_structured_object",
     "encode_structured_object",
     "bootstrap",
-    "instrument_app",
     "signal_enabled",
     "configure_logging",
 ]

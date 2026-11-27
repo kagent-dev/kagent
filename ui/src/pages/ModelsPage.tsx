@@ -1,7 +1,8 @@
+import { ReadError } from "@/components/common/ReadError";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Pencil, Plus } from "lucide-react";
-import { Alert, Button, Space, Table, Tag, Typography } from "antd";
+import { Button, Space, Table, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useTheme } from "@emotion/react";
 import { PageFrame } from "@/components/Structure/PageFrame";
@@ -185,7 +186,6 @@ export function ModelsPage() {
       description="Model configurations available to agents."
       actions={
         <Space size={8}>
-          <RefreshButton onRefresh={refresh} what="Models" loading={isLoading} />
           {/* The same page-level create the tool server and prompt lists carry. It
               matters more than it looks: the header's create menu is part of the default
               shell, and a distribution that supplies its own layout does not inherit it —
@@ -196,22 +196,17 @@ export function ModelsPage() {
               New Model
             </Button>
           </Link>
+          <RefreshButton onRefresh={refresh} what="Models" loading={isLoading} iconOnly />
         </Space>
       }
     >
       <Space orientation="vertical" size="middle" css={{ display: "flex" }}>
         {error ? (
-          <Alert
-            type="error"
-            showIcon
-            title="Could not load model configurations"
-            description={error.message}
-            data-testid="models-error"
-            action={
-              <Button size="small" onClick={() => void refresh()}>
-                Try again
-              </Button>
-            }
+          <ReadError
+            resource="model configurations"
+            error={error}
+            testId="models-error"
+            onRetry={refresh}
           />
         ) : null}
 

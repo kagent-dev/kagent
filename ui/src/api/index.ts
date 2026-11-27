@@ -7,7 +7,15 @@
  * is still held over HTTP.
  */
 
-export { ApiError, isApiError, isNotFound } from "./ApiError";
+export {
+  ApiError,
+  isApiError,
+  isNotFound,
+  isSendNotAccepted,
+  mayNeedRecovery,
+  SEND_NOT_ACCEPTED,
+  TURN_ACTIVE,
+} from "./ApiError";
 export type { ApiErrorKind } from "./ApiError";
 
 export { apiBaseUrl, apiMode, isMockMode, MOCK_API_BASE_URL } from "./config";
@@ -71,6 +79,7 @@ export * from "./domain/substrate";
 export * from "./domain/prompts";
 export * from "./domain/harnesses";
 export * from "./domain/agentTemplates";
+export * from "./domain/templateToolCount";
 export * from "./domain/agents";
 export * from "./domain/checkpoints";
 export * from "./domain/egressPolicies";
@@ -96,6 +105,7 @@ export {
   useSubstrateActors,
   useSubstrateSummary,
   useSubstrateWorkers,
+  useWorkerPools,
 } from "./hooks/useSubstrate";
 export {
   useAgentTemplate,
@@ -109,6 +119,8 @@ export {
   useAgentConversations,
   useAgentInstance,
   useAgentInstances,
+  useOwnAgentConversations,
+  useSiblingConversations,
 } from "./hooks/useAgentInstances";
 export { useInvalidateConversations } from "./hooks/useInvalidateConversations";
 export { useInvalidatePrompts } from "./hooks/useInvalidatePrompts";
@@ -122,9 +134,9 @@ export type {
 export { useApiResource } from "./hooks/useApiResource";
 export type { ApiResource } from "./hooks/useApiResource";
 
-export { useChat } from "./hooks/useChat";
-export type { ChatController, ChatPhase } from "./hooks/useChat";
-export type { ChatTurnPhase } from "./chat/turnMachine";
+export { useConversation } from "./hooks/useConversation";
+export type { ConversationController, ConversationPhase } from "./hooks/useConversation";
+export type { ConversationTurnPhase } from "./conversation/turnMachine";
 export type {
   HitlQuestion,
   HitlTool,
@@ -132,22 +144,22 @@ export type {
   PendingRequest,
   ToolApprovalDecision,
   ToolApprovalRecord,
-} from "./chat/hitl";
-export { HITL_EXTENSION_URI } from "./chat/hitl";
+} from "./conversation/hitl";
+export { HITL_EXTENSION_URI } from "./conversation/hitl";
 
-export { getChatClient, resetChatClient, setChatClientFactory } from "./chat";
+export { getConversationClient, resetConversationClient, setConversationClientFactory } from "./conversation";
 export type {
-  ChatAskUserPart,
-  ChatClient,
-  ChatDataPart,
-  ChatEvent,
-  ChatMessage,
-  ChatPart,
-  ChatRole,
-  ChatTextPart,
-  ChatFilePart,
-  ChatToolApprovalPart,
-  ChatTurnState,
-} from "./chat";
+  ConversationAskUserPart,
+  ConversationClient,
+  ConversationDataPart,
+  ConversationEvent,
+  ConversationMessage,
+  ConversationPart,
+  ConversationRole,
+  ConversationTextPart,
+  ConversationFilePart,
+  ConversationToolApprovalPart,
+  ConversationTurnState,
+} from "./conversation";
 
 export { useAgent, useAgentsAcrossNamespaces, useInvalidateAgents } from "./hooks/useAgents";

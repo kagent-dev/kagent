@@ -547,10 +547,10 @@ func TestReferencePolicyFailurePreservesLastSuccessfulRevision(t *testing.T) {
 				runner.Spec.Workload.Image = new("example.com/runtime@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 				agent := &kagentv1alpha3.Agent{ObjectMeta: metav1.ObjectMeta{Namespace: "team-a", Name: "agent", UID: "agent-uid"}, Spec: kagentv1alpha3.AgentSpec{
 					HarnessRef: corev1.LocalObjectReference{Name: runner.Name},
-					Template:   kagentv1alpha3.AgentTemplateSource{Inline: &kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ObjectReference{Name: model.Name, Namespace: model.Namespace}}},
+					Template:   kagentv1alpha3.AgentTemplateSource{Inline: &kagentv1alpha3.AgentTemplateSpec{ModelConfig: &kagentv1alpha3.ModelConfigReference{Name: model.Name, Namespace: model.Namespace}}},
 				}}
 				if kind == "RemoteMCPServer" {
-					agent.Spec.Template.Inline.Tools = []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: corev1.TypedObjectReference{Kind: kind, Name: server.Name, Namespace: new(server.Namespace)}}}}
+					agent.Spec.Template.Inline.Tools = []kagentv1alpha3.ToolBinding{{MCP: &kagentv1alpha3.MCPToolBinding{Server: kagentv1alpha3.MCPServerReference{Kind: new(kind), Name: server.Name, Namespace: server.Namespace}}}}
 					model.Spec.AllowedNamespaces = &kagentv1alpha3.AllowedNamespaces{From: kagentv1alpha3.NamespacesFromAll}
 				}
 				agents := krt.NewStaticCollection(nil, []*kagentv1alpha3.Agent{agent}, opts.WithName("Agents")...)
@@ -612,4 +612,22 @@ func reconciliationTestCard(name string) *a2apb.AgentCard {
 		DefaultInputModes: []string{"text"}, DefaultOutputModes: []string{"text"},
 		SupportedInterfaces: []*a2apb.AgentInterface{{Url: "http://127.0.0.1:80", ProtocolBinding: "GRPC", ProtocolVersion: "1.0"}},
 	}
+}
+
+func TestModelConfigConditionTransitionTimesMoveOnlyOnStatusChange(t *testing.T) {
+	then := metav1.NewTime(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	current := kagentv1alpha3.ModelConfigStatus{Conditions: []metav1.Condition{
+		{Type: "Accepted", Status: metav1.ConditionFalse, Reason: "SecretNotFound", Message: "secret team-a/a not found", ObservedGeneration: 1, LastTransitionTime: then},
+		{Type: "Ready", Status: metav1.ConditionTrue, Reason: "Resolved", ObservedGeneration: 1, LastTransitionTime: then},
+	}}
+	desired := kagentv1alpha3.ModelConfigStatus{Conditions: []metav1.Condition{
+		{Type: "Accepted", Status: metav1.ConditionFalse, Reason: "SecretKeyNotFound", Message: "key missing in secret team-a/b", ObservedGeneration: 2},
+		{Type: "Ready", Status: metav1.ConditionFalse, Reason: "Unresolved", ObservedGeneration: 2},
+	}}
+
+	got := modelConfigStatusWithTransitionTimes(desired, current)
+
+	require.Equal(t, then, got.Conditions[0].LastTransitionTime, "a new reason, message or generation alone is no transition")
+	require.True(t, got.Conditions[1].LastTransitionTime.After(then.Time), "a status change stamps a new transition time")
+	require.True(t, desired.Conditions[0].LastTransitionTime.IsZero(), "the desired conditions are not mutated")
 }

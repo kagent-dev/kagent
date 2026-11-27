@@ -1,20 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
+  builtinSkillDraft,
   draftFromTemplate,
   draftFromSpec,
   draftProblems,
   emptyDraft,
+  emptySkillDraft,
+  templateDraftIssues,
   labelsFromDraft,
+  matchBuiltinSkill,
   specFromDraft,
+  type AgentTemplateDraft,
 } from "./agentTemplateDraft";
 import type { AgentTemplate } from "@/api/domain/agentTemplates";
 
 /**
  * The agent-template draft, and the one property that is invisible on screen.
  *
- * An edit form still omits three rich `AgentTemplateSpec` fields. Building the update
- * out of only what it shows deletes those fields — `skills`, `plugins`,
- * `promptTemplate` — and the API accepts that happily. Nothing on the page changes,
+ * An edit form still omits two `AgentTemplateSpec` fields. Building the update out of
+ * only what it shows deletes those fields — `plugins`, `promptTemplate` — and the API
+ * accepts that happily. Nothing on the page changes,
  * no error is raised, and the loss only appears on the cluster.
  *
  * This repository has made that mistake once already, on the agent form. So the
@@ -76,11 +81,7 @@ describe("the agent template draft", () => {
     // A save with nothing edited at all.
     const spec = specFromDraft(draft, template.resource.spec);
 
-    // The three the form never displays, still there.
-    expect(spec.skills, "an edit must not delete skills it never showed").toEqual(
-      template.resource.spec.skills,
-    );
-    expect(spec.plugins).toEqual(template.resource.spec.plugins);
+    expect(spec.plugins, "an edit must not delete plugins it never showed").toEqual(template.resource.spec.plugins);
     expect(spec.promptTemplate).toEqual(template.resource.spec.promptTemplate);
   });
 
@@ -95,6 +96,7 @@ describe("the agent template draft", () => {
     expect(spec.systemPrompt).toBe("Be brief.");
     expect(spec.outputSchema).toEqual(template.resource.spec.outputSchema);
     expect(spec.tools).toEqual(template.resource.spec.tools);
+    expect(spec.skills).toEqual(template.resource.spec.skills);
   });
 
   it("drops what it does show when the draft empties it", () => {
@@ -110,7 +112,7 @@ describe("the agent template draft", () => {
     expect(spec).not.toHaveProperty("systemPrompt");
     expect(spec).not.toHaveProperty("tools");
     // And still not at the cost of the fields it does not model.
-    expect(spec.skills).toHaveLength(1);
+    expect(spec.plugins).toHaveLength(1);
   });
 
   it("never sends both prompt sources, because the CRD rejects both", () => {
@@ -282,6 +284,19 @@ describe("the agent template draft", () => {
     expect(draftProblems(draft, { isCreate: true })).toHaveLength(1);
   });
 
+  it("files a missing model and a malformed namespace under their own fields", () => {
+    const draft = { ...emptyDraft("Team A"), name: "t" };
+    expect(templateDraftIssues(draft, { isCreate: true })).toEqual([
+      { field: "namespace", message: "The namespace must be a valid Kubernetes name." },
+    ]);
+    draft.namespace = "team-a";
+    expect(templateDraftIssues(draft, { isCreate: true, modelRequired: true })).toEqual([
+      { field: "model", message: "Choose a model configuration." },
+    ]);
+    draft.modelConfig = { name: "gpt" };
+    expect(templateDraftIssues(draft, { isCreate: true, modelRequired: true })).toEqual([]);
+  });
+
   it("reports incomplete or malformed structured-output configuration", () => {
     const draft = emptyDraft("kagent");
     draft.name = "t";
@@ -307,9 +322,24 @@ describe("the agent template draft", () => {
 
     draft.outputSource = "configMap";
     draft.outputSchemaConfigMap = "schemas";
-    expect(draftProblems(draft, { isCreate: true })).toContain(
-      "An output schema read from a ConfigMap needs both the ConfigMap's name and the key inside it.",
-    );
+    expect(templateDraftIssues(draft, { isCreate: true })).toEqual([
+      { field: "outputKey", message: "Name the key that holds the schema." },
+    ]);
+  });
+
+  it("ties each half-filled row to the field that needs it", () => {
+    const draft = emptyDraft("kagent");
+    draft.name = "t";
+    draft.mcpTools = [{ serverRef: { name: "" }, tools: [] }];
+    draft.subAgentTools = [{ name: "review", description: "", refName: "" }];
+    draft.labels = [{ key: " ", value: "x" }];
+
+    expect(templateDraftIssues(draft, { isCreate: true }).map((issue) => issue.field)).toEqual([
+      "mcp:0:server",
+      "subAgent:0:template",
+      "subAgent:0:description",
+      "label:0:key",
+    ]);
   });
 
   it("carries labels through, because they decide whether anything runs it", () => {
@@ -333,7 +363,20 @@ describe("cross-namespace references", () => {
     };
     const draft = draftFromSpec(spec, "team-a");
     expect(draft.modelConfig).toEqual({ name: "default", namespace: "shared" });
-    expect(draft.mcpTools[0].serverRef).toEqual({ name: "tools", namespace: "shared" });
+    expect(draft.mcpTools[0].serverRef).toEqual({ kind: "RemoteMCPServer", name: "tools", namespace: "shared" });
+    const saved = specFromDraft(draft, spec);
+    expect(saved.modelConfig).toEqual(spec.modelConfig);
+    expect(saved.tools).toEqual(spec.tools);
+  });
+
+  // Dropping group or kind would point the reference at a same-named default object.
+  it("keeps the group and kind of model and MCP references through an edit", () => {
+    const spec = {
+      modelConfig: { group: "example.com", kind: "Foo", name: "default" },
+      tools: [{ mcp: { server: { group: "example.com", kind: "Foo", name: "tools" } } }],
+    };
+    const draft = draftFromSpec(spec, "team-a");
+    draft.description = "edited";
     const saved = specFromDraft(draft, spec);
     expect(saved.modelConfig).toEqual(spec.modelConfig);
     expect(saved.tools).toEqual(spec.tools);
@@ -366,5 +409,193 @@ describe("cross-namespace references", () => {
     const cleared = specFromDraft(draft, saved);
     expect(cleared).not.toHaveProperty("modelConfig");
     expect(cleared.tools).toHaveLength(1);
+  });
+});
+
+const DIGEST = "sha256:" + "0".repeat(64);
+const CATALOG = {
+  image: `ghcr.io/kagent-dev/kagent/tools@${DIGEST}`,
+  skills: [{ name: "k8s-troubleshooting", description: "Diagnose unhealthy workloads.", path: "opt/kagent-tools-skills/skills/k8s-troubleshooting" }],
+};
+
+function draftWithSkills(...skills: Partial<AgentTemplateDraft["skills"][number]>[]): AgentTemplateDraft {
+  const draft = emptyDraft("kagent");
+  draft.name = "t";
+  draft.skills = skills.map((skill) => ({ ...emptySkillDraft(), ...skill }));
+  return draft;
+}
+
+describe("skills", () => {
+  it("round-trips every source kind, with and without the optional fields", () => {
+    const skills = [
+      { name: "oci", source: { oci: `ghcr.io/org/skills@${DIGEST}` } },
+      { name: "git", source: { git: { url: "https://github.com/org/skills.git", commit: "a".repeat(40) }, path: "skills/git" } },
+      {
+        name: "s3",
+        source: {
+          bucket: { s3: { endpoint: "https://s3.example.com", bucket: "b", key: "k.tgz", versionId: "v1", region: "eu-west-1" } },
+        },
+      },
+      {
+        name: "s3-no-region",
+        source: { bucket: { s3: { endpoint: "https://s3.example.com", bucket: "b", key: "k.tgz", versionId: "v2" } }, path: "x" },
+      },
+    ];
+    const draft = draftFromSpec({ skills }, "kagent");
+
+    expect(draft.skills.map((skill) => skill.sourceKind)).toEqual(["oci", "git", "s3", "s3"]);
+    expect(specFromDraft(draft, { skills }).skills).toEqual(skills);
+  });
+
+  it("trims what it sends, omits an empty path and region, and drops blank rows", () => {
+    const draft = draftWithSkills(
+      { name: " review ", sourceKind: "s3", s3Endpoint: " https://s3.example.com ", s3Bucket: "b", s3Key: "k", s3VersionId: "v", path: "  " },
+      { sourceKind: "git" },
+    );
+
+    expect(specFromDraft(draft).skills).toEqual([
+      { name: "review", source: { bucket: { s3: { endpoint: "https://s3.example.com", bucket: "b", key: "k", versionId: "v" } } } },
+    ]);
+    expect(draftProblems(draft, { isCreate: true })).toEqual([]);
+  });
+
+  it("removes spec.skills when the draft has none", () => {
+    const spec = { skills: [{ name: "a", source: { oci: `ghcr.io/org/skills@${DIGEST}` } }] };
+    const draft = draftFromSpec(spec, "kagent");
+    draft.skills = [];
+
+    expect(specFromDraft(draft, spec)).not.toHaveProperty("skills");
+  });
+
+  it("keeps the other kinds' text when the source kind changes", () => {
+    const draft = draftWithSkills({ name: "a", sourceKind: "git", gitUrl: "https://x.test/r.git", gitCommit: "b".repeat(40) });
+    draft.skills[0].sourceKind = "oci";
+    draft.skills[0].sourceKind = "git";
+
+    expect(specFromDraft(draft).skills?.[0].source).toEqual({ git: { url: "https://x.test/r.git", commit: "b".repeat(40) } });
+  });
+
+  it("writes a kagent skill as the catalog image and path, and recognizes it again", () => {
+    const draft = draftWithSkills();
+    draft.skills = [builtinSkillDraft(CATALOG, CATALOG.skills[0])];
+    const spec = specFromDraft(draft);
+
+    expect(spec.skills).toEqual([
+      { name: "k8s-troubleshooting", source: { oci: CATALOG.image, path: "opt/kagent-tools-skills/skills/k8s-troubleshooting" } },
+    ]);
+    const reopened = draftFromSpec(spec, "kagent").skills[0];
+    expect(matchBuiltinSkill(reopened, CATALOG)).toEqual({ skill: CATALOG.skills[0], current: true });
+    expect(matchBuiltinSkill({ ...reopened, path: "opt/kagent-tools-skills/skills/other" }, CATALOG)).toBeUndefined();
+    expect(matchBuiltinSkill({ ...reopened, name: "my-copy" }, CATALOG)).toBeUndefined();
+    expect(matchBuiltinSkill({ ...reopened, oci: `ghcr.io/org/skills@${DIGEST}` }, CATALOG)).toBeUndefined();
+    expect(matchBuiltinSkill(reopened, undefined)).toBeUndefined();
+  });
+
+  it("recognizes a kagent skill from an earlier image of the same repository as an older version", () => {
+    const older = draftWithSkills({
+      name: "k8s-troubleshooting",
+      oci: `ghcr.io/kagent-dev/kagent/tools@sha256:${"1".repeat(64)}`,
+      path: "opt/kagent-tools-skills/skills/k8s-troubleshooting",
+    }).skills[0];
+
+    expect(matchBuiltinSkill(older, CATALOG)).toEqual({ skill: CATALOG.skills[0], current: false });
+  });
+
+  it("reports what the CRD would refuse, naming the skill", () => {
+    const draft = draftWithSkills(
+      { name: "", oci: `ghcr.io/org/skills@${DIGEST}` },
+      { name: "tagged", oci: "ghcr.io/org/skills:v1" },
+      { name: "git", sourceKind: "git", gitUrl: "git@github.com:org/r.git", gitCommit: "abc123" },
+      { name: "s3", sourceKind: "s3", s3Endpoint: "s3.example.com", s3Bucket: "b" },
+      { name: "up", oci: `ghcr.io/org/skills@${DIGEST}`, path: "skills/../secrets" },
+      { name: "abs", oci: `ghcr.io/org/skills@${DIGEST}`, path: "/skills" },
+      { name: "up", oci: `ghcr.io/org/skills@${DIGEST}` },
+      { name: "..", oci: `ghcr.io/org/skills@${DIGEST}` },
+      { name: "a/b", oci: `ghcr.io/org/skills@${DIGEST}` },
+      { name: "a\\b", oci: `ghcr.io/org/skills@${DIGEST}` },
+      { name: "from-plugin", oci: `ghcr.io/org/skills@${DIGEST}` },
+    );
+    draft.pluginSkills = ["from-plugin"];
+
+    expect(draftProblems(draft, { isCreate: true })).toEqual([
+      "Skill 1 needs a name.",
+      'The skill "tagged" needs an OCI image pinned by digest, like ghcr.io/org/skills@sha256:<64 hex characters>.',
+      'The skill "git" needs a Git URL that starts with http:// or https://.',
+      'The skill "git" needs a full Git commit ID: 40 or 64 hex characters.',
+      'The skill "s3" needs an S3 endpoint that starts with http:// or https://.',
+      'The skill "s3" needs an S3 key.',
+      'The skill "s3" needs an S3 version ID.',
+      'The skill "up" needs a path relative to the artifact, without ".." segments.',
+      'The skill "abs" needs a path relative to the artifact, without ".." segments.',
+      'The skill ".." needs a name that is one path segment: not "." or "..", and without "/" or "\\".',
+      'The skill "a/b" needs a name that is one path segment: not "." or "..", and without "/" or "\\".',
+      'The skill "a\\b" needs a name that is one path segment: not "." or "..", and without "/" or "\\".',
+      'More than one skill is named "up". Skill names must be unique.',
+      'A plugin on this template already selects a skill named "from-plugin". Skill names must be unique.',
+    ]);
+  });
+
+  it("refuses an uppercase image path but not an uppercase registry host, as the controller does", () => {
+    const draft = draftWithSkills(
+      { name: "org", oci: `ghcr.io/MyOrg/skills@${DIGEST}` },
+      { name: "local", oci: `localhost:5001/Skills@${DIGEST}` },
+      { name: "hub", oci: `MyOrg/skills@${DIGEST}` },
+      { name: "host", oci: `GHCR.io/myorg/skills@${DIGEST}` },
+      { name: "lower", oci: `ghcr.io/myorg/skills@${DIGEST}` },
+    );
+
+    expect(draftProblems(draft, { isCreate: true })).toEqual([
+      'The skill "org" needs an image path in lowercase, like ghcr.io/org/skills.',
+      'The skill "local" needs an image path in lowercase, like ghcr.io/org/skills.',
+      'The skill "hub" needs an image path in lowercase, like ghcr.io/org/skills.',
+    ]);
+  });
+
+  it("checks names against the skills the existing spec's plugins select", () => {
+    const spec = {
+      skills: [{ name: "review", source: { oci: `ghcr.io/org/skills@${DIGEST}` } }],
+      plugins: [{ source: { oci: `ghcr.io/org/plugin@${DIGEST}` }, skills: ["review"] }],
+    };
+
+    expect(draftProblems(draftFromSpec(spec, "kagent"), { isCreate: false })).toEqual([
+      'A plugin on this template already selects a skill named "review". Skill names must be unique.',
+    ]);
+  });
+
+  it("ties each skill message to the field that shows it", () => {
+    const draft = draftWithSkills(
+      { name: "git", sourceKind: "git", gitUrl: "https://x.test/r.git", gitCommit: "main" },
+      { sourceKind: "s3", s3Endpoint: "https://s3.test", s3Bucket: "b", path: "/abs" },
+    );
+
+    expect(templateDraftIssues(draft, { isCreate: true }).map((issue) => issue.field)).toEqual([
+      "skill:0:gitCommit",
+      "skill:1:name",
+      "skill:1:s3Key",
+      "skill:1:s3VersionId",
+      "skill:1:path",
+    ]);
+  });
+
+  it("numbers a skill by its row, counting blank rows", () => {
+    const draft = draftWithSkills({}, { oci: `ghcr.io/org/skills@${DIGEST}` });
+
+    expect(draftProblems(draft, { isCreate: true })).toEqual(["Skill 2 needs a name."]);
+  });
+
+  it("treats a row as blank from its name, path and active source, and saves only that source", () => {
+    const hidden = { sourceKind: "oci" as const, gitUrl: "https://x.test/r.git", s3Bucket: "b" };
+    expect(specFromDraft(draftWithSkills(hidden))).not.toHaveProperty("skills");
+    expect(draftProblems(draftWithSkills(hidden), { isCreate: true })).toEqual([]);
+
+    const draft = draftWithSkills({ ...hidden, name: "a", oci: `ghcr.io/org/skills@${DIGEST}` });
+    expect(specFromDraft(draft).skills).toEqual([{ name: "a", source: { oci: `ghcr.io/org/skills@${DIGEST}` } }]);
+  });
+
+  it("allows at most 50 skills", () => {
+    const skills = Array.from({ length: 51 }, (_, index) => ({ name: `s${index}`, oci: `ghcr.io/org/skills@${DIGEST}` }));
+
+    expect(draftProblems(draftWithSkills(...skills.slice(0, 50)), { isCreate: true })).toEqual([]);
+    expect(draftProblems(draftWithSkills(...skills), { isCreate: true })).toEqual(["A template can have at most 50 skills."]);
   });
 });

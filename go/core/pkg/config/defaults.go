@@ -44,7 +44,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 		Substrate:        &configv1.SubstrateConfig{ApiEndpoint: new("dns:///api.ate-system.svc:443"), RouterUrl: new("https://atenet-router.ate-system.svc:443"), ActorJwtIssuer: new("https://idp.ate-system.svc")},
 		Sessions:         &configv1.SessionsConfig{IdleTtl: durationpb.New(7 * 24 * time.Hour), ExpirationInterval: durationpb.New(time.Minute), QuiescenceRecoveryInterval: durationpb.New(time.Minute)},
 		Gateway:          &configv1.GatewayConfig{PublicUrl: new("http://localhost:8083")},
-		Push:             &configv1.PushConfig{RecoveryInterval: durationpb.New(time.Minute), MaxConcurrency: new(int32(10)), SendTimeout: durationpb.New(5 * time.Second)},
+		Push:             &configv1.PushConfig{SigningKeyActivationDelay: durationpb.New(5 * time.Minute), RecoveryInterval: durationpb.New(time.Minute), MaxConcurrency: new(int32(10)), SendTimeout: durationpb.New(5 * time.Second)},
 		Sandboxes:        &configv1.SandboxConfig{Cpu: new("1"), Memory: new("1Gi"), DefaultTtl: durationpb.New(time.Hour), MaxTtl: durationpb.New(24 * time.Hour), ExpirationInterval: durationpb.New(time.Second)},
 		ScheduledRuns:    &configv1.ScheduledRunsConfig{PollInterval: durationpb.New(time.Second), ExecutionInterval: durationpb.New(time.Second)},
 		RuntimeRevisions: &configv1.RuntimeRevisionsConfig{GcInterval: durationpb.New(time.Minute)},
@@ -61,7 +61,7 @@ func DefaultController(cfg *configv1.ControllerConfig) {
 }
 
 func defaultDatabase() *configv1.DatabaseConfig {
-	return &configv1.DatabaseConfig{Schema: new(consts.DefaultPostgresTableSchema), VectorSchema: new(consts.DefaultPgvectorSchema), Pool: &configv1.PostgresPoolConfig{MaxConns: new(int32(max(4, runtime.NumCPU()))), MaxConnIdleTime: durationpb.New(30 * time.Minute), MaxConnLifetime: durationpb.New(time.Hour)}}
+	return &configv1.DatabaseConfig{Schema: new(consts.DefaultPostgresTableSchema), VectorSchema: new(consts.DefaultPgvectorSchema), Pool: &configv1.PostgresPoolConfig{MaxConns: new(int32(max(4, runtime.NumCPU()))), MaxConnIdleTime: durationpb.New(30 * time.Minute), MaxConnLifetime: durationpb.New(time.Hour), ConnectRetryTimeout: durationpb.New(90 * time.Second)}}
 }
 
 func defaultTelemetry(cfg *configv1.TelemetryConfig) {
@@ -81,6 +81,7 @@ func ResolveControllerPaths(cfg *configv1.ControllerConfig, path string) {
 	resolveLoginPath(cfg.Database.Owner, path)
 	resolveLoginPath(cfg.Database.ReadWrite, path)
 	cfg.Push.SigningPrivateKeyFile = FilePath(path, cfg.Push.SigningPrivateKeyFile)
+	cfg.Push.PreviousSigningPrivateKeyFile = FilePath(path, cfg.Push.PreviousSigningPrivateKeyFile)
 	cfg.Substrate.CaFile = FilePath(path, cfg.Substrate.CaFile)
 	cfg.Substrate.ClientCertFile = FilePath(path, cfg.Substrate.ClientCertFile)
 }

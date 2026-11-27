@@ -14,7 +14,8 @@ import {
   type ModelConfigSpec,
   type TLSConfig,
 } from "@/api";
-import { DEFAULT_NAMESPACE } from "@/components/common/resourceName";
+import { DEFAULT_NAMESPACE, isValidNamespace } from "@/components/common/resourceName";
+import type { FieldIssue } from "@/components/form/useSubmitValidation";
 import {
   OLLAMA_DEFAULT_TAG,
   OLLAMA_PROVIDER,
@@ -347,6 +348,36 @@ function buildTls(tls: ModelTls): TLSConfig | undefined {
  * once. Being told about one missing field, fixing it, and being told about the
  * next is a worse experience than being told about all of them.
  */
+const PARAM_LABEL_OVERRIDES: Record<string, string> = {
+  baseUrl: "Base URL",
+  authUrl: "Auth URL",
+  apiVersion: "API version",
+  apiFormat: "API format",
+  topK: "Top K",
+  topP: "Top P",
+};
+
+/** A provider parameter's key as a sentence-case label: `maxTokens` becomes "Max tokens". */
+export function paramLabel(key: string): string {
+  const override = PARAM_LABEL_OVERRIDES[key];
+  if (override) return override;
+  const words = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The form control an issue belongs to; a provider parameter is `param:<key>`. */
+export type ModelField =
+  | "name"
+  | "namespace"
+  | "provider"
+  | "model"
+  | "apiKey"
+  | "apiKeySecret"
+  | "authType"
+  | "actorAudiences"
+  | "actorExpirationSeconds"
+  | `param:${string}`;
+
 export function modelDraftIssues(
   draft: ModelDraft,
   opts: {
@@ -357,60 +388,60 @@ export function modelDraftIssues(
     /** Editing an existing configuration — an inline key is then optional. */
     isEdit: boolean;
   },
-): string[] {
-  const issues: string[] = [];
+): FieldIssue<ModelField>[] {
+  const issues: FieldIssue<ModelField>[] = [];
+  const add = (field: ModelField, message: string) => issues.push({ field, message });
   const name = draft.name.trim();
 
-  if (!name) issues.push("A name is required.");
-  else if (!opts.isValidName(name)) issues.push(opts.nameHint);
-  if (!draft.namespace.trim()) issues.push("A namespace is required.");
-  if (!draft.provider) issues.push("Choose a provider.");
-  if (!draft.model) issues.push("Choose a model.");
+  if (!name) add("name", "A name is required.");
+  else if (!opts.isValidName(name)) add("name", opts.nameHint);
+  if (!draft.namespace.trim()) add("namespace", "A namespace is required.");
+  else if (!isValidNamespace(draft.namespace)) add("namespace", "The namespace must be a valid Kubernetes name.");
+  if (!draft.provider) add("provider", "Choose a provider.");
+  if (!draft.model) add("model", "Choose a model.");
 
   for (const key of opts.requiredParamKeys) {
     if (!(draft.params[key] ?? "").trim()) {
-      issues.push(`${key} is required.`);
+      add(`param:${key}`, `${paramLabel(key)} is required.`);
     }
   }
 
   for (const [key, value] of Object.entries(draft.params)) {
-    if (isBadNumber(key, value)) issues.push(`${key} must be a number.`);
+    if (isBadNumber(key, value)) add(`param:${key}`, `${paramLabel(key)} must be a number.`);
   }
 
   const isOllama = draft.provider === OLLAMA_PROVIDER;
   if (!isOllama && draft.provider) {
     // A new inline key is needed when creating; an edit keeps its existing one.
     if (draft.authType === "apiKey" && !opts.isEdit && !draft.apiKey.trim()) {
-      issues.push(
-        "An API key is required, or choose another authentication type.",
-      );
+      add("apiKey", "An API key is required, or choose another authentication type.");
     }
-    // A secret key without a secret names nothing.
-    if (
-      draft.authType === "secret" &&
-      draft.apiKeySecretKey.trim() &&
-      !draft.apiKeySecret.trim()
-    ) {
-      issues.push("A secret key needs the secret that holds it.");
-    }
+    if (draft.authType === "secret") issues.push(...secretIssues(draft));
   } else if (isOllama && draft.authType === "secret") {
     // Ollama needs no credential locally, but a cloud model reaches
     // api.ollama.com with the key that a Secret supplies, so naming the Secret
     // is what makes that work. A Secret key is still optional: an operator
     // relying on the chart's OLLAMA_API_KEY names only the Secret.
-    if (draft.apiKeySecretKey.trim() && !draft.apiKeySecret.trim()) {
-      issues.push("A secret key needs the secret that holds it.");
-    }
+    issues.push(...secretIssues(draft));
   }
 
   if (draft.authType === "actorJwt") {
-    if (!supportsActorJWT(draft.provider)) issues.push("This provider does not support Actor JWT authentication.");
+    if (!supportsActorJWT(draft.provider)) add("authType", "This provider does not support Actor JWT authentication.");
     if (draft.actorAudiences.length < 1 || draft.actorAudiences.length > 16 || draft.actorAudiences.some(a => !a || a.length > 512 || a === "kagent-runtime") || new Set(draft.actorAudiences).size !== draft.actorAudiences.length) {
-      issues.push("Specify 1–16 unique audiences; kagent-runtime is reserved.");
+      add("actorAudiences", "Specify 1–16 unique audiences; kagent-runtime is reserved.");
     }
-    if (!Number.isInteger(draft.actorExpirationSeconds) || draft.actorExpirationSeconds < 300 || draft.actorExpirationSeconds > 3600) issues.push("Token lifetime must be 300–3600 seconds.");
+    if (!Number.isInteger(draft.actorExpirationSeconds) || draft.actorExpirationSeconds < 300 || draft.actorExpirationSeconds > 3600) add("actorExpirationSeconds", "Token lifetime must be 300–3600 seconds.");
   }
   return issues;
+}
+
+/** An existing Secret must be named; a key given without one names nothing. */
+function secretIssues(draft: ModelDraft): FieldIssue<ModelField>[] {
+  if (draft.apiKeySecret.trim()) return [];
+  const message = draft.apiKeySecretKey.trim()
+    ? "A secret key needs the secret that holds it."
+    : "Enter the name of the secret.";
+  return [{ field: "apiKeySecret", message }];
 }
 
 function splitRef(ref: string): [string, string] {

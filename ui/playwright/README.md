@@ -21,7 +21,7 @@ There is a second suite that does need all three; see
 The old suite ran against a real kagent backend in a kind cluster. Running it
 meant building images, `make create-kind-cluster` and `make helm-install`,
 exporting a provider key, and a port-forward held open for the duration, with a
-Node proxy in front to forward `/api/**` to the controller and mock the chat SSE
+Node proxy in front to forward `/api/**` to the controller and mock the conversation SSE
 stream. Roughly: **several minutes of setup, a cluster, and a provider key.**
 
 This suite needs none of that — `yarn test:pw`, about eight seconds, on any
@@ -64,20 +64,20 @@ which is convenient in a browser and a trap in a test.
 ```
 playwright/
   tests/           one <resource>/<resource>.spec.ts per resource, plus the
-                   cross-cutting ones: app-shell, routing, auth, chat, substrate,
+                   cross-cutting ones: app-shell, routing, auth, conversation, substrate,
                    extensions, dashboard, theme-contrast
   helpers/         app (navigation, tables, scenarios), resource (the moves every
                    CRUD journey makes), nav (shell chrome), extensions (slots),
-                   chat, controls, style, mockCalls
+                   conversation, controls, style, mockCalls
   fixtures/test.ts import { test, expect } from here — never @playwright/test
   live/            the live suite: specs, plus helpers/ of its own
   DEFERRED.md      the specs not yet portable, and what each one is waiting on
 ```
 
 The resources with a lifecycle spec are **models**, **MCP servers**, **prompt
-libraries**, **agent templates**, **harnesses** and **schedules**. Two are narrower
+libraries**, **agent templates**, **harnesses** and **schedules**. One is narrower
 than CRUD because the product is: an MCP server's address is its identity, so
-`ToolService` serves no update, and the harnesses tab offers no edit.
+`ToolService` serves no update.
 
 **Agents are not among them, because an agent is not created.** An agent is an
 `AgentTemplate` paired with a `Harness` — it exists the moment a harness admits a
@@ -123,9 +123,9 @@ a folder holds — and a lint rule sees one file at a time. ESLint covers the ot
 conventions below: the shared fixture import, and antd's class names.
 
 1. **One folder per area, and a test title begins with that folder.**
-   `models/models.spec.ts` holds `models: …`, and everything in `chat/` begins
-   `chat…`, so `--grep "^chat"` is the whole area. A file with a narrower subject
-   keeps both halves — `chat agent rail: …` — so the title says the area *and* what
+   `models/models.spec.ts` holds `models: …`, and everything in `conversation/` begins
+   `conversation…`, so `--grep "^conversation"` is the whole area. A file with a narrower subject
+   keeps both halves — `conversation agent rail: …` — so the title says the area *and* what
    in it. A file whose subject is the folder needs no second word.
 2. **A resource's folder holds one spec, holding one test**: that resource's whole
    life. **Its empty and failure states go last**, because they need `?mock=`, which
@@ -135,15 +135,15 @@ conventions below: the shared fixture import, and antd's class names.
    the dashboard, theme contrast.
 
    **A folder is a surface, not a subject**, because one subject appears on several:
-   a conversation is a row on the agent's page, a row in the chat rail, and the
+   a conversation is a row on the agent's page, a row in the conversation rail, and the
    transcript between them. "Which page is this about" has an answer; "which spec
    owns conversations" does not. So **where an operation exists on two surfaces, one
    owns it** and the other asserts only what differs about reaching it there — the
    agent's table owns conversation rename and delete, and the rail keeps one test for
    doing either without leaving the conversation. **A journey between surfaces lives
-   with the one it starts from**: `agents/agent-chat-entry.spec.ts` sits in `agents/`
+   with the one it starts from**: `agents/agent-conversation-entry.spec.ts` sits in `agents/`
    because that is where the reader starts, and it exists because every other spec
-   deep-links into the chat page and so cannot test that anything *links* to it.
+   deep-links into the conversation page and so cannot test that anything *links* to it.
 4. **Fixture identity comes from `helpers/app.ts`**, not a UUID pasted into a spec.
    `instances` and `agents` name each fixture for what it is *for*, so a changed
    fixture is one edit. Where a spec needs one the helper has no name for, give it a
@@ -186,14 +186,13 @@ conventions below: the shared fixture import, and antd's class names.
   words are usually what the test is about. `schedule-pause` is one button whose label
   flips between Pause and Resume — the id selects it, and the label is free to be the
   assertion.
-- **Reach for antd's own class names only inside `helpers/`.** `.ant-popconfirm`,
-  `.ant-select-item-option`, `.ant-modal` and friends are that library's internals,
+- **Reach for antd's own class names only inside `helpers/`.** `.ant-select-item-option`,
+  `.ant-modal` and friends are that library's internals,
   and an upgrade that renames one should be a change to a helper rather than to a
   dozen specs. `chooseFilter`, `confirmDelete` and `pressOnce` exist for the ones that
   come up most.
-- **Press a dialog's button with `pressOnce`, not `click`.** antd animates a modal and
-  a popconfirm in, and Playwright can compute a click's coordinates while one is still
-  arriving — measured once at 238px left and 224px below the button, on the backdrop,
+- **Press a dialog's button with `pressOnce`, not `click`.** antd animates a modal in,
+  and Playwright can compute a click's coordinates while it is still arriving — measured once at 238px left and 224px below the button, on the backdrop,
   with the button itself never having moved. Its stability check compares two animation
   frames, and a starved main thread serves both from the same frame of the animation;
   `pressOnce` samples on a clock instead.
@@ -201,8 +200,7 @@ conventions below: the shared fixture import, and antd's class names.
   **`pressUntil` retries rather than waiting, and needs an argument for why that is
   safe here.** Retrying wants a button that can be pressed twice *and* a page
   underneath that can take a stray click, because a retry going out after the dialog
-  has closed lands on whatever is behind it — a popconfirm sits over its own trigger,
-  and a modal usually sits over a list of links.
+  has closed lands on whatever is behind it — a modal usually sits over a list of links.
 - **Assert against the list a user would read**, not against a toast or a closed
   modal. A success message proves the app thinks it worked.
 

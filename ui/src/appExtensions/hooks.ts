@@ -7,15 +7,17 @@ import {
   extensionFormFields,
   extensionNavItems,
   extensionNavOverrides,
-  extensionChatPartRenderers,
+  extensionConversationPartRenderers,
   extensionProviderIcons,
   extensionRoutes,
   extensionShell,
   extensionSlotComponents,
+  extensionRowActions,
   extensionTableColumns,
   extensionAgentRailItems,
   extensionAgentRailOverrides,
 } from "./selectors";
+import type { ExtensionRowAction, ExtensionRowMenuId } from "./rowActions";
 import type { ExtensionTableColumn, ExtensionTableId } from "./tableColumns";
 import type { ExtensionFormFieldContribution, ExtensionFormId } from "./formFields";
 import type { ExtensionNavOverrides } from "./navOverrides";
@@ -26,7 +28,7 @@ import type { ExtensionPointId, ExtensionPointProps } from "./extensionPoints";
 import type {
   AppExtensionConfig,
   ExtensionAgentLinks,
-  ExtensionChatPartRenderers,
+  ExtensionConversationPartRenderers,
   ExtensionAgentRailItemContribution,
   ExtensionNavItemContribution,
   ExtensionRouteContribution,
@@ -108,6 +110,12 @@ export function useExtensionTableColumns<TRow>(
   );
 }
 
+/** Items contributed to one list row menu. */
+export function useExtensionRowActions(menuId: ExtensionRowMenuId): ExtensionRowAction[] {
+  const extensions = useAppExtensions();
+  return useMemo(() => extensionRowActions(extensions, menuId), [extensions, menuId]);
+}
+
 /** Each extension's API overrides, for the fetch layer to resolve calls against. */
 export function useExtensionApis(): readonly ExtensionApi[] {
   const extensions = useAppExtensions();
@@ -146,8 +154,8 @@ export function useExtensionProviderIcons(): Readonly<
   return useMemo(() => extensionProviderIcons(extensions), [extensions]);
 }
 
-/** Chat part renderers from every extension, later ones replacing earlier keys. */
-export function useExtensionChatPartRenderers(): ExtensionChatPartRenderers {
+/** Conversation part renderers from every extension, later ones replacing earlier keys. */
+export function useExtensionConversationPartRenderers(): ExtensionConversationPartRenderers {
   const extensions = useAppExtensions();
-  return useMemo(() => extensionChatPartRenderers(extensions), [extensions]);
+  return useMemo(() => extensionConversationPartRenderers(extensions), [extensions]);
 }

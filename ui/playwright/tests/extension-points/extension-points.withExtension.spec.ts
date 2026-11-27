@@ -1,6 +1,6 @@
 import { test, expect } from "../../fixtures/test";
 import {
-  agentChat,
+  agentConversation,
   agentPage,
   agents,
   dataRows,
@@ -141,13 +141,13 @@ test("extension points: configured components mount where the point promises", a
   });
 
   await test.step("8. a contributed rail entry sits between the application's own", async () => {
-    await loadPage(page, agentChat(instances.ready));
+    await loadPage(page, agentConversation(instances.ready));
 
     // Position is the whole claim. The example asks for order 150, between Agent
-    // Details at 100 and New chat at 200, so appending it would pass a mere
+    // Details at 100 and New conversation at 200, so appending it would pass a mere
     // "is it there" assertion while getting the feature wrong.
-    const rail = page.getByTestId("chat-sessions-nav");
-    // Both destinations are addresses of this agent, and the chat page derives them
+    const rail = page.getByTestId("rail-conversations-nav");
+    // Both destinations are addresses of this agent, and the conversation page derives them
     // from the instance it is still fetching — so the nav is empty for a moment and
     // reading it straight away reads nothing.
     await expect(rail.getByTestId("agent-nav-agent-conversations")).toBeVisible({
@@ -160,7 +160,7 @@ test("extension points: configured components mount where the point promises", a
     expect(order).toEqual([
       "agent-nav-agent-conversations",
       "agent-rail-example",
-      "chat-new-session",
+      "rail-new-conversation",
     ]);
 
     // Handed the conversation it is drawn beside, so an entry can be about it.
@@ -176,9 +176,9 @@ test("extension points: configured components mount where the point promises", a
       new RegExp(`instance=${instances.ready}$`),
     );
 
-    // "New chat" does not. It is the agent's own address with `/new` on the end, and
+    // "New conversation" does not. It is the agent's own address with `/new` on the end, and
     // under a redirected details link that is a route nothing serves.
-    await expect(rail.getByTestId("chat-new-session")).toHaveAttribute(
+    await expect(rail.getByTestId("rail-new-conversation")).toHaveAttribute(
       "href",
       /\/new$/,
     );
@@ -187,10 +187,10 @@ test("extension points: configured components mount where the point promises", a
   await test.step("8. a per-message point mounts once per message, with its own context", async () => {
     // The agent with a seeded conversation behind it. There is no session segment:
     // an AgentInstance *is* the conversation.
-    await loadPage(page, agentChat(instances.ready));
-    const point = "app_agents_agentChat_agentChatMessage_additionalActionsButton";
+    await loadPage(page, agentConversation(instances.ready));
+    const point = "app_agents_agentConversation_agentConversationMessage_additionalActionsButton";
 
-    const messages = page.getByTestId("chat-message");
+    const messages = page.getByTestId("conversation-message");
     await expect(messages).toHaveCount(4);
     await expect(slot(page, point)).toHaveCount(4);
 

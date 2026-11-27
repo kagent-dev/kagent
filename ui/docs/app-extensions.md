@@ -41,8 +41,8 @@ cover everything:
 
 | | Rule |
 |---|---|
-| `navItems`, `routes`, `formFields`, `tableColumns`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
-| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `chatPartRenderers`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
+| `navItems`, `routes`, `formFields`, `tableColumns`, `rowActions`, `providers`, `slots` | **Additive.** Every extension's contributions take effect, in array order. |
+| `theme`, `shell`, `branding`, `navOverrides`, `agentLinks`, `providerIcons`, `conversationPartRenderers`, `routeHandles`, `api` | **Merged, later wins**, field by field. An extension replacing the header does not blank a sidebar an earlier one replaced. |
 
 So list the extension whose opinion should prevail **last**.
 
@@ -55,6 +55,7 @@ So list the extension whose opinion should prevail **last**.
 | `slots` | **Every** contribution renders, in array order, inside the one wrapper the point declares. |
 | `formFields` | Concatenated, then sorted by `order` within the target form. |
 | `tableColumns` | Concatenated, each placed after the core column its `after` names. |
+| `rowActions` | Concatenated, in array order, within the menu each targets. Two extensions offering one `id` on one menu is a startup error. |
 | `providers` | Concatenated and nested outermost-first, so the earlier extension's providers wrap the later one's. |
 | `theme.tokens` / `modeTokens` | Folded one level deep in order; the later extension wins a token both name, and keeps one only the earlier names. |
 | `theme.antd.components` | Merged per component, then per token — so naming one property of `Input` does not discard the others. |
@@ -153,25 +154,25 @@ it has to line up, and then it has to reproduce the row height, the inset pill,
 the icon column and the collapsed layout, and drift from all four the next time
 the library changes any of them. `useThemeMode()` is re-exported from the barrel
 for the light/dark choice the `Menu` takes, since no design token stands in for
-it.
+it. Pass `inlineIndent={navInlineIndent}` so the icon lines up with the core rows.
 
 ## The agent rail
 
 The rail beside a conversation has the same pair of points the sidebar has, for the
-same reasons. Its own entries are `agentDetails` at order 100 and `newChat` at 200.
+same reasons. Its own entries are `agentDetails` at order 100 and `newConversation` at 200.
 
 ```tsx
 agentRailItems: [
   {
     key: "runs",               // unique across core and contributed entries
-    order: 150,                // between Agent Details (100) and New chat (200)
+    order: 150,                // between Agent Details (100) and New conversation (200)
     path: "/runs",             // active-state matching only
     Component: RunsRailItem,   // receives { isActive, agent }
   },
 ],
 
 agentRailOverrides: {
-  newChat: { label: "Start a run" },
+  newConversation: { label: "Start a run" },
   agentDetails: { path: "/my/agent", icon: Sliders },
 }
 ```
@@ -182,13 +183,13 @@ should derive it and render nothing when it cannot — which is what the applica
 own entries do when their destination cannot be derived.
 
 `agent` carries the runnable Agent's `namespace` and optional `name`, including on
-Agent and new-chat pages with no conversation open. An entry that links to the
+Agent and new-conversation pages with no conversation open. An entry that links to the
 Agent definition should check `agent?.name`; template and Harness choices do not
 change that identity.
 
 An override's `path` lands on the entry's `to`; the rail renders its links itself, so
 that is the same idea under the name the rail uses for it. `hidden` also suppresses
-the button "New chat" falls back to where an agent has no address, so hiding it is
+the button "New conversation" falls back to where an agent has no address, so hiding it is
 not half done.
 
 To make a contributed entry indistinguishable from the application's, style it with
@@ -249,10 +250,12 @@ point lives.
 | `app_shell_appLayout_contentArea_globalOverlay` | none |
 | `app_shell_appLayout_appSidebar_footer` | none |
 | `app_agents_agentsList_pageHeader_actions` | none |
+| `app_agents_agentsList_overview_createActions` | `{ kind: "Agent" \| "AgentTemplate" \| "Harness" }` |
+| `app_agents_agentsList_createModal_options` | none. Render a `CreateOptionRow` (`{ title, description, to, testId? }`), exported from `@/appExtensions`, so the row matches the built-in ones |
 | `app_agents_agentsList_agentListItem_badge` | `{ agentName: string; namespace: string }` |
-| `app_agents_agentChat_agentChatMessage_additionalActionsButton` | `{ messageId: string; role: "user" \| "agent"; text: string }` |
-| `app_agents_agentChat_snapshotDetails_footer` | `{ snapshotId: string; instanceId: string; label: string }` |
-| `app_agents_agentChat_snapshotDivider_actions` | `{ snapshotId: string; instanceId: string; label: string }` |
+| `app_agents_agentConversation_agentConversationMessage_additionalActionsButton` | `{ messageId: string; role: "user" \| "agent"; text: string }` |
+| `app_agents_agentConversation_snapshotDetails_footer` | `{ snapshotId: string; instanceId: string; label: string }` |
+| `app_agents_agentConversation_snapshotDivider_actions` | `{ snapshotId: string; instanceId: string; label: string }` |
 | `app_dashboard_dashboardOverview_summaryGrid_leadingCard` | none |
 
 Mount a component by naming the point:
@@ -339,6 +342,30 @@ table can lose a column without an extension's disappearing with it.
 
 Pages fold contributions in with `withExtensionColumns`, so adding one needs no
 change to the page.
+
+## Row actions
+
+Items in the ellipsis menu on an agent, agent template or harness list row. They are
+data, not a component, so the application draws each as a real menu item beside Edit
+and Delete: same look, keyboard navigation, and the menu closes once one is chosen.
+
+```ts
+rowActions: [{
+  id: "openEditPage",
+  menuId: "app_agents_agentsList_rowMenu",
+  label: "Open edit page",
+  visible: ({ name }) => !name.startsWith("system-"),   // optional; defaults to every row
+  link: ({ namespace, name }) => buildPath(paths.agentEdit, { namespace, name }),   // or onClick, not both
+}]
+```
+
+Menus are listed in `EXTENSION_ROW_MENU_IDS`. Items sit between "Create new … from
+this" and Delete. `visible`, `link` and `onClick` are told the row (`kind`, `namespace`,
+`name`). `link` returns an in-app route and is drawn as a real link, so ctrl/middle-click
+opens a new tab; use `onClick` for anything else. One that throws, or an `onClick` whose promise rejects, is logged and
+contained: it never breaks the table, and `visible` throwing just leaves the item out.
+`id` must be unique per menu across every installed extension, and an item needs a
+`label` and exactly one of `link` or `onClick`; a violation is a startup error.
 
 ## API overrides and transforms
 
@@ -529,9 +556,9 @@ A replacement owns the region completely, **including rendering the
 application's own navigation** — which is why it is handed `coreNavItems` rather
 than keeping a copy that drifts as pages are added.
 
-## Chat message parts
+## Conversation message parts
 
-`chatPartRenderers` replaces the component that draws one part of a chat message.
+`conversationPartRenderers` replaces the component that draws one part of a conversation message.
 Keys are the part's `kind` (`text`, `file`, `tool_approval`, `ask_user`), or the
 `dataKind` for a data part (`tool_call`, `tool_result`, `tool_not_run`,
 `structured_output`, `unknown`). A key you leave out keeps the core renderer.
@@ -539,8 +566,8 @@ The keys come from the part types themselves, so a new kind is overridable as
 soon as it exists.
 
 ```tsx
-chatPartRenderers: {
-  // part is typed as a text part; role, messageId, taskId and sessionId describe the turn.
+conversationPartRenderers: {
+  // part is typed as a text part; role, messageId, taskId and conversationId describe the turn.
   text: ({ part, role }) => (role === "agent" ? <MyProse text={part.text} /> : <p>{part.text}</p>),
   structured_output: MyJsonViewer,
 }
@@ -673,7 +700,7 @@ quietly. `AppExtensionConfigError` is raised for, within one extension:
 - a slot naming an unknown extension point
 - a form field targeting an unknown form ID
 - a nav item key declared twice
-- an agent rail item key declared twice, or one that is the application's own (`agentDetails`, `newChat`) rather than an `agentRailOverrides` entry
+- an agent rail item key declared twice, or one that is the application's own (`agentDetails`, `newConversation`) rather than an `agentRailOverrides` entry
 - a contributed route colliding with a core route, or declared twice
 
 and for the collisions only the install as a whole can see:

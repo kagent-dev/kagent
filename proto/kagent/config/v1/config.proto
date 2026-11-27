@@ -213,6 +213,12 @@ message PostgresPoolConfig {
     gt: {}
     lte: {seconds: 9223372036}
   }];
+  // connect_retry_timeout is how long a database call retries a failed login,
+  // such as while a paused database resumes. 0s turns the retry off. Default 90s.
+  google.protobuf.Duration connect_retry_timeout = 5 [(buf.validate.field).duration = {
+    gte: {}
+    lte: {seconds: 600}
+  }];
 }
 
 message SubstrateConfig {
@@ -231,6 +237,8 @@ message SubstrateConfig {
 }
 
 message SessionsConfig {
+  // Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
+  bool automatic_recovery = 5;
   // Zero disables idle expiration.
   google.protobuf.Duration idle_ttl = 1 [(buf.validate.field).duration = {
     gte: {}
@@ -260,7 +268,12 @@ message GatewayConfig {
 
 // PushConfig controls callback delivery and authentication in the controller.
 message PushConfig {
-  // Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
+  option (buf.validate.message).cel = {
+    id: "push.previous_requires_current"
+    message: "previous_signing_private_key_file requires signing_private_key_file"
+    expression: "this.previous_signing_private_key_file == '' || this.signing_private_key_file != ''"
+  };
+  // Optional unencrypted PKCS#8 Ed25519 PEM key, polled for changes. Empty disables signing.
   string signing_private_key_file = 1;
   optional string issuer = 2 [(buf.validate.field).string = {
     uri: true
@@ -280,6 +293,15 @@ message PushConfig {
     gt: {}
     lte: {seconds: 9223372036}
   }];
+  // Prepublication wait before using a replacement key, plus a fixed 30s buffer.
+  // Defaults to 300s, at most 86400s (24h). Must cover receivers' JWKS refresh intervals.
+  google.protobuf.Duration signing_key_activation_delay = 8 [(buf.validate.field).duration = {
+    gt: {}
+    lte: {seconds: 86400}
+  }];
+  // Optional previous PKCS#8 Ed25519 PEM key, read only at startup. If configured,
+  // the file may be missing only after the current key's activation is recorded.
+  string previous_signing_private_key_file = 9;
 }
 
 message SandboxConfig {

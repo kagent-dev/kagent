@@ -1,0 +1,337 @@
+import { useMemo, type ReactNode } from "react";
+import { Button, Form, Input, Radio, Select, Space, Tag, Typography } from "antd";
+import { useTheme } from "@emotion/react";
+import { ExternalLink } from "lucide-react";
+import { runtimeConfig } from "@/api/runtimeConfig";
+import { inlineLink } from "@/components/common/linkStyles";
+import { DataPill } from "@/components/form/DataPill";
+import { FormField } from "@/components/form/FormField";
+import { FormRow, FormRowList } from "@/components/form/FormRowList";
+import { noValidation, type FieldValidation } from "@/components/form/useSubmitValidation";
+import {
+  builtinSkillDraft,
+  emptySkillDraft,
+  matchBuiltinSkill,
+  type SkillDraft,
+  type SkillSourceKind,
+  type SkillTextField,
+  type TemplateField,
+} from "./agentTemplateDraft";
+
+const { Text } = Typography;
+
+const SOURCE_LABEL: Record<SkillSourceKind, string> = { oci: "OCI image", git: "Git", s3: "S3" };
+
+/**
+ * The template's `spec.skills`: kagent's built-in skills, offered from the catalog
+ * the chart passes, and the reader's own skills by OCI, Git or S3 source.
+ */
+export function SkillsField({
+  skills,
+  onChange,
+  readOnly,
+  fieldFor = noValidation,
+}: {
+  skills: SkillDraft[];
+  onChange: (next: SkillDraft[]) => void;
+  readOnly: boolean;
+  /** A field's message and touch callback, from `useSubmitValidation`. */
+  fieldFor?: (field: TemplateField) => FieldValidation;
+}) {
+  const theme = useTheme();
+  const catalog = useMemo(() => runtimeConfig().builtinSkills, []);
+
+  const setSkill = (index: number, patch: Partial<SkillDraft>) => {
+    const next = [...skills];
+    next[index] = { ...next[index], ...patch };
+    onChange(next);
+  };
+
+  const muted = { color: theme.color.textMuted, fontSize: 12 };
+  const mono = { fontFamily: theme.font.mono, fontSize: 12, wordBreak: "break-all" as const };
+
+  // A kagent skill has no fields to show its message under, so its row lists them.
+  const rowErrors = (index: number) => {
+    const messages = (Object.keys(emptySkillDraft()) as Array<keyof SkillDraft>)
+      .filter((key): key is SkillTextField => key !== "sourceKind")
+      .map((field) => fieldFor(`skill:${index}:${field}`).error)
+      .filter((message): message is string => message !== undefined);
+    return messages.length > 0 ? (
+      <Text css={{ color: theme.color.dangerText, fontSize: 12 }} data-testid={`template-form-skill-error-${index}`}>
+        {messages.join(" ")}
+      </Text>
+    ) : null;
+  };
+
+  const row = (index: number, name: string, title: ReactNode, children: ReactNode) => (
+    <FormRow
+      key={index}
+      data-testid={`template-form-skill-${index}`}
+      title={title}
+      onRemove={readOnly ? undefined : () => onChange(skills.filter((_, at) => at !== index))}
+      removeLabel={name.trim() ? `Remove skill ${name.trim()}` : `Remove skill ${index + 1}`}
+    >
+      <div css={{ display: "flex", flexDirection: "column", gap: 6 }}>{children}</div>
+    </FormRow>
+  );
+
+  const details = (entries: Array<[string, ReactNode]>) => (
+    <dl
+      css={{
+        display: "grid",
+        gridTemplateColumns: "max-content minmax(0, 1fr)",
+        columnGap: 16,
+        rowGap: 2,
+        margin: 0,
+        "& dt": { ...muted, lineHeight: "20px" },
+        "& dd": { margin: 0, lineHeight: "20px", minWidth: 0 },
+      }}
+    >
+      {entries.map(([label, value]) => (
+        <div key={label} css={{ display: "contents" }}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+
+  const link = (url: string, testId: string) =>
+    /^https?:\/\//.test(url) ? (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid={testId}
+        css={{ ...mono, ...inlineLink(theme) }}
+      >
+        {url}
+        <ExternalLink size={12} aria-hidden css={{ marginLeft: 4, verticalAlign: "-1px" }} />
+      </a>
+    ) : (
+      <span css={mono} data-testid={testId}>
+        {url}
+      </span>
+    );
+
+  const readOnlySource = (skill: SkillDraft, index: number): Array<[string, ReactNode]> => {
+    const id = (field: string) => `template-form-skill-${field}-${index}`;
+    const value = (text: string, field: string) => (
+      <span css={mono} data-testid={id(field)}>
+        {text}
+      </span>
+    );
+    const entries: Array<[string, ReactNode]> = [];
+    if (skill.sourceKind === "oci") entries.push(["Image", value(skill.oci, "oci")]);
+    if (skill.sourceKind === "git") {
+      entries.push(["Repository", link(skill.gitUrl, id("git-url"))]);
+      entries.push(["Commit", value(skill.gitCommit, "git-commit")]);
+    }
+    if (skill.sourceKind === "s3") {
+      entries.push(["Endpoint", link(skill.s3Endpoint, id("s3-endpoint"))]);
+      entries.push(["Bucket", value(skill.s3Bucket, "s3-bucket")]);
+      entries.push(["Key", value(skill.s3Key, "s3-key")]);
+      entries.push(["Version", value(skill.s3VersionId, "s3-version")]);
+      if (skill.s3Region) entries.push(["Region", value(skill.s3Region, "s3-region")]);
+    }
+    if (skill.path) entries.push(["Path", value(skill.path, "path")]);
+    return entries;
+  };
+
+  return (
+    <SkillsItem readOnly={readOnly} validation={fieldFor("skills")}>
+      <FormRowList
+        data-testid="template-form-skills"
+        empty={readOnly ? "No skills." : undefined}
+        addLabel="Add a custom skill"
+        onAdd={readOnly ? undefined : () => onChange([...skills, emptySkillDraft()])}
+        manageFocus
+        actions={
+          !readOnly && catalog && catalog.skills.length > 0 ? (
+            <div data-testid="template-form-add-builtin-skill">
+              <Select
+                css={{ minWidth: 220 }}
+                value={null}
+                aria-label="Add a kagent skill"
+                placeholder="Add a kagent skill"
+                popupMatchSelectWidth={false}
+                autoComplete="off"
+                showSearch={{ optionFilterProp: "title" }}
+                onChange={(name: string) => {
+                  const skill = catalog.skills.find((entry) => entry.name === name);
+                  if (skill) onChange([...skills, builtinSkillDraft(catalog, skill)]);
+                }}
+                options={catalog.skills.map((skill) => ({
+                  value: skill.name,
+                  title: skill.name,
+                  disabled: skills.some((entry) => entry.name.trim() === skill.name),
+                  label: (
+                    <Space orientation="vertical" size={0}>
+                      <span>{skill.name}</span>
+                      <Text css={{ ...muted, whiteSpace: "normal" }}>{skill.description}</Text>
+                    </Space>
+                  ),
+                }))}
+              />
+            </div>
+          ) : undefined
+        }
+      >
+        {skills.map((skill, index) => {
+          const builtin = matchBuiltinSkill(skill, catalog);
+          if (builtin && catalog) {
+            return row(
+              index,
+              skill.name,
+              <>
+                <DataPill>kagent</DataPill>
+                <Text strong>{skill.name}</Text>
+                {builtin.current ? null : (
+                  <Tag
+                    color="warning"
+                    css={{ marginInlineEnd: 0 }}
+                    data-testid={`template-form-skill-outdated-${index}`}
+                    title="Saved from an earlier kagent-tools image than this install ships."
+                  >
+                    Older version
+                  </Tag>
+                )}
+                {builtin.current || readOnly ? null : (
+                  <Button
+                    size="small"
+                    data-testid={`template-form-skill-update-${index}`}
+                    onClick={() => setSkill(index, { oci: catalog.image })}
+                  >
+                    Update
+                  </Button>
+                )}
+              </>,
+              <>
+                <Text css={muted}>{builtin.skill.description}</Text>
+                {rowErrors(index)}
+              </>,
+            );
+          }
+
+          if (readOnly) {
+            return row(
+              index,
+              skill.name,
+              <>
+                <DataPill data-testid={`template-form-skill-kind-${index}`}>{SOURCE_LABEL[skill.sourceKind]}</DataPill>
+                <Text strong data-testid={`template-form-skill-name-${index}`}>
+                  {skill.name || "Not set"}
+                </Text>
+              </>,
+              details(readOnlySource(skill, index)),
+            );
+          }
+
+          // Ids keep each visible label tied to its input for screen readers.
+          const fieldId = (testId: string) => `template-form-skill-${index}-${testId}-input`;
+          // `required` marks the fields the form refuses to save without.
+          const field = (
+            label: string,
+            testId: string,
+            width: number,
+            control: ReactNode,
+            required = true,
+            validation?: FieldValidation,
+          ) => (
+            <FormField
+              label={label}
+              required={required}
+              {...validation}
+              htmlFor={fieldId(testId)}
+              css={{ flex: `1 1 ${width}px`, minWidth: Math.min(width, 160), maxWidth: "100%", margin: 0 }}
+            >
+              {control}
+            </FormField>
+          );
+          const input = (
+            name: SkillTextField,
+            label: string,
+            testId: string,
+            example: string,
+            width: number,
+            required = true,
+          ) =>
+            field(
+              label,
+              testId,
+              width,
+              <Input
+                id={fieldId(testId)}
+                data-testid={`template-form-skill-${testId}-${index}`}
+                value={skill[name]}
+                placeholder={example}
+                onChange={(event) => setSkill(index, { [name]: event.target.value })}
+              />,
+              required,
+              fieldFor(`skill:${index}:${name}`),
+            );
+          return row(
+            index,
+            skill.name,
+            `Custom skill ${index + 1}`,
+            <Form layout="vertical" component="div">
+              <div css={{ display: "flex", flexWrap: "wrap", gap: "8px 12px" }}>
+                {input("name", "Skill name", "name", "", 200)}
+                {field(
+                  "Source",
+                  "kind",
+                  200,
+                  <Radio.Group
+                    optionType="button"
+                    id={fieldId("kind")}
+                    aria-label="Source"
+                    data-testid={`template-form-skill-kind-${index}`}
+                    value={skill.sourceKind}
+                    onChange={(event) => setSkill(index, { sourceKind: event.target.value as SkillSourceKind })}
+                    options={(Object.keys(SOURCE_LABEL) as SkillSourceKind[]).map((value) => ({
+                      value,
+                      label: SOURCE_LABEL[value],
+                    }))}
+                  />,
+                )}
+                {skill.sourceKind === "oci" ? input("oci", "Image", "oci", "ghcr.io/org/skills@sha256:…", 360) : null}
+                {skill.sourceKind === "git" ? (
+                  <>
+                    {input("gitUrl", "Repository", "git-url", "https://github.com/org/skills.git", 320)}
+                    {input("gitCommit", "Commit", "git-commit", "Full commit ID", 340)}
+                  </>
+                ) : null}
+                {skill.sourceKind === "s3" ? (
+                  <>
+                    {input("s3Endpoint", "Endpoint", "s3-endpoint", "https://s3.amazonaws.com", 220)}
+                    {input("s3Bucket", "Bucket", "s3-bucket", "Bucket name", 140)}
+                    {input("s3Key", "Key", "s3-key", "Object key", 180)}
+                    {input("s3VersionId", "Version ID", "s3-version", "Object version ID", 160)}
+                    {input("s3Region", "Region", "s3-region", "us-east-1", 140, false)}
+                  </>
+                ) : null}
+                {input("path", "Path", "path", "skills/my-skill", 180, false)}
+              </div>
+            </Form>,
+          );
+        })}
+      </FormRowList>
+    </SkillsItem>
+  );
+}
+
+/** The "Skills" label; read-only marks nothing as required or optional, like the rest of the form. */
+function SkillsItem({ readOnly, validation, children }: { readOnly: boolean; validation: FieldValidation; children: ReactNode }) {
+  return readOnly ? (
+    <Form.Item label="Skills">{children}</Form.Item>
+  ) : (
+    <FormField
+      label="Skills"
+      required={false}
+      help="A skill is a set of instructions the agent loads when a task matches it. Its source must not change: an OCI image pinned by digest, a full Git commit, or an S3 object version. The path selects the skill's directory inside the source."
+      {...validation}
+    >
+      {children}
+    </FormField>
+  );
+}

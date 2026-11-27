@@ -147,7 +147,6 @@ export function EgressPolicyDetailsPage() {
                 kind={egressCopy.kind}
                 name={name}
                 outlined
-                confirmation="modal"
                 label="Delete"
                 // A refused namespace would undercount, so the warning falls back to the generic one.
                 description={egressCopy.deleteWarning(agents.data?.refused.length ? undefined : users?.length)}
@@ -162,7 +161,7 @@ export function EgressPolicyDetailsPage() {
           <Link to={egressPoliciesTab}>
             <Button>{egressCopy.details.back}</Button>
           </Link>
-          <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} />
+          <RefreshButton onRefresh={policy.refresh} what="Egress policy" loading={policy.isLoading} disabled={missing} iconOnly />
         </Space>
       }
     >

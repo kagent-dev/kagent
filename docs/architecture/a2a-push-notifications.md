@@ -79,8 +79,7 @@ claimed when capacity is available. Leases cover the configured send timeout plu
 record failed attempts for retry. Shutdown cancels active sends and allows up to
 five seconds to persist each outcome. Successful sends remain acknowledged;
 shutdown-interrupted attempts release their claims immediately without consuming
-the retry budget. Claims whose outcomes could not be saved recover after lease
-expiry.
+an attempt. Claims whose outcomes could not be saved recover after lease expiry.
 
 Workers claim pending registrations at startup and after wake-ups. When idle,
 recovery scans run once a minute by default (`push.recoveryInterval`, which must be
@@ -94,13 +93,11 @@ Send completion and local hints also wake the sender. Queued completions are
 drained together before refilling capacity. Saturated senders wait for capacity
 without querying for pending deliveries.
 
-Each pending generation permits up to ten attempts across controller restarts;
-successfully released shutdown interruptions do not consume this budget.
-Exhausting the retry budget or expiring the final lease clears pending
-delivery state while retaining the callback registration for future publications.
-Failures preparing a notification use the same retry schedule as failed
-HTTP requests, so a malformed task cannot block unrelated callbacks. A newer
-eligible publication resets its attempt count and retry delay.
+Each notification generation permits up to 20 attempts across controller restarts
+and replicas. Preparation and HTTP failures back off for 5s, 10s, 20s, 40s, then
+cap at 60s: about 16 minutes of backoff, plus request and scheduling time.
+Exhaustion clears pending work but keeps the registration; a new publication
+resets the attempt count and backoff.
 An acknowledgement or failure from an older generation cannot change newer
 pending work. Workers capture the latest published task status when claiming and
 check that the claim is still current immediately before sending. Requests
@@ -143,11 +140,11 @@ openssl genpkey -algorithm ED25519 -out private-key.pem
 kubectl -n kagent create secret generic push-signing --from-file=private-key.pem
 ```
 
-Set `controller.push.signing.secretName: push-signing`. Helm references the
-Secret's `private-key.pem` entry; it does not generate or manage signing keys.
-Outside Helm, set `push.signingPrivateKeyFile` to the PEM file path.
-Operators manage key persistence and rotation, and all controller replicas must
-load the same key. An invalid configured key prevents startup.
+Set `controller.push.signing.secretName: push-signing` to mount `private-key.pem`.
+For CSI/custom mounts, set `config.push.signingPrivateKeyFile` and supply
+`controller.volumes` and `controller.volumeMounts`; `secretName` overrides the
+path. Outside Helm, use `push.signingPrivateKeyFile`. All replicas need the same
+key. Invalid keys prevent startup.
 
 When a key is configured, Kagent sends a fresh five-minute Ed25519 JWT as
 `Authorization: Bearer <JWT>` on each attempt and publishes the public key at
@@ -162,8 +159,36 @@ accepted callbacks promptly with 2xx; use your own A2A credentials to call
 Helm chooses the issuer from `config.push.issuer`,
 `ui.externalUrl`, then the in-cluster gateway URL; outside Helm,
 `push.issuer` defaults to `gateway.publicUrl`. Keep the issuer stable.
-Restart all controller Pods together after rotating the key to avoid replicas
-serving different JWKS during rotation.
+Each replica loads the issuer’s public keys from PostgreSQL at startup, including
+keys absent from its mounts. It refreshes this snapshot as it polls the current
+key file every 12–18s. JWKS requests read the snapshot from memory.
+The replica keeps its last valid key and publishes each replacement in JWKS for
+`config.push.signingKeyActivationDelay` (default `300s`, maximum `86400s`) plus
+30s before signing with it. Set the delay to cover the longest receiver JWKS
+refresh interval.
+
+Changing a signing Secret name rolls the controller. For a handoff, set
+`controller.push.signing.secretName` to the new Secret and
+`controller.push.signing.previousSecretName` to the old one. Both use `private-key.pem`.
+For CSI or custom mounts, use `config.push.previousSigningPrivateKeyFile` to point
+to a copy of the old key before replacing the current file. Previous is read at startup.
+With previous configured, a replica keeps publishing its outgoing public key until its next handoff.
+
+If current differs from the latest activation in the database, a starting
+replica with a distinct previous key signs with previous for a fresh delay.
+Once current is recorded, startups use it immediately and running replicas
+finish their own delays. If previous is omitted
+or identical to current, startup uses current immediately and preserves any existing
+activation record. If a configured previous file is missing, startup fails unless
+current is already recorded, in which case the replica logs a warning and uses current.
+
+A key stays published while any replica renews it and through the expiry of its
+last JWT plus 30s. If database refreshes fail, replicas serve their last
+snapshot and pause signing once they can no longer cover a new JWT’s lifetime.
+A replica restarts a pending key’s delay if its confirmed publication expires.
+
+To roll back, swap the key references. Callbacks retry on authentication failures.
+If B was active before an A-only rollback, retrying B skips the delay, so receivers caching only A may reject callbacks until they refresh JWKS.
 
 HTTPS and public destinations are required by default. Operators can enable
 HTTP and private, loopback, or link-local destinations with

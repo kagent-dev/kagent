@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -10,9 +11,190 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2apb/v1/pbconv"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
+
+func publishTestSigningKey(ctx context.Context, client *Client, issuer, id string) (PushSigningState, error) {
+	snapshot, err := client.PublishPushSigningKeys(ctx, issuer, id, []PushJWK{{KeyID: id}}, time.Now().Add(time.Minute))
+	return snapshot.PushSigningState, err
+}
+
+func TestPushSigningActivationAcrossReplicas(t *testing.T) {
+	// Given a shared issuer, when replicas initialize and activate B together,
+	// assert that all succeed with one activation revision and durable recovery.
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	active, err := client.IsPushSigningKeyActive(ctx, testSigningIssuer, "key-b")
+	require.NoError(t, err)
+	require.False(t, active)
+	initial, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-a", Revision: 1}, initial)
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for range 8 {
+		workers.Go(func() {
+			<-start
+			peer := NewClient(sharedDB, "public")
+			state, err := publishTestSigningKey(ctx, peer, testSigningIssuer, "key-a")
+			require.NoError(t, err)
+			require.Contains(t, []string{"key-a", "key-b"}, state.KeyID)
+			active, err := peer.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", initial.Revision)
+			require.NoError(t, err)
+			require.Equal(t, PushSigningState{KeyID: "key-b", Revision: 2}, active)
+		})
+	}
+	close(start)
+	workers.Wait()
+	restarted := NewClient(sharedDB, "public")
+	state, err := publishTestSigningKey(ctx, restarted, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-b", Revision: 2}, state)
+	active, err = restarted.IsPushSigningKeyActive(ctx, testSigningIssuer, "key-b")
+	require.NoError(t, err)
+	require.True(t, active)
+	active, err = restarted.IsPushSigningKeyActive(ctx, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	require.False(t, active)
+	other, err := publishTestSigningKey(ctx, restarted, "https://other.example", "key-c")
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-c", Revision: 1}, other)
+}
+
+func TestPushSigningConcurrentInitialization(t *testing.T) {
+	// Given no record, when replicas propose different initial keys, assert that
+	// only the first initializes state and all readers see the same activation.
+	client := NewClient(setupTestDB(t), "public")
+	start := make(chan struct{})
+	results := make(chan PushSigningState, 2)
+	var workers sync.WaitGroup
+	for _, id := range []string{"key-a", "key-b"} {
+		workers.Go(func() {
+			<-start
+			state, err := publishTestSigningKey(t.Context(), client, testSigningIssuer, id)
+			require.NoError(t, err)
+			results <- state
+		})
+	}
+	close(start)
+	workers.Wait()
+	require.Len(t, results, 2)
+	first, second := <-results, <-results
+	require.Equal(t, first, second)
+	require.EqualValues(t, 1, first.Revision)
+}
+
+const testSigningIssuer = "https://kagent.example"
+
+func TestPushSigningPublicationAcrossReplicas(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	a, b := PushJWK{KeyID: "key-a", X: "public-a"}, PushJWK{KeyID: "key-b", X: "public-b"}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	until := now.Add(time.Hour)
+	initial, err := publishTestSigningKey(ctx, client, testSigningIssuer, a.KeyID)
+	require.NoError(t, err)
+
+	// Concurrent publication and activation share the issuer row. Shorter
+	// renewals of A must preserve both its longest deadline and peer key B.
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for i := range 12 {
+		workers.Go(func() {
+			<-start
+			key := []PushJWK{a, b}[i%2]
+			_, err := client.PublishPushSigningKeys(ctx, testSigningIssuer, key.KeyID, []PushJWK{key}, until.Add(time.Duration(i)*time.Minute))
+			require.NoError(t, err)
+		})
+	}
+	workers.Go(func() {
+		<-start
+		_, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, b.KeyID, initial.Revision)
+		require.NoError(t, err)
+	})
+	close(start)
+	workers.Wait()
+	peer := NewClient(sharedDB, "public")
+	snapshot, err := peer.PublishPushSigningKeys(ctx, testSigningIssuer, a.KeyID, []PushJWK{a}, until)
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: b.KeyID, Revision: initial.Revision + 1}, snapshot.PushSigningState)
+	require.Equal(t, map[string]PublishedPushKey{
+		a.KeyID: {JWK: a, RetainUntil: until.Add(10 * time.Minute)},
+		b.KeyID: {JWK: b, RetainUntil: until.Add(11 * time.Minute)},
+	}, snapshot.PublishedKeys)
+
+	const otherIssuer = "https://other.example"
+	_, err = publishTestSigningKey(ctx, client, otherIssuer, a.KeyID)
+	require.NoError(t, err)
+	other, err := client.PublishPushSigningKeys(ctx, otherIssuer, a.KeyID, []PushJWK{a}, until)
+	require.NoError(t, err)
+	require.Len(t, other.PublishedKeys, 1)
+	require.Contains(t, other.PublishedKeys, a.KeyID)
+}
+
+func TestPushSigningPublicationExpiresAbandonedKeys(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	a, b := PushJWK{KeyID: "key-a"}, PushJWK{KeyID: "key-b"}
+	deadline := time.Now().Add(500 * time.Millisecond)
+	snapshot, err := client.PublishPushSigningKeys(ctx, testSigningIssuer, a.KeyID, []PushJWK{a}, deadline)
+	require.NoError(t, err)
+	require.Contains(t, snapshot.PublishedKeys, a.KeyID)
+	time.Sleep(time.Until(deadline))
+	snapshot, err = client.PublishPushSigningKeys(ctx, testSigningIssuer, b.KeyID, []PushJWK{b}, time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.NotContains(t, snapshot.PublishedKeys, a.KeyID)
+	require.Contains(t, snapshot.PublishedKeys, b.KeyID)
+}
+
+func TestPushSigningActivationRejectsSupersededAttempt(t *testing.T) {
+	// Given A -> B -> A, when an old B attempt commits, assert that the newer
+	// rollback survives even though its key ID matches the original activation.
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	initial, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	second, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", initial.Revision)
+	require.NoError(t, err)
+	rollback, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-a", second.Revision)
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-a", Revision: 3}, rollback)
+	stale, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", initial.Revision)
+	require.NoError(t, err)
+	require.Equal(t, rollback, stale)
+	confirmed, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-a", initial.Revision)
+	require.NoError(t, err)
+	require.Equal(t, rollback, confirmed, "reconfirming A must not invalidate a newer candidate")
+	newAttempt, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-b", rollback.Revision)
+	require.NoError(t, err)
+	require.Equal(t, PushSigningState{KeyID: "key-b", Revision: 4}, newAttempt)
+}
+
+func TestPushSigningStateConstraints(t *testing.T) {
+	client := NewClient(setupTestDB(t), "public")
+	ctx := t.Context()
+	t.Run("Given an unknown issuer, when activating, assert that the missing state is an error", func(t *testing.T) {
+		_, err := client.ActivatePushSigningKey(ctx, testSigningIssuer, "key-a", 1)
+		require.ErrorIs(t, err, pgx.ErrNoRows)
+	})
+	for _, input := range []struct{ issuer, key string }{{"", "key-a"}, {testSigningIssuer, ""}} {
+		t.Run("Given an empty scope or key, when initializing, assert that no invalid state is stored", func(t *testing.T) {
+			_, err := publishTestSigningKey(ctx, client, input.issuer, input.key)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			require.Equal(t, "23514", pgErr.Code)
+		})
+	}
+	state, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-a")
+	require.NoError(t, err)
+	_, err = client.ActivatePushSigningKey(ctx, testSigningIssuer, "", state.Revision)
+	require.Error(t, err)
+	unchanged, err := publishTestSigningKey(ctx, client, testSigningIssuer, "key-b")
+	require.NoError(t, err)
+	require.Equal(t, state, unchanged, "failed activation must roll back")
+}
 
 func TestPushPendingDeliveryTracksRetriesAndLeases(t *testing.T) {
 	client := NewClient(setupTestDB(t), "public")
@@ -137,7 +319,7 @@ func TestPushRegistrationExpiresUnacceptedInput(t *testing.T) {
 	require.NoError(t, execSQL(ctx, client.db, `UPDATE session_push_registration SET created_at = clock_timestamp() - interval '11 minutes' WHERE initial_message_id = $1`, "unaccepted"))
 	require.NoError(t, client.ExpireUnboundPushRegistrations(ctx))
 	var closed bool
-	require.NoError(t, client.db.QueryRow(ctx, `SELECT closed_at IS NOT NULL FROM session_push_registration WHERE initial_message_id = $1`, "unaccepted").Scan(&closed))
+	require.NoError(t, sharedDB.QueryRow(ctx, `SELECT closed_at IS NOT NULL FROM session_push_registration WHERE initial_message_id = $1`, "unaccepted").Scan(&closed))
 	require.True(t, closed)
 	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", config))
 	require.ErrorIs(t, client.RegisterSessionPushNotification(ctx, session.Id, "unaccepted", "", &a2a.PushConfig{ID: "default", URL: "http://changed"}), ErrIdempotencyConflict)
@@ -152,7 +334,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 	require.NoError(t, client.RegisterSessionPushNotification(ctx, session.Id, "pending", "", config))
 	require.NoError(t, execSQL(ctx, client.db, `UPDATE session_push_registration SET created_at = clock_timestamp() - interval '11 minutes' WHERE initial_message_id = $1`, "pending"))
 
-	tx, err := client.db.Begin(ctx)
+	tx, err := sharedDB.Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `UPDATE session_push_registration SET task_id = $2 WHERE initial_message_id = $1`, "pending", task.ID)
@@ -162,7 +344,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 	go func() { expired <- client.ExpireUnboundPushRegistrations(ctx) }()
 	require.Eventually(t, func() bool {
 		var waiting bool
-		err := client.db.QueryRow(ctx, `
+		err := sharedDB.QueryRow(ctx, `
 			SELECT EXISTS (SELECT 1 FROM pg_stat_activity
 				WHERE datname = current_database()
 					AND query LIKE '%UPDATE session_push_registration SET closed_at%'
@@ -173,7 +355,7 @@ func TestPushExpirationDoesNotCloseRegistrationBoundWhileWaiting(t *testing.T) {
 	require.NoError(t, tx.Commit(ctx))
 	require.NoError(t, <-expired)
 	var bound, closed bool
-	require.NoError(t, client.db.QueryRow(ctx, `
+	require.NoError(t, sharedDB.QueryRow(ctx, `
 		SELECT task_id IS NOT NULL, closed_at IS NOT NULL FROM session_push_registration
 		WHERE initial_message_id = $1
 	`, "pending").Scan(&bound, &closed))
@@ -411,18 +593,22 @@ func TestPushDeliveryRetriesAndRejectsTerminalRegistration(t *testing.T) {
 }
 
 func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
-	client := NewClient(setupTestDB(t), "public")
+	// Given pending work, when clients are recreated between failed attempts,
+	// assert that backoff and the 20-attempt limit persist across clients.
+	db := setupTestDB(t)
+	client := NewClient(db, "public")
 	ctx := t.Context()
 	sessionFixture(t, client, ctx, "team-a", "revision", "assistant", "kagent")
 	session, task := waitingTaskWithPushFixture(t, client, &a2a.PushConfig{ID: "callback", URL: "http://receiver"})
 
 	var final *PushDelivery
-	for attempt := 1; attempt <= pushMaxDeliveryAttempts; attempt++ {
+	for attempt := 1; attempt <= 20; attempt++ {
+		client = NewClient(db, "public")
 		delivery, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, delivery)
 		require.NoError(t, client.FinishPushDelivery(ctx, *delivery, false))
-		if attempt == pushMaxDeliveryAttempts {
+		if attempt == 20 {
 			final = delivery
 			assertPushDeliveryRetired(t, client, delivery.ID)
 			break
@@ -430,13 +616,13 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 
 		var count int
 		var delaySeconds float64
-		require.NoError(t, client.db.QueryRow(ctx, `
+		require.NoError(t, sharedDB.QueryRow(ctx, `
             SELECT attempt_count,
                 EXTRACT(EPOCH FROM (next_attempt_at - clock_timestamp()))::double precision
             FROM session_push_registration WHERE id = $1
         `, delivery.ID).Scan(&count, &delaySeconds))
 		require.Equal(t, attempt, count)
-		wantSeconds := float64(min(5<<(attempt-1), 300))
+		wantSeconds := float64(min(5<<(attempt-1), 60))
 		require.InDelta(t, wantSeconds, delaySeconds, 1)
 		blocked, err := client.ClaimDuePushDelivery(ctx, 5*time.Second)
 		require.NoError(t, err)
@@ -465,7 +651,7 @@ func TestPushDeliveryBackoffAndAttemptLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, current, "an exhausted generation cannot clear newer work")
 	var count int
-	require.NoError(t, client.db.QueryRow(ctx, `SELECT attempt_count FROM session_push_registration WHERE id = $1`, next.ID).Scan(&count))
+	require.NoError(t, sharedDB.QueryRow(ctx, `SELECT attempt_count FROM session_push_registration WHERE id = $1`, next.ID).Scan(&count))
 	require.Equal(t, 1, count)
 }
 
@@ -858,7 +1044,7 @@ func TestPushDeliveryClaimSkipsUncommittedPublication(t *testing.T) {
 	task.Status.State = a2a.TaskStateCompleted
 	version, err = client.UpdateSessionTask(ctx, session.Id, version, taskMutationHash("complete"), task, task, "")
 	require.NoError(t, err)
-	tx, err := client.db.Begin(ctx)
+	tx, err := sharedDB.Begin(ctx)
 	require.NoError(t, err)
 	defer tx.Rollback(ctx)
 	_, err = tx.Exec(ctx, `SELECT id FROM session_push_registration FOR UPDATE`)
@@ -867,7 +1053,7 @@ func TestPushDeliveryClaimSkipsUncommittedPublication(t *testing.T) {
 	go func() { settled <- client.SettleSessionTask(ctx, session.Id, string(task.ID), version) }()
 	require.Eventually(t, func() bool {
 		var blocked bool
-		err := client.db.QueryRow(ctx, `
+		err := sharedDB.QueryRow(ctx, `
             SELECT EXISTS (SELECT 1 FROM pg_stat_activity
                 WHERE datname = current_database()
                   AND query LIKE '%UPDATE session_push_registration SET pending_event_sequence%'
@@ -966,7 +1152,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			stored, err := readSessionTask(ctx, client.db, session.HistoryID, string(badTask.ID))
 			require.NoError(t, err)
 			var registrationID uuid.UUID
-			require.NoError(t, client.db.QueryRow(ctx, `
+			require.NoError(t, sharedDB.QueryRow(ctx, `
                 SELECT id FROM session_push_registration WHERE history_id = $1 AND config_id = 'bad'
             `, session.HistoryID).Scan(&registrationID))
 			invalidData := []byte{0xff}
@@ -986,7 +1172,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 			require.Nil(t, delivery)
 			var attempts int
 			var scheduled, unleased bool
-			require.NoError(t, client.db.QueryRow(ctx, `
+			require.NoError(t, sharedDB.QueryRow(ctx, `
                 SELECT attempt_count, next_attempt_at > clock_timestamp(),
                     claim_token IS NULL AND lease_until IS NULL
                 FROM session_push_registration WHERE config_id = 'bad'
@@ -1039,7 +1225,7 @@ func TestPushDeliveryInvalidTaskDoesNotBlockOtherRegistrations(t *testing.T) {
 func assertPushDeliveryRetired(t *testing.T, client *Client, registrationID uuid.UUID) {
 	t.Helper()
 	var retired bool
-	require.NoError(t, client.db.QueryRow(t.Context(), `
+	require.NoError(t, sharedDB.QueryRow(t.Context(), `
         SELECT pending_event_sequence IS NULL AND attempt_count = 0 AND next_attempt_at IS NULL
             AND claim_token IS NULL AND lease_until IS NULL AND closed_at IS NULL
         FROM session_push_registration WHERE id = $1

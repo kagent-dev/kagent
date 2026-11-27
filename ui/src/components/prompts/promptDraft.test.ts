@@ -8,6 +8,10 @@ import {
 } from "./promptDraft";
 import { newFragmentRow } from "./fragmentRows";
 
+/** The messages alone; each issue also names its field. */
+const issueMessages = (...args: Parameters<typeof promptDraftIssues>) =>
+  promptDraftIssues(...args).map((issue) => issue.message);
+
 /** A draft that would be accepted, plus any overrides. */
 const draft = (overrides: Partial<PromptDraft> = {}): PromptDraft => ({
   namespace: "kagent",
@@ -31,18 +35,23 @@ describe("promptDraftFrom", () => {
 
 describe("promptDraftIssues", () => {
   it("accepts a complete draft", () => {
-    expect(promptDraftIssues(draft())).toEqual([]);
+    expect(issueMessages(draft())).toEqual([]);
   });
 
   it("requires a namespace and a name that Kubernetes would accept", () => {
-    expect(promptDraftIssues(draft({ namespace: "" }))).toContain(
+    expect(issueMessages(draft({ namespace: "" }))).toContain(
       "A namespace is required.",
     );
-    expect(promptDraftIssues(draft({ name: "" }))).toContain(
+    expect(issueMessages(draft({ name: "" }))).toContain(
       "A library name is required.",
     );
-    expect(promptDraftIssues(draft({ name: "Team Prompts" }))).toEqual([
-      "The name must use lowercase letters, numbers and hyphens, starting and ending with a letter or number.",
+    expect(issueMessages(draft({ name: "Team Prompts" }))).toEqual([
+      "Use lowercase letters, numbers, hyphens and dots, starting and ending with a letter or number.",
+    ]);
+    // Names follow ResourceReference.name (a subdomain); namespaces stay a label.
+    expect(issueMessages(draft({ name: "team.prompts" }))).toEqual([]);
+    expect(issueMessages(draft({ namespace: "team.a" }))).toEqual([
+      "The namespace must be a valid Kubernetes name.",
     ]);
   });
 
@@ -51,13 +60,13 @@ describe("promptDraftIssues", () => {
     // the resource's own, shown but not editable, so they cannot be wrong. Marking
     // them would be complaining about a field the reader cannot change.
     const locked = draft({ namespace: "", name: "" });
-    expect(promptDraftIssues(locked, { identityLocked: true })).toEqual([]);
+    expect(issueMessages(locked, { identityLocked: true })).toEqual([]);
   });
 
   it("applies the fragment rules either way, because the controller does", () => {
     const empty = draft({ rows: [newFragmentRow()] });
     for (const options of [{}, { identityLocked: true }]) {
-      expect(promptDraftIssues(empty, options)).toContain(
+      expect(issueMessages(empty, options)).toContain(
         "Add at least one fragment key.",
       );
     }

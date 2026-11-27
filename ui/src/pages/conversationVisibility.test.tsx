@@ -8,23 +8,44 @@ import { AgentService } from "@/generated/kagent/api/v1/agents_pb";
 import { SessionService } from "@/generated/kagent/api/v1/sessions_pb";
 import { SystemService } from "@/generated/kagent/api/v1/system_pb";
 import { setApiTransport } from "@/api/transport";
+import { KAGENT_API_VERSION } from "@/api/grpc/wire";
 import { themeFor } from "@/theme/theme";
 import { AgentsTab } from "./AgentsPage";
 import { UnmappedConversationsPage } from "./UnmappedConversationsPage";
 
-function renderPage(page: "agents" | "unmapped", empty = false) {
+function renderPage(page: "agents" | "unmapped", { empty = false, denyNamespaces = false } = {}) {
   setApiTransport(createRouterTransport(({ service }) => {
-    service(SystemService, { listNamespaces: () => ({ namespaces: [{ name: "team-a" }] }) });
-    service(AgentService, { listAgents: () => ({ agents: [{
-      ref: { namespace: "team-a", name: "assistant" },
-      resource: { apiVersion: "api.kagent.dev/v1alpha3", kind: "Agent", value: {
-        metadata: { namespace: "team-a", name: "assistant" },
-        spec: { template: { inline: {} }, harnessRef: { name: "runner" } },
-      } },
-    }] }) });
+    service(SystemService, { listNamespaces: () => {
+      if (denyNamespaces) throw new ConnectError("Namespace discovery refused", Code.PermissionDenied);
+      return { namespaces: [{ name: "team-a" }] };
+    } });
+    service(AgentService, {
+      getAgent: ({ ref }) => {
+        if (ref?.name === "deleted") throw new ConnectError("Agent not found", Code.NotFound);
+        throw new ConnectError("Agent read refused", Code.PermissionDenied);
+      },
+      listAgents: ({ namespace }) => {
+        if (denyNamespaces) expect(namespace).toBe("");
+        return { agents: [{
+          ref: { namespace: "team-a", name: "assistant" },
+          resource: { apiVersion: KAGENT_API_VERSION, kind: "Agent", value: {
+            metadata: { namespace: "team-a", name: "assistant" },
+            spec: { template: { inline: {} }, harnessRef: { name: "runner" } },
+          } },
+        }] };
+      },
+    });
     service(SessionService, { listSessions: (request) => {
       if (request.allCreators) throw new ConnectError("Broad refused", Code.PermissionDenied);
-      return { sessions: empty ? [] : [{ id: "owned", creator: "alice", agent: { ref: { namespace: "team-a", name: page === "agents" ? "assistant" : "deleted" }, uid: "agent-uid" } }] };
+      if (empty) return { sessions: [] };
+      const sessions = [{ id: "owned", creator: "alice", agent: { ref: { namespace: "team-a", name: page === "agents" ? "assistant" : "deleted" }, uid: "agent-uid" } }];
+      if (denyNamespaces) {
+        sessions.push(
+          { id: "mapped", creator: "alice", agent: { ref: { namespace: "team-a", name: "assistant" }, uid: "assistant-uid" } },
+          { id: "hidden", creator: "alice", agent: { ref: { namespace: "team-b", name: "hidden" }, uid: "hidden-uid" } },
+        );
+      }
+      return { sessions };
     } });
   }));
   render(<ThemeProvider theme={themeFor("dark")}>
@@ -45,7 +66,7 @@ it("labels Agents counts as owned after a refused broad read", async () => {
 });
 
 it("keeps a zero owned count scoped to the caller", async () => {
-  renderPage("agents", true);
+  renderPage("agents", { empty: true });
   await screen.findByTestId("agents-owned-conversations");
   expect(await screen.findByTestId("agent-conversations-team-a/assistant")).toHaveTextContent("0 conversations");
 });
@@ -58,7 +79,16 @@ it("shows owned unmapped conversations after a refused broad read", async () => 
 });
 
 it("does not describe an empty owned list as an installation-wide result", async () => {
-  renderPage("unmapped", true);
+  renderPage("unmapped", { empty: true });
   await screen.findByTestId("unmapped-owned-conversations");
   expect(await screen.findByText("None of your conversations are unmapped.")).toBeInTheDocument();
+});
+
+it("lists confirmed unmapped conversations when namespace discovery is denied", async () => {
+  renderPage("unmapped", { denyNamespaces: true });
+  expect(await screen.findByTestId("unmapped-link-owned")).toBeInTheDocument();
+  expect(screen.queryByTestId("unmapped-link-mapped")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("unmapped-link-hidden")).not.toBeInTheDocument();
+  expect(screen.getByText("Some conversations could not be checked")).toBeInTheDocument();
+  expect(screen.queryByTestId("unmapped-error")).not.toBeInTheDocument();
 });

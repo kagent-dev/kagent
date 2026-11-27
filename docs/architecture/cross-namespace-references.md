@@ -3,6 +3,9 @@
 Agents can use ModelConfigs and RemoteMCPServers in other namespaces. A reference
 contains `name` and optionally `namespace`; omitting or leaving namespace empty
 uses the namespace of the reference owner. Names never contain `namespace/name`.
+A model or MCP server reference may also set `kind`, and `group` with it.
+Omitted values select ModelConfig or RemoteMCPServer; the controller rejects
+any other kind with `ResolvedRefs=False` and reason `InvalidKind`.
 
 AgentTemplate owns its model and MCP references, including child templates.
 Inline templates use the Agent namespace. Harness owns memory and summarizer
@@ -152,7 +155,20 @@ preserves namespaces when saving references.
 
 ## Rollout
 
-Install the regenerated CRDs **before** upgrading the controller or applying
+Install the regenerated CRDs **before** you upgrade the controller or apply
 namespace-qualified manifests. Older schemas can prune the namespace fields.
-Existing local manifests retain their JSON shape. Go callers must adopt
-`v1alpha3.ObjectReference` and `corev1.TypedObjectReference` for the changed fields.
+
+Manifests and stored objects from v1.0.x work unchanged and keep their revision
+digest.
+
+- **MCP server `kind`** defaults to `RemoteMCPServer` and is stored, so v1.0.x
+  controllers and clients can still update the object.
+- **Other kinds** on model references need the new controller and CRDs. A v1.0.x
+  controller ignores them, and a CRD rollback drops them, so the reference selects
+  the ModelConfig with the same name. Before you roll back to v1.0.x, point those
+  references back to the default kind.
+- **`apiGroup`** stays as a deprecated MCP server field that must be omitted. The
+  API server drops the `null` that v1.0.x Go clients send.
+
+In Go, `v1alpha3.ObjectReference` is renamed `ModelConfigReference`, and
+`MCPToolBinding.Server` is now an `MCPServerReference`.

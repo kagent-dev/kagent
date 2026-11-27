@@ -3,7 +3,7 @@ package commands
 import (
 	"context"
 	"encoding/json"
-	"os"
+	"io"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -13,12 +13,16 @@ import (
 	"github.com/kagent-dev/kagent/go/core/internal/version"
 )
 
-func runVersion(clientSet *client.APIClientSet) {
-	versionInfo := map[string]string{
+func clientVersionInfo() map[string]string {
+	return map[string]string{
 		"kagent_version": version.Version,
 		"git_commit":     version.GitCommit,
 		"build_date":     version.BuildDate,
 	}
+}
+
+func runVersion(out io.Writer, clientSet *client.APIClientSet) error {
+	versionInfo := clientVersionInfo()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	serverVersion, err := clientSet.Version.GetVersion(ctx)
@@ -27,17 +31,20 @@ func runVersion(clientSet *client.APIClientSet) {
 	} else {
 		versionInfo["backend_version"] = serverVersion.GetKagentVersion()
 	}
-
-	json.NewEncoder(os.Stdout).Encode(versionInfo) //nolint:errcheck
+	return json.NewEncoder(out).Encode(versionInfo)
 }
 
 // NewVersionCmd constructs the kagent version command.
 func NewVersionCmd() *cobra.Command {
-	return &cobra.Command{
+	var clientOnly bool
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print the kagent version",
-		Long:  `Print the kagent version`,
+		Long:  `Print the kagent version. With --client, print only the CLI version without contacting the server.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if clientOnly {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(clientVersionInfo())
+			}
 			options, err := connection.OptionsFromCommand(cmd)
 			if err != nil {
 				return err
@@ -51,12 +58,12 @@ func NewVersionCmd() *cobra.Command {
 					return err
 				}
 				defer clientSet.Close() //nolint:errcheck
-				runVersion(clientSet)
-				return nil
+				return runVersion(cmd.OutOrStdout(), clientSet)
 			}
 			defer session.Close() //nolint:errcheck
-			runVersion(session.API)
-			return nil
+			return runVersion(cmd.OutOrStdout(), session.API)
 		},
 	}
+	cmd.Flags().BoolVar(&clientOnly, "client", false, "Print only the CLI version without contacting the server")
+	return cmd
 }

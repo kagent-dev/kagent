@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DataPill } from "@/components/form/DataPill";
 import { Select, Tag } from "antd";
 import { useTheme } from "@emotion/react";
 import { X } from "lucide-react";
@@ -132,6 +133,7 @@ export function FilterBar({
           // point at.
           <div key={filter.id} data-testid={`${testId}-filter-${filter.id}`}>
             <Select
+              autoComplete="off"
               mode="multiple"
               value={[...view.selected(filter.id)]}
               onChange={(next: string[]) => view.setSelected(filter.id, next)}
@@ -157,7 +159,8 @@ export function FilterBar({
           </div>
         ))}
 
-        {trailing}
+        {/* Pushed to the row's right edge, so the summary and Refresh sit at its end. */}
+        {trailing ? <div css={{ marginInlineStart: "auto" }}>{trailing}</div> : null}
       </div>
 
       {pills.length > 0 ? (
@@ -171,30 +174,14 @@ export function FilterBar({
           }}
         >
           {pills.map((pill) => (
-            <Tag
+            <DataPill
               key={pill.key}
               data-testid={pill.testId}
-              closable
-              onClose={(event) => {
-                // antd's own close would also unmount the tag, which fights the
-                // re-render this removal causes.
-                event.preventDefault();
-                pill.remove();
-              }}
-              // The whole pill removes, not only the cross. The cross is a small
-              // target and the pill is plainly one thing; removal is idempotent, so
-              // a click that lands on both does no harm.
-              onClick={pill.remove}
-              css={{
-                cursor: "pointer",
-                marginInlineEnd: 0,
-                background: theme.color.infoBg,
-                borderColor: theme.color.infoBorder,
-                color: theme.color.infoText,
-              }}
+              onRemove={pill.remove}
+              removeLabel={`Remove filter ${pill.text}`}
             >
               {pill.text}
-            </Tag>
+            </DataPill>
           ))}
 
           <Tag

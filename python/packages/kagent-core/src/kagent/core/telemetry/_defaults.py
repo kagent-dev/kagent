@@ -47,7 +47,6 @@ def apply(config: TelemetryConfig) -> None:
         "OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION": "base2_exponential_bucket_histogram",
         "OTEL_SEMCONV_STABILITY_OPT_IN": "gen_ai_latest_experimental,http",
         "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": "SPAN_ONLY" if config.capture_content else "NO_CONTENT",
-        "OTEL_PYTHON_FASTAPI_EXCLUDED_URLS": r"/health,/healthz,/readyz,/thread_dump,/\.well-known/agent-card\.json",
     }.items():
         os.environ.setdefault(name, value)
     os.environ.update(

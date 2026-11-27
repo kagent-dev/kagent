@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../../fixtures/test";
 import { dataRows, expectPageTitle, expectSettled, loadPage, rowNamed, routes } from "../../helpers/app";
-import { LIFECYCLE_TIMEOUT, dialog, expectLoading, optionNamed, pressOnce } from "../../helpers/resource";
+import { LIFECYCLE_TIMEOUT, anyDialog, dialog, expectLoading, optionNamed, pressOnce } from "../../helpers/resource";
 
 /**
  * Egress policies: list, create, attach to an agent, see it in "Used by", edit, delete.
@@ -73,21 +73,43 @@ test("egress policies: a policy is created, attached, edited and deleted", async
   await test.step("5. the form checks the CRD's rules before saving", async () => {
     await page.getByRole("button", { name: "Create egress policy" }).click();
     await expectPageTitle(page, "New egress policy");
-    await page.getByTestId("egress-form-submit").click();
-    await expect(page.getByTestId("egress-form-errors")).toContainText("Enter a name.");
+    // Create is held back beside a note; a field is flagged once it is left.
+    await expect(page.getByTestId("egress-form-submit")).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("egress-form-blocked")).toContainText("Fill in the required (*) fields.");
+    await page.getByTestId("egress-form-name").focus();
+    await page.getByTestId("egress-form-name").blur();
+    await expect(page.getByText("Enter a name.")).toBeVisible();
+    await expect(page.getByTestId("egress-form-submit-error")).toHaveCount(0);
+
+    // Leaving a dirty form asks first; Keep editing stays.
+    await page.getByTestId("egress-form-name").fill(CREATED);
+    await page.getByTestId("egress-form-cancel").click();
+    await expect(page.getByTestId("egress-form-discard-modal")).toBeVisible();
+    await pressOnce(page.getByRole("button", { name: "Keep editing" }));
+    // A closing modal still traps focus, so a fill before it is gone types into the dialog.
+    await expect(anyDialog(page)).toBeHidden();
+    await expect(page).toHaveURL(/\/policies\/egress\/new$/);
 
     await page.getByTestId("egress-form-name").fill(CREATED);
     await page.getByTestId("egress-destination-0-origin").fill("https://api.example.com");
+    // Each option's fields sit on their own panel: Token lifetime belongs to Actor JWT only.
+    await page.getByTestId("egress-destination-0-auth").getByText("Actor JWT").click();
+    const jwt = page.getByRole("group", { name: "Actor JWT settings" });
+    await expect(jwt.getByLabel("Header name")).toBeVisible();
+    await expect(jwt.getByLabel("Token lifetime")).toBeVisible();
     await page.getByTestId("egress-destination-0-auth").getByText("Secret key").click();
+    const secret = page.getByRole("group", { name: "Secret key settings" });
+    await expect(secret.getByLabel("Key in secret")).toBeVisible();
+    await expect(page.getByLabel("Token lifetime")).toHaveCount(0);
     await page.getByTestId("egress-destination-0-header").fill("Cookie");
     await page.getByTestId("egress-destination-0-secret-name").fill("example-credentials");
     await page.getByTestId("egress-destination-0-secret-key").fill("token");
-    await page.getByTestId("egress-form-submit").click();
-    await expect(page.getByTestId("egress-destination-0-problems")).toContainText("can't carry a credential");
+    await expect(page.getByText("The Cookie header can't carry a credential.")).toBeVisible();
+    await expect(page.getByTestId("egress-form-submit")).toHaveAttribute("aria-disabled", "true");
     await expect(page).toHaveURL(/\/policies\/egress\/new$/);
 
     // A wildcard origin offers no credential source.
-    await page.getByTestId("egress-form-add-destination").click();
+    await page.getByTestId("egress-destinations-add").click();
     await expect(page.getByTestId("egress-destination-1-origin")).toBeFocused();
     await page.getByTestId("egress-destination-1-origin").fill("https://*.example.org");
     await expect(page.getByTestId("egress-destination-1-auth").getByRole("radio", { name: "Secret key" })).toBeDisabled();
@@ -149,9 +171,9 @@ test("egress policies: a policy is created, attached, edited and deleted", async
     await page.getByTestId(`edit-${CREATED}`).click();
     await expect(page.getByTestId("egress-form-name")).toHaveAttribute("readonly", "");
     await expect(page.getByTestId("egress-destination-0-origin")).toHaveValue("https://api.example.com");
-    await page.getByTestId("egress-destination-1-remove").click();
+    await page.getByRole("button", { name: "Remove destination 2" }).click();
     // One row is left and it has no remove button, so focus moves to "Add destination".
-    await expect(page.getByTestId("egress-form-add-destination")).toBeFocused();
+    await expect(page.getByTestId("egress-destinations-add")).toBeFocused();
     await page.getByTestId("egress-destination-0-origin").fill("https://api2.example.com");
     await page.getByTestId("egress-form-submit").click();
     await expect(page).toHaveURL(CREATED_URL);

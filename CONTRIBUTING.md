@@ -194,6 +194,31 @@ Features that introduce behavior changes should be covered by E2E tests (excepti
 - Ensures the feature is not deprecated.
 - Confirms the feature works as the user expects it to.
 
+### Release branches and backports
+
+Active development happens on `main`. Each supported release has a `release-X.Y` branch (for example, `release-1.0`) that receives only backported fixes.
+
+**Fix `main` first.** Open fixes against `main`, then backport them. Target a release branch directly only when the fix does not apply to `main` (for example, the affected code no longer exists there), and say so in the PR description.
+
+For vulnerabilities reported privately under [SECURITY.md](SECURITY.md), follow that process instead. Fixes may be prepared privately and released to `main` and supported release branches together.
+
+**What to backport.** Decide by severity. Security vulnerabilities are bugs too, classified by their advisory severity.
+
+- **Critical and High:** backport promptly, and cut a patch release if needed. This includes CVEs whose vulnerable code path does not appear reachable.
+- **Medium:** backport case by case when the fix is low risk and cherry-picks cleanly. It ships with the next patch release.
+- **Low:** do not backport without maintainer approval.
+
+Also backport, case by case:
+
+- Test and CI changes that keep the release branch's CI working or fix flaky tests.
+- Documentation corrections for the release's behavior.
+
+**What not to backport** without explicit maintainer approval:
+
+- New features, API changes, or refactors.
+- New dependencies or non-security dependency upgrades.
+- Dead code removal, cleanups, and other maintenance changes, unless a fix depends on them to backport cleanly.
+
 ### Code review guidelines
 
 Code can be reviewed by anyone! Even if you are not a maintainer, please feel free to add your comments.

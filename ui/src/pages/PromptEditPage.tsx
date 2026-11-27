@@ -1,7 +1,8 @@
 import { Alert, Button, Skeleton, Space } from "antd";
-import toast from "react-hot-toast";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { PageFrame } from "@/components/Structure/PageFrame";
+import { BackLink } from "@/components/form/BackLink";
+import { toastSaved } from "@/components/form/saveToast";
 import { PromptForm } from "@/components/prompts/PromptForm";
 import { promptDraftFrom } from "@/components/prompts/promptDraft";
 import { buildPath, paths } from "@/router/routes";
@@ -48,8 +49,8 @@ export function PromptEditPage() {
     /*
      * Thrown rather than returned. The route cannot match without both, so this is
      * unreachable — but returning would hand the form a save that wrote nothing and
-     * said nothing: no toast, no navigation, no error, and a draft it has already
-     * stopped guarding. A throw reaches the form's own failure path.
+     * said nothing: no toast, no error, and a navigation away from an unsaved draft.
+     * A throw reaches the form's own failure path.
      */
     if (!namespace || !name) {
       throw new Error("A prompt library is addressed by both a namespace and a name.");
@@ -59,20 +60,16 @@ export function PromptEditPage() {
     // Swept rather than re-reading this library alone: an edit changes the list's key
     // count and tags too, on whichever surfaces are still mounted.
     await invalidatePrompts().catch(() => {});
-    toast.success(`Prompt library ${name} saved`);
-    await navigate(detail);
+    toastSaved("saved", "prompt library", name);
   }
 
   return (
+    <>
+    <BackLink to={paths.prompts} resource="Prompts" />
     <PageFrame
       title={name ? `Edit ${name}` : "Edit prompt library"}
       description={
         missing ? undefined : "Replaces this library's fragments with what you save."
-      }
-      actions={
-        <Link to={detail}>
-          <Button>Back to library</Button>
-        </Link>
       }
     >
       <Space
@@ -116,11 +113,12 @@ export function PromptEditPage() {
           <PromptForm
             initial={promptDraftFrom(library.data)}
             outcome="saved"
-            submitLabel="Save changes"
+            submitLabel="Save"
             // The ref is how the controller addresses the library, so an edit cannot
             // rename one or move it to another namespace.
             identityLocked
             onSubmit={saveLibrary}
+            onSaved={() => void navigate(detail)}
             // Handed a callback rather than left to the form's own link back to the
             // list, so Cancel returns to the library being edited — and so the form
             // can ask first when there is a draft to lose.
@@ -129,5 +127,6 @@ export function PromptEditPage() {
         ) : null}
       </Space>
     </PageFrame>
+    </>
   );
 }

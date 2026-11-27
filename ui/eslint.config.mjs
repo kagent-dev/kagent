@@ -65,6 +65,27 @@ export default tseslint.config(
           message:
             "navigator.clipboard is undefined outside a secure context, so a copy there does nothing and says nothing. Use copyText() from @/components/common/copyText.",
         },
+        /*
+         * A kagent apiVersion spelled by hand.
+         *
+         * The example App Extension kept building `kagent.dev/v1alpha2` payloads long
+         * after that group stopped being served (#3636): a copied string has no way to
+         * learn that the API moved. `KAGENT_API_VERSION` is the one place it is
+         * spelled, so a version bump is one line. Anchored so label keys such as
+         * `kagent.dev/runtime` and `https://kagent.dev/...` URLs are not caught; the
+         * TemplateElement form closes the backtick escape.
+         */
+        {
+          selector: "Literal[value=/^(api\\.)?kagent\\.dev\\/v\\d+((alpha|beta)\\d+)?$/]",
+          message:
+            "Use KAGENT_API_VERSION from @/api/grpc/wire — a hand-written apiVersion goes stale at the next API bump (#3636).",
+        },
+        {
+          selector:
+            "TemplateElement[value.cooked=/^(api\\.)?kagent\\.dev\\/v\\d+((alpha|beta)\\d+)?$/]",
+          message:
+            "Use KAGENT_API_VERSION from @/api/grpc/wire — a hand-written apiVersion goes stale at the next API bump (#3636).",
+        },
       ],
     },
   },

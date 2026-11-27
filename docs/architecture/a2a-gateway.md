@@ -4,6 +4,9 @@ The public gateway implements the upstream A2A handler for message send/stream,
 task get/list/cancel, and subscription. It also serves the extended Agent Card
 compiled into the Agent's latest successful revision (or the pinned revision of a shared conversation).
 
+[Sending a Message to an Agent](agent-send-message.md) traces a send from the
+client to the Actor and back.
+
 ## Routing and execution
 
 The public endpoint is a named `Agent`. HTTP selects it through

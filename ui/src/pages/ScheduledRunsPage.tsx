@@ -1,6 +1,7 @@
 import { useTheme } from "@emotion/react";
 import { useMemo, useState } from "react";
 import { Alert, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
+import { DataPill } from "@/components/form/DataPill";
 import { ArrowLeft, CalendarClock, ChevronsDownUp, ChevronsUpDown, ExternalLink, Globe, Pause, Pencil, Play, Plus } from "lucide-react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
@@ -35,10 +36,11 @@ export function ScheduledRunsPage() {
   const scheduledRuns = runs.data?.scheduledRuns ?? [];
 
   return <PageFrame title="Schedules" description="Run an agent automatically. Each execution starts a new conversation."
-    actions={<Space size={8}><RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} />
+    actions={<Space size={8}>
       <Link to={paths.scheduledRunNew}>
         <Button type="primary" icon={<Plus size={14} />} data-testid="schedules-new">New Schedule</Button>
-      </Link></Space>}>
+      </Link>
+      <RefreshButton onRefresh={runs.refresh} what="Schedules" loading={runs.isValidating} iconOnly /></Space>}>
     <Space orientation="vertical" css={{ display: "flex", ...linkStyles(theme) }} size="middle">
       {runs.error && <Alert data-testid="schedules-error" type="error" showIcon title="Could not load schedules" description={runs.error.message} />}
       {/* The width floor is what the columns need, and an empty table has no columns to
@@ -153,11 +155,10 @@ function ScheduledRunDetails({ id }: { id: string }) {
   }
 
   /* Top right, not under the description list: there Run sat below the fold on any
-     schedule with a few firings. Ordered leaving-to-doing, so the filled Run — the
-     action this page exists for — is rightmost and Delete is not beside it at all. */
+     schedule with a few firings. Ordered leaving-to-doing, with the filled Run last
+     before Refresh, and Delete not beside it at all. */
   const controls = <div css={{ display: "flex", flexWrap: "wrap", gap: theme.space(2), justifyContent: "flex-end" }}>
     <Link to={paths.scheduledRuns}><Button data-testid="schedule-back" icon={<ArrowLeft size={14} />}>Back</Button></Link>
-    <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} />
     <Button data-testid="schedule-edit" icon={<Pencil size={14} />} disabled={disabled}
       onClick={() => void navigate(buildPath(paths.scheduledRunEdit, { id }))}>Edit</Button>
     {/* One control, two labels: it is the same toggle whichever way it reads, so a
@@ -166,6 +167,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
       onClick={() => void act("pause")}>{config?.paused ? "Resume" : "Pause"}</Button>
     <Button data-testid="schedule-run" type="primary" icon={<Play size={14} />} disabled={disabled || !config} loading={busy === "trigger"}
       onClick={() => void act("trigger")}>Run</Button>
+    <RefreshButton onRefresh={refresh} what="Schedule" loading={run.isValidating || history.isValidating} iconOnly />
   </div>;
 
   /* Its own header: `PageFrame` holds actions at a fixed width, which squeezed this
@@ -179,8 +181,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
             how often, and in whose clock. The rest is in the list below. */}
         {schedule && config && <Space size={8} wrap data-testid="schedule-meta" css={{ marginTop: theme.space(2) }}>
           {scheduleStatusTag(schedule)}
-          <Tag icon={<CalendarClock size={12} />}>{scheduleDescription(config.schedule)}</Tag>
-          <Tag icon={<Globe size={12} />}>{config.timeZone || "UTC"}</Tag>
+          <DataPill>
+            <CalendarClock size={12} aria-hidden /> {scheduleDescription(config.schedule)}
+          </DataPill>
+          <DataPill>
+            <Globe size={12} aria-hidden /> {config.timeZone || "UTC"}
+          </DataPill>
         </Space>}
       </div>
       {controls}
@@ -227,7 +233,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
-            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentChat, { id: row.sessionId })}
+            ? <Link data-testid="execution-conversation" to={buildPath(paths.agentConversation, { id: row.sessionId })}
               css={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               Open conversation<ExternalLink size={14} /></Link> : "Not started" },
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
@@ -252,7 +258,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
         <Typography.Text css={{ color: theme.color.textMuted }}>
           Deleting this schedule stops future executions. Accepted executions continue; history and conversations are retained.
         </Typography.Text>
-        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" confirmation="modal" outlined disabled={disabled}
+        <DeleteResourceButton kind="schedule" name={config?.name || id} label="Delete schedule" outlined disabled={disabled}
           description="Stops future executions. Accepted executions continue; history and conversations are retained."
           onDelete={async () => { await invoke("scheduledRuns.delete", { scheduledRunId: id }); }}
           onDeleted={async () => { await invalidate(); await navigate(paths.scheduledRuns); }} />

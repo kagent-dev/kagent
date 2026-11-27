@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -110,16 +109,6 @@ class AsyncControllerClient:
         self._closed = True
         if self._owns_channel and self._channel is not None:
             await self._channel.close()
-
-    def lifespan(self):
-        @asynccontextmanager
-        async def _lifespan(_: Any):
-            try:
-                yield
-            finally:
-                await self.close()
-
-        return _lifespan
 
     async def __aenter__(self) -> AsyncControllerClient:
         return self

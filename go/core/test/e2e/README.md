@@ -35,6 +35,9 @@ Once a cluster API URL is set, missing `KAGENT_E2E_RUNTIME_IMAGE` fails the test
 before provisioning. The same digest-pinned Go ADK image supplies both the agent
 runtime and sandbox tools.
 
+`TestSessionSendRecoversCrashedRuntime` requires `config.sessions.automaticRecovery: true`
+in the test install. CI enables it to exercise recovery through ordinary sends.
+
 `TestSessionIdleExpiration` runs its harness cases in parallel so they share the
 idle period and expiration sweep. Its parent stays sequential to isolate the
 controller rollouts from the rest of the suite. It temporarily sets
@@ -163,7 +166,7 @@ Each runtime uploads its own `e2e-logs-gvisor` or `e2e-logs-microvm` artifact.
 The same setup is available locally:
 `KIND_SANDBOX_CLASS=microvm make create-kind-cluster` checks KVM and mounts it
 into the Kind node. After installing Substrate, run
-`SUBSTRATE_VERSION=1.0.0 bash scripts/kind/setup-microvm.sh`.
+`SUBSTRATE_VERSION=1.1.0-alpha1 bash scripts/kind/setup-microvm.sh`.
 It fetches the matching Substrate release and runs
 `ate-setup deploy sandboxconfig --sandbox-classes=microvm`. The installer assembles
 and verifies the assets, uploads them to RustFS, and applies the SandboxConfig.

@@ -26,6 +26,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv/push"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric/noop"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -287,7 +288,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	var httpTransport a2aclient.Transport
 	for i := range gateways {
 		publicListener := bufconn.Listen(DefaultMaxMessageSize)
-		interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), true)
+		interactions := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, healthyRuntimeWorkflow{}), true, false)
 		gateway := a2agateway.New(interactions, taskStoreRuntimeDialer{runtimeListener}, "http://gateway.test")
 		public, err := New(Config{
 			Listener: publicListener, SystemService: testSystemService(),
@@ -343,9 +344,14 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	require.NoError(t, store.RegisterSessionPushNotification(t.Context(), id, input.Message.MessageId, "", &a2a.PushConfig{ID: "default", URL: receiver.URL}))
 	workerCtx, stopWorker := context.WithCancel(t.Context())
 	workerDone := make(chan error, 1)
-	pushSigner, err := sessionsvc.NewPushJWTSigner("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n", "https://kagent.example")
+	keyPath := filepath.Join(t.TempDir(), "push-private-key.pem")
+	require.NoError(t, os.WriteFile(keyPath, []byte("-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIHNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nz\n-----END PRIVATE KEY-----\n"), 0o600))
+	pushSigner, err := sessionsvc.NewPushJWTSigner(t.Context(), database.NewClient(db, "public"), sessionsvc.PushJWTSignerConfig{
+		PrivateKeyFile: keyPath, Issuer: "https://kagent.example", ActivationDelay: 5 * time.Minute,
+	})
+
 	require.NoError(t, err)
-	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner, pushWake, sessionsvc.PushWorkerConfig{RecoveryInterval: time.Minute, MaxConcurrency: 10, SendTimeout: time.Second})
+	worker := sessionsvc.NewPushWorker(database.NewClient(db, "public"), push.NewHTTPPushSender(&push.HTTPSenderConfig{Timeout: time.Second, AllowPrivateNetworks: true, FailOnError: true}), pushSigner, pushWake, sessionsvc.PushWorkerConfig{RecoveryInterval: time.Minute, MaxConcurrency: 10, SendTimeout: time.Second}, noop.NewMeterProvider())
 	go func() { workerDone <- worker.Start(workerCtx) }()
 	t.Cleanup(func() { stopWorker(); require.NoError(t, <-workerDone) })
 	stream, err := a2apb.NewA2AServiceClient(gateways[0]).SendStreamingMessage(observer, input)
@@ -443,7 +449,7 @@ func TestRuntimeTaskStoreThroughGRPC(t *testing.T) {
 	storedConfigs, err := store.ListTaskPushConfigs(t.Context(), id, parkedID, "", 10)
 	require.NoError(t, err)
 	require.Len(t, storedConfigs, 2, "stored configs: %+v", storedConfigs)
-	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, nil), true)
+	managedService := sessionsvc.NewInteractionService(store, nil, sessionsvc.NewService(store, &auth.NoopAuthorizer{}, healthyRuntimeWorkflow{}), true, false)
 	serviceCtx := auth.AuthSessionTo(publicCtx, &authimpl.SimpleSession{P: auth.Principal{ID: "alice"}})
 	servicePage, err := managedService.ListTaskPushConfigs(serviceCtx, types.NamespacedName{Namespace: "team-a", Name: "assistant"},
 		&a2a.ListTaskPushConfigRequest{TaskID: a2a.TaskID(parkedID), PageSize: 1})
@@ -718,4 +724,21 @@ func createTaskStoreSession(t *testing.T, store *database.Client) *apiv1.Session
 		substrate.ActorHost("team-a", substrate.ActorName(session.Id), ""), "actor-uid", "")
 	require.NoError(t, err)
 	return session
+}
+
+// healthyRuntimeWorkflow stands in for Substrate when a send refused for active
+// work checks whether the runtime crashed: the runtime is healthy, so Revert
+// returns the Session unchanged and the send is refused as before.
+type healthyRuntimeWorkflow struct{}
+
+func (healthyRuntimeWorkflow) Create(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return session, nil
+}
+
+func (healthyRuntimeWorkflow) Revert(_ context.Context, session *apiv1.Session) (*apiv1.Session, error) {
+	return session, nil
+}
+
+func (healthyRuntimeWorkflow) Delete(_ context.Context, session *apiv1.Session, _ bool) (*apiv1.Session, error) {
+	return session, nil
 }

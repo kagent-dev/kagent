@@ -1,7 +1,7 @@
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { ExtensionSlotComponents } from "./extensionPoints";
 import type { ExtensionFormFieldContribution } from "./formFields";
-import type { AgentInstance, ApiCallId, ChatDataPart, ChatMessage, ChatPart } from "@/api";
+import type { AgentInstance, ApiCallId, ConversationDataPart, ConversationMessage, ConversationPart } from "@/api";
 import type { ExtensionApi } from "./api/extensionApi";
 import type { ExtensionTheme } from "./theme";
 import type { ExtensionAgentRailOverrides } from "./railOverrides";
@@ -9,10 +9,16 @@ import type { ExtensionShell } from "./shell";
 import type { ExtensionBranding } from "./branding";
 import type { ExtensionNavOverrides } from "./navOverrides";
 import type { ExtensionTableColumn } from "./tableColumns";
+import type { ExtensionRowAction } from "./rowActions";
 
 /** Props a contributed nav item's renderer receives. */
 export interface ExtensionNavItemProps {
-  /** True when the current location matches the item's `path`. */
+  /**
+   * True when this is the one sidebar entry the current location belongs to: its
+   * `path` is the longest matching prefix across every entry, core ones included.
+   * A core entry with a longer prefix takes the highlight, and an equal one is
+   * settled by sidebar order.
+   */
   isActive: boolean;
   /**
    * True while the rail is showing its narrow form.
@@ -171,7 +177,7 @@ export interface ExtensionAgentLinks {
    */
   fromInstancesList?: (instance: AgentInstance) => string;
   /** Where the rail's conversation rows and the list's agent names point. */
-  chat?: (ref: ExtensionAgentInstanceRef) => string;
+  conversation?: (ref: ExtensionAgentInstanceRef) => string;
   /** Where the rail's "Agent Details" entry points. */
   details?: (ref: ExtensionAgentInstanceRef) => string;
 }
@@ -212,6 +218,8 @@ export interface AppExtensionConfig {
    * than the application's shows that dimension on a page the application owns.
    */
   tableColumns?: readonly ExtensionTableColumn<never>[];
+  /** Extra items in the agent, agent template and harness list rows' actions menus. */
+  rowActions?: readonly ExtensionRowAction[];
   /**
    * Operation overrides and payload transforms, keyed by the
    * data layer's own call ids so an override naming a call that does not exist
@@ -265,10 +273,10 @@ export interface AppExtensionConfig {
    */
   providerIcons?: Readonly<Record<string, ComponentType>>;
   /**
-   * Replacement renderers for chat message parts, keyed by part kind, or by
+   * Replacement renderers for conversation message parts, keyed by part kind, or by
    * `dataKind` for a data part. Merged over the core map like `providerIcons`.
    */
-  chatPartRenderers?: ExtensionChatPartRenderers;
+  conversationPartRenderers?: ExtensionConversationPartRenderers;
   /**
    * Agent destinations the application resolves from this configuration.
    */
@@ -287,23 +295,23 @@ export interface AppExtensionConfig {
   agentRailOverrides?: ExtensionAgentRailOverrides;
 }
 
-/** A chat part's renderer key: its `kind`, or its `dataKind` for a data part. */
-export type ChatPartRendererKey = Exclude<ChatPart["kind"], "data"> | ChatDataPart["dataKind"];
+/** A conversation part's renderer key: its `kind`, or its `dataKind` for a data part. */
+export type ConversationPartRendererKey = Exclude<ConversationPart["kind"], "data"> | ConversationDataPart["dataKind"];
 
 /** The part a renderer for `K` receives, so a `"text"` renderer gets a text part. */
-export type ChatPartForKey<K extends ChatPartRendererKey> = K extends ChatDataPart["dataKind"]
-  ? ChatDataPart & { dataKind: K }
-  : Extract<ChatPart, { kind: K }>;
+export type ConversationPartForKey<K extends ConversationPartRendererKey> = K extends ConversationDataPart["dataKind"]
+  ? ConversationDataPart & { dataKind: K }
+  : Extract<ConversationPart, { kind: K }>;
 
-/** Props a chat part renderer receives: the part and the turn it belongs to. */
-export interface ChatPartRendererProps<K extends ChatPartRendererKey = ChatPartRendererKey> {
-  part: ChatPartForKey<K>;
-  role: ChatMessage["role"];
+/** Props a conversation part renderer receives: the part and the turn it belongs to. */
+export interface ConversationPartRendererProps<K extends ConversationPartRendererKey = ConversationPartRendererKey> {
+  part: ConversationPartForKey<K>;
+  role: ConversationMessage["role"];
   messageId: string;
   taskId?: string;
-  sessionId?: string;
+  conversationId?: string;
 }
 
-export type ExtensionChatPartRenderers = {
-  readonly [K in ChatPartRendererKey]?: ComponentType<ChatPartRendererProps<K>>;
+export type ExtensionConversationPartRenderers = {
+  readonly [K in ConversationPartRendererKey]?: ComponentType<ConversationPartRendererProps<K>>;
 };

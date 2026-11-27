@@ -1109,8 +1109,11 @@ type PostgresPoolConfig struct {
 	MaxConns        *int32                 `protobuf:"varint,2,opt,name=max_conns,json=maxConns,proto3,oneof" json:"max_conns,omitempty"`
 	MaxConnIdleTime *durationpb.Duration   `protobuf:"bytes,3,opt,name=max_conn_idle_time,json=maxConnIdleTime,proto3" json:"max_conn_idle_time,omitempty"`
 	MaxConnLifetime *durationpb.Duration   `protobuf:"bytes,4,opt,name=max_conn_lifetime,json=maxConnLifetime,proto3" json:"max_conn_lifetime,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// connect_retry_timeout is how long a database call retries a failed login,
+	// such as while a paused database resumes. 0s turns the retry off. Default 90s.
+	ConnectRetryTimeout *durationpb.Duration `protobuf:"bytes,5,opt,name=connect_retry_timeout,json=connectRetryTimeout,proto3" json:"connect_retry_timeout,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *PostgresPoolConfig) Reset() {
@@ -1167,6 +1170,13 @@ func (x *PostgresPoolConfig) GetMaxConnIdleTime() *durationpb.Duration {
 func (x *PostgresPoolConfig) GetMaxConnLifetime() *durationpb.Duration {
 	if x != nil {
 		return x.MaxConnLifetime
+	}
+	return nil
+}
+
+func (x *PostgresPoolConfig) GetConnectRetryTimeout() *durationpb.Duration {
+	if x != nil {
+		return x.ConnectRetryTimeout
 	}
 	return nil
 }
@@ -1250,6 +1260,8 @@ func (x *SubstrateConfig) GetActorJwtIssuer() string {
 
 type SessionsConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
+	// Recover crashed runtimes during sends. Disabled by default; explicit revert remains available.
+	AutomaticRecovery bool `protobuf:"varint,5,opt,name=automatic_recovery,json=automaticRecovery,proto3" json:"automatic_recovery,omitempty"`
 	// Zero disables idle expiration.
 	IdleTtl *durationpb.Duration `protobuf:"bytes,1,opt,name=idle_ttl,json=idleTtl,proto3" json:"idle_ttl,omitempty"`
 	// Zero leaves session shares unbounded.
@@ -1288,6 +1300,13 @@ func (x *SessionsConfig) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SessionsConfig.ProtoReflect.Descriptor instead.
 func (*SessionsConfig) Descriptor() ([]byte, []int) {
 	return file_kagent_config_v1_config_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *SessionsConfig) GetAutomaticRecovery() bool {
+	if x != nil {
+		return x.AutomaticRecovery
+	}
+	return false
 }
 
 func (x *SessionsConfig) GetIdleTtl() *durationpb.Duration {
@@ -1365,7 +1384,7 @@ func (x *GatewayConfig) GetPublicUrl() string {
 // PushConfig controls callback delivery and authentication in the controller.
 type PushConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Optional unencrypted PKCS#8 Ed25519 PEM key. Empty disables JWT signing.
+	// Optional unencrypted PKCS#8 Ed25519 PEM key, polled for changes. Empty disables signing.
 	SigningPrivateKeyFile string  `protobuf:"bytes,1,opt,name=signing_private_key_file,json=signingPrivateKeyFile,proto3" json:"signing_private_key_file,omitempty"`
 	Issuer                *string `protobuf:"bytes,2,opt,name=issuer,proto3,oneof" json:"issuer,omitempty"`
 	AllowHttp             bool    `protobuf:"varint,3,opt,name=allow_http,json=allowHttp,proto3" json:"allow_http,omitempty"`
@@ -1375,9 +1394,15 @@ type PushConfig struct {
 	// Maximum concurrent callback deliveries per controller replica. Defaults to 10.
 	MaxConcurrency *int32 `protobuf:"varint,6,opt,name=max_concurrency,json=maxConcurrency,proto3,oneof" json:"max_concurrency,omitempty"`
 	// Timeout for each callback attempt. Defaults to 5s.
-	SendTimeout   *durationpb.Duration `protobuf:"bytes,7,opt,name=send_timeout,json=sendTimeout,proto3" json:"send_timeout,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SendTimeout *durationpb.Duration `protobuf:"bytes,7,opt,name=send_timeout,json=sendTimeout,proto3" json:"send_timeout,omitempty"`
+	// Prepublication wait before using a replacement key, plus a fixed 30s buffer.
+	// Defaults to 300s, at most 86400s (24h). Must cover receivers' JWKS refresh intervals.
+	SigningKeyActivationDelay *durationpb.Duration `protobuf:"bytes,8,opt,name=signing_key_activation_delay,json=signingKeyActivationDelay,proto3" json:"signing_key_activation_delay,omitempty"`
+	// Optional previous PKCS#8 Ed25519 PEM key, read only at startup. If configured,
+	// the file may be missing only after the current key's activation is recorded.
+	PreviousSigningPrivateKeyFile string `protobuf:"bytes,9,opt,name=previous_signing_private_key_file,json=previousSigningPrivateKeyFile,proto3" json:"previous_signing_private_key_file,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *PushConfig) Reset() {
@@ -1457,6 +1482,20 @@ func (x *PushConfig) GetSendTimeout() *durationpb.Duration {
 		return x.SendTimeout
 	}
 	return nil
+}
+
+func (x *PushConfig) GetSigningKeyActivationDelay() *durationpb.Duration {
+	if x != nil {
+		return x.SigningKeyActivationDelay
+	}
+	return nil
+}
+
+func (x *PushConfig) GetPreviousSigningPrivateKeyFile() string {
+	if x != nil {
+		return x.PreviousSigningPrivateKeyFile
+	}
+	return ""
 }
 
 type SandboxConfig struct {
@@ -2223,14 +2262,16 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x0e_vector_schema\"D\n" +
 	"\x13DatabaseLoginConfig\x12\x19\n" +
 	"\burl_file\x18\x01 \x01(\tR\aurlFile\x12\x12\n" +
-	"\x04role\x18\x02 \x01(\tR\x04role\"\xa2\x03\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\"\x80\x04\n" +
 	"\x12PostgresPoolConfig\x12$\n" +
 	"\tmin_conns\x18\x01 \x01(\x05B\a\xbaH\x04\x1a\x02(\x00R\bminConns\x12)\n" +
 	"\tmax_conns\x18\x02 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x00R\bmaxConns\x88\x01\x01\x12X\n" +
 	"\x12max_conn_idle_time\x18\x03 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnIdleTime\x12W\n" +
 	"\x11max_conn_lifetime\x18\x04 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnLifetime:z\xbaHw\x1au\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x0fmaxConnLifetime\x12\\\n" +
+	"\x15connect_retry_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\r\xbaH\n" +
+	"\xaa\x01\a\"\x03\b\xd8\x042\x00R\x13connectRetryTimeout:z\xbaHw\x1au\n" +
 	"\x14postgres_pool.bounds\x12#min_conns must not exceed max_conns\x1a8!has(this.max_conns) || this.min_conns <= this.max_connsB\f\n" +
 	"\n" +
 	"_max_conns\"\xc6\x02\n" +
@@ -2243,8 +2284,9 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\x10actor_jwt_issuer\x18\x05 \x01(\tB\x1a\xbaH\x17r\x152\x10^https://[^/?#]+\x88\x01\x01H\x02R\x0eactorJwtIssuer\x88\x01\x01B\x0f\n" +
 	"\r_api_endpointB\r\n" +
 	"\v_router_urlB\x13\n" +
-	"\x11_actor_jwt_issuer\"\xf6\x02\n" +
-	"\x0eSessionsConfig\x12F\n" +
+	"\x11_actor_jwt_issuer\"\xa5\x03\n" +
+	"\x0eSessionsConfig\x12-\n" +
+	"\x12automatic_recovery\x18\x05 \x01(\bR\x11automaticRecovery\x12F\n" +
 	"\bidle_ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
 	"\"\x06\b\x84\xfa\x85\xae\"2\x00R\aidleTtl\x12O\n" +
 	"\rshare_max_ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
@@ -2256,7 +2298,7 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\rGatewayConfig\x12?\n" +
 	"\n" +
 	"public_url\x18\x01 \x01(\tB\x1b\xbaH\x18r\x162\x11^https?://[^/?#]+\x88\x01\x01H\x00R\tpublicUrl\x88\x01\x01B\r\n" +
-	"\v_public_url\"\xd4\x03\n" +
+	"\v_public_url\"\xce\x06\n" +
 	"\n" +
 	"PushConfig\x127\n" +
 	"\x18signing_private_key_file\x18\x01 \x01(\tR\x15signingPrivateKeyFile\x128\n" +
@@ -2268,7 +2310,10 @@ const file_kagent_config_v1_config_proto_rawDesc = "" +
 	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\x10recoveryInterval\x125\n" +
 	"\x0fmax_concurrency\x18\x06 \x01(\x05B\a\xbaH\x04\x1a\x02 \x00H\x01R\x0emaxConcurrency\x88\x01\x01\x12N\n" +
 	"\fsend_timeout\x18\a \x01(\v2\x19.google.protobuf.DurationB\x10\xbaH\r\xaa\x01\n" +
-	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\vsendTimeoutB\t\n" +
+	"\"\x06\b\x84\xfa\x85\xae\"*\x00R\vsendTimeout\x12j\n" +
+	"\x1csigning_key_activation_delay\x18\b \x01(\v2\x19.google.protobuf.DurationB\x0e\xbaH\v\xaa\x01\b\"\x04\b\x80\xa3\x05*\x00R\x19signingKeyActivationDelay\x12H\n" +
+	"!previous_signing_private_key_file\x18\t \x01(\tR\x1dpreviousSigningPrivateKeyFile:\xc1\x01\xbaH\xbd\x01\x1a\xba\x01\n" +
+	"\x1epush.previous_requires_current\x12Cprevious_signing_private_key_file requires signing_private_key_file\x1aSthis.previous_signing_private_key_file == '' || this.signing_private_key_file != ''B\t\n" +
 	"\a_issuerB\x12\n" +
 	"\x10_max_concurrency\"\x8e\x04\n" +
 	"\rSandboxConfig\x12\x1f\n" +
@@ -2426,32 +2471,34 @@ var file_kagent_config_v1_config_proto_depIdxs = []int32{
 	15, // 30: kagent.config.v1.DatabaseConfig.pool:type_name -> kagent.config.v1.PostgresPoolConfig
 	30, // 31: kagent.config.v1.PostgresPoolConfig.max_conn_idle_time:type_name -> google.protobuf.Duration
 	30, // 32: kagent.config.v1.PostgresPoolConfig.max_conn_lifetime:type_name -> google.protobuf.Duration
-	30, // 33: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
-	30, // 34: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
-	30, // 35: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 36: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
-	30, // 37: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
-	30, // 38: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
-	30, // 39: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
-	30, // 40: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
-	30, // 41: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
-	30, // 42: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
-	30, // 43: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
-	30, // 44: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
-	25, // 45: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
-	25, // 46: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
-	25, // 47: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
-	29, // 48: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
-	30, // 49: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
-	4,  // 50: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
-	24, // 51: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
-	28, // 52: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
-	27, // 53: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
-	54, // [54:54] is the sub-list for method output_type
-	54, // [54:54] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	30, // 33: kagent.config.v1.PostgresPoolConfig.connect_retry_timeout:type_name -> google.protobuf.Duration
+	30, // 34: kagent.config.v1.SessionsConfig.idle_ttl:type_name -> google.protobuf.Duration
+	30, // 35: kagent.config.v1.SessionsConfig.share_max_ttl:type_name -> google.protobuf.Duration
+	30, // 36: kagent.config.v1.SessionsConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 37: kagent.config.v1.SessionsConfig.quiescence_recovery_interval:type_name -> google.protobuf.Duration
+	30, // 38: kagent.config.v1.PushConfig.recovery_interval:type_name -> google.protobuf.Duration
+	30, // 39: kagent.config.v1.PushConfig.send_timeout:type_name -> google.protobuf.Duration
+	30, // 40: kagent.config.v1.PushConfig.signing_key_activation_delay:type_name -> google.protobuf.Duration
+	30, // 41: kagent.config.v1.SandboxConfig.default_ttl:type_name -> google.protobuf.Duration
+	30, // 42: kagent.config.v1.SandboxConfig.max_ttl:type_name -> google.protobuf.Duration
+	30, // 43: kagent.config.v1.SandboxConfig.expiration_interval:type_name -> google.protobuf.Duration
+	30, // 44: kagent.config.v1.ScheduledRunsConfig.poll_interval:type_name -> google.protobuf.Duration
+	30, // 45: kagent.config.v1.ScheduledRunsConfig.execution_interval:type_name -> google.protobuf.Duration
+	30, // 46: kagent.config.v1.RuntimeRevisionsConfig.gc_interval:type_name -> google.protobuf.Duration
+	25, // 47: kagent.config.v1.TelemetryConfig.traces:type_name -> kagent.config.v1.OTLPConfig
+	25, // 48: kagent.config.v1.TelemetryConfig.metrics:type_name -> kagent.config.v1.OTLPConfig
+	25, // 49: kagent.config.v1.TelemetryConfig.logs:type_name -> kagent.config.v1.OTLPConfig
+	29, // 50: kagent.config.v1.TelemetryConfig.resource_attributes:type_name -> kagent.config.v1.TelemetryConfig.ResourceAttributesEntry
+	30, // 51: kagent.config.v1.OTLPConfig.timeout:type_name -> google.protobuf.Duration
+	4,  // 52: kagent.config.v1.RuntimeDefaultsConfig.logging:type_name -> kagent.config.v1.LoggingConfig
+	24, // 53: kagent.config.v1.RuntimeDefaultsConfig.telemetry:type_name -> kagent.config.v1.TelemetryConfig
+	28, // 54: kagent.config.v1.RuntimeDefaultsConfig.token_propagation:type_name -> kagent.config.v1.TokenPropagationConfig
+	27, // 55: kagent.config.v1.RuntimeDefaultsConfig.builtin_tools:type_name -> kagent.config.v1.BuiltinToolsConfig
+	56, // [56:56] is the sub-list for method output_type
+	56, // [56:56] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_kagent_config_v1_config_proto_init() }

@@ -7,8 +7,8 @@ import { sanitizeRedirect } from "./loginRedirect";
  */
 describe("sanitizeRedirect", () => {
   it("keeps a same-origin path", () => {
-    expect(sanitizeRedirect("/agents/kagent/k8s-agent/chat")).toBe(
-      "/agents/kagent/k8s-agent/chat",
+    expect(sanitizeRedirect("/agents/kagent/k8s-agent/conversation")).toBe(
+      "/agents/kagent/k8s-agent/conversation",
     );
   });
 

@@ -115,10 +115,12 @@ computes the retry time from them, and the jitter comes from the failed
 template's UID, so a controller restart keeps the schedule. While a retry waits,
 `Ready` is `False` with reason `ActorTemplateRetrying`, and the message names
 the retry number, its time and the failure reason. Substrate's full error is
-logged by the controller, not copied into status, because it can quote
-configuration. While the rebuild is pending, the
-`Preparing` message names the retry number. A successful build resets the
-count. The 1-second poll wakes a waiting retry once its retry time passes;
+not copied into status, because it can quote configuration. The only detail
+added to the reason is `could not pull image <ref>` when the failure is a pull
+of an image that the template's own spec names. The controller takes that
+reference from the spec, not from the error text. It logs the full error at
+WARN once per failed attempt. While the rebuild is pending, the `Preparing`
+message names the retry number. A successful build resets the count. The 1-second poll wakes a waiting retry once its retry time passes;
 after a failed delete, queue backoff wakes it instead.
 
 Sandbox execution is enabled by default. Lifecycle calls run on the serving API

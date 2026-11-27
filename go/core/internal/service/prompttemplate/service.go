@@ -14,6 +14,7 @@ import (
 	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 	"github.com/kagent-dev/kagent/go/core/internal/service/kubeauth"
 	"github.com/kagent-dev/kagent/go/core/internal/service/serviceerrors"
 	"github.com/kagent-dev/kagent/go/core/pkg/auth"
@@ -21,12 +22,10 @@ import (
 
 const (
 	promptTemplateResource = "PromptTemplate"
-	promptLibraryLabelKey  = "kagent.dev/prompt-library"
-	promptLibraryLabelVal  = "true"
 )
 
 type Service struct {
-	kubeClient client.Client
+	kubeClient client.Client //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	authorizer auth.CollectionAuthorizer
 }
 
@@ -49,7 +48,7 @@ type CreateRequest struct {
 	Data      map[string]string
 }
 
-func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer) *Service {
+func NewService(kubeClient client.Client, authorizer auth.CollectionAuthorizer) *Service { //nolint:forbidigo // TODO(#3235): migrate to apiclient.Client
 	return &Service{kubeClient: kubeClient, authorizer: authorizer}
 }
 
@@ -179,7 +178,7 @@ func (s *Service) authorize(ctx context.Context, verb auth.Verb, resource auth.R
 }
 
 func promptLibraryLabelSelector() map[string]string {
-	return map[string]string{promptLibraryLabelKey: promptLibraryLabelVal}
+	return map[string]string{v1alpha3.PromptLibraryLabel: "true"}
 }
 
 func summarize(configMap *corev1.ConfigMap) Summary {
@@ -250,7 +249,7 @@ func (s *Service) library(ctx context.Context, ref types.NamespacedName) (*corev
 		}
 		return nil, serviceerrors.NewInternal("Failed to get prompt library", err)
 	}
-	if configMap.Labels[promptLibraryLabelKey] != promptLibraryLabelVal {
+	if configMap.Labels[v1alpha3.PromptLibraryLabel] != "true" {
 		return nil, serviceerrors.NewNotFound("Prompt library not found", nil)
 	}
 	return configMap, nil
