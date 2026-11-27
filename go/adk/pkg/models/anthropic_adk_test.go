@@ -360,3 +360,44 @@ func TestAnthropicStreamingToolCallsKeepBlockOrder(t *testing.T) {
 	}
 	assert.Equal(t, wantIDs, gotIDs)
 }
+
+func TestGenaiToolsToAnthropicToolsKeepsSchemaDefinitions(t *testing.T) {
+	for _, key := range []string{"$defs", "definitions"} {
+		t.Run(key, func(t *testing.T) {
+			defs := map[string]any{
+				"Filter": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"name": map[string]any{"type": "string"}},
+				},
+			}
+			tools := genaiToolsToAnthropicTools([]*genai.Tool{{FunctionDeclarations: []*genai.FunctionDeclaration{{
+				Name: "search",
+				ParametersJsonSchema: map[string]any{
+					"type":       "object",
+					"properties": map[string]any{"filter": map[string]any{"$ref": "#/" + key + "/Filter"}},
+					"required":   []any{"filter"},
+					key:          defs,
+				},
+			}}}})
+			if len(tools) != 1 || tools[0].OfTool == nil {
+				t.Fatalf("expected one tool, got %#v", tools)
+			}
+
+			b, err := json.Marshal(tools[0].OfTool.InputSchema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatal(err)
+			}
+			gotDefs, ok := got[key].(map[string]any)
+			if !ok || gotDefs["Filter"] == nil {
+				t.Fatalf("input_schema lost %q: %s", key, b)
+			}
+			if got["type"] != "object" {
+				t.Fatalf("type = %v, want object", got["type"])
+			}
+		})
+	}
+}
