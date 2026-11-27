@@ -304,7 +304,9 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		outcome, returnErr = runtime.Outcome{}, context.Canceled
 	}()
 	defer func() {
-		if returnErr != nil && ctx.Err() == nil {
+		// A refused response was never used, so there is nothing uncertain to
+		// abandon: the continuation stays exactly as it was.
+		if returnErr != nil && ctx.Err() == nil && !errors.Is(returnErr, runtime.ErrInvalidInputResponse) {
 			returnErr = p.abandon(returnErr)
 		}
 	}()
@@ -313,7 +315,7 @@ func (p *deferredTurn) Resume(ctx context.Context, response runtime.InputRespons
 		return runtime.Outcome{}, err
 	}
 	if err := validateInputResponse(r.request(), response); err != nil {
-		return runtime.Outcome{}, err
+		return runtime.Outcome{}, fmt.Errorf("%w: %w", runtime.ErrInvalidInputResponse, err)
 	}
 	if r.Phase == phaseExecuting || r.Phase == phaseContinuing {
 		return runtime.Outcome{}, fmt.Errorf("Codex continuation outcome is uncertain; automatic replay is disabled")
@@ -478,11 +480,8 @@ func validateInputResponse(request runtime.InputRequest, response runtime.InputR
 		if !ok {
 			return fmt.Errorf("Codex is waiting for a structured ask-user response")
 		}
-		if answer.ID != request.ID {
-			return fmt.Errorf("ask-user response ID %q does not match pending ID %q", answer.ID, request.ID)
-		}
-		if len(answer.Answers) != len(request.Questions) {
-			return fmt.Errorf("ask-user response must answer every pending question")
+		if err := runtime.ValidateAskUserAnswers(request, answer); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("Codex has an unsupported pending input request %T", request)
