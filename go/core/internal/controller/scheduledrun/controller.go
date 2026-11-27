@@ -180,6 +180,7 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 	message := a2atype.NewMessage(a2atype.MessageRoleUser, a2atype.NewTextPart(execution.GetPrompt()))
 	message.ID = scheduling.MessageIDPrefix + execution.GetId()
 	message.ContextID = session.GetId()
+	dispatchCtx = auth.InvocationUserIDTo(dispatchCtx, session.GetCreator())
 	events := c.gateway.SendStreamingMessage(dispatchCtx, &a2atype.SendMessageRequest{Message: message})
 	// The runtime assigns the task ID. Return after its first event; a lost
 	// response is recovered by the original message on the next reconciliation.

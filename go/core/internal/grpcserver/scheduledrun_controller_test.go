@@ -127,6 +127,7 @@ type scheduledControllerRuntime struct {
 	tasks           map[string]*a2apb.Task
 	sends           int
 	prompt          string
+	expectedUserID  string
 	state           a2atype.TaskState
 	streamRelease   <-chan struct{}
 	subscriptions   atomic.Int32
@@ -195,8 +196,8 @@ func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2a
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
 		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
 	}
-	if len(metadata.ValueFromIncomingContext(ctx, "x-user-id")) != 0 {
-		return nil, status.Error(codes.Unauthenticated, "unexpected human credentials")
+	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != r.expectedUserID {
+		return nil, status.Error(codes.Unauthenticated, "scheduled user identity missing")
 	}
 	send, err := pbconv.FromProtoSendMessageRequest(req)
 	if err != nil {
@@ -324,7 +325,11 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
-			runtime := &scheduledControllerRuntime{store: store, runCtx: t.Context(), tasks: map[string]*a2apb.Task{}, state: tc.state, failFirstCancel: tc.state == a2atype.TaskStateWorking, clockOffset: tc.clockOffset}
+			ownerMetadata, ok := metadata.FromOutgoingContext(owner)
+			require.True(t, ok)
+			ownerIDs := ownerMetadata.Get("x-user-id")
+			require.Len(t, ownerIDs, 1)
+			runtime := &scheduledControllerRuntime{store: store, runCtx: t.Context(), tasks: map[string]*a2apb.Task{}, expectedUserID: ownerIDs[0], state: tc.state, failFirstCancel: tc.state == a2atype.TaskStateWorking, clockOffset: tc.clockOffset}
 			release := make(chan struct{})
 			if tc.stream {
 				runtime.streamRelease = release

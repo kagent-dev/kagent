@@ -318,9 +318,10 @@ func (*scopedControllerStore) UpdateScheduledRunExecution(context.Context, datab
 
 type scopedControllerGateway struct {
 	a2asrv.RequestHandler
-	interactions *sessionsvc.InteractionService
-	cancel       context.CancelFunc
-	agent        types.NamespacedName
+	interactions     *sessionsvc.InteractionService
+	cancel           context.CancelFunc
+	agent            types.NamespacedName
+	invocationUserID *string
 }
 
 func (g scopedControllerGateway) ListTasks(ctx context.Context, request *a2atype.ListTasksRequest) (*a2atype.ListTasksResponse, error) {
@@ -328,6 +329,7 @@ func (g scopedControllerGateway) ListTasks(ctx context.Context, request *a2atype
 }
 func (g scopedControllerGateway) SendStreamingMessage(ctx context.Context, request *a2atype.SendMessageRequest) iter.Seq2[a2atype.Event, error] {
 	return func(yield func(a2atype.Event, error) bool) {
+		*g.invocationUserID, _ = auth.InvocationUserIDFrom(ctx)
 		_, err := g.interactions.PrepareSend(ctx, g.agent, request)
 		g.cancel()
 		yield(&a2atype.Task{ID: "task", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}}, err)
@@ -341,10 +343,12 @@ func TestControllerDispatchUsesBoundedInProcessAuthority(t *testing.T) {
 	interactions := sessionsvc.NewInteractionService(store, nil, sessions, false, false)
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
-	gateway := scopedControllerGateway{interactions: interactions, cancel: cancel, agent: types.NamespacedName{Namespace: "team", Name: "assistant"}}
+	var userID string
+	gateway := scopedControllerGateway{interactions: interactions, cancel: cancel, agent: types.NamespacedName{Namespace: "team", Name: "assistant"}, invocationUserID: &userID}
 	controller := NewController(store, nil, gateway, time.Millisecond)
 	require.NoError(t, controller.Start(ctx))
 	require.True(t, store.reserved)
+	require.Equal(t, "owner", userID)
 	require.Equal(t, []auth.Verb{auth.VerbGet, auth.VerbCreate}, policy.calls)
 	// Human principals cannot acquire internal authority by copying the creator ID.
 	forged := auth.AuthSessionTo(t.Context(), controllerHumanSession{})

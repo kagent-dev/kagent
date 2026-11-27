@@ -8,6 +8,7 @@ import (
 	"time"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	a2apb "github.com/a2aproject/a2a-go/v2/a2apb/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -33,7 +34,25 @@ func (a *runtimeTestAuth) UpstreamAuth(req *http.Request, _ auth.Session, destin
 	a.destinationSessionIDs = append(a.destinationSessionIDs, destinationSessionID)
 	req.Header.Set("Authorization", "Bearer runtime-test")
 	req.Header.Set("ate-target-actor", "wrong/actor")
+	req.Header.Set("X-User-Id", "unexpected")
 	return nil
+}
+
+func TestRuntimeUserIDRequiresControlPlaneSession(t *testing.T) {
+	t.Run("Given a human session, when a runtime user ID is attached, assert that dispatch is rejected", func(t *testing.T) {
+		ctx := auth.AuthSessionTo(t.Context(), auth.NewCredentialSession(auth.Principal{ID: "human"}, nil))
+		ctx = auth.InvocationUserIDTo(ctx, "scheduled-owner")
+		interceptor := &upstreamAuthInterceptor{
+			authenticator: &runtimeTestAuth{},
+			session:       &apiv1.Session{Id: "session"},
+		}
+		_, _, err := interceptor.Before(ctx, &a2aclient.Request{
+			BaseURL:       "runtime.test",
+			Method:        "SendMessage",
+			ServiceParams: a2aclient.ServiceParams{},
+		})
+		require.ErrorContains(t, err, "runtime user identity requires a control-plane session")
+	})
 }
 
 func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
@@ -62,6 +81,8 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
+	ctx = auth.InvocationUserIDTo(ctx, "scheduled-owner")
+	ctx = a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{"x-user-id": {"forged"}})
 	client, err := dialer.Dial(ctx, &apiv1.Session{
 		Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
 	})
@@ -91,6 +112,7 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 		case md := <-received:
 			require.Equal(t, []string{"team/session-session"}, md.Get("ate-target-actor"))
 			require.Equal(t, []string{"Bearer runtime-test"}, md.Get("authorization"))
+			require.Equal(t, []string{"scheduled-owner"}, md.Get("x-user-id"))
 			require.Equal(t, []string{listener.Addr().String()}, md.Get(":authority"))
 		case <-ctx.Done():
 			t.Fatal("runtime did not receive every call")

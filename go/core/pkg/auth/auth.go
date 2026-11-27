@@ -113,9 +113,11 @@ func (NoopAuthorizer) Scope(context.Context, Principal, Verb, string) (authoriza
 // context utils
 
 type sessionKeyType struct{}
+type invocationUserIDKeyType struct{}
 
 var (
-	sessionKey = sessionKeyType{}
+	sessionKey          = sessionKeyType{}
+	invocationUserIDKey = invocationUserIDKeyType{}
 )
 
 func AuthSessionFrom(ctx context.Context) (Session, bool) {
@@ -125,6 +127,19 @@ func AuthSessionFrom(ctx context.Context) (Session, bool) {
 
 func AuthSessionTo(ctx context.Context, session Session) context.Context {
 	return context.WithValue(ctx, sessionKey, session)
+}
+
+// InvocationUserIDFrom returns the identity assigned to a downstream
+// invocation. It is separate from caller authorization and must not grant access.
+func InvocationUserIDFrom(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(invocationUserIDKey).(string)
+	return v, ok
+}
+
+// InvocationUserIDTo returns a copy of ctx with a downstream invocation
+// identity.
+func InvocationUserIDTo(ctx context.Context, userID string) context.Context {
+	return context.WithValue(ctx, invocationUserIDKey, userID)
 }
 
 type upstreamMethodKeyType struct{}

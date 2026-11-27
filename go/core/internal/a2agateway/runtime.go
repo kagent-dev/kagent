@@ -2,7 +2,9 @@ package a2agateway
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -76,9 +78,27 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 	if err != nil {
 		return ctx, nil, err
 	}
-	if session, ok := auth.AuthSessionFrom(ctx); ok {
+	session, hasSession := auth.AuthSessionFrom(ctx)
+	userID, hasUserID := auth.InvocationUserIDFrom(ctx)
+	if hasUserID {
+		if !hasSession {
+			return ctx, nil, errors.New("runtime user identity requires a control-plane session")
+		}
+		if _, ok := session.(auth.ControlPlaneSession); !ok {
+			return ctx, nil, errors.New("runtime user identity requires a control-plane session")
+		}
+	}
+	if hasSession {
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, u.session.GetId()); err != nil {
 			return ctx, nil, err
+		}
+	}
+	if hasUserID {
+		httpRequest.Header.Set("X-User-Id", userID)
+		for key := range req.ServiceParams {
+			if strings.EqualFold(key, "x-user-id") {
+				delete(req.ServiceParams, key)
+			}
 		}
 	}
 	for key, values := range httpRequest.Header {
