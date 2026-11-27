@@ -502,6 +502,11 @@ type SharedDeploymentSpec struct {
 	// Tolerations applied to the agent pods.
 	// +optional
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
+	// TerminationGracePeriodSeconds is how long the agent pods get to finish in-flight requests after SIGTERM.
+	// Agent requests can run for minutes, so the Kubernetes default of 30 seconds can cut them off during a rollout.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
 	// +optional
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 	// NodeSelector restricts the nodes the agent pods can be scheduled on.

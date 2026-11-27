@@ -268,3 +268,42 @@ func TestGetDefaultNodeSelector(t *testing.T) {
 		}
 	})
 }
+
+func TestResolveDeployment_TerminationGracePeriodSecondsPropagated(t *testing.T) {
+	grace := int64(600)
+	shared := v1alpha2.SharedDeploymentSpec{TerminationGracePeriodSeconds: &grace}
+
+	inline := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_Declarative,
+			Declarative: &v1alpha2.DeclarativeAgentSpec{
+				Deployment: &v1alpha2.DeclarativeDeploymentSpec{SharedDeploymentSpec: shared},
+			},
+		},
+	}
+	dep, err := resolveInlineDeployment(inline, &modelDeploymentData{})
+	if err != nil {
+		t.Fatalf("resolveInlineDeployment() error = %v", err)
+	}
+	if dep.TerminationGracePeriodSeconds == nil || *dep.TerminationGracePeriodSeconds != grace {
+		t.Errorf("inline TerminationGracePeriodSeconds = %v, want %d", dep.TerminationGracePeriodSeconds, grace)
+	}
+
+	byo := &v1alpha2.Agent{
+		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+		Spec: v1alpha2.AgentSpec{
+			Type: v1alpha2.AgentType_BYO,
+			BYO: &v1alpha2.BYOAgentSpec{
+				Deployment: &v1alpha2.ByoDeploymentSpec{Image: "example/agent:latest", SharedDeploymentSpec: shared},
+			},
+		},
+	}
+	dep, err = resolveByoDeployment(byo)
+	if err != nil {
+		t.Fatalf("resolveByoDeployment() error = %v", err)
+	}
+	if dep.TerminationGracePeriodSeconds == nil || *dep.TerminationGracePeriodSeconds != grace {
+		t.Errorf("byo TerminationGracePeriodSeconds = %v, want %d", dep.TerminationGracePeriodSeconds, grace)
+	}
+}
