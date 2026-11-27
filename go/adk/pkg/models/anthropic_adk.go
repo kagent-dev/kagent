@@ -312,6 +312,15 @@ func genaiToolsToAnthropicTools(tools []*genai.Tool) []anthropic.ToolUnionParam 
 						}
 						inputSchema.Required = reqStrings
 					}
+					// Keep the definitions that $ref entries in properties point to.
+					for _, key := range []string{"$defs", "definitions"} {
+						if defs, ok := m[key]; ok {
+							if inputSchema.ExtraFields == nil {
+								inputSchema.ExtraFields = make(map[string]any)
+							}
+							inputSchema.ExtraFields[key] = defs
+						}
+					}
 				}
 			}
 
