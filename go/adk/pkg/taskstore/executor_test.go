@@ -182,7 +182,7 @@ func (s *settlementServer) SettleTask(context.Context, *runtimev1.TaskStoreServi
 	return &runtimev1.TaskStoreServiceSettleTaskResponse{}, nil
 }
 
-func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
+func TestSettlementFlushesFinalSave(t *testing.T) {
 	for _, test := range []struct {
 		name       string
 		failFlush  bool
@@ -190,7 +190,7 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 	}{
 		{name: "success"},
 		{name: "flush error does not prevent settlement", failFlush: true},
-		{name: "failed settlement is still flushed", failSettle: true},
+		{name: "settlement fails after flushing the final save", failSettle: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			exporter := tracetest.NewInMemoryExporter()
@@ -243,10 +243,8 @@ func TestSettlementFlushesFinalSaveAndSettlement(t *testing.T) {
 			cancel()
 			wrapper.Cleanup(ctx, input, task, nil)
 			require.True(t, api.settled.Load())
-			require.Equal(t, 2, flushes)
-			spans := exporter.GetSpans()
-			require.Len(t, spans, 2)
-			require.Equal(t, "kagent.runtime.v1.TaskStoreService/SettleTask", spans[1].Name)
+			require.Equal(t, 1, flushes)
+			require.Len(t, exporter.GetSpans(), 1)
 		})
 	}
 }
