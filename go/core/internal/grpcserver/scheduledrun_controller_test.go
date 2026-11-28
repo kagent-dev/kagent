@@ -127,7 +127,6 @@ type scheduledControllerRuntime struct {
 	tasks           map[string]*a2apb.Task
 	sends           int
 	prompt          string
-	expectedUserID  string
 	state           a2atype.TaskState
 	streamRelease   <-chan struct{}
 	subscriptions   atomic.Int32
@@ -141,7 +140,7 @@ func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessage
 	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
 	r.mu.Lock()
 	// Release the lock before waiting for the test to allow streaming.
-	task, err := r.acceptMessage(ctx, req)
+	task, err := r.acceptMessage(ctx, sessionID, req)
 	r.mu.Unlock()
 	if err != nil {
 		return err
@@ -192,18 +191,21 @@ func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessage
 	return nil
 }
 
-func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.Task, error) {
+func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, sessionID string, req *a2apb.SendMessageRequest) (*a2apb.Task, error) {
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
 		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
 	}
-	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != r.expectedUserID {
+	session, err := r.store.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != session.GetCreator() {
 		return nil, status.Error(codes.Unauthenticated, "scheduled user identity missing")
 	}
 	send, err := pbconv.FromProtoSendMessageRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
 	current := a2atype.NewSubmittedTask(send.Message, send.Message)
 	initial, err := pbconv.ToProtoTask(current)
 	if err != nil {
@@ -325,11 +327,7 @@ func TestScheduledRunControllerThroughGRPC(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, client, _, owner := scheduledRunTestServer(t)
-			ownerMetadata, ok := metadata.FromOutgoingContext(owner)
-			require.True(t, ok)
-			ownerIDs := ownerMetadata.Get("x-user-id")
-			require.Len(t, ownerIDs, 1)
-			runtime := &scheduledControllerRuntime{store: store, runCtx: t.Context(), tasks: map[string]*a2apb.Task{}, expectedUserID: ownerIDs[0], state: tc.state, failFirstCancel: tc.state == a2atype.TaskStateWorking, clockOffset: tc.clockOffset}
+			runtime := &scheduledControllerRuntime{store: store, runCtx: t.Context(), tasks: map[string]*a2apb.Task{}, state: tc.state, failFirstCancel: tc.state == a2atype.TaskStateWorking, clockOffset: tc.clockOffset}
 			release := make(chan struct{})
 			if tc.stream {
 				runtime.streamRelease = release

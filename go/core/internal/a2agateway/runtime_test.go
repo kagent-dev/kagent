@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,10 +39,9 @@ func (a *runtimeTestAuth) UpstreamAuth(req *http.Request, _ auth.Session, destin
 	return nil
 }
 
-func TestRuntimeUserIDRequiresControlPlaneSession(t *testing.T) {
-	t.Run("Given a human session, when a runtime user ID is attached, assert that dispatch is rejected", func(t *testing.T) {
-		ctx := auth.AuthSessionTo(t.Context(), auth.NewCredentialSession(auth.Principal{ID: "human"}, nil))
-		ctx = auth.InvocationUserIDTo(ctx, "scheduled-owner")
+func TestRuntimeControlPlaneCallRequiresDestinationSessionCreator(t *testing.T) {
+	t.Run("Given a control-plane call with no session creator, when the runtime interceptor runs, assert that dispatch is rejected", func(t *testing.T) {
+		ctx := auth.AuthSessionTo(t.Context(), auth.ControlPlaneSession{})
 		interceptor := &upstreamAuthInterceptor{
 			authenticator: &runtimeTestAuth{},
 			session:       &apiv1.Session{Id: "session"},
@@ -51,7 +51,31 @@ func TestRuntimeUserIDRequiresControlPlaneSession(t *testing.T) {
 			Method:        "SendMessage",
 			ServiceParams: a2aclient.ServiceParams{},
 		})
-		require.ErrorContains(t, err, "runtime user identity requires a control-plane session")
+		require.ErrorContains(t, err, "control-plane runtime call requires a destination session creator")
+	})
+}
+
+func TestRuntimeHumanCallUsesAuthenticatedIdentity(t *testing.T) {
+	t.Run("Given a human caller and a destination session, when the runtime interceptor runs, assert that identity comes from authentication", func(t *testing.T) {
+		ctx := auth.AuthSessionTo(t.Context(), auth.NewCredentialSession(auth.Principal{ID: "human"}, nil))
+		request := &a2aclient.Request{
+			BaseURL:       "runtime.test",
+			Method:        "SendMessage",
+			ServiceParams: a2aclient.ServiceParams{},
+		}
+		interceptor := &upstreamAuthInterceptor{
+			authenticator: &runtimeTestAuth{},
+			session:       &apiv1.Session{Id: "session", Creator: "destination-owner"},
+		}
+		_, _, err := interceptor.Before(ctx, request)
+		require.NoError(t, err)
+		var userIDs []string
+		for key, values := range request.ServiceParams {
+			if strings.EqualFold(key, "x-user-id") {
+				userIDs = append(userIDs, values...)
+			}
+		}
+		require.Equal(t, []string{"unexpected"}, userIDs)
 	})
 }
 
@@ -81,10 +105,9 @@ func TestRuntimeDialerRoutesUnaryAndStreamingCalls(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 	ctx = auth.AuthSessionTo(ctx, auth.ControlPlaneSession{})
-	ctx = auth.InvocationUserIDTo(ctx, "scheduled-owner")
 	ctx = a2aclient.AttachServiceParams(ctx, a2aclient.ServiceParams{"x-user-id": {"forged"}})
 	client, err := dialer.Dial(ctx, &apiv1.Session{
-		Id: "session", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
+		Id: "session", Creator: "scheduled-owner", A2AAuthority: substrate.ActorHost("team", "session-session", ""),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Destroy()) })

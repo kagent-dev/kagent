@@ -79,25 +79,21 @@ func (u *upstreamAuthInterceptor) Before(ctx context.Context, req *a2aclient.Req
 		return ctx, nil, err
 	}
 	session, hasSession := auth.AuthSessionFrom(ctx)
-	userID, hasUserID := auth.InvocationUserIDFrom(ctx)
-	if hasUserID {
-		if !hasSession {
-			return ctx, nil, errors.New("runtime user identity requires a control-plane session")
-		}
-		if _, ok := session.(auth.ControlPlaneSession); !ok {
-			return ctx, nil, errors.New("runtime user identity requires a control-plane session")
-		}
-	}
 	if hasSession {
 		if err := u.authenticator.UpstreamAuth(httpRequest, session, u.session.GetId()); err != nil {
 			return ctx, nil, err
 		}
-	}
-	if hasUserID {
-		httpRequest.Header.Set("X-User-Id", userID)
-		for key := range req.ServiceParams {
-			if strings.EqualFold(key, "x-user-id") {
-				delete(req.ServiceParams, key)
+		if _, ok := session.(auth.ControlPlaneSession); ok {
+			// Control-plane authority has no user principal; scope runtime data to the destination session owner.
+			userID := u.session.GetCreator()
+			if userID == "" {
+				return ctx, nil, errors.New("control-plane runtime call requires a destination session creator")
+			}
+			httpRequest.Header.Set("X-User-Id", userID)
+			for key := range req.ServiceParams {
+				if strings.EqualFold(key, "x-user-id") {
+					delete(req.ServiceParams, key)
+				}
 			}
 		}
 	}
