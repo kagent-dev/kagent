@@ -371,6 +371,13 @@ func runResponsesStreaming(
 		case responses.ResponseIncompleteEvent:
 			usage = responsesUsageToGenai(v.Response.Usage)
 			finishReason = genai.FinishReasonMaxTokens
+		case responses.ResponseFailedEvent:
+			e := v.Response.Error
+			_ = yield(&model.LLMResponse{ErrorCode: "STREAM_ERROR", ErrorMessage: fmt.Sprintf("OpenAI response failed: %s: %s", e.Code, e.Message)}, nil)
+			return
+		case responses.ResponseErrorEvent:
+			_ = yield(&model.LLMResponse{ErrorCode: "STREAM_ERROR", ErrorMessage: fmt.Sprintf("OpenAI response stream error: %s: %s", v.Code, v.Message)}, nil)
+			return
 		}
 	}
 
