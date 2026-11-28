@@ -109,6 +109,13 @@ Kagent brings together the following components:
 
 For more details on the v1 architecture, including resource definitions and how agents run, see the [architecture guide](docs/architecture/README.md).
 
+## Agent Skills
+
+An agent-agnostic plugin marketplace at [`.agents/plugins/marketplace.json`](.agents/plugins/marketplace.json) registers
+[`plugins/kagent`](plugins/kagent). The plugin links the existing [`kagent`](.agents/skills/kagent) user guide skill and adds
+`kagent-install` and `kagent-mcp`. Its `.mcp.json` connects to the controller's MCP endpoint at `http://localhost:8083/mcp`
+(for example after `kubectl -n kagent port-forward svc/kagent-controller 8083:8083`).
+
 ## Get Involved
 
 _We welcome contributions! Contributors are expected to [respect the kagent Code of Conduct](https://github.com/kagent-dev/community/blob/main/CODE-OF-CONDUCT.md)_
