@@ -291,6 +291,59 @@ func TestOpenAIModel_GenerateContent_ResponsesStreaming(t *testing.T) {
 	}
 }
 
+func TestOpenAIModel_GenerateContent_ResponsesStreamingFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		event   string
+		message string
+	}{
+		{
+			name:    "response.failed",
+			event:   `{"type":"response.failed","sequence_number":2,"response":{"id":"resp_1","object":"response","status":"failed","error":{"code":"server_error","message":"the model failed"}}}`,
+			message: "server_error: the model failed",
+		},
+		{
+			name:    "error",
+			event:   `{"type":"error","sequence_number":2,"code":"rate_limit_exceeded","message":"slow down","param":null}`,
+			message: "rate_limit_exceeded: slow down",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, `data: {"type":"response.output_text.delta","content_index":0,"delta":"hel","item_id":"msg_1","output_index":0,"sequence_number":1,"logprobs":[]}`+"\n\n")
+				_, _ = io.WriteString(w, "data: "+tt.event+"\n\n")
+			}))
+			defer srv.Close()
+
+			m := &OpenAIModel{
+				Config: &OpenAIConfig{Model: "gpt-4o", APIFormat: OpenAIAPIFormatResponses},
+				Client: openai.NewClient(
+					option.WithAPIKey("test"),
+					option.WithBaseURL(srv.URL),
+					option.WithHTTPClient(srv.Client()),
+				),
+				Logger: slog.New(slog.DiscardHandler),
+			}
+
+			var final *model.LLMResponse
+			for resp, err := range m.GenerateContent(context.Background(), &model.LLMRequest{
+				Contents: []*genai.Content{{Role: "user", Parts: []*genai.Part{{Text: "hi"}}}},
+			}, true) {
+				require.NoError(t, err)
+				if !resp.Partial {
+					require.Nil(t, final, "more than one final response")
+					final = resp
+				}
+			}
+			require.NotNil(t, final)
+			require.Equal(t, "STREAM_ERROR", final.ErrorCode)
+			require.Contains(t, final.ErrorMessage, tt.message)
+		})
+	}
+}
+
 func TestGenaiContentsToResponsesInput_Image(t *testing.T) {
 	input, _, _ := genaiContentsToResponsesInput([]*genai.Content{{
 		Role: "user",
