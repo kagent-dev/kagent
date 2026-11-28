@@ -97,22 +97,16 @@ func UsageFromMetadata(metadata map[string]any) (Usage, bool) {
 	return usage, true
 }
 
-// SetModelCallUsage publishes the final root call in the same numeric form as ADK event usage.
+// SetModelCallUsage publishes the main agent's final call context on the closing status.
 func SetModelCallUsage(event *a2atype.TaskStatusUpdateEvent, usage *apiv1.ModelCallUsage) {
 	if usage.GetTotalTokenCount() <= 0 {
 		return
 	}
-	raw := map[string]any{
-		"totalTokenCount":         usage.TotalTokenCount,
-		"promptTokenCount":        usage.PromptTokenCount,
-		"candidatesTokenCount":    usage.CandidatesTokenCount,
-		"thoughtsTokenCount":      usage.ThoughtsTokenCount,
-		"cachedContentTokenCount": usage.CachedContentTokenCount,
-	}
+	raw := map[string]any{"totalTokenCount": usage.TotalTokenCount}
 	if usage.ContextWindowTokens > 0 {
 		raw["contextWindowTokens"] = usage.ContextWindowTokens
 	}
-	event.SetMeta(UsageMetadataKey, raw)
+	event.SetMeta(FinalCallContextMetadataKey, raw)
 }
 
 // ModelCallUsageFromTask reads the latest reported per-call usage after A2A persistence.
@@ -120,7 +114,7 @@ func ModelCallUsageFromTask(task *a2atype.Task) *apiv1.ModelCallUsage {
 	if task == nil {
 		return nil
 	}
-	raw, ok := task.Metadata[UsageMetadataKey].(map[string]any)
+	raw, ok := task.Metadata[FinalCallContextMetadataKey].(map[string]any)
 	if !ok {
 		return nil
 	}
@@ -130,10 +124,7 @@ func ModelCallUsageFromTask(task *a2atype.Task) *apiv1.ModelCallUsage {
 	}
 	var usage apiv1.ModelCallUsage
 	decoder := protojson.UnmarshalOptions{DiscardUnknown: true}
-	if decoder.Unmarshal(data, &usage) != nil || usage.TotalTokenCount <= 0 {
-		return nil
-	}
-	if min(usage.ContextWindowTokens, usage.PromptTokenCount, usage.CandidatesTokenCount, usage.CachedContentTokenCount, usage.ThoughtsTokenCount) < 0 {
+	if decoder.Unmarshal(data, &usage) != nil || usage.TotalTokenCount <= 0 || usage.ContextWindowTokens < 0 {
 		return nil
 	}
 	return &usage

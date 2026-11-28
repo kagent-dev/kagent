@@ -489,14 +489,7 @@ func totalsKey(model string, totals map[string]modelUsage) (string, bool) {
 
 func captureRootUsage(call *runtime.ModelCall) {
 	if call.InputTokens+call.OutputTokens > 0 {
-		call.RootUsage = &apiv1.ModelCallUsage{
-			TotalTokenCount:  call.InputTokens + call.OutputTokens,
-			PromptTokenCount: call.InputTokens,
-			CandidatesTokenCount: max(0,
-				call.OutputTokens-call.ReasoningOutputTokens),
-			ThoughtsTokenCount:      call.ReasoningOutputTokens,
-			CachedContentTokenCount: call.CacheReadTokens,
-		}
+		call.RootUsage = &apiv1.ModelCallUsage{TotalTokenCount: call.InputTokens + call.OutputTokens}
 	}
 }
 

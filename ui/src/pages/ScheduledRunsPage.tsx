@@ -207,7 +207,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
             {schedule.agent.namespace}/{schedule.agent.name}</Link> : "—" },
         { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
         { key: "created", label: "Created", children: time(schedule.createdAt) },
-        ...(lastRun ? [{ key: "lastContext", label: "Estimated context used for last run", children: contextEstimate(lastRun) }] : []),
+        ...(lastRun ? [{ key: "lastContext", label: "Context used on final call (last run)", children: contextEstimate(lastRun) }] : []),
         { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
         { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
       ]} />}
@@ -236,7 +236,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Created", key: "created", render: (_, row) => time(row.createdAt) },
           { title: "Trigger", key: "trigger", render: (_, row) => triggerLabel(row) },
           { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
-          { title: "Estimated context used", key: "context", render: (_, row) => contextEstimate(row) },
+          { title: "Context used on final call", key: "context", render: (_, row) => contextEstimate(row) },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
@@ -249,12 +249,6 @@ function ScheduledRunDetails({ id }: { id: string }) {
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
           { key: "prompt", label: "Prompt", children: <span css={{ whiteSpace: "pre-wrap" }}>{row.prompt}</span> },
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
-          ...(row.lastModelCall ? [{ key: "usage", label: "Final model call", children: [
-            `${row.lastModelCall.promptTokenCount.toLocaleString()} input`,
-            `${row.lastModelCall.cachedContentTokenCount.toLocaleString()} cached input`,
-            `${row.lastModelCall.candidatesTokenCount.toLocaleString()} output`,
-            `${row.lastModelCall.thoughtsTokenCount.toLocaleString()} reasoning`,
-          ].join(" · ") }] : []),
           { key: "task", label: "Original task", children: row.taskId || "Not assigned" },
         ]} />,
           // Controlled rather than `expandRowByClick`, so `clickableRow` can let the
@@ -292,7 +286,7 @@ function contextEstimate(execution: ScheduledRunExecution) {
   const usage = execution.lastModelCall;
   if (!usage) return "Unavailable";
   const total = usage.totalTokenCount.toLocaleString();
-  if (usage.contextWindowTokens <= 0n) return `${total} tokens on final call`;
+  if (usage.contextWindowTokens <= 0n) return `${total} tokens`;
   const fraction = Number(usage.totalTokenCount) / Number(usage.contextWindowTokens);
   const percent = fraction.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 });
   return `${percent} (${total} of ${usage.contextWindowTokens.toLocaleString()} tokens)`;

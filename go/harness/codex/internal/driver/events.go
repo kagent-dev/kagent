@@ -182,15 +182,7 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 		OutputTokens:          last.OutputTokens,
 	}
 	if own && last.TotalTokens > 0 {
-		call.RootUsage = &apiv1.ModelCallUsage{
-			TotalTokenCount:  last.TotalTokens,
-			PromptTokenCount: last.InputTokens,
-			CandidatesTokenCount: max(0,
-				last.OutputTokens-last.ReasoningOutputTokens),
-			ThoughtsTokenCount:      last.ReasoningOutputTokens,
-			CachedContentTokenCount: last.CachedInputTokens,
-			ContextWindowTokens:     params.TokenUsage.ModelContextWindow,
-		}
+		call.RootUsage = &apiv1.ModelCallUsage{TotalTokenCount: last.TotalTokens, ContextWindowTokens: params.TokenUsage.ModelContextWindow}
 	}
 	t.closeCall(&call, params.ThreadID)
 	sink.ModelCall(call)

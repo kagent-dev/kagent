@@ -1070,16 +1070,12 @@ func (*ScheduledRunExecution_ScheduledTime) isScheduledRunExecution_Trigger() {}
 
 func (*ScheduledRunExecution_ManualRequestId) isScheduledRunExecution_Trigger() {}
 
-// Per-response A2A usage. Cached tokens are already included in the prompt.
+// Reported context usage on the main agent's final model call.
 type ModelCallUsage struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	TotalTokenCount         int64                  `protobuf:"varint,1,opt,name=total_token_count,json=totalTokenCount,proto3" json:"total_token_count,omitempty"`
-	PromptTokenCount        int64                  `protobuf:"varint,2,opt,name=prompt_token_count,json=promptTokenCount,proto3" json:"prompt_token_count,omitempty"`
-	CandidatesTokenCount    int64                  `protobuf:"varint,3,opt,name=candidates_token_count,json=candidatesTokenCount,proto3" json:"candidates_token_count,omitempty"`
-	CachedContentTokenCount int64                  `protobuf:"varint,4,opt,name=cached_content_token_count,json=cachedContentTokenCount,proto3" json:"cached_content_token_count,omitempty"`
-	ThoughtsTokenCount      int64                  `protobuf:"varint,5,opt,name=thoughts_token_count,json=thoughtsTokenCount,proto3" json:"thoughts_token_count,omitempty"`
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	TotalTokenCount int64                  `protobuf:"varint,1,opt,name=total_token_count,json=totalTokenCount,proto3" json:"total_token_count,omitempty"`
 	// Zero when the harness did not report a matching full context window.
-	ContextWindowTokens int64 `protobuf:"varint,6,opt,name=context_window_tokens,json=contextWindowTokens,proto3" json:"context_window_tokens,omitempty"`
+	ContextWindowTokens int64 `protobuf:"varint,2,opt,name=context_window_tokens,json=contextWindowTokens,proto3" json:"context_window_tokens,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1117,34 +1113,6 @@ func (*ModelCallUsage) Descriptor() ([]byte, []int) {
 func (x *ModelCallUsage) GetTotalTokenCount() int64 {
 	if x != nil {
 		return x.TotalTokenCount
-	}
-	return 0
-}
-
-func (x *ModelCallUsage) GetPromptTokenCount() int64 {
-	if x != nil {
-		return x.PromptTokenCount
-	}
-	return 0
-}
-
-func (x *ModelCallUsage) GetCandidatesTokenCount() int64 {
-	if x != nil {
-		return x.CandidatesTokenCount
-	}
-	return 0
-}
-
-func (x *ModelCallUsage) GetCachedContentTokenCount() int64 {
-	if x != nil {
-		return x.CachedContentTokenCount
-	}
-	return 0
-}
-
-func (x *ModelCallUsage) GetThoughtsTokenCount() int64 {
-	if x != nil {
-		return x.ThoughtsTokenCount
 	}
 	return 0
 }
@@ -1431,14 +1399,10 @@ const file_kagent_api_v1_scheduled_runs_proto_rawDesc = "" +
 	"\x15continue_conversation\x18\x0e \x01(\bR\x14continueConversation\x12J\n" +
 	"!previous_conversation_unavailable\x18\x0f \x01(\bR\x1fpreviousConversationUnavailable\x12E\n" +
 	"\x0flast_model_call\x18\x10 \x01(\v2\x1d.kagent.api.v1.ModelCallUsageR\rlastModelCallB\t\n" +
-	"\atrigger\"\xc3\x02\n" +
+	"\atrigger\"p\n" +
 	"\x0eModelCallUsage\x12*\n" +
-	"\x11total_token_count\x18\x01 \x01(\x03R\x0ftotalTokenCount\x12,\n" +
-	"\x12prompt_token_count\x18\x02 \x01(\x03R\x10promptTokenCount\x124\n" +
-	"\x16candidates_token_count\x18\x03 \x01(\x03R\x14candidatesTokenCount\x12;\n" +
-	"\x1acached_content_token_count\x18\x04 \x01(\x03R\x17cachedContentTokenCount\x120\n" +
-	"\x14thoughts_token_count\x18\x05 \x01(\x03R\x12thoughtsTokenCount\x122\n" +
-	"\x15context_window_tokens\x18\x06 \x01(\x03R\x13contextWindowTokens\"N\n" +
+	"\x11total_token_count\x18\x01 \x01(\x03R\x0ftotalTokenCount\x122\n" +
+	"\x15context_window_tokens\x18\x02 \x01(\x03R\x13contextWindowTokens\"N\n" +
 	"\x1fGetScheduledRunExecutionRequest\x12+\n" +
 	"\fexecution_id\x18\x01 \x01(\tB\b\xbaH\x05r\x03\xb0\x01\x01R\vexecutionId\"f\n" +
 	" GetScheduledRunExecutionResponse\x12B\n" +

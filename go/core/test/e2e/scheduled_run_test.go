@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -123,6 +124,26 @@ func TestScheduledRunContinuesAfterSuspension(t *testing.T) {
 			}
 		}
 		require.True(t, sawPriorAnswer, "the second model request should include the answer from the suspended conversation")
+	})
+}
+
+func TestSharedScheduleContinuesAfterApprovalExpires(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		mcpURL, _ := startMCPMock(t)
+		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, true, nil)
+		const timeout = time.Minute
+		f := newScheduledFixtureForTemplate(t, target, template, true, timeout)
+		const prompt = "Add 3 and 5 using the configured MCP server."
+		first := f.runInConversation(t, prompt, timeout, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
+
+		first = f.waitForTaskState(t, first.Id, a2atype.TaskStateInputRequired)
+		expired := f.waitExecution(t, first.Id, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
+		require.Equal(t, a2atype.TaskStateCanceled, f.task(t, expired).Status.State)
+
+		next := f.waitForTaskState(t, f.trigger(t).Id, a2atype.TaskStateInputRequired, a2atype.TaskStateCompleted)
+		require.Equal(t, first.SessionId, next.SessionId)
+		require.NotEqual(t, first.TaskId, next.TaskId)
 	})
 }
 
@@ -399,6 +420,26 @@ func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1.Sch
 	require.NoError(t, err, "last execution: %v", execution)
 	require.NotEmpty(t, execution.GetSessionId())
 	require.Equal(t, "e2e", execution.GetCreator())
+	return execution
+}
+
+func (f *scheduledFixture) waitForTaskState(t *testing.T, id string, states ...a2atype.TaskState) *apiv1.ScheduledRunExecution {
+	t.Helper()
+	var execution *apiv1.ScheduledRunExecution
+	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+		result, err := f.schedules.GetScheduledRunExecution(ctx, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: id})
+		if err != nil {
+			return false, err
+		}
+		execution = result.GetExecution()
+		if execution.GetTaskId() != "" && slices.Contains(states, f.task(t, execution).Status.State) {
+			return true, nil
+		}
+		if execution.GetCompletedAt() != nil {
+			return false, fmt.Errorf("execution ended in %s: %s", execution.State, execution.FailureReason)
+		}
+		return false, nil
+	}))
 	return execution
 }
 

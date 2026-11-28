@@ -11,6 +11,7 @@ const (
 	TimelinePositionMetadataKey = MetadataPrefix + "timeline-position"
 	TaskCreatedAtMetadataKey    = MetadataPrefix + "task-created-at"
 	PartTypeMetadataKey         = MetadataPrefix + "part-type"
+	FinalCallContextMetadataKey = MetadataPrefix + "final-call-context"
 	UsageMetadataKey            = MetadataPrefix + "usage"
 	// ThoughtMetadataKey marks a text part that summarizes the model's reasoning, not its answer.
 	ThoughtMetadataKey = MetadataPrefix + "thought"

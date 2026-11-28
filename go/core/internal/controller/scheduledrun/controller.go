@@ -288,8 +288,7 @@ func (c *Controller) expire(ctx context.Context, execution *apiv1.ScheduledRunEx
 		return err
 	}
 	recordModelCall(execution, stopped)
-	if execution.ContinueConversation && execution.TaskId != "" && (stopped == nil ||
-		stopped.Status.State == a2atype.TaskStateWorking || stopped.Status.State == a2atype.TaskStateSubmitted) {
+	if execution.ContinueConversation && execution.TaskId != "" && (stopped == nil || !stopped.Status.State.Terminal()) {
 		return nil
 	}
 	// Cancellation requested for this deadline is a timeout even if the
@@ -307,7 +306,8 @@ func (c *Controller) expire(ctx context.Context, execution *apiv1.ScheduledRunEx
 }
 
 func (c *Controller) stop(ctx context.Context, execution *apiv1.ScheduledRunExecution, session *apiv1.Session, task *a2atype.Task) (*a2atype.Task, error) {
-	if task != nil && (task.Status.State.Terminal() || task.Status.State == a2atype.TaskStateInputRequired || task.Status.State == a2atype.TaskStateAuthRequired) {
+	// A parked task still owns a shared runtime until its cancellation settles.
+	if task != nil && !execution.ContinueConversation && (task.Status.State == a2atype.TaskStateInputRequired || task.Status.State == a2atype.TaskStateAuthRequired) {
 		return task, nil
 	}
 	if execution.GetTaskId() != "" {

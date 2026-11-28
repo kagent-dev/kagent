@@ -139,6 +139,7 @@ it("shows the final call estimate and falls back to its token count without a wi
   })));
   renderSchedule();
   expect(await screen.findAllByText("35% (35,000 of 100,000 tokens)")).toHaveLength(2);
-  expect(screen.getByText("15,000 tokens on final call")).toBeVisible();
+  expect(screen.getByRole("columnheader", { name: "Context used on final call" })).toBeVisible();
+  expect(screen.getByText("15,000 tokens")).toBeVisible();
   expect(screen.getByText("Unavailable")).toBeVisible();
 });

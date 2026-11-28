@@ -11,7 +11,7 @@ https://kagent.dev/extensions/usage/v1
 ```
 
 The kagent ADK runtimes (Go and Python) advertise that URI on their Agent Card
-with `required: false`. Codex and Claude publish per-response usage and omit this task-lifetime extension.
+with `required: false`. Codex and Claude publish the final-call context snapshot described below.
 
 ## Activation
 
@@ -98,16 +98,14 @@ the latest one; they never sum values across status updates.
 
 ## Per-response usage and scheduled runs
 
-The per-response `kagent.dev/a2a/usage` key also serves scheduled execution
-history. The Go ADK, Claude and Codex copy the latest reported main-agent
-call's usage onto the closing status update when available. That snapshot
-can repeat usage from an earlier event. Consumers summing per-call events
-should skip the closing snapshot. The task-lifetime extension remains the
-authoritative aggregate for runtimes that implement it.
+The Go ADK, Claude and Codex publish `kagent.dev/a2a/final-call-context`
+on the closing status update when a main-agent model call reported usage.
+The snapshot contains `totalTokenCount` and, when available, `contextWindowTokens`.
 
 Schedule history estimates context used as the final call’s `totalTokenCount`
 divided by its positive `contextWindowTokens`. Codex supplies the window with
 its usage event. Claude reports the window per model in its final result.
+Compaction can change the context carried into the next firing.
 Without a matching window the execution displays the call's total tokens.
 A firing that never published usage has no reading. [A2A metadata](a2a-metadata.md)
 

@@ -114,6 +114,36 @@ func TestControllerKeepsCompletedOutcomeAfterDeadline(t *testing.T) {
 	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
 }
 
+func TestSharedDeadlineWaitsForParkedTaskCancellation(t *testing.T) {
+	for _, state := range []a2atype.TaskState{a2atype.TaskStateInputRequired, a2atype.TaskStateAuthRequired} {
+		t.Run(string(state), func(t *testing.T) {
+			execution := &apiv1.ScheduledRunExecution{SessionId: "shared", TaskId: "first", ContinueConversation: true, Deadline: timestamppb.New(time.Now().Add(-time.Minute))}
+			waiting := &a2atype.Task{ID: "first", Status: a2atype.TaskStatus{State: state}}
+			gateway := &controllerTestCleanup{task: waiting, canceledTask: waiting}
+			c := NewController(controllerTestStore{session: &apiv1.Session{Id: "shared"}}, nil, gateway, nil, time.Second)
+			lease := database.LeasedScheduledRunExecution{Execution: execution}
+			require.NoError(t, c.reconcile(t.Context(), lease))
+			require.Equal(t, 1, gateway.expires)
+			require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, execution.State)
+
+			gateway.canceledTask = &a2atype.Task{ID: "first", Status: a2atype.TaskStatus{State: a2atype.TaskStateCanceled}}
+			require.NoError(t, c.reconcile(t.Context(), lease))
+			require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT, execution.State)
+		})
+	}
+}
+
+func TestExecutionWithoutFinalCallContextHasNoReading(t *testing.T) {
+	execution := &apiv1.ScheduledRunExecution{}
+	task := &a2atype.Task{ID: "completed", Status: a2atype.TaskStatus{State: a2atype.TaskStateCompleted}, Metadata: map[string]any{
+		apia2a.UsageMetadataKey:  map[string]any{"total_token_count": 777},
+		apia2a.UsageExtensionURI: map[string]any{"totalTokens": 46000},
+	}}
+	observeTask(execution, task)
+	require.Equal(t, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED, execution.State)
+	require.Nil(t, execution.LastModelCall)
+}
+
 func TestControllerDeadlineCancellationOutcome(t *testing.T) {
 	deadline := time.Now().Add(-time.Minute)
 	before := deadline.Add(-time.Second)
@@ -136,7 +166,7 @@ func TestControllerDeadlineCancellationOutcome(t *testing.T) {
 			store := controllerTestStore{session: &apiv1.Session{Id: "original"}}
 			gateway := &controllerTestCleanup{
 				task:         &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
-				canceledTask: &a2atype.Task{ID: "original-task", Metadata: map[string]any{apia2a.UsageMetadataKey: map[string]any{"totalTokenCount": 35000, "contextWindowTokens": 100000}, apia2a.UsageExtensionURI: map[string]any{"totalTokens": 46000}}, Status: a2atype.TaskStatus{State: tc.state, Timestamp: tc.timestamp}},
+				canceledTask: &a2atype.Task{ID: "original-task", Metadata: map[string]any{apia2a.UsageMetadataKey: map[string]any{"totalTokenCount": 777}, apia2a.FinalCallContextMetadataKey: map[string]any{"totalTokenCount": 35000, "contextWindowTokens": 100000}, apia2a.UsageExtensionURI: map[string]any{"totalTokens": 46000}}, Status: a2atype.TaskStatus{State: tc.state, Timestamp: tc.timestamp}},
 			}
 			require.NoError(t, NewController(store, nil, gateway, nil, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
 			require.EqualValues(t, 35000, execution.GetLastModelCall().GetTotalTokenCount())

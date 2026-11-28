@@ -672,11 +672,6 @@ func compactCount(n int64) string {
 
 // eventTokens is the tokens one event's model call used, from the usage the executor attaches.
 func eventTokens(ev a2atype.Event) int64 {
-	// A closing status repeats the final model call for task readers. Only
-	// per-call events contribute to the streaming fallback.
-	if status, ok := ev.(*a2atype.TaskStatusUpdateEvent); ok && (status.Status.State.Terminal() || status.Status.State == a2atype.TaskStateInputRequired || status.Status.State == a2atype.TaskStateAuthRequired) {
-		return 0
-	}
 	usage, _ := ev.Meta()[kagenta2a.UsageMetadataKey].(map[string]any)
 	// ADK puts event metadata on the artifact, or on the update in its legacy shape.
 	if update, ok := ev.(*a2atype.TaskArtifactUpdateEvent); ok && usage == nil && update.Artifact != nil {

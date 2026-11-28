@@ -99,7 +99,7 @@ Disabling and re-enabling continuity starts a new conversation for future
 firings. If idle expiration or deletion removed the prior Session, history marks
 the first execution that creates its replacement. Deadline cleanup can suspend
 a dedicated Session internally. On a shared Session it acts only on the
-execution's own task. Enable continuity after all controller replicas have
+execution's own task and waits for cancellation to settle, including when the task is waiting for approval. Enable continuity after all controller replicas have
 rolled out, since older execution workers always allocate a fresh Session.
 Deletion closes task admission,
 stops and deletes the Actor, then tombstones the session. The workflow

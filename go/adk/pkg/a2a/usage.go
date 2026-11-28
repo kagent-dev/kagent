@@ -141,13 +141,7 @@ func (u *turnUsage) add(event *adksession.Event) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	if event.Author == u.rootName && counts.TotalTokens > 0 {
-		u.lastCall = &apiv1.ModelCallUsage{
-			TotalTokenCount:         counts.TotalTokens,
-			PromptTokenCount:        counts.InputTokens,
-			CandidatesTokenCount:    counts.OutputTokens,
-			ThoughtsTokenCount:      counts.ReasoningTokens,
-			CachedContentTokenCount: counts.CachedInputTokens,
-		}
+		u.lastCall = &apiv1.ModelCallUsage{TotalTokenCount: counts.TotalTokens}
 	}
 	u.total = u.total.Add(counts)
 	if event.ModelVersion != "" {
