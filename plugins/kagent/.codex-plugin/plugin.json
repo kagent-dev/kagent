@@ -1,0 +1,45 @@
+{
+  "name": "kagent",
+  "version": "1.0.0",
+  "description": "Agent skills for installing kagent, using kagent agents and sandboxes, and driving them over kagent's MCP endpoint.",
+  "author": {
+    "name": "kagent",
+    "url": "https://kagent.dev"
+  },
+  "homepage": "https://kagent.dev",
+  "repository": "https://github.com/kagent-dev/kagent",
+  "license": "Apache-2.0",
+  "keywords": [
+    "kagent",
+    "kubernetes",
+    "ai-agents",
+    "mcp",
+    "a2a",
+    "sandbox",
+    "helm",
+    "agent-skills"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "kagent",
+    "shortDescription": "Kubernetes-native AI agents",
+    "longDescription": "Skills and an MCP server config for kagent, the cloud-native control plane for running AI agents on Kubernetes. Reuses the repository's kagent user guide skill for agents, sessions and sandboxes, and adds skills for installing, exporting, upgrading and uninstalling kagent with the CLI or Helm (PostgreSQL and Substrate prerequisites, model providers), and for connecting to the controller's Streamable HTTP MCP endpoint to list agents, invoke and fork Sessions and run work in standalone Sandboxes.",
+    "developerName": "kagent",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://kagent.dev",
+    "defaultPrompt": [
+      "Install kagent on my kind cluster with Anthropic as the provider",
+      "List my kagent agents and start a session with one",
+      "Run this script in a kagent sandbox and bring back the output"
+    ],
+    "brandColor": "#9020E0",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  }
+}

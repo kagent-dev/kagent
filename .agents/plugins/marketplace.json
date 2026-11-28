@@ -1,0 +1,20 @@
+{
+  "name": "kagent",
+  "interface": {
+    "displayName": "kagent"
+  },
+  "plugins": [
+    {
+      "name": "kagent",
+      "source": {
+        "source": "local",
+        "path": "./plugins/kagent"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
