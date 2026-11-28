@@ -18,12 +18,13 @@ const (
 // parsing details stay here and are normalized before reaching shared runtime
 // code.
 type Event struct {
-	Kind      EventKind
-	SessionID string
-	Text      string
-	ToolID    string
-	ToolName  string
-	ToolPhase string
+	ContextWindowTokens int64
+	Kind                EventKind
+	SessionID           string
+	Text                string
+	ToolID              string
+	ToolName            string
+	ToolPhase           string
 	// ParentToolID is the Agent call whose subagent started the tool.
 	ParentToolID string
 	ToolResult   any

@@ -55,6 +55,7 @@ type KAgentExecutor struct {
 	logger                  *slog.Logger
 	structuredOutputEnabled bool
 	flush                   func(context.Context) error
+	rootName                string
 	runningUsage            runningUsage
 	agentName               string
 }
@@ -127,6 +128,7 @@ func NewKAgentExecutor(cfg KAgentExecutorConfig) (*KAgentExecutor, error) {
 		logger:                  logger,
 		structuredOutputEnabled: output != nil,
 		flush:                   cfg.Flush,
+		rootName:                rootName,
 		agentName:               cfg.AgentName,
 	}, nil
 }
@@ -273,7 +275,7 @@ func (e *KAgentExecutor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorCon
 		ctx = auth.WithUserID(ctx, trustedUserID)
 		// Resumed tasks (HITL cycles, follow-up messages) carry the previously
 		// persisted total, so the usage total stays a task-lifetime sum.
-		usage := &turnUsage{}
+		usage := &turnUsage{rootName: e.rootName}
 		usage.seedFromTask(reqCtx.StoredTask)
 		ctx = withTurnUsage(ctx, usage)
 		defer e.runningUsage.track(reqCtx.TaskID, usage)()

@@ -325,6 +325,12 @@ var ErrRuntimeRecovering = a2atype.NewError(a2atype.ErrUnsupportedOperation, "in
 var ErrSendNotAccepted = a2atype.NewError(a2atype.ErrUnsupportedOperation, "input was not accepted; retry after the session becomes available").
 	WithErrorInfoMeta(map[string]string{"reason": "KAGENT_SEND_NOT_ACCEPTED", "retryAfterMs": "100"})
 
+// IsUnacceptedSend reports a refusal produced by the in-process gateway before
+// the message was accepted. An ambiguous transport failure never qualifies.
+func IsUnacceptedSend(err error) bool {
+	return errors.Is(err, ErrSendNotAccepted) || errors.Is(err, ErrRuntimeRecovering) || errors.Is(err, errTurnActive)
+}
+
 // RevokeSend releases an unused attempt. A true result proves that the input was
 // not accepted, allowing the gateway to distinguish rejection from uncertainty.
 func (s *InteractionService) RevokeSend(ctx context.Context, agent types.NamespacedName, message *a2atype.Message, id uuid.UUID) (bool, error) {

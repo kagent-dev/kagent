@@ -15,12 +15,14 @@ import (
 	"strings"
 	"time"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/logging"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
 
 type parser struct {
+	lastRootModel         string
 	emitted               map[string]string
 	currentMessageID      string
 	activeBlock           *contentBlockRef
@@ -79,6 +81,7 @@ func (u claudeUsage) apply(call *runtime.ModelCall) {
 // modelUsage is one model's entry in Claude Code's session totals (result.modelUsage). Unlike
 // ModelCall.InputTokens, its InputTokens leaves out the cache read and cache write tokens.
 type modelUsage struct {
+	ContextWindow            int64 `json:"contextWindow"`
 	InputTokens              int64 `json:"inputTokens"`
 	OutputTokens             int64 `json:"outputTokens"`
 	CacheReadInputTokens     int64 `json:"cacheReadInputTokens"`
@@ -95,9 +98,12 @@ func (u *modelUsage) add(call *runtime.ModelCall) {
 }
 
 func (u modelUsage) plus(o modelUsage) modelUsage {
-	return modelUsage{u.InputTokens + o.InputTokens, u.OutputTokens + o.OutputTokens,
-		u.CacheReadInputTokens + o.CacheReadInputTokens, u.CacheCreationInputTokens + o.CacheCreationInputTokens,
-		u.ThinkingTokens + o.ThinkingTokens}
+	return modelUsage{
+		InputTokens: u.InputTokens + o.InputTokens, OutputTokens: u.OutputTokens + o.OutputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens + o.CacheReadInputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens + o.CacheCreationInputTokens,
+		ThinkingTokens:           u.ThinkingTokens + o.ThinkingTokens,
+	}
 }
 
 // merge overlays the non-zero fields of a message_delta usage on its message_start usage.
@@ -390,20 +396,24 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 			return err
 		}
 		p.terminal = true
+		var window int64
+		if key, ok := totalsKey(p.lastRootModel, envelope.ModelUsage); ok {
+			window = envelope.ModelUsage[key].ContextWindow
+		}
 		if envelope.StopReason == "tool_deferred" {
 			if envelope.IsError || envelope.Subtype != "success" || envelope.Deferred == nil || envelope.Deferred.ID == "" || envelope.Deferred.Name == "" || envelope.SessionID == "" {
 				return fmt.Errorf("invalid Claude deferred result")
 			}
-			return emit(Event{Kind: EventDeferred, SessionID: envelope.SessionID, Deferred: envelope.Deferred})
+			return emit(Event{Kind: EventDeferred, ContextWindowTokens: window, SessionID: envelope.SessionID, Deferred: envelope.Deferred})
 		}
 		if envelope.IsError || envelope.Subtype != "success" {
 			message := envelope.Result
 			if message == "" {
 				message = "Claude execution failed"
 			}
-			return emit(Event{Kind: EventFailed, SafeMessage: message})
+			return emit(Event{Kind: EventFailed, ContextWindowTokens: window, SafeMessage: message})
 		}
-		return emit(Event{Kind: EventCompleted, SessionID: envelope.SessionID})
+		return emit(Event{Kind: EventCompleted, ContextWindowTokens: window, SessionID: envelope.SessionID})
 	}
 	return nil
 }
@@ -411,6 +421,9 @@ func (p *parser) parseLine(ctx context.Context, line []byte, emit func(Event) er
 func (p *parser) countEmitted(emit func(Event) error) func(Event) error {
 	return func(event Event) error {
 		if event.Kind == EventModelCall && !event.ModelCall.UsageOnly {
+			if event.ModelCall.RootUsage != nil {
+				p.lastRootModel = event.ModelCall.ResponseModel
+			}
 			usage := p.emittedUsage[event.ModelCall.ResponseModel]
 			usage.add(event.ModelCall)
 			p.emittedUsage[event.ModelCall.ResponseModel] = usage
@@ -474,6 +487,12 @@ func totalsKey(model string, totals map[string]modelUsage) (string, bool) {
 	return found, found != ""
 }
 
+func captureRootUsage(call *runtime.ModelCall) {
+	if call.InputTokens+call.OutputTokens > 0 {
+		call.RootUsage = &apiv1.ModelCallUsage{TotalTokenCount: call.InputTokens + call.OutputTokens}
+	}
+}
+
 func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(Event) error) error {
 	var event struct {
 		Type    string `json:"type"`
@@ -532,6 +551,7 @@ func (p *parser) parseStreamEvent(raw json.RawMessage, subagent bool, emit func(
 		call := p.openCall
 		p.openCall = nil
 		p.openUsage.merge(event.Usage).apply(call)
+		captureRootUsage(call)
 		p.joinRetries(call)
 		call.StopReason, call.End = claudeFinishReason(event.Delta.StopReason), p.now()
 		p.openCallToolRequested = false
@@ -602,6 +622,9 @@ func (p *parser) parseAssistant(raw json.RawMessage, parent, requestID string, l
 		call := runtime.ModelCall{ResponseModel: message.Model, ResponseID: message.ID, RequestID: requestID,
 			StopReason: claudeFinishReason(message.StopReason), UsagePartial: parent != ""}
 		message.Usage.apply(&call)
+		if parent == "" {
+			captureRootUsage(&call)
+		}
 		// A main-thread stream cut off without an end is retried without streaming.
 		if parent == "" && p.openCall != nil {
 			p.retry()

@@ -62,10 +62,13 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			}
 			var calls []runtime.ModelCall
 			var tools, toolParents []string
+			var window int64
 			var unreported [2]int64
 			open := map[string]string{}
 			err = parseJSONL(t.Context(), bytes.NewReader(raw), 1<<20, map[string]modelUsage{}, nil, func(event Event) error {
 				switch {
+				case event.Kind == EventCompleted:
+					window = event.ContextWindowTokens
 				case event.Kind == EventModelCall && event.ModelCall.UsageOnly:
 					unreported[0] += event.ModelCall.InputTokens
 					unreported[1] += event.ModelCall.OutputTokens
@@ -94,6 +97,9 @@ func TestModelCallsFromCaptures(t *testing.T) {
 			}
 			if len(calls) != tc.wantCalls {
 				t.Fatalf("calls = %d, want %d: %+v", len(calls), tc.wantCalls, calls)
+			}
+			if tc.file == "claude-normal.jsonl" && (calls[0].RootUsage.GetTotalTokenCount() != 15363 || window != 1000000) {
+				t.Fatalf("final call = %v, window = %d", calls[0].RootUsage, window)
 			}
 			var partial int
 			var main, all [2]int64
@@ -337,6 +343,9 @@ func TestRetriedModelCalls(t *testing.T) {
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("calls = %+v, want %+v", got, tc.want)
+			}
+			if got := calls[len(calls)-1].RootUsage.GetTotalTokenCount(); got != 1003 {
+				t.Fatalf("final attempt used %d tokens, want 1003", got)
 			}
 			if !calls[0].Start.Equal(wantStart) {
 				t.Errorf("first call starts at %v, want %v", calls[0].Start, wantStart)

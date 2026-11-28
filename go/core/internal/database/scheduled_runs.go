@@ -132,6 +132,11 @@ func (c *Client) UpdateScheduledRun(ctx context.Context, id uuid.UUID, creator, 
 			return fmt.Errorf("ScheduledRun %s changed; reload before updating: %w", id, ErrConflict)
 		}
 		previous := schedule.Config
+		if config.GetContinueConversation() && !previous.GetContinueConversation() {
+			if err := execSQL(ctx, tx, `UPDATE scheduled_run SET conversation_generation = conversation_generation + 1 WHERE id = $1`, id); err != nil {
+				return err
+			}
+		}
 		schedule.Config, schedule.Etag = proto.CloneOf(config), uuid.NewString()
 		data, err := proto.Marshal(schedule)
 		if err != nil {
@@ -316,8 +321,9 @@ func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, schedule *
 	}
 	execution := &apiv1.ScheduledRunExecution{
 		Id: id.String(), ScheduledRunId: schedule.Id, Creator: schedule.Creator,
-		Prompt: schedule.Config.Prompt,
-		State:  apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING,
+		Prompt:               schedule.Config.Prompt,
+		ContinueConversation: schedule.Config.GetContinueConversation(),
+		State:                apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_PENDING,
 	}
 	if due != nil {
 		execution.Trigger = &apiv1.ScheduledRunExecution_ScheduledTime{ScheduledTime: timestamppb.New(*due)}
@@ -331,12 +337,12 @@ func reserveScheduledRunExecution(ctx context.Context, db dbExecutor, schedule *
 	// PostgreSQL timestamps have microsecond precision; don't shorten a timeout.
 	timeout := (schedule.Config.ExecutionTimeout.AsDuration() + time.Microsecond - 1) / time.Microsecond
 	return queryOne(ctx, db, `
-		INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline)
+		INSERT INTO scheduled_run_execution (id, scheduled_run_id, scheduled_time, manual_request_id, data, deadline, conversation_generation)
 		VALUES ($1, $2, $3, $4, $5,
-		    statement_timestamp() + $6::interval) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id, task_id, completed_at, state
+		    statement_timestamp() + $6::interval, (SELECT conversation_generation FROM scheduled_run WHERE id = $2 AND $7::boolean)) RETURNING id, scheduled_run_id, scheduled_time, manual_request_id, data, created_at, deadline, session_id, task_id, completed_at, state
 	`,
 		pgx.RowToStructByName[scheduledRunExecutionRow], id, schedule.Id, due, manualRequestID, data,
-		pgtype.Interval{Microseconds: int64(timeout), Valid: true},
+		pgtype.Interval{Microseconds: int64(timeout), Valid: true}, execution.ContinueConversation,
 	)
 }
 
@@ -434,30 +440,69 @@ func (c *Client) ReserveScheduledRunExecutionSession(ctx context.Context, id uui
 		if err != nil {
 			return err
 		}
-		sessionID, err := uuid.NewV7()
-		if err != nil {
-			return err
+		var sessionID *uuid.UUID
+		if execution.ContinueConversation {
+			// Reservations are serialized at schedule creation/trigger time. Only
+			// the oldest unfinished execution in this generation may bind or send.
+			type conversationPredecessor struct {
+				SessionID   *uuid.UUID
+				Unavailable bool
+				Blocked     bool
+			}
+			prior, err := queryOne(ctx, tx, `
+				SELECT live.id AS session_id, (prev.session_id IS NOT NULL AND live.id IS NULL) AS unavailable,
+				    EXISTS (SELECT 1 FROM scheduled_run_execution older
+				        WHERE older.scheduled_run_id = e.scheduled_run_id AND older.conversation_generation = e.conversation_generation
+				          AND older.reservation_order < e.reservation_order AND older.completed_at IS NULL) AS blocked
+				FROM scheduled_run_execution e
+				LEFT JOIN LATERAL (SELECT p.session_id FROM scheduled_run_execution p
+				    WHERE p.scheduled_run_id = e.scheduled_run_id AND p.conversation_generation = e.conversation_generation
+				      AND p.reservation_order < e.reservation_order AND p.session_id IS NOT NULL
+				    ORDER BY p.reservation_order DESC LIMIT 1) prev ON true
+				LEFT JOIN session_record live ON live.id = prev.session_id AND live.user_id = $2 AND live.state <> 'RUNTIME_STATE_DELETED'
+				WHERE e.id = $1
+			`, pgx.RowToStructByName[conversationPredecessor], id, creator)
+			if err != nil {
+				return err
+			}
+			if prior.Blocked {
+				return ErrConflict
+			}
+			sessionID = prior.SessionID
+			execution.PreviousConversationUnavailable = prior.Unavailable
 		}
-		session, err := insertSession(ctx, tx, &apiv1.Session{
-			Id: sessionID.String(), Creator: creator,
-			Agent: &apiv1.AgentProvenance{Ref: proto.CloneOf(schedule.Agent)},
-		}, "scheduled-run/"+id.String())
-		if errors.Is(err, ErrNotFound) {
-			return fmt.Errorf("ScheduledRun %s target has no ready prepared revision: %w", result.ScheduledRunID, ErrFailedPrecondition)
+		if sessionID == nil {
+			newID, err := uuid.NewV7()
+			if err != nil {
+				return err
+			}
+			session, err := insertSession(ctx, tx, &apiv1.Session{
+				Id: newID.String(), Creator: creator,
+				Agent: &apiv1.AgentProvenance{Ref: proto.CloneOf(schedule.Agent)},
+			}, "scheduled-run/"+id.String())
+			if errors.Is(err, ErrNotFound) {
+				return fmt.Errorf("ScheduledRun %s target has no ready prepared revision: %w", result.ScheduledRunID, ErrFailedPrecondition)
+			}
+			if err != nil {
+				return err
+			}
+			sessionID = &session.ID
 		}
+		execution.FailureReason = ""
+		result.Data, err = proto.Marshal(execution)
 		if err != nil {
 			return err
 		}
 		rows, err := tx.Exec(ctx, `
-			UPDATE scheduled_run_execution SET session_id = $2 WHERE id = $1
-		`, id, session.ID)
+			UPDATE scheduled_run_execution SET session_id = $2, data = $3 WHERE id = $1
+		`, id, sessionID, result.Data)
 		if err != nil {
 			return err
 		}
 		if rows.RowsAffected() != 1 {
 			return pgx.ErrNoRows
 		}
-		result.SessionID = &session.ID
+		result.SessionID = sessionID
 		return nil
 	})
 	if err != nil {
@@ -510,10 +555,14 @@ func (c *Client) LeaseScheduledRunExecutions(ctx context.Context, limit int) ([]
 	token := uuid.New()
 	rows, err := queryMany(ctx, c.db, `
 		WITH candidates AS (
-		    SELECT id FROM scheduled_run_execution
+		    SELECT e.id FROM scheduled_run_execution e
 		    WHERE state IN ('SCHEDULED_RUN_EXECUTION_STATE_PENDING', 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING')
 		      AND next_attempt_at <= statement_timestamp()
-		    ORDER BY next_attempt_at, id LIMIT $1 FOR UPDATE SKIP LOCKED
+		    AND (e.conversation_generation IS NULL OR e.deadline <= statement_timestamp() OR NOT EXISTS (
+		          SELECT 1 FROM scheduled_run_execution older WHERE older.scheduled_run_id = e.scheduled_run_id
+		            AND older.conversation_generation = e.conversation_generation AND older.reservation_order < e.reservation_order
+		            AND older.completed_at IS NULL))
+		    ORDER BY next_attempt_at, id LIMIT $1 FOR UPDATE OF e SKIP LOCKED
 		)
 		UPDATE scheduled_run_execution e
 		SET lease_token = $2::uuid, next_attempt_at = clock_timestamp() + interval '30 seconds'
@@ -556,6 +605,34 @@ func (c *Client) ClaimScheduledRunDispatch(ctx context.Context, lease ScheduledR
 	return nil
 }
 
+// RetryUnacceptedScheduledRun releases the fenced dispatch claim after the gateway
+// positively refused its message. A stale worker cannot reopen a different claim.
+func (c *Client) RetryUnacceptedScheduledRun(ctx context.Context, lease ScheduledRunExecutionLease) error {
+	tag, err := c.db.Exec(ctx, `
+		UPDATE scheduled_run_execution SET state = 'SCHEDULED_RUN_EXECUTION_STATE_PENDING'
+		WHERE id = $1 AND lease_token = $2 AND next_attempt_at > clock_timestamp()
+		  AND state = 'SCHEDULED_RUN_EXECUTION_STATE_RUNNING' AND task_id IS NULL
+	`, lease.ExecutionID, lease.Token)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// ScheduledMessageMayRun checks the same durable admission fence and accepted
+// message ledger as the gateway. Call after the send deadline and before releasing
+// an uncertain execution's place in a shared conversation.
+func (c *Client) ScheduledMessageMayRun(ctx context.Context, sessionID, messageID string) (bool, error) {
+	return queryOne(ctx, c.db, `
+		SELECT COALESCE(dispatch_expires_at > clock_timestamp(), false) OR EXISTS (
+		    SELECT 1 FROM session_task_event WHERE history_id = s.history_id AND message_id = $2)
+		FROM session s WHERE id = $1
+	`, pgx.RowTo[bool], sessionID, messageID)
+}
+
 // UpdateScheduledRunExecution records progress only under a matching, unexpired lease on a
 // pending or running execution. It preserves an existing task ID, records terminal
 // completion time, and releases the lease with a one-second retry delay. A lost lease or
@@ -579,6 +656,9 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 			return err
 		}
 		execution.FailureReason = progress.FailureReason
+		if progress.LastModelCall != nil {
+			execution.LastModelCall = progress.LastModelCall
+		}
 		data, err := proto.Marshal(execution)
 		if err != nil {
 			return err

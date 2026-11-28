@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 
 	a2atype "github.com/a2aproject/a2a-go/v2/a2a"
+	"google.golang.org/protobuf/encoding/protojson"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // UsageExtensionURI identifies the versioned kagent token usage A2A extension.
@@ -92,4 +95,37 @@ func UsageFromMetadata(metadata map[string]any) (Usage, bool) {
 		return Usage{}, false
 	}
 	return usage, true
+}
+
+// SetModelCallUsage publishes the main agent's final call context on the closing status.
+func SetModelCallUsage(event *a2atype.TaskStatusUpdateEvent, usage *apiv1.ModelCallUsage) {
+	if usage.GetTotalTokenCount() <= 0 {
+		return
+	}
+	raw := map[string]any{"totalTokenCount": usage.TotalTokenCount}
+	if usage.ContextWindowTokens > 0 {
+		raw["contextWindowTokens"] = usage.ContextWindowTokens
+	}
+	event.SetMeta(FinalCallContextMetadataKey, raw)
+}
+
+// ModelCallUsageFromTask reads the latest reported per-call usage after A2A persistence.
+func ModelCallUsageFromTask(task *a2atype.Task) *apiv1.ModelCallUsage {
+	if task == nil {
+		return nil
+	}
+	raw, ok := task.Metadata[FinalCallContextMetadataKey].(map[string]any)
+	if !ok {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var usage apiv1.ModelCallUsage
+	decoder := protojson.UnmarshalOptions{DiscardUnknown: true}
+	if decoder.Unmarshal(data, &usage) != nil || usage.TotalTokenCount <= 0 || usage.ContextWindowTokens < 0 {
+		return nil
+	}
+	return &usage
 }

@@ -1679,6 +1679,7 @@ on(ScheduledRunService.method.triggerScheduledRun, (input, call) => {
   const execution = create(ScheduledRunExecutionSchema, {
     id: randomId(), scheduledRunId: schedule.id, creator: MOCK_INSTANCE_CREATOR,
     trigger: { case: "manualRequestId", value: input.requestId }, prompt: schedule.config?.prompt,
+    continueConversation: schedule.config?.continueConversation,
     state: ScheduledRunExecutionState.PENDING, createdAt: timestampFromDate(new Date()),
   });
   scheduleExecutions.unshift(execution);

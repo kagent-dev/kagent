@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +33,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
+	"github.com/kagent-dev/kagent/go/core/internal/substrate"
 )
 
 func TestScheduledRunCronAndManualExecution(t *testing.T) {
@@ -62,6 +64,14 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		require.Nil(t, updated.GetScheduledRun().GetNextExecutionTime())
 		first = f.waitExecution(t, first.GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
 		f.assertCompletedTask(t, first)
+		switch harness.name {
+		case codexE2EHarness, claudeE2EHarness:
+			require.Positive(t, first.GetLastModelCall().GetTotalTokenCount())
+			require.Positive(t, first.GetLastModelCall().GetContextWindowTokens())
+		default:
+			// The mock Chat Completions stream omits its usage chunk.
+			require.Nil(t, first.GetLastModelCall())
+		}
 
 		// A manual trigger works while paused; retrying its request ID is one firing.
 		request := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()}
@@ -89,7 +99,150 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, first.GetSessionId(), retained.GetExecution().GetSessionId())
 		require.Equal(t, first.GetState(), retained.GetExecution().GetState())
+		require.True(t, proto.Equal(first.LastModelCall, retained.GetExecution().LastModelCall))
 	})
+}
+
+func TestScheduledRunContinuesAfterSuspension(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		recorder := startModelRecorder(t, mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json")), nil)
+		f := newScheduledFixture(t, harness, target, reachableModelURL(t, recorder.URL), true, 2*time.Minute)
+		first := f.runInConversation(t, "What is 2+2?", 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		f.assertCompletedTask(t, first)
+		const followup = "What is 3+3?"
+		second := f.runInConversation(t, followup, 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		require.Equal(t, first.SessionId, second.SessionId)
+		require.NotEqual(t, first.TaskId, second.TaskId)
+		require.Equal(t, a2atype.TaskStateCompleted, f.task(t, second).Status.State)
+		recorder.mu.Lock()
+		defer recorder.mu.Unlock()
+		var sawPriorAnswer bool
+		for _, request := range recorder.requests {
+			if bytes.Contains(request.Body, []byte(followup)) && bytes.Contains(request.Body, []byte("The answer is 4.")) {
+				sawPriorAnswer = true
+			}
+		}
+		require.True(t, sawPriorAnswer, "the second model request should include the answer from the suspended conversation")
+	})
+}
+
+func TestSharedScheduleContinuesAfterApprovalExpires(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		mcpURL, _ := startMCPMock(t)
+		template, _ := createMCPInteractionTemplate(t, harness, mcpURL, true, nil)
+		const timeout = time.Minute
+		f := newScheduledFixtureForTemplate(t, target, template, true, timeout)
+		const prompt = "Add 3 and 5 using the configured MCP server."
+		first := f.runInConversation(t, prompt, timeout, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
+
+		first = f.waitForTaskState(t, first.Id, a2atype.TaskStateInputRequired)
+		expired := f.waitExecution(t, first.Id, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
+		require.Equal(t, a2atype.TaskStateCanceled, f.task(t, expired).Status.State)
+
+		next := f.waitForTaskState(t, f.trigger(t).Id, a2atype.TaskStateInputRequired, a2atype.TaskStateCompleted)
+		require.Equal(t, first.SessionId, next.SessionId)
+		require.NotEqual(t, first.TaskId, next.TaskId)
+	})
+}
+
+// Exercise a real timed-out model call, followed by a fresh firing in the
+// same conversation. The third prompt carries no copy of the first answer.
+func TestScheduledRunContinuesAfterTimeout(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		const block = "Wait for the next incident update"
+		const followup = "What is 3+3?"
+		url, entered, recalled := scheduledInterruptionModel(t, block, followup)
+		f := newScheduledFixture(t, harness, target, url, true, 2*time.Minute)
+
+		first := f.runInConversation(t, "What is 2+2?", 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		f.assertCompletedTask(t, first)
+		stopped := f.runInConversation(t, block, 20*time.Second, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_TIMED_OUT)
+		select {
+		case <-entered:
+		default:
+			t.Fatal("the timed-out task never reached the model")
+		}
+		require.Equal(t, first.SessionId, stopped.SessionId)
+		require.Equal(t, a2atype.TaskStateCanceled, f.task(t, stopped).Status.State)
+		last := f.runInConversation(t, "What is 3+3?", 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		require.Equal(t, first.SessionId, last.SessionId)
+		require.NotEqual(t, stopped.TaskId, last.TaskId)
+		require.True(t, recalled.Load(), "after cancellation the model should still see the earlier saved answer")
+	})
+}
+
+// Keep this sequential because the test deletes an exclusively assigned worker.
+func TestScheduledRunContinuesAfterWorkerLoss(t *testing.T) {
+	forEachHarness(t, func(t *testing.T, harness testHarness) {
+		target := interactionTarget(t)
+		const blockedPrompt = "Wait for the incident status"
+		const followup = "What is 3+3?"
+		url, entered, recalled := scheduledInterruptionModel(t, blockedPrompt, followup)
+		f := newScheduledFixture(t, harness, target, url, true, 2*time.Minute)
+		first := f.runInConversation(t, "What is 2+2?", 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		f.assertCompletedTask(t, first)
+		active := f.runInConversation(t, blockedPrompt, 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING)
+		select {
+		case <-entered:
+		case <-time.After(time.Minute):
+			t.Fatal("scheduled task never reached the blocking model")
+		}
+		namespace, name := f.schedule.Agent.Namespace, substrate.ActorName(first.SessionId)
+		actor, err := findSubstrateActor(f.ctx, f.system, namespace, name)
+		require.NoError(t, err)
+		require.NotNil(t, actor)
+		crashActorWorker(t, f.ctx, f.system, namespace, name, actor)
+		_, err = f.sessions.RevertSession(f.ctx, &apiv1.RevertSessionRequest{SessionId: first.SessionId})
+		require.NoError(t, err)
+		f.waitExecution(t, active.Id, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_FAILED)
+		last := f.runInConversation(t, followup, 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+		require.Equal(t, first.SessionId, last.SessionId)
+		require.True(t, recalled.Load(), "the resumed model must see the answer in the last durable snapshot")
+	})
+}
+
+// Hold the interrupted call open and inspect the next prompt as the model receives it.
+func scheduledInterruptionModel(t *testing.T, blockedPrompt, followup string) (string, <-chan struct{}, *atomic.Bool) {
+	t.Helper()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	var recalled atomic.Bool
+	upstream := mockLLMProxy(t, startMockLLMServer(t, interactionMocks, "mocks/invoke_agent.json"))
+	model := startModelRecorder(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		switch {
+		case bytes.Contains(body, []byte(followup)):
+			recalled.Store(bytes.Contains(body, []byte("The answer is 4.")))
+		case bytes.Contains(body, []byte(blockedPrompt)):
+			once.Do(func() { close(entered) })
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		upstream.ServeHTTP(w, r)
+	}), nil)
+	t.Cleanup(func() { close(release) })
+	return reachableModelURL(t, model.URL), entered, &recalled
+}
+
+func (f *scheduledFixture) runInConversation(t *testing.T, prompt string, timeout time.Duration, state apiv1.ScheduledRunExecutionState) *apiv1.ScheduledRunExecution {
+	t.Helper()
+	config := proto.CloneOf(f.schedule.Config)
+	config.ContinueConversation, config.Prompt, config.ExecutionTimeout = true, prompt, durationpb.New(timeout)
+	result, err := f.schedules.UpdateScheduledRun(f.ctx, &apiv1.UpdateScheduledRunRequest{ScheduledRunId: f.schedule.Id, Etag: f.schedule.Etag, Config: config})
+	require.NoError(t, err)
+	f.schedule = result.ScheduledRun
+	return f.waitExecution(t, f.trigger(t).Id, state)
 }
 
 func TestScheduledRunTimeout(t *testing.T) {
@@ -192,7 +345,11 @@ type scheduledFixture struct {
 
 func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL string, paused bool, timeout time.Duration) *scheduledFixture {
 	t.Helper()
-	template := createInteractionTemplate(t, harness, modelURL)
+	return newScheduledFixtureForTemplate(t, target, createInteractionTemplate(t, harness, modelURL), paused, timeout)
+}
+
+func newScheduledFixtureForTemplate(t *testing.T, target, template string, paused bool, timeout time.Duration) *scheduledFixture {
+	t.Helper()
 	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 5*time.Minute)
 	t.Cleanup(cancel)
@@ -217,10 +374,12 @@ func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL str
 			t.Errorf("list executions for cleanup: %v", err)
 			return
 		}
+		cleaned := map[string]bool{}
 		for _, execution := range executions.GetExecutions() {
-			if execution.GetSessionId() == "" {
+			if execution.GetSessionId() == "" || cleaned[execution.GetSessionId()] {
 				continue
 			}
+			cleaned[execution.GetSessionId()] = true
 			if err := deleteIdleSession(cleanupCtx, f.sessions, execution.GetSessionId()); err != nil {
 				t.Errorf("delete scheduled session: %v", err)
 			}
@@ -261,6 +420,26 @@ func (f *scheduledFixture) waitExecution(t *testing.T, id string, want apiv1.Sch
 	require.NoError(t, err, "last execution: %v", execution)
 	require.NotEmpty(t, execution.GetSessionId())
 	require.Equal(t, "e2e", execution.GetCreator())
+	return execution
+}
+
+func (f *scheduledFixture) waitForTaskState(t *testing.T, id string, states ...a2atype.TaskState) *apiv1.ScheduledRunExecution {
+	t.Helper()
+	var execution *apiv1.ScheduledRunExecution
+	require.NoError(t, wait.PollUntilContextTimeout(f.ctx, time.Second, time.Minute, true, func(ctx context.Context) (bool, error) {
+		result, err := f.schedules.GetScheduledRunExecution(ctx, &apiv1.GetScheduledRunExecutionRequest{ExecutionId: id})
+		if err != nil {
+			return false, err
+		}
+		execution = result.GetExecution()
+		if execution.GetTaskId() != "" && slices.Contains(states, f.task(t, execution).Status.State) {
+			return true, nil
+		}
+		if execution.GetCompletedAt() != nil {
+			return false, fmt.Errorf("execution ended in %s: %s", execution.State, execution.FailureReason)
+		}
+		return false, nil
+	}))
 	return execution
 }
 

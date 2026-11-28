@@ -257,6 +257,9 @@ func tracerOf(spanCtx context.Context) trace.Tracer {
 // ModelCall records a GenAI chat span under the invoke_agent span, or under the
 // execute_tool span of the tool call that started its subagent.
 func (s *executionSink) ModelCall(event runtime.ModelCall) {
+	if event.RootUsage != nil {
+		s.lastCall = event.RootUsage
+	}
 	event.Provider = cmp.Or(event.Provider, s.compiled.Provider)
 	event.RequestModel = cmp.Or(event.RequestModel, s.compiled.Model)
 	if event.UsageOnly {

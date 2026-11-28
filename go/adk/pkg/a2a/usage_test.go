@@ -345,6 +345,10 @@ func TestTurnUsageAcrossHITLCycle(t *testing.T) {
 
 	total := usageFrom(t, terminal)
 	assertTotals(t, total, 30, 12, 42)
+	last := apia2a.ModelCallUsageFromTask(&a2atype.Task{Metadata: terminal.Metadata})
+	if last.GetTotalTokenCount() != 27 || last.GetContextWindowTokens() != 0 {
+		t.Fatalf("final model call = %v", last)
+	}
 }
 
 // TestTurnUsageDerivesTotalPerCall covers a task mixing calls that report a
@@ -358,6 +362,10 @@ func TestTurnUsageDerivesTotalPerCall(t *testing.T) {
 
 	total := usageFrom(t, terminal)
 	assertTotals(t, total, 30, 12, 42)
+	last := apia2a.ModelCallUsageFromTask(&a2atype.Task{Metadata: terminal.Metadata})
+	if last.GetTotalTokenCount() != 27 || last.GetContextWindowTokens() != 0 {
+		t.Fatalf("final model call = %v", last)
+	}
 }
 
 // TestTurnUsageDerivedTotalGrowsAcrossExecutions covers a resumed task whose

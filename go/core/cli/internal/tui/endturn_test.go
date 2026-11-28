@@ -33,7 +33,9 @@ func TestTurnEndLines(t *testing.T) {
 		answer := a2atype.NewArtifactEvent(reqCtx(), a2atype.NewTextPart("All good."))
 		answer.Artifact.Metadata = map[string]any{kagenta2a.UsageMetadataKey: map[string]any{"promptTokenCount": float64(1100), "candidatesTokenCount": float64(300)}}
 		m.appendEvent(answer)
-		m.appendEvent(a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateCompleted, nil))
+		done := a2atype.NewStatusUpdateEvent(reqCtx(), a2atype.TaskStateCompleted, nil)
+		kagenta2a.SetModelCallUsage(done, &apiv1.ModelCallUsage{TotalTokenCount: 1400})
+		m.appendEvent(done)
 
 		assert.Equal(t, "✓ Done in 12s · 3 tools · 1.4k tokens", lastLine(m))
 		assert.Empty(t, m.inlineStatus(), "the closing line replaces the status line")

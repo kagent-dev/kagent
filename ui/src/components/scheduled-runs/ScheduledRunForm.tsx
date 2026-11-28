@@ -84,6 +84,7 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         timeZone: draft.timeZone.trim() || "UTC",
         prompt: draft.prompt,
         paused: !draft.enabled,
+        continueConversation: draft.continueConversation,
         executionTimeout: config?.executionTimeout && draft.timeoutSeconds === initial.timeoutSeconds
           ? config.executionTimeout : fromJson(DurationSchema, `${draft.timeoutSeconds}s`),
       };
@@ -212,6 +213,11 @@ export function ScheduledRunForm({ schedule, cancelTo, onSaved }: {
         help="The agent gets this message on each run.">
         <Input.TextArea id="schedule-prompt-input" data-testid="schedule-prompt" rows={5} placeholder="Tell the agent what to do on each run" status={status("prompt")}
           value={draft.prompt} onChange={(event) => update({ prompt: event.target.value })} />
+      </FormField>
+      <FormField htmlFor="schedule-continue-conversation" label="Continue the previous conversation" required={false}
+        help="Successive runs share a conversation until it expires or is deleted. Turning this off and on starts a fresh conversation.">
+        <Switch id="schedule-continue-conversation" checked={draft.continueConversation}
+          onChange={(continueConversation) => update({ continueConversation })} />
       </FormField>
       <FieldRow>
         <FormField htmlFor="schedule-timeout-input" label="Execution timeout" required {...validation.field("timeoutSeconds")}

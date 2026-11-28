@@ -37,6 +37,7 @@ They should not interpret runtime-specific metadata.
 | `kagent.dev/a2a/task-created-at`      | task                | Durable task creation RFC 3339 timestamp used by task projections                                    |
 | `kagent.dev/a2a/part-type`            | data part           | Semantic data kind                                                                                   |
 | `kagent.dev/a2a/usage`                | task event          | Model usage reported by runtimes that support it                                                     |
+| `kagent.dev/a2a/final-call-context` | closing status update | Context used on the final main-agent call, with its window when available |
 | `kagent.dev/a2a/output-schema-sha256` | result part         | Binds a structured result to the compiled output schema                                              |
 | `kagent.dev/a2a/thought`              | text part           | Boolean that indicates model reasoning rather than its answer                                        |
 

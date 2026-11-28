@@ -9,8 +9,8 @@ import "kagent/api/v1/common.proto";
 
 option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1;apiv1";
 
-// Creator-owned automation stored in PostgreSQL. Each occurrence creates a fresh
-// Session; Task state and history belong to upstream A2A.
+// Creator-owned automation stored in PostgreSQL. Each occurrence has its own execution;
+// its schedule may share a Session across occurrences. Task state and history belong to upstream A2A.
 service ScheduledRunService {
   rpc CreateScheduledRun(CreateScheduledRunRequest) returns (CreateScheduledRunResponse);
   rpc GetScheduledRun(GetScheduledRunRequest) returns (GetScheduledRunResponse);
@@ -24,6 +24,8 @@ service ScheduledRunService {
 
 // Mutable configuration. Changes affect only subsequently reserved executions.
 message ScheduledRunConfig {
+  // Reuse one conversation across successive cron and manual firings.
+  bool continue_conversation = 7;
   string name = 1 [(buf.validate.field).string.max_len = 200];
   string schedule = 2 [(buf.validate.field).string = {
     min_len: 1
@@ -148,6 +150,19 @@ message ScheduledRunExecution {
   google.protobuf.Timestamp completed_at = 12;
   // Stable explanation of failure. Runtime diagnostics remain in A2A/telemetry.
   string failure_reason = 13;
+  // Conversation policy captured at reservation.
+  bool continue_conversation = 14;
+  // This execution started fresh because the previous session was deleted or expired.
+  bool previous_conversation_unavailable = 15;
+  // Latest reported model call on the main conversation during this firing.
+  ModelCallUsage last_model_call = 16;
+}
+
+// Reported context usage on the main agent's final model call.
+message ModelCallUsage {
+  int64 total_token_count = 1;
+  // Zero when the harness did not report a matching full context window.
+  int64 context_window_tokens = 2;
 }
 
 message GetScheduledRunExecutionRequest {

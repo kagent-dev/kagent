@@ -21,6 +21,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/api/v1alpha3"
 )
 
@@ -71,6 +72,14 @@ func TestSessionModelStreamingDisabled(t *testing.T) {
 			require.Contains(t, streamed.text, "The answer is 6.")
 			require.Contains(t, taskText(getTask(t, fixture, streamed.taskID)), "The answer is 6.")
 			require.Len(t, recorder.Requests("X-Kagent-E2E-Model", "non-streaming"), 2)
+
+			// This model returns usage in the non-streaming response. Scheduled history
+			// retains the same call total when the Go adapter has no model window.
+			schedule := newScheduledFixtureForTemplate(t, target, template.Name, true, 2*time.Minute)
+			execution := schedule.runInConversation(t, "What is 2+2?", 2*time.Minute, apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
+			require.Equal(t, apia2a.ModelCallUsageFromTask(task).GetTotalTokenCount(), execution.GetLastModelCall().GetTotalTokenCount())
+			require.Positive(t, execution.GetLastModelCall().GetTotalTokenCount())
+			require.Zero(t, execution.GetLastModelCall().GetContextWindowTokens())
 		})
 	}
 }

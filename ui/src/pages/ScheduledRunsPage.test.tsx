@@ -127,3 +127,19 @@ it("serializes a fractional timeout without floating-point nanoseconds", async (
   await screen.findByText("Execution history");
   expect(screen.queryByTestId("schedule-submit")).not.toBeInTheDocument();
 });
+
+it("shows the final call estimate and falls back to its token count without a window", async () => {
+  setApiTransport(createRouterTransport(({ service }) => service(ScheduledRunService, {
+    getScheduledRun: () => ({ scheduledRun: schedule }),
+    listScheduledRunExecutions: () => ({ executions: [
+      { id: "native", lastModelCall: { totalTokenCount: 35000n, contextWindowTokens: 100000n } },
+      { id: "adk", lastModelCall: { totalTokenCount: 15000n } },
+      { id: "old" },
+    ] }),
+  })));
+  renderSchedule();
+  expect(await screen.findAllByText("35% (35,000 of 100,000 tokens)")).toHaveLength(2);
+  expect(screen.getByRole("columnheader", { name: "Context used on final call" })).toBeVisible();
+  expect(screen.getByText("15,000 tokens")).toBeVisible();
+  expect(screen.getByText("Unavailable")).toBeVisible();
+});

@@ -38,7 +38,7 @@ func TestScheduledRunWorkersRejectInvalidIntervals(t *testing.T) {
 	for _, interval := range []time.Duration{0, -time.Second} {
 		t.Run(interval.String(), func(t *testing.T) {
 			require.ErrorContains(t, NewScheduler(nil, interval).Start(t.Context()), "interval must be positive")
-			require.ErrorContains(t, NewController(nil, nil, nil, interval).Start(t.Context()), "interval must be positive")
+			require.ErrorContains(t, NewController(nil, nil, nil, nil, interval).Start(t.Context()), "interval must be positive")
 		})
 	}
 }
@@ -58,7 +58,7 @@ func TestConfiguredScheduledRunIntervals(t *testing.T) {
 				store := &pollingStore{err: test.err}
 				done := make(chan error, 2)
 				go func() { done <- NewScheduler(store, 20*time.Minute).Start(ctx) }()
-				go func() { done <- NewController(store, nil, nil, 30*time.Minute).Start(ctx) }()
+				go func() { done <- NewController(store, nil, nil, nil, 30*time.Minute).Start(ctx) }()
 				synctest.Wait()
 				require.EqualValues(t, 1, store.reservations.Load())
 				require.EqualValues(t, 1, store.leases.Load())
@@ -116,7 +116,7 @@ func TestSchedulerTicksWhileExecutionIsBlocked(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	store := &blockedExecutionStore{started: make(chan struct{}), reservations: make(chan struct{})}
-	controller := NewController(store, nil, nil, time.Second)
+	controller := NewController(store, nil, nil, nil, time.Second)
 	scheduler := NewScheduler(store, time.Second)
 	require.False(t, controller.NeedLeaderElection())
 	require.True(t, scheduler.NeedLeaderElection())
