@@ -13,6 +13,7 @@ import (
 	adksession "google.golang.org/adk/v2/session"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // UsageExtensionURI is the versioned A2A extension carrying task token usage.
@@ -45,9 +46,11 @@ func (*usageActivationInterceptor) Before(ctx context.Context, callCtx *a2asrv.C
 // event, so summing partials would double-count. A cancel request reads it
 // while the execution is still adding to it.
 type turnUsage struct {
-	mu     sync.Mutex
-	total  apia2a.TokenCounts
-	models map[string]apia2a.TokenCounts
+	rootName string
+	lastCall *apiv1.ModelCallUsage
+	mu       sync.Mutex
+	total    apia2a.TokenCounts
+	models   map[string]apia2a.TokenCounts
 }
 
 // runningUsage indexes the accumulators of in-flight executions by task, so a
@@ -137,6 +140,15 @@ func (u *turnUsage) add(event *adksession.Event) {
 	counts := callTokenCounts(event)
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if event.Author == u.rootName && counts.TotalTokens > 0 {
+		u.lastCall = &apiv1.ModelCallUsage{
+			TotalTokenCount:         counts.TotalTokens,
+			PromptTokenCount:        counts.InputTokens,
+			CandidatesTokenCount:    counts.OutputTokens,
+			ThoughtsTokenCount:      counts.ReasoningTokens,
+			CachedContentTokenCount: counts.CachedInputTokens,
+		}
+	}
 	u.total = u.total.Add(counts)
 	if event.ModelVersion != "" {
 		u.addModel(event.ModelVersion, counts)
@@ -158,6 +170,7 @@ func (u *turnUsage) seedFromTask(task *a2atype.Task) {
 	if u == nil || task == nil {
 		return
 	}
+	u.lastCall = apia2a.ModelCallUsageFromTask(task)
 	prior, ok := apia2a.UsageFromMetadata(task.Metadata)
 	if !ok {
 		return
@@ -179,7 +192,7 @@ func (u *turnUsage) empty() bool {
 }
 
 // snapshot returns the accumulated usage with models in a stable order.
-func (u *turnUsage) snapshot() apia2a.Usage {
+func (u *turnUsage) snapshot() (apia2a.Usage, *apiv1.ModelCallUsage) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	usage := apia2a.Usage{TokenCounts: u.total}
@@ -189,7 +202,7 @@ func (u *turnUsage) snapshot() apia2a.Usage {
 	slices.SortFunc(usage.Models, func(a, b apia2a.ModelUsage) int {
 		return strings.Compare(a.Model, b.Model)
 	})
-	return usage
+	return usage, u.lastCall
 }
 
 // stampEvent attaches the task usage to a terminal status update.
@@ -197,7 +210,8 @@ func (u *turnUsage) stampEvent(event *a2atype.TaskStatusUpdateEvent) {
 	if u == nil || event == nil {
 		return
 	}
-	usage := u.snapshot()
+	usage, lastCall := u.snapshot()
+	apia2a.SetModelCallUsage(event, lastCall)
 	if usage.IsZero() {
 		return
 	}

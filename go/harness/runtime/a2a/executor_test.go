@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -305,7 +306,8 @@ func TestExecuteReleasesActiveTaskBeforeTerminalEvent(t *testing.T) {
 
 func TestBusyAndCancellation(t *testing.T) {
 	started := make(chan struct{})
-	executor, err := New(fakeRunner{run: func(ctx context.Context, _ runtime.Turn, _ runtime.EventSink) (runtime.Outcome, error) {
+	executor, err := New(fakeRunner{run: func(ctx context.Context, _ runtime.Turn, sink runtime.EventSink) (runtime.Outcome, error) {
+		sink.ModelCall(runtime.ModelCall{RootUsage: &apiv1.ModelCallUsage{TotalTokenCount: 35000}})
 		close(started)
 		<-ctx.Done()
 		return runtime.Outcome{}, ctx.Err()
@@ -326,6 +328,10 @@ func TestBusyAndCancellation(t *testing.T) {
 	cancelEvents, cancelErrs := collect(executor.Cancel(t.Context(), requestContext("task-1", "ignored")))
 	if len(cancelErrs) != 0 || len(cancelEvents) != 1 {
 		t.Fatalf("Cancel() events/errors = %v/%v", cancelEvents, cancelErrs)
+	}
+	last := apia2a.ModelCallUsageFromTask(&a2atype.Task{Metadata: cancelEvents[0].Meta()})
+	if last.GetTotalTokenCount() != 35000 {
+		t.Fatalf("canceled task missing last model call: %v", last)
 	}
 	<-firstDone
 }

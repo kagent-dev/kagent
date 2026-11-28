@@ -100,9 +100,16 @@ func TestModelCallsFromCaptures(t *testing.T) {
 				if call.ResponseModel != "" || call.UsagePartial != (call.StopReason == "error") || call.End.Before(call.Start) {
 					t.Errorf("unexpected call %+v", call)
 				}
+				sum.TotalTokens += call.RootUsage.GetTotalTokenCount()
 				sum.InputTokens += call.InputTokens
 				sum.CachedInputTokens += call.CacheReadTokens
 				sum.OutputTokens += call.OutputTokens
+			}
+			if tc.file == "codex-tools.jsonl" {
+				usage := sink.models[len(sink.models)-1].RootUsage
+				if usage.GetTotalTokenCount() != 23450 || usage.GetContextWindowTokens() != 258400 {
+					t.Fatalf("final model call = %v", usage)
+				}
 			}
 			if sum != total {
 				t.Errorf("sum of last = %+v, want total %+v", sum, total)
@@ -114,7 +121,7 @@ func TestModelCallsFromCaptures(t *testing.T) {
 func usageMessage(t *testing.T, thread, turn string, total, last int64) rpcMessage {
 	t.Helper()
 	raw := fmt.Sprintf(`{"method":"thread/tokenUsage/updated","params":{"threadId":%q,"turnId":%q,"tokenUsage":{`+
-		`"total":{"inputTokens":%d,"outputTokens":1},"last":{"inputTokens":%d,"outputTokens":1}}}}`, thread, turn, total, last)
+		`"total":{"inputTokens":%d,"outputTokens":1},"last":{"inputTokens":%d,"outputTokens":1,"totalTokens":%d}}}}`, thread, turn, total, last, last+1)
 	var message rpcMessage
 	if err := json.Unmarshal([]byte(raw), &message); err != nil {
 		t.Fatal(err)
@@ -160,8 +167,15 @@ func TestModelCallsFromUsage(t *testing.T) {
 				}
 			}
 			var got []int64
+			var lastRootTotal int64
 			for _, call := range sink.models {
+				if call.RootUsage != nil {
+					lastRootTotal = call.RootUsage.TotalTokenCount
+				}
 				got = append(got, call.InputTokens)
+			}
+			if lastRootTotal != 11 {
+				t.Fatalf("last root call total = %d, want 11", lastRootTotal)
 			}
 			if !slices.Equal(got, tc.wantInputs) {
 				t.Fatalf("input tokens = %v, want %v", got, tc.wantInputs)

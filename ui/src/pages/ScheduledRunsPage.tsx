@@ -108,8 +108,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
   const query = searchParams.get("q") ?? "";
   const setQuery = (next: string) => write({ q: next || null, pages: null });
   const run = useApiResource(["scheduledRuns.get", id], () => invoke("scheduledRuns.get", { scheduledRunId: id }), { refreshInterval: 10000 });
-  const history = useApiResource(["scheduledRuns.executions", id, page.current],
+  const latestHistory = useApiResource(["scheduledRuns.executions", id, ""],
+    () => invoke("scheduledRuns.executions", { scheduledRunId: id, page: { limit: 25, pageToken: "" } }), { refreshInterval: 5000 });
+  const olderHistory = useApiResource(page.current ? ["scheduledRuns.executions", id, page.current] : null,
     () => invoke("scheduledRuns.executions", { scheduledRunId: id, page: { limit: 25, pageToken: page.current } }), { refreshInterval: 5000 });
+  const history = page.current ? olderHistory : latestHistory;
+  const lastRun = latestHistory.data?.executions[0];
   const schedule = run.data?.scheduledRun;
   const config = schedule?.config;
   const disabled = !!busy || !!run.error || !!schedule?.deletedAt;
@@ -123,7 +127,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
   const visibleKeys = rows.map((row) => row.id);
 
   async function refresh() {
-    await Promise.all([run.refresh(), history.refresh()]);
+    await Promise.all([run.refresh(), latestHistory.refresh(), olderHistory.refresh()]);
   }
 
   async function act(operation: "pause" | "trigger") {
@@ -203,6 +207,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
             {schedule.agent.namespace}/{schedule.agent.name}</Link> : "—" },
         { key: "next", label: "Next execution (local)", children: time(schedule.nextExecutionTime) },
         { key: "created", label: "Created", children: time(schedule.createdAt) },
+        ...(lastRun ? [{ key: "lastContext", label: "Estimated context used for last run", children: contextEstimate(lastRun) }] : []),
         { key: "timeout", label: "Execution timeout", children: config.executionTimeout ? `${Number(config.executionTimeout.seconds) + config.executionTimeout.nanos / 1e9} seconds` : "15 minutes" },
         { key: "prompt", label: "Prompt", span: 2, children: <Typography.Paragraph css={{ whiteSpace: "pre-wrap", margin: 0 }}>{config.prompt}</Typography.Paragraph> },
       ]} />}
@@ -231,6 +236,7 @@ function ScheduledRunDetails({ id }: { id: string }) {
           { title: "Created", key: "created", render: (_, row) => time(row.createdAt) },
           { title: "Trigger", key: "trigger", render: (_, row) => triggerLabel(row) },
           { title: "State", key: "state", render: (_, row) => executionStateTag(row.state) },
+          { title: "Estimated context used", key: "context", render: (_, row) => contextEstimate(row) },
           { title: "Completed", key: "completed", render: (_, row) => time(row.completedAt) },
           { title: "Failure reason", key: "failureReason", render: (_, row) => row.failureReason || "—" },
           { title: "Conversation", key: "conversation", render: (_, row) => row.sessionId
@@ -243,6 +249,12 @@ function ScheduledRunDetails({ id }: { id: string }) {
         ]} expandable={{ expandedRowRender: (row) => <Descriptions data-testid="execution-detail" column={1} items={[
           { key: "prompt", label: "Prompt", children: <span css={{ whiteSpace: "pre-wrap" }}>{row.prompt}</span> },
           { key: "deadline", label: "Deadline", children: time(row.deadline) },
+          ...(row.lastModelCall ? [{ key: "usage", label: "Final model call", children: [
+            `${row.lastModelCall.promptTokenCount.toLocaleString()} input`,
+            `${row.lastModelCall.cachedContentTokenCount.toLocaleString()} cached input`,
+            `${row.lastModelCall.candidatesTokenCount.toLocaleString()} output`,
+            `${row.lastModelCall.thoughtsTokenCount.toLocaleString()} reasoning`,
+          ].join(" · ") }] : []),
           { key: "task", label: "Original task", children: row.taskId || "Not assigned" },
         ]} />,
           // Controlled rather than `expandRowByClick`, so `clickableRow` can let the
@@ -274,6 +286,16 @@ function ScheduledRunDetails({ id }: { id: string }) {
 function scheduleStatusTag(schedule: ScheduledRun) {
   if (schedule.deletedAt) return <Tag>Deleted</Tag>;
   return schedule.config?.paused ? <Tag color="warning">Paused</Tag> : <Tag color="success">Active</Tag>;
+}
+
+function contextEstimate(execution: ScheduledRunExecution) {
+  const usage = execution.lastModelCall;
+  if (!usage) return "Unavailable";
+  const total = usage.totalTokenCount.toLocaleString();
+  if (usage.contextWindowTokens <= 0n) return `${total} tokens on final call`;
+  const fraction = Number(usage.totalTokenCount) / Number(usage.contextWindowTokens);
+  const percent = fraction.toLocaleString(undefined, { style: "percent", maximumFractionDigits: 1 });
+  return `${percent} (${total} of ${usage.contextWindowTokens.toLocaleString()} tokens)`;
 }
 
 function triggerLabel(execution: ScheduledRunExecution) {
@@ -316,7 +338,7 @@ function executionText(row: ScheduledRunExecution) {
        `toLocaleString` and a state through its label, so what is on screen is what
        matches. */
     columns: [time(row.createdAt), triggerLabel(row), executionStateLabel(row.state),
-      time(row.completedAt), row.failureReason || "—",
+      time(row.completedAt), contextEstimate(row), row.failureReason || "—",
       row.previousConversationUnavailable ? "Previous conversation unavailable" : "",
       row.sessionId ? "Open conversation" : "Not started"].join(" ").toLowerCase(),
     panel: [row.prompt, time(row.deadline), row.taskId || "Not assigned"].join(" ").toLowerCase(),

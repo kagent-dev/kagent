@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	"github.com/kagent-dev/kagent/go/core/internal/scheduling"
@@ -95,7 +96,11 @@ func (c *Controller) tick(ctx context.Context) error {
 			}
 			persistCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
-			if err := c.store.UpdateScheduledRunExecution(persistCtx, lease.Lease, database.ScheduledRunExecutionProgress{State: lease.Execution.GetState(), TaskID: lease.Execution.GetTaskId(), FailureReason: lease.Execution.GetFailureReason()}); err != nil {
+			progress := database.ScheduledRunExecutionProgress{
+				State: lease.Execution.GetState(), TaskID: lease.Execution.GetTaskId(),
+				FailureReason: lease.Execution.GetFailureReason(), LastModelCall: lease.Execution.LastModelCall,
+			}
+			if err := c.store.UpdateScheduledRunExecution(persistCtx, lease.Lease, progress); err != nil {
 				logging.FromContext(ctx).ErrorContext(ctx, "failed to persist scheduled execution", "execution_id", lease.Execution.GetId(), "error", err)
 			}
 		})
@@ -143,9 +148,8 @@ func (c *Controller) reconcile(ctx context.Context, leased database.LeasedSchedu
 		}
 	}
 	if task != nil {
-		execution.TaskId = string(task.ID)
+		observeTask(execution, task)
 		if task.Status.State.Terminal() {
-			observeTask(execution, task)
 			return nil
 		}
 	}
@@ -283,6 +287,7 @@ func (c *Controller) expire(ctx context.Context, execution *apiv1.ScheduledRunEx
 		}
 		return err
 	}
+	recordModelCall(execution, stopped)
 	if execution.ContinueConversation && execution.TaskId != "" && (stopped == nil ||
 		stopped.Status.State == a2atype.TaskStateWorking || stopped.Status.State == a2atype.TaskStateSubmitted) {
 		return nil
@@ -320,7 +325,14 @@ func (c *Controller) stop(ctx context.Context, execution *apiv1.ScheduledRunExec
 	return nil, err
 }
 
+func recordModelCall(execution *apiv1.ScheduledRunExecution, task *a2atype.Task) {
+	if usage := apia2a.ModelCallUsageFromTask(task); usage != nil {
+		execution.LastModelCall = usage
+	}
+}
+
 func observeTask(execution *apiv1.ScheduledRunExecution, task *a2atype.Task) {
+	recordModelCall(execution, task)
 	execution.TaskId = string(task.ID)
 	switch {
 	case task.Status.State.Terminal() && task.Status.Timestamp != nil && task.Status.Timestamp.After(execution.GetDeadline().AsTime()):

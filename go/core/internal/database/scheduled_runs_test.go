@@ -475,7 +475,7 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	leases, err := c.LeaseScheduledRunExecutions(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, leases, 1)
-	progress := ScheduledRunExecutionProgress{State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, TaskID: execution.Id}
+	progress := ScheduledRunExecutionProgress{State: apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_RUNNING, TaskID: execution.Id, LastModelCall: &apiv1.ModelCallUsage{TotalTokenCount: 35000, ContextWindowTokens: 100000}}
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress))
 	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrConflict)
 	_, err = db.Exec(t.Context(), "UPDATE scheduled_run_execution SET next_attempt_at = clock_timestamp() WHERE id = $1", execution.Id)
@@ -487,10 +487,12 @@ func TestScheduledExecutionTaskIdentityCannotChange(t *testing.T) {
 	require.ErrorIs(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress), ErrConflict)
 	// Omitting the already persisted task preserves its identity.
 	progress.TaskID = ""
+	progress.LastModelCall = nil
 	progress.State = apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED
 	require.NoError(t, c.UpdateScheduledRunExecution(t.Context(), leases[0].Lease, progress))
 	loaded, err := c.GetScheduledRunExecution(t.Context(), uuid.MustParse(execution.Id), "alice")
 	require.NoError(t, err)
+	require.EqualValues(t, 35000, loaded.LastModelCall.GetTotalTokenCount())
 	require.Equal(t, execution.Id, loaded.TaskId)
 	require.Equal(t, linked.SessionId, loaded.SessionId)
 	require.Equal(t, progress.State, loaded.State)

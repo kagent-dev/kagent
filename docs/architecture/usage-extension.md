@@ -11,8 +11,7 @@ https://kagent.dev/extensions/usage/v1
 ```
 
 The kagent ADK runtimes (Go and Python) advertise that URI on their Agent Card
-with `required: false`. Other harnesses do not emit usage and do not advertise
-it.
+with `required: false`. Codex and Claude publish per-response usage and omit this task-lifetime extension.
 
 ## Activation
 
@@ -97,13 +96,20 @@ the latest one; they never sum values across status updates.
   waiting for input, repeats its persisted total. A call cut off before its
   final response was never reported by the provider and is not counted.
 
-## Out of scope for v1
+## Per-response usage and scheduled runs
 
-The per-event `kagent.dev/a2a/usage` metadata key described in
-[A2A metadata](a2a-metadata.md) is unchanged and remains outside this extension.
-It reports the usage of a single model response and is emitted unconditionally.
-Moving it into the extension and gating emission on activation are candidates
-for a later version of the URI.
+The per-response `kagent.dev/a2a/usage` key also serves scheduled execution
+history. The Go ADK, Claude and Codex copy the latest reported main-agent
+call's usage onto the closing status update when available. That snapshot
+can repeat usage from an earlier event. Consumers summing per-call events
+should skip the closing snapshot. The task-lifetime extension remains the
+authoritative aggregate for runtimes that implement it.
+
+Schedule history estimates context used as the final call’s `totalTokenCount`
+divided by its positive `contextWindowTokens`. Codex supplies the window with
+its usage event. Claude reports the window per model in its final result.
+Without a matching window the execution displays the call's total tokens.
+A firing that never published usage has no reading. [A2A metadata](a2a-metadata.md)
 
 For the base extension mechanism, see the
 [A2A extension specification](https://a2a-protocol.org/latest/topics/extensions/).

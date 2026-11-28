@@ -32,6 +32,7 @@ type LeasedScheduledRunExecution struct {
 
 // ScheduledRunExecutionProgress contains only fields a worker may change.
 type ScheduledRunExecutionProgress struct {
+	LastModelCall *apiv1.ModelCallUsage
 	State         apiv1.ScheduledRunExecutionState
 	TaskID        string
 	FailureReason string

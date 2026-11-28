@@ -63,6 +63,14 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		require.Nil(t, updated.GetScheduledRun().GetNextExecutionTime())
 		first = f.waitExecution(t, first.GetId(), apiv1.ScheduledRunExecutionState_SCHEDULED_RUN_EXECUTION_STATE_SUCCEEDED)
 		f.assertCompletedTask(t, first)
+		switch harness.name {
+		case codexE2EHarness, claudeE2EHarness:
+			require.Positive(t, first.GetLastModelCall().GetTotalTokenCount())
+			require.Positive(t, first.GetLastModelCall().GetContextWindowTokens())
+		default:
+			// The mock Chat Completions stream omits its usage chunk.
+			require.Nil(t, first.GetLastModelCall())
+		}
 
 		// A manual trigger works while paused; retrying its request ID is one firing.
 		request := &apiv1.TriggerScheduledRunRequest{ScheduledRunId: f.schedule.GetId(), RequestId: uuid.NewString()}
@@ -90,6 +98,7 @@ func TestScheduledRunCronAndManualExecution(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, first.GetSessionId(), retained.GetExecution().GetSessionId())
 		require.Equal(t, first.GetState(), retained.GetExecution().GetState())
+		require.True(t, proto.Equal(first.LastModelCall, retained.GetExecution().LastModelCall))
 	})
 }
 
@@ -315,7 +324,11 @@ type scheduledFixture struct {
 
 func newScheduledFixture(t *testing.T, harness testHarness, target, modelURL string, paused bool, timeout time.Duration) *scheduledFixture {
 	t.Helper()
-	template := createInteractionTemplate(t, harness, modelURL)
+	return newScheduledFixtureForTemplate(t, target, createInteractionTemplate(t, harness, modelURL), paused, timeout)
+}
+
+func newScheduledFixtureForTemplate(t *testing.T, target, template string, paused bool, timeout time.Duration) *scheduledFixture {
+	t.Helper()
 	conn := newControllerConn(t, target)
 	ctx, cancel := context.WithTimeout(metadata.AppendToOutgoingContext(t.Context(), "x-user-id", "e2e", a2atype.SvcParamVersion, string(a2atype.Version)), 5*time.Minute)
 	t.Cleanup(cancel)

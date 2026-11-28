@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -48,6 +49,7 @@ func newEventTranslator(threadID, turnID string) *eventTranslator {
 }
 
 type codexUsage struct {
+	TotalTokens                                                                                int64
 	InputTokens, CachedInputTokens, CacheWriteInputTokens, OutputTokens, ReasoningOutputTokens int64
 }
 
@@ -152,7 +154,10 @@ func turnFailure(message string) *runtime.Failure {
 func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink) error {
 	var params struct {
 		ThreadID, TurnID string
-		TokenUsage       struct{ Total, Last codexUsage }
+		TokenUsage       struct {
+			Total, Last        codexUsage
+			ModelContextWindow int64
+		}
 	}
 	if err := json.Unmarshal(raw, &params); err != nil {
 		return fmt.Errorf("decode Codex token usage: %w", err)
@@ -175,6 +180,17 @@ func (t *eventTranslator) usage(raw json.RawMessage, sink runtime.ModelCallSink)
 		CacheWriteTokens:      last.CacheWriteInputTokens,
 		ReasoningOutputTokens: last.ReasoningOutputTokens,
 		OutputTokens:          last.OutputTokens,
+	}
+	if own && last.TotalTokens > 0 {
+		call.RootUsage = &apiv1.ModelCallUsage{
+			TotalTokenCount:  last.TotalTokens,
+			PromptTokenCount: last.InputTokens,
+			CandidatesTokenCount: max(0,
+				last.OutputTokens-last.ReasoningOutputTokens),
+			ThoughtsTokenCount:      last.ReasoningOutputTokens,
+			CachedContentTokenCount: last.CachedInputTokens,
+			ContextWindowTokens:     params.TokenUsage.ModelContextWindow,
+		}
 	}
 	t.closeCall(&call, params.ThreadID)
 	sink.ModelCall(call)

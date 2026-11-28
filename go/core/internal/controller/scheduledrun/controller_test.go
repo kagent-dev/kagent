@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"k8s.io/apimachinery/pkg/types"
 
+	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
 	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/core/internal/database"
 	sessionsvc "github.com/kagent-dev/kagent/go/core/internal/service/session"
@@ -135,9 +136,11 @@ func TestControllerDeadlineCancellationOutcome(t *testing.T) {
 			store := controllerTestStore{session: &apiv1.Session{Id: "original"}}
 			gateway := &controllerTestCleanup{
 				task:         &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: a2atype.TaskStateWorking}},
-				canceledTask: &a2atype.Task{ID: "original-task", Status: a2atype.TaskStatus{State: tc.state, Timestamp: tc.timestamp}},
+				canceledTask: &a2atype.Task{ID: "original-task", Metadata: map[string]any{apia2a.UsageMetadataKey: map[string]any{"totalTokenCount": 35000, "contextWindowTokens": 100000}, apia2a.UsageExtensionURI: map[string]any{"totalTokens": 46000}}, Status: a2atype.TaskStatus{State: tc.state, Timestamp: tc.timestamp}},
 			}
 			require.NoError(t, NewController(store, nil, gateway, nil, time.Second).reconcile(t.Context(), database.LeasedScheduledRunExecution{Execution: execution}))
+			require.EqualValues(t, 35000, execution.GetLastModelCall().GetTotalTokenCount())
+			require.EqualValues(t, 100000, execution.GetLastModelCall().GetContextWindowTokens())
 			require.Equal(t, 1, gateway.expires)
 			require.Equal(t, tc.want, execution.State)
 		})

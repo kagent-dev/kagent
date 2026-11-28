@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 )
 
 // ErrSessionAbandoned means a deferred continuation cannot safely be resumed.
@@ -120,6 +122,8 @@ type ToolExecutionSink interface {
 // ModelCall reports one model request. InputTokens includes cached tokens. UsagePartial
 // means the harness never reported final usage, so OutputTokens is a lower bound.
 type ModelCall struct {
+	// RootUsage describes this single completed root attempt, before retry accounting.
+	RootUsage             *apiv1.ModelCallUsage
 	Provider              string
 	RequestModel          string
 	ResponseModel         string
@@ -163,8 +167,10 @@ type PendingTurn interface {
 // ends the turn, Pending returns a durable continuation awaiting input, and an
 // empty Outcome is successful completion. Failure and Pending are exclusive.
 type Outcome struct {
-	Failure *Failure
-	Pending PendingTurn
+	// Some runtimes report the matching model window only in their terminal result.
+	ContextWindowTokens int64
+	Failure             *Failure
+	Pending             PendingTurn
 }
 
 // InputRequest is one structured request that parks a native turn.

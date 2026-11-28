@@ -240,7 +240,9 @@ func (d *ProcessDriver) run(ctx context.Context, turn runtime.Turn, sink runtime
 	defer d.stopSession(session, sink)
 	outcome, err = d.consume(ctx, session, sink)
 	if err == nil && session.deferred != nil {
-		return d.parkDeferred(turn, session.sessionID, session.deferred)
+		parked, err := d.parkDeferred(turn, session.sessionID, session.deferred)
+		parked.ContextWindowTokens = outcome.ContextWindowTokens
+		return parked, err
 	}
 	return outcome, err
 }
@@ -368,7 +370,7 @@ func (d *ProcessDriver) consume(ctx context.Context, session *processSession, si
 					}
 					session.sessionID = item.event.SessionID
 					session.deferred = item.event.Deferred
-					session.terminal = &runtime.Outcome{}
+					session.terminal = &runtime.Outcome{ContextWindowTokens: item.event.ContextWindowTokens}
 					continue
 				}
 				outcome, err := emitEvent(*item.event, sink, session.terminal != nil)
@@ -461,9 +463,9 @@ func emitEvent(event Event, sink runtime.EventSink, terminal bool) (*runtime.Out
 		sink.ModelCall(*event.ModelCall)
 		return nil, nil
 	case EventCompleted:
-		return &runtime.Outcome{}, nil
+		return &runtime.Outcome{ContextWindowTokens: event.ContextWindowTokens}, nil
 	case EventFailed:
-		return &runtime.Outcome{Failure: &runtime.Failure{Message: event.SafeMessage}}, nil
+		return &runtime.Outcome{ContextWindowTokens: event.ContextWindowTokens, Failure: &runtime.Failure{Message: event.SafeMessage}}, nil
 	default:
 		return nil, fmt.Errorf("unsupported Claude event kind %q", event.Kind)
 	}

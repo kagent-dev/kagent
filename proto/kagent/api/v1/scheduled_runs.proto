@@ -154,6 +154,19 @@ message ScheduledRunExecution {
   bool continue_conversation = 14;
   // This execution started fresh because the previous session was deleted or expired.
   bool previous_conversation_unavailable = 15;
+  // Latest reported model call on the main conversation during this firing.
+  ModelCallUsage last_model_call = 16;
+}
+
+// Per-response A2A usage. Cached tokens are already included in the prompt.
+message ModelCallUsage {
+  int64 total_token_count = 1;
+  int64 prompt_token_count = 2;
+  int64 candidates_token_count = 3;
+  int64 cached_content_token_count = 4;
+  int64 thoughts_token_count = 5;
+  // Zero when the harness did not report a matching full context window.
+  int64 context_window_tokens = 6;
 }
 
 message GetScheduledRunExecutionRequest {

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	apia2a "github.com/kagent-dev/kagent/go/api/a2a"
+	apiv1 "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1"
 	"github.com/kagent-dev/kagent/go/harness/runtime"
 	"github.com/kagent-dev/kagent/go/pkg/tracing"
 )
@@ -72,6 +73,7 @@ type taskRef struct {
 
 type activeTask struct {
 	taskRef
+	lastCall *apiv1.ModelCallUsage // published to Cancel by closing done
 	// Execute closes done after Run or Resume has relinquished the native turn.
 	// Cancel sets cancelRequested before interrupting the execution context.
 	cancel          context.CancelFunc
@@ -108,6 +110,7 @@ func (*parkedTask) isExecutorState()    {}
 func (*cancelingTask) isExecutorState() {}
 
 type executionSink struct {
+	lastCall       *apiv1.ModelCallUsage
 	reqCtx         *a2asrv.ExecutorContext
 	yield          func(a2atype.Event, error) bool
 	continuation   ContinuationStore
@@ -162,6 +165,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		}
 		// The native process reports producer=runtime either way, so its spans are written even untraced.
 		sink := &executionSink{reqCtx: reqCtx, yield: yield, continuation: e.continuation, owner: newSpanOwner(ctx, reqCtx, e.metrics), ended: newEndedTools(), compiled: e.telemetry}
+		sink.lastCall = apia2a.ModelCallUsageFromTask(reqCtx.StoredTask)
 		result := tracing.Result{}
 		flushed, counted, ran := false, false, false
 		endInvocation := func() {
@@ -286,6 +290,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 				if finishedCanceled {
 					releaseCanceled()
 				}
+				active.lastCall = sink.lastCall
 				close(active.done)
 			})
 			return finishedCanceled
@@ -301,6 +306,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 						releaseCanceled()
 					}
 				}
+				active.lastCall = sink.lastCall
 				close(active.done)
 			})
 			return parked
@@ -323,6 +329,9 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			outcome, runErr = e.runner.Run(runCtx, turn, sink)
 		} else {
 			outcome, runErr = continued.pending.Resume(runCtx, turn.InputResponse, sink)
+		}
+		if outcome.ContextWindowTokens > 0 && sink.lastCall != nil {
+			sink.lastCall.ContextWindowTokens = outcome.ContextWindowTokens
 		}
 		var cancellationErr *runtime.CancellationError
 		if errors.As(runErr, &cancellationErr) {
@@ -359,7 +368,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			}
 			message := taskMessage(reqCtx, failureMessage)
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+			yield(sink.status(reqCtx, a2atype.TaskStateFailed, message), nil)
 			return
 		}
 		if outcome.Failure != nil && outcome.Pending != nil {
@@ -394,7 +403,7 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 			result = tracing.Result{TaskState: string(a2atype.TaskStateInputRequired)}
 			endInvocation()
 			apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateInputRequired, message), nil)
+			yield(sink.status(reqCtx, a2atype.TaskStateInputRequired, message), nil)
 			return
 		}
 		if finish() {
@@ -406,14 +415,14 @@ func (e *Executor) Execute(ctx context.Context, reqCtx *a2asrv.ExecutorContext) 
 		if outcome.Failure == nil {
 			result = tracing.Result{TaskState: string(a2atype.TaskStateCompleted)}
 			endInvocation()
-			yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCompleted, nil), nil)
+			yield(sink.status(reqCtx, a2atype.TaskStateCompleted, nil), nil)
 			return
 		}
 		result = tracing.Result{TaskState: string(a2atype.TaskStateFailed), Error: "runtime_failure"}
 		endInvocation()
 		message := taskMessage(reqCtx, safeFailure(outcome.Failure.Message))
 		apia2a.SetTimelinePosition(message, sink.nextTimelinePosition())
-		yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateFailed, message), nil)
+		yield(sink.status(reqCtx, a2atype.TaskStateFailed, message), nil)
 	}
 }
 
@@ -639,7 +648,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, state.cancelErr, yield)
+				yieldCancellation(ctx, reqCtx, state.cancelErr, state.lastCall, yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -666,7 +675,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			}
 			close(canceling.done)
 			e.mu.Unlock()
-			yieldCancellation(ctx, reqCtx, err, yield)
+			yieldCancellation(ctx, reqCtx, err, apia2a.ModelCallUsageFromTask(reqCtx.StoredTask), yield)
 			return
 		case *cancelingTask:
 			if !state.matches(ref) {
@@ -678,7 +687,7 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 			e.mu.Unlock()
 			select {
 			case <-done:
-				yieldCancellation(ctx, reqCtx, state.err, yield)
+				yieldCancellation(ctx, reqCtx, state.err, apia2a.ModelCallUsageFromTask(reqCtx.StoredTask), yield)
 			case <-ctx.Done():
 				yield(nil, ctx.Err())
 			}
@@ -693,7 +702,13 @@ func (e *Executor) Cancel(ctx context.Context, reqCtx *a2asrv.ExecutorContext) i
 	}
 }
 
-func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, knownErr error, yield func(a2atype.Event, error) bool) {
+func (s *executionSink) status(reqCtx *a2asrv.ExecutorContext, state a2atype.TaskState, msg *a2atype.Message) *a2atype.TaskStatusUpdateEvent {
+	event := a2atype.NewStatusUpdateEvent(reqCtx, state, msg)
+	apia2a.SetModelCallUsage(event, s.lastCall)
+	return event
+}
+
+func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, knownErr error, usage *apiv1.ModelCallUsage, yield func(a2atype.Event, error) bool) {
 	if err := ctx.Err(); err != nil {
 		yield(nil, err)
 		return
@@ -702,7 +717,9 @@ func yieldCancellation(ctx context.Context, reqCtx *a2asrv.ExecutorContext, know
 		yield(nil, knownErr)
 		return
 	}
-	yield(a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil), nil)
+	event := a2atype.NewStatusUpdateEvent(reqCtx, a2atype.TaskStateCanceled, nil)
+	apia2a.SetModelCallUsage(event, usage)
+	yield(event, nil)
 }
 
 func (r taskRef) matches(other taskRef) bool {

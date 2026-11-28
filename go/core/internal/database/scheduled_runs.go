@@ -656,6 +656,9 @@ func (c *Client) UpdateScheduledRunExecution(ctx context.Context, lease Schedule
 			return err
 		}
 		execution.FailureReason = progress.FailureReason
+		if progress.LastModelCall != nil {
+			execution.LastModelCall = progress.LastModelCall
+		}
 		data, err := proto.Marshal(execution)
 		if err != nil {
 			return err
