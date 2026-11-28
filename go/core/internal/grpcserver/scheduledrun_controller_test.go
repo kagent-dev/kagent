@@ -140,7 +140,7 @@ func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessage
 	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
 	r.mu.Lock()
 	// Release the lock before waiting for the test to allow streaming.
-	task, err := r.acceptMessage(ctx, req)
+	task, err := r.acceptMessage(ctx, sessionID, req)
 	r.mu.Unlock()
 	if err != nil {
 		return err
@@ -191,18 +191,21 @@ func (r *scheduledControllerRuntime) SendStreamingMessage(req *a2apb.SendMessage
 	return nil
 }
 
-func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, req *a2apb.SendMessageRequest) (*a2apb.Task, error) {
+func (r *scheduledControllerRuntime) acceptMessage(ctx context.Context, sessionID string, req *a2apb.SendMessageRequest) (*a2apb.Task, error) {
 	if got := metadata.ValueFromIncomingContext(ctx, "authorization"); len(got) != 1 || got[0] != "Bearer controller-test-credential" {
 		return nil, status.Error(codes.Unauthenticated, "controller credential missing")
 	}
-	if len(metadata.ValueFromIncomingContext(ctx, "x-user-id")) != 0 {
-		return nil, status.Error(codes.Unauthenticated, "unexpected human credentials")
+	session, err := r.store.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if got := metadata.ValueFromIncomingContext(ctx, "x-user-id"); len(got) != 1 || got[0] != session.GetCreator() {
+		return nil, status.Error(codes.Unauthenticated, "scheduled user identity missing")
 	}
 	send, err := pbconv.FromProtoSendMessageRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	sessionID := strings.TrimPrefix(strings.Split(metadata.ValueFromIncomingContext(ctx, "ate-target-actor")[0], "/")[1], "session-")
 	current := a2atype.NewSubmittedTask(send.Message, send.Message)
 	initial, err := pbconv.ToProtoTask(current)
 	if err != nil {

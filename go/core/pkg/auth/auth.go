@@ -114,9 +114,7 @@ func (NoopAuthorizer) Scope(context.Context, Principal, Verb, string) (authoriza
 
 type sessionKeyType struct{}
 
-var (
-	sessionKey = sessionKeyType{}
-)
+var sessionKey = sessionKeyType{}
 
 func AuthSessionFrom(ctx context.Context) (Session, bool) {
 	v, ok := ctx.Value(sessionKey).(Session)
